@@ -13,9 +13,13 @@ test('bulk candidate UI is bounded, consented and never performs implicit patch 
  assert.match(handler,/checkUserscriptPageScope/);
  assert.match(handler,/await confirmPageIdentity\(selected\)/);
  assert.match(handler,/suggestMissingCandidatesBulk/);
+ assert.match(handler,/offset:q\.offset/);
+ assert.match(handler,/q\.offset%8/);
  assert.doesNotMatch(handler,/applyManagedPatch|repairs\.apply|writeFile\(/);
  assert.match(preload,/suggestRepairsBulk:/);
  assert.match(preload,/ipcRenderer\.invoke\('usshm:suggest-repairs-bulk'/);
  assert.match(ui,/批量生成修复候选（最多 8 处）/);
  assert.match(ui,/setRepairIndex\(row\.selectorIndex\)/);
+ assert.match(ui,/继续下一组修复候选/);
+ assert.match(ui,/suggestBulkRepairs\(bulkRepairResults\.checkedMissing\)/);
 });
