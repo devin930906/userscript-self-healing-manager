@@ -76,7 +76,8 @@ async function bootstrap():Promise<void>{
  if(!input||typeof input!=='object')throw new Error('Invalid scan request');const q=input as Record<string,unknown>;
  if(!Array.isArray(q.paths)||q.paths.length>1000||q.paths.some(x=>typeof x!=='string'||!withinAuthorized(x)))throw new Error('Paths not authorized by file picker');
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
- lastScan=await scanSessions.replace(()=>runStaticScan({paths:q.paths as string[],recursive:q.recursive,maxFiles:1000},{repository}));return lastScan;});
+ const scanPaths=q.paths as string[],recursive=q.recursive as boolean;
+ lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
