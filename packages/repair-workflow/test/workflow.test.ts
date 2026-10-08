@@ -150,3 +150,22 @@ test('stale proposal made before first activation cannot silently replace a newe
  assert.match(await readFile(secondApplied.managedPath,'utf8'),/#second-new/);
  assert.equal(firstApplied.hash!==secondApplied.hash,true);
 }));
+
+test('simultaneous approvals for the same script cannot both overwrite active managed work',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const first=await flow.propose({sourcePath,scriptId:'concurrent',oldSelector:'#old',newSelector:'#one'});
+ const second=await flow.propose({sourcePath,scriptId:'concurrent',oldSelector:'#old',newSelector:'#two'});
+ const outcomes=await Promise.allSettled([
+  flow.apply({proposalId:first.proposalId,approved:true}),
+  flow.apply({proposalId:second.proposalId,approved:true}),
+ ]);
+ const approved=outcomes.filter(x=>x.status==='fulfilled');
+ const refused=outcomes.filter(x=>x.status==='rejected');
+ assert.equal(approved.length,1,'exactly one approval may commit while another is in progress');
+ assert.equal(refused.length,1);
+ const current=await readFile(join(managedRoot,'managed','concurrent','current.user.js'),'utf8');
+ const winner=(approved[0] as PromiseFulfilledResult<{hash:string;managedPath:string}>).value;
+ assert.equal(current,await readFile(winner.managedPath,'utf8'));
+ assert.match(current,/#one|#two/);
+ assert.match(await readFile(sourcePath,'utf8'),/#old/);
+}));
