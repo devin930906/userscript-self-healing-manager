@@ -55,3 +55,16 @@ test('no-substitution template literal is precisely patchable without running sc
  const d=proposeLiteralPatch({sourceBytes:new TextEncoder().encode(source),oldSelector:'#old',newSelector:'#new'});
  assert.equal(d.proposedSource,'document.querySelector("#new");\nconst untouched=`keep`;\n');
 });
+
+test('managed patch supports literal getElementsByName and getElementsByClassName AST calls',()=>{
+ for(const method of ['getElementsByName','getElementsByClassName']){
+  const source='document.'+method+'("old-item");\n';
+  const bytes=new TextEncoder().encode(source);
+  const draft=proposeLiteralPatch({
+   sourceBytes:bytes,oldSelector:'old-item',newSelector:'new-item',
+   selectorLocation:{method,line:1,column:1},
+  });
+  assert.equal(draft.proposedSource,'document.'+method+'("new-item");\n');
+  assert.equal(draft.baseHash,sha(bytes));
+ }
+});
