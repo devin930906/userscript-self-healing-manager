@@ -36,20 +36,23 @@ function selectors(node:SafeDomNode,method:string):Array<{expression:string;cssS
  const result:Array<{expression:string;cssSelector:string;weight:number;evidence:string}>=[];
  for(const [name,value] of Object.entries(node.attributes)) {
   if(!allowed.has(name)||typeof value!=='string')continue;
-  if(name==='class' && method==='querySelector') {
+  if(name==='class' && (method==='querySelector'||method==='getElementsByClassName')) {
    const tokens=value.split(/\s+/).filter(isSafeLocatorToken).slice(0,5);
-   for(const x of tokens)result.push({expression:'.'+x,cssSelector:'.'+x,weight:weights.class!,evidence:'class'});
+   for(const x of tokens)result.push({expression:method==='getElementsByClassName'?x:'.'+x,
+    cssSelector:'.'+x,weight:weights.class!,evidence:'class'});
   }else if(isSafeLocatorToken(value)) {
    if(method==='getElementById' && name!=='id')continue;
+   if(method==='getElementsByName' && name!=='name')continue;
+   if(method==='getElementsByClassName')continue;
    const cssSelector=name==='id'?'#'+value:'['+name+'="'+value+'"]';
-   result.push({expression:method==='getElementById'?value:cssSelector,cssSelector,weight:weights[name]!,evidence:name});
+   result.push({expression:['getElementById','getElementsByName'].includes(method)?value:cssSelector,cssSelector,weight:weights[name]!,evidence:name});
   }
  }
  return result;
 }
 /** Returns bounded *suggestions*, not automatic edits. Uniqueness is computed on current safe DOM evidence. */
 export function rankSelectorCandidates({method,oldSelector,nodes,runtimeRequired=false,limit=10}:CandidateInput):SelectorCandidate[]{
- if(runtimeRequired||!['querySelector','getElementById'].includes(method)||typeof oldSelector!=='string'||!oldSelector.trim()||oldSelector.length>1024)return [];
+ if(runtimeRequired||!['querySelector','getElementById','getElementsByName','getElementsByClassName'].includes(method)||typeof oldSelector!=='string'||!oldSelector.trim()||oldSelector.length>1024)return [];
  if(!Number.isInteger(limit)||limit<1||limit>10)throw new Error('Invalid candidate limit');
  if(nodes.length>MAX_NODES)throw new Error('DOM candidate node limit exceeded');
  const oldWords=words(oldSelector);
