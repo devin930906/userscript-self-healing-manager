@@ -46,5 +46,11 @@ export async function launchSelectedChrome({executablePath,port=9223,isolatedPro
  // Chrome >=136 may ignore debugging switches for its default profile: verify getChromeStatus after launch.
  if(isolatedProfileDir!==undefined)await ensureWritableDataRoot(isolatedProfileDir);
  const child=spawn(executablePath,buildChromeLaunchArgs(port,{isolatedProfileDir}),{detached:false,stdio:'ignore',windowsHide:false});
+ // Node reports spawn failures asynchronously on ChildProcess 'error'. Without a
+ // handler the entire Electron main process may crash while showing "started".
+ await new Promise<void>((resolve,reject)=>{
+  child.once('spawn',()=>resolve());
+  child.once('error',error=>reject(error));
+ });
  return child;
 }
