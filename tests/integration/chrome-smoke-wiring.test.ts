@@ -12,6 +12,7 @@ test('Windows development CI runs real isolated Chrome CDP smoke without install
  assert.match(source,/confirmPageIdentity/);
  assert.match(source,/captureDomSummary/);
  assert.match(source,/probePageLocators/);
+ assert.match(source,/collectPagedDomDiagnosis/,'Chrome smoke must cover complete multi-page DOM collection');
  const workflow=readFileSync(join(process.cwd(),'.github/workflows/dev-ci.yml'),'utf8');
  assert.match(workflow,/node --experimental-strip-types scripts\/smoke-chrome\.mjs/);
  assert.doesNotMatch(workflow,/electron-builder|publish never|upload-artifact/);
