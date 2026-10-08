@@ -28,3 +28,5 @@ jobs:
         run: npm run typecheck
       - name: Build renderer and Electron entrypoint
         run: npm run build
+      - name: Real Chrome CDP integration smoke (no installers)
+        run: node --experimental-strip-types scripts/smoke-chrome.mjs
