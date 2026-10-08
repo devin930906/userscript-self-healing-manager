@@ -8,6 +8,7 @@ import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../p
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
+import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {confirmPageIdentity} from '../../../../packages/cdp-client/src/page-identity.ts';
@@ -54,12 +55,13 @@ async function bootstrap():Promise<void>{
  await ensureWritableDataRoot(dataRoot);
  app.setPath('userData',dataRoot);
  await app.whenReady();
+ approvedChromePath=await loadPreferredChromePath({dataRoot});
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
  app.on('before-quit',()=>db.close());
  mainWindow=createWindow();
- ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot};});
+ ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
  ipcMain.handle('usshm:pick-directory',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openDirectory']});if(x.canceled)return null;
@@ -75,7 +77,10 @@ async function bootstrap():Promise<void>{
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
-  approvedChromePath=pick.canceled?approvedChromePath:(pick.filePaths[0]??null);return approvedChromePath;
+  if(pick.canceled)return approvedChromePath;
+  const picked=pick.filePaths[0];
+  if(picked){await savePreferredChromePath({dataRoot,executablePath:picked});approvedChromePath=picked;}
+  return approvedChromePath;
  });
  ipcMain.handle('usshm:launch-chrome',async event=>{assertSender(event);
   if(!approvedChromePath)throw new Error('请先通过文件选择器选择 Chrome');
