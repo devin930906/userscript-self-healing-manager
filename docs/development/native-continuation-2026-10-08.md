@@ -136,3 +136,32 @@
 - Chrome 输出：`PASS real Chrome CDP: page identity, 51-script batches, CSS/name/class candidates, managed patch, export and restore.`
 - 测试机为 GitHub Hosted Windows Runner 的浏览器，不是用户 Windows 10 与指定便携版 Chrome 155。亦未安装/运行 Tampermonkey 扩展，因此不得声称 GM API 或真正脚本行为已通过。
 - 所有改动留在 `feat/v01-continuation`，PR #2 保持 Draft；本轮未制作中途预览安装包，未合并 main，未发布 Stable。
+
+ 
+## Superpowers Native 续接：连续修复、便携 Chrome 持久化与批量候选
+
+**本轮目标：** 在先前只读 DOM 检测与单次受管补丁基础上，解决多定位器脚本第二次修复会丢失第一处修复、浏览器路径重启后丢失、异常 Chrome EXE 可能触发未捕获启动错误，以及一次只能逐个获取修复候选的问题。
+
+### 已实现（真实代码，不是仅有设计）
+
+1. **可累积的受管修订**：修复工作流在有历史时先验证原始脚本 SHA-256 与 `original-*.user.js` 档案，然后检查活动 `current.user.js` 必须属于不可变归档；下一次补丁以活动受管副本为基础，而非覆盖第一处修复。第二次补丁的 backup 被正确归类为上一修订（revision），最初 original 档案始终保持原件。原始源码被外部修改、活动副本被外部修改、当前副本丢失或两次操作之间哈希失配时拒绝继续。
+2. **自定义便携 Chrome 路径记忆**：`packages/cdp-client/src/preferred-chrome.ts` 在 Data/ 中保留用户通过系统对话框明确选择的 `.exe` 路径；重启后仅回填 GUI，**不自动执行 EXE**。针对移动文件、损坏 JSON、非法或符号链接 EXE 与偏好配置替换设置了安全降级。
+3. **Chrome 启动错误处理**：等待真实子进程 `spawn` 事件或捕获 `error`，拒绝不能执行的便携浏览器文件，防止主进程因未捕获 spawn error 崩溃或错误报告已启动；这不是 CDP 握手完成保证。
+4. **无效编码拦截**：`packages/source-analyzer` 改为严格 UTF-8 解码，将不可解码脚本报告为 `encoding:invalid` / `parse-error`，不提取可疑的静态 DOM 选择器，也不吞掉损坏的字节。
+5. **一键生成多个修复候选（只读）**：`packages/candidate-engine/src/bulk.ts`、主进程、Preload 和 React UI 加入新的用户授权工作流。从当前真实 Chrome 页面最多提取前 50 份源码定位器的缺失静态项，每次最多处理 8 项，采用受限 DOM 属性候选＋再次唯一性确认、跨条目重复候选过滤，**不注入/运行脚本、不修改源文件、不自动应用补丁**。候选可逐个导入原有人工预览→受管修订工作台。
+6. **缺失候选分页与 UI 防过期**：第一批为前 8 个缺失项；后续可继续下一组，不会重复首批，也不超过每个 IPC 8 项上限。跨批验证页面 URL、目标、可检查总数，切换当前网页/脚本后丢弃旧异步结果。
+7. **真实 Chrome 扩展回归**：GitHub Windows 自动启动隔离 Chrome，验证选定 EXE 持久化回读、51 份脚本三批只读诊断、四种 DOM 方法的批量候选，以及两次连续受管修订→安全导出→原始版本恢复。原始虚构脚本始终不被覆盖。
+
+### 严格 RED → GREEN 证据
+
+- 连续受管修订回归：[失败测试 #37805258941](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37805258941) → 修复后的 152/152 测试。
+- Chrome 设置保存与启动：[路径持久化 RED #37805954228](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37805954228)、[损坏偏好启动 RED #37806398377](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37806398377)、[异步 Chrome spawn RED #37806694720](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37806694720)。
+- 编码：[UTF-8 RED #37806890856](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37806890856)。
+- 批量候选：[引擎 RED #37807178740](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37807178740)、[桌面 IPC RED #37807359458](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37807359458)、[8 项分页 RED #37808063905](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37808063905)、[桌面继续下一组 RED #37808196123](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37808196123)、[异步旧数据 RED #37808629712](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37808629712)。
+- [**最终 Windows Development CI #37808749380 — SUCCESS**](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37808749380)：对应代码提交 `5aa651a992b9ef1f0a4a99820db126d2bcf3f76c`，**164/164 自动测试通过、0 失败；严格 TypeScript 类型检查 PASS；Electron 构建 PASS；真实 Chrome CDP 集成烟测 PASS**。
+- 实际日志：`PASS real Chrome CDP: preferred executable reload, page identity, 51-script batches, bulk CSS/name/class candidates, cumulative repairs, export and restore.`
+- 未产生中途安装包，没有合并 `main`，PR #2 继续保持 Draft。
+
+### 仍未达到 Stable
+
+CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tampermonkey 扩展没有在本轮测试中加载或执行，GM_* / V3/V4 行为、跨 iframe/ShadowRoot、真实脚本副作用、自动化语义修复准确性、持久后台守护、AI provider、独立安全审查、发行版签名与全部 Release Gate 仍需进一步实现和验证。DOM 匹配唯一性不能冒充脚本功能已恢复。**不可将本轮功能或测试数量表述为最终 Stable 完成。**
