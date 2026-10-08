@@ -1,6 +1,6 @@
 /**
  * Development CI only. Launches the actual built Electron app without making
- * an installer. Uses disposable Windows AppData/LocalAppData and a local CDP
+ * an installer. Uses disposable portable Data and Windows AppData/LocalAppData and a local CDP
  * page-list check to confirm that the React renderer opened.
  */
 import assert from 'node:assert/strict';
@@ -19,7 +19,10 @@ const roaming=join(root,'Roaming'),local=join(root,'Local');
 let appProcess,stderr='';
 try{
  await mkdir(roaming,{recursive:true});await mkdir(local,{recursive:true});
- const env={...process.env,APPDATA:roaming,LOCALAPPDATA:local};
+ const env={...process.env,APPDATA:roaming,LOCALAPPDATA:local,
+  // Use the application's own explicitly portable data-root contract. Windows
+  // Known Folder paths are not guaranteed to obey overridden APPDATA.
+  PORTABLE_EXECUTABLE_DIR:root};
  delete env.ELECTRON_RUN_AS_NODE;
  // This is the installed Electron executable shipped with npm dependencies,
  // never a preview installer. CDP is exclusively bound to loopback.
@@ -43,7 +46,7 @@ try{
  for(let i=0;i<80;i++){
   if(launchError)throw launchError;
   if(exitStatus)throw new Error('Electron quit before GUI verification: '+JSON.stringify(exitStatus));
-  if(!seenDb)seenDb=await hasSqliteDataRoot(roaming);
+  if(!seenDb)seenDb=await hasSqliteDataRoot(join(root,'Data'));
   if(!seenRenderer)try{
    const response=await fetch('http://127.0.0.1:9224/json/list',{signal:AbortSignal.timeout(700)});
    if(response.ok){
@@ -56,9 +59,9 @@ try{
   if(seenDb&&seenRenderer)break;
   await sleep(250);
  }
- assert.ok(seenDb,'Electron did not initialize isolated registry.sqlite');
+ assert.ok(seenDb,'Electron did not initialize portable Data/registry.sqlite');
  assert.ok(seenRenderer,'Electron did not open the packaged React renderer file://dist/index.html');
- console.log('PASS real Windows Electron: isolated AppData registry.sqlite and live file:// renderer loaded (no installers).');
+ console.log('PASS real Windows Electron: isolated portable Data/registry.sqlite and live file:// renderer loaded (no installers).');
 }catch(error){
  console.error('FAIL Electron dev startup:',error,stderr);
  process.exitCode=1;
