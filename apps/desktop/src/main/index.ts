@@ -178,7 +178,7 @@ async function bootstrap():Promise<void>{
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Source script is not authorized');
   const suggested=basename(item.path).replace(/\.user\.js$/i,'')+'-repaired.user.js';
   const save=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),suggested),
-   filters:[{name:'Tampermonkey UserScript',extensions:['user.js']}]});
+   filters:[{name:'Tampermonkey UserScript',extensions:['js']}]});
   if(save.canceled||!save.filePath)return {canceled:true};
   const receipt=await exportManagedCurrent({managedRoot:dataRoot,scriptId:item.scriptId,destinationPath:save.filePath});
   return {canceled:false,...receipt};
