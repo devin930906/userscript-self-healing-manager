@@ -12,7 +12,7 @@
 - CDP：Node WebSocket + Chrome DevTools Protocol capability discovery，直连所选 Chrome，不依赖 MCP。
 - 存储：SQLite（migrations/WAL）+ 本地内容寻址版本库。
 - 验证：Vitest、受控 CDP fake server、本地 fixture site、Windows native packaging smoke；Playwright 如引入只用于 app UI E2E/fixture 辅助，而不是代替核心 CDP 接入。
-- 分发：Windows x64 installer 与 portable exe **均为计划目标**；避免依赖用户系统已安装 Node。
+- 分发：Windows x64 **三种必需正式发行目标**：NSIS Setup.exe、单文件 Portable.exe、完整应用 ZIP 解压版；三包同时存在、单独验收、同 commit、同版本；避免依赖用户系统已安装 Node。见 [三形式发行规范](../distribution/windows-three-editions.md)。
 - 源码管理：GitHub main（受保护）、feature branches、pull requests、Conventional Commits、CI 检查、tag/release notes。
 
 ### 1.2 建议目录树（规划，未创建产品源码）
@@ -86,7 +86,7 @@ userscript-self-healing-manager/
 | 9 | 兼容层与依赖图 | 7+8 | 版本化 SiteAdapter、角色、影响分析、多脚本回归 | FR-033/034、QA-040~041 |
 | 10 | BYO-AI 与安全升级 | 6+7+8 | Provider/Models API/模型手动/脱敏/成本预算/结构化 patch | FR-035~038、QA-042~049/058 |
 | 11 | 健康监控与站点变化历史 | 4+8+9 | 周期检测、错误趋势、按网站告警、selector drift 报告 | FR-017/031/032/042、QA-050~051 |
-| 12 | 发布加固 | 0~11 | Windows build/portable、签名规划、迁移、CI、release、rollback 手册 | QA-052/054~057/059~060、RG-01~08 |
+| 12 | 发布加固 | 0~11 | Windows NSIS Setup.exe + 单文件 Portable.exe + ZIP 完整解压版三包构建、路径区分、签名规划、迁移、CI、release、rollback 手册 | QA-052/054~057/059~074、RG-01~09、DIST-001~014 |
 
 **注意依赖关系**：Phase 2 与 Phase 3 可以并行开发，但 Phase 4 依赖两者整合；Phase 5 可与 Phase 4 在接口冻结后并行；AI 最后加入，防止本地基础能力被模型调用“假完成”掩盖。
 
@@ -163,17 +163,17 @@ userscript-self-healing-manager/
 
 ### 7.3 GitHub Actions
 - PR pipeline：checkout → install lockfile → format/lint → typecheck → unit/contract → fixture integration → secret scan → build（按阶段）。
-- Windows build pipeline：打包 NSIS/portable（实现时期选择确切格式）、验证首启/更新/路径处理。
-- Release pipeline：tag → build → 检查 SHA-256/SBOM → 手动批准 → Publish GitHub Release。
+- Windows build pipeline：固定同一 Git tag/commit，分别构建并验收 **NSIS Setup.exe、独立 Portable.exe、ZIP unpacked 应用包**；验证三者 dataRoot、便携迁移/升级、独立首启和资源完整性。
+- Release pipeline：tag → 构建三包 → 提取 ZIP 验证 exe/resources → 各自产物 smoke → 检查 SHA-256/SBOM/隐私 → RG-09 门禁 → 手动批准 → 同一个 GitHub Release 上传三包及 SHA256SUMS。
 - 对连接 GitHub 的任何自动发布设置最小权限；CI 不应该持有真实 ChatGPT Cookie 或真实用户脚本。
 
 ## 8. 发布与迁移策略
 1. Alpha 内测：只读诊断，用户亲自检查，避免直接修改日常脚本。
 2. Beta：补丁预览、托管目录写入、有限 V0-V3，逐批小量真实场景验收。
-3. RC：批量工具、健康监控、compat 依赖图和 AI 成本预算接近完整，跑 60 个 QA 案例。
-4. Stable：Release Gate 8 项全部完成，备份恢复可靠，公开发行使用说明明确 Chrome 限制及 Windows10 风险。
+3. RC：批量工具、健康监控、compat 依赖图和 AI 成本预算接近完整，跑 74 个 QA 案例（含 14 项三发行模式测试）。
+4. Stable：Release Gate 9 项全部完成（含三形式强制包），备份恢复可靠，公开发行使用说明明确 Chrome 限制、三包 dataRoot/升级说明及 Windows10 风险。
 
-每个新版本带 `MIGRATION.md`（如有 DB schema 变化）、Release Notes、哈希、Known Issues、可回退的安装包和数据备份说明。首次发布之前不得自称稳定版。
+每个正式稳定版本必须有三个可下载的 Windows x64 文件：`Setup-<version>-win-x64.exe`、`Portable-<version>-win-x64.exe`、`<version>-win-x64.zip`，以及 SHA256SUMS、`MIGRATION.md`（如有 DB schema 变化）、Release Notes、Known Issues 和每种形态对应的升级/回滚说明。ZIP 必须是完整 unpacked 程序而不是 Portable.exe 的压缩包装。首次发布之前不得自称稳定版。
 
 ## 9. 风险优先级和处理顺序
 **先验证最可能让整个项目失败的前提**：
