@@ -58,7 +58,11 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   }
   const scope=checkUserscriptPageScope(analysis.metadata,target.url);
   if(scope.status!=='allowed'){
-   results.push({...common,status:'out-of-scope',checked:0,found:0,missing:0,needsReview:0,reason:scope.reason});
+   const indeterminate=scope.status==='unknown';
+   results.push({...common,status:indeterminate?'needs-review':'out-of-scope',
+    checked:0,found:0,missing:0,
+    needsReview:indeterminate?Math.max(1,analysis.selectorRecords.length):0,
+    reason:scope.reason});
    continue;
   }
   const records=analysis.selectorRecords;
