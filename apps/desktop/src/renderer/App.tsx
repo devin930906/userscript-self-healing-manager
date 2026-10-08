@@ -8,6 +8,8 @@ import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string}>;
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
+ proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
+ applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  grantDroppedFiles:(files:File[])=>Promise<string[]>;
@@ -25,12 +27,15 @@ function App(){
  const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
  const [targetId,setTargetId]=useState('');
  const [pageProbe,setPageProbe]=useState<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}|null>(null);
+ const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
+ const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
+ const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string}|null>(null);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);}).catch(e=>setError(String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  async function chooseFiles(){try{const selected=await window.ussm.pickFiles();setPaths(old=>[...new Set([...old,...selected])]);setError('');}catch(e){setError(String(e));}}
  async function chooseDirectory(){try{const selected=await window.ussm.pickDirectory();if(selected)setPaths(old=>[...new Set([...old,selected])]);setError('');}catch(e){setError(String(e));}}
  async function onDrop(event:React.DragEvent<HTMLDivElement>){event.preventDefault();setDragging(false);try{const files=Array.from(event.dataTransfer.files);const allowed=await window.ussm.grantDroppedFiles(files);setPaths(old=>[...new Set([...old,...allowed])]);setMessage(`已接收 ${allowed.length} 个脚本文件`);}catch(e){setError(String(e));}}
- async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairProposal(null);setRepairApplied(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('已请求启动选定 Chrome；请点击检查 CDP 连接确认握手成功。');}catch(e){setError(String(e));}}
@@ -40,10 +45,20 @@ function App(){
   try{const r=await window.ussm.probeLocators({itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
   catch(e){setError('页面定位器核验失败：'+String(e));}finally{setBusy(false);}
  }
+ async function proposeRepair(){if(focused===null||!repairNew.trim())return;
+  setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
+  try{const r=await window.ussm.proposeRepair({itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
+  catch(e){setError('生成预览失败：'+String(e));}finally{setBusy(false);}
+ }
+ async function applyRepair(){if(!repairProposal)return;
+  setBusy(true);setError('');
+  try{const r=await window.ussm.applyRepair({proposalId:repairProposal.proposalId,approved:true});setRepairApplied(r);setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
+  catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
+ }
  const details=focused===null?null:result?.items[focused];
  return <div className="shell">
   <aside className="sidebar"><div className="logo"><span className="logo-icon">✦</span><span>USSHM <small>SELF-HEALING MANAGER</small></span></div>
-   <nav><div className="nav-label">工作区</div><div className="nav-item active">▦　脚本资料库</div><div className="nav-item">⌁　页面定位器核验 <span>只读</span></div><div className="nav-item mute">⚙　修复工作台 <span>规划中</span></div><div className="nav-label">系统</div><div className="nav-item">◉　Chrome CDP <span>可连接</span></div></nav>
+   <nav><div className="nav-label">工作区</div><div className="nav-item active">▦　脚本资料库</div><div className="nav-item">⌁　页面定位器核验 <span>只读</span></div><div className="nav-item">⚙　受控修复工作台 <span>预览</span></div><div className="nav-label">系统</div><div className="nav-item">◉　Chrome CDP <span>可连接</span></div></nav>
    <div className="sidebar-bottom">V{appInfo?.version??'0.1'} · {appInfo?.distributionMode??'preview'}<div className="dim">本地数据 · 不上传脚本</div></div>
   </aside>
   <main className="main"><header><div><div className="eyebrow">USERSCRIPT MAINTENANCE</div><h1>油猴脚本智能自愈管理器</h1><p>批量检查源码中的 DOM 依赖，定位潜在失效点，记录可追溯的静态分析结果。</p></div><span className="status-dot">●　离线分析模式</span></header>
@@ -64,12 +79,22 @@ function App(){
    </section>
    {(error||message)&&<div role="status" className={'notice '+(error?'error':'')}>{error||message}</div>}
    <section className="panel"><div className="panel-head"><div><h2>静态诊断结果</h2><p>每个脚本独立显示解析状态与需要运行时确认的定位器。</p></div><div className="actions small"><button disabled={!result} className="secondary" onClick={()=>void exportReport('json')}>导出 JSON</button><button disabled={!result} className="secondary" onClick={()=>void exportReport('markdown')}>导出 Markdown</button></div></div>
-   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
+   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairProposal(null);setRepairApplied(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
    </section>
    {details&&<section className="panel"><div className="panel-head"><div><h2>{nameOf(details.path)} · Selector 清单</h2><p>先选目标网页，再点击授权核验；不代表油猴脚本功能通过。</p></div><button className="secondary" onClick={()=>{setFocused(null);setPageProbe(null);}}>关闭</button></div>
    <div className="toolbar"><button disabled={!cdp||!targetId||busy} onClick={()=>void probePage()}>页面定位器核验（只读）</button><span className="dim">每次最多检查前 50 个定位器；不执行脚本、不自动修改文件。</span></div>
    {pageProbe&&<div className="notice"><b>DOM 文档节点：</b>{pageProbe.summary.nodeCount} · 文档：{pageProbe.summary.documentCount} · 已检查 {pageProbe.checkedLocators}/{pageProbe.totalLocators} 个定位器；仅当前 document 作用域，不代表油猴脚本功能通过。</div>}
    {pageProbe?.probe.checks.map((check,index)=><div className="selector" key={index}><div className="selector-top"><span>{check.method}</span><b>{check.status==='found'?'当前匹配':check.status==='missing'?'无匹配':check.status==='ambiguous'?'多重匹配':check.status==='blocked'?'无法核验':'需要运行时确认'}</b></div><code>{check.expression}</code><small>匹配数：{check.matchCount===null?'未知':check.matchCount} · {check.reason}</small></div>)}
+   <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
+    <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
+    <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
+     <label>旧选择器<select aria-label="选择需要替换的静态定位器" value={repairIndex} onChange={e=>{setRepairIndex(Number(e.target.value));setRepairProposal(null);}}>{details.analysis?.selectorRecords.map((s,i)=><option key={i} value={i} disabled={s.runtimeRequired}>{s.method} · {s.expression.slice(0,90)}{s.runtimeRequired?'（动态，不可直接补丁）':''}</option>)}</select></label>
+     <label>新的选择器<input aria-label="输入新选择器" value={repairNew} onChange={e=>{setRepairNew(e.target.value);setRepairProposal(null);}} placeholder="#new-id 或 [data-testid=...]" /></label>
+     <button disabled={busy||!repairNew.trim()||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired} onClick={()=>void proposeRepair()}>生成修复预览</button>
+    </div>
+    {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button></div>}
+    {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p></div>}
+   </div>
    {details.analysis?.selectorRecords.map((s,i)=><div className="selector" key={i}><div className="selector-top"><span>{s.method} · 源码第 {s.sourceRange.start.line} 行</span><span className={s.runtimeRequired?'warn':''}>{s.runtimeRequired?'需要运行时确认':'静态字面量'}</span></div><code>{s.expression}</code><small>函数：{s.functionName||'顶层'} {s.alternateSelectors.length?`｜备用选择器：${s.alternateSelectors.join('、')}`:''}</small></div>)}
    {details.diagnostics.map((d,i)=><p className="error-text" key={i}>{d}</p>)}
    {!details.selectorCount&&<div className="dim">未找到内置规则覆盖的 DOM 选择器；不代表该脚本没有 DOM 依赖。</div>}

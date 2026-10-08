@@ -1,7 +1,8 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {dirname,join,resolve,relative,isAbsolute} from 'node:path';
 import {existsSync} from 'node:fs';
-import {writeFile,lstat} from 'node:fs/promises';
+import {writeFile,lstat,readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../packages/persistence/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
@@ -9,6 +10,7 @@ import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
+import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:ScanBatchResult|null=null;
@@ -47,6 +49,7 @@ async function bootstrap():Promise<void>{
  await app.whenReady();
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
  const repository=createScriptRepository(db);
+ const repairs=createRepairWorkflow({managedRoot:dataRoot});
  app.on('before-quit',()=>db.close());
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot};});
@@ -85,6 +88,25 @@ async function bootstrap():Promise<void>{
   const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired}));
   const probe=await probePageLocators(selected,records);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
+ });
+ ipcMain.handle('usshm:propose-repair',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number;selectorIndex:number;newSelector:string}|null;
+  if(!q||!Number.isInteger(q.itemIndex)||!Number.isInteger(q.selectorIndex)||typeof q.newSelector!=='string'||q.newSelector.length<1||q.newSelector.length>1024)throw new Error('Invalid patch request');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item||!item.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Source script is not authorized');
+  const sel=item.analysis.selectorRecords[q.selectorIndex];
+  if(!sel||sel.runtimeRequired)throw new Error('Only a known static literal can be patched');
+  const current=await readFile(item.path);
+  const currentSha=createHash('sha256').update(current).digest('hex');
+  if(currentSha!==item.analysis.sourceSha256)throw new Error('Source changed since static scan, please rescan');
+  const proposal=await repairs.propose({sourcePath:item.path,scriptId:item.scriptId,oldSelector:sel.expression,newSelector:q.newSelector});
+  if(proposal.baseHash!==item.analysis.sourceSha256)throw new Error('Patch base hash mismatch');
+  return proposal;
+ });
+ ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {proposalId:string;approved:true}|null;
+  if(!q||q.approved!==true||typeof q.proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(q.proposalId))throw new Error('Explicit repair approval required');
+  return repairs.apply({proposalId:q.proposalId,approved:true});
  });
  ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');if(!lastScan)throw new Error('No scan has been performed');
  const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});
