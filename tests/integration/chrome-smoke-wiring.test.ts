@@ -37,3 +37,8 @@ test('real Chrome fixture exercises a nested iframe and @noframes top-only class
  assert.match(source,/topOnlyDiagnosis/);
  assert.match(source,/@noframes/);
 });
+
+test('renderer pins CDP paginated results to a static script identity snapshot',()=>{
+ const source=readFileSync(join(process.cwd(),'apps','desktop','src','renderer','App.tsx'),'utf8');
+ assert.match(source,/expectedItems:result\.items\.map\(item=>\(\{scriptId:item\.scriptId,path:item\.path\}\)\)/);
+});
