@@ -1,13 +1,20 @@
 import {spawn,type ChildProcess} from 'node:child_process';
-import {isAbsolute} from 'node:path';
+import {isAbsolute,win32} from 'node:path';
+import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 import {lstat} from 'node:fs/promises';
 import {validateCdpPageSocket,validateCdpBrowserSocket} from './endpoint.ts';
 
 export interface ChromeTarget {type:string;id:string;url:string;webSocketDebuggerUrl?:string|undefined}
 export interface ChromeStatus {browser:string;protocolVersion:string|null;pages:ChromeTarget[];browserSocket:string|null}
-export function buildChromeLaunchArgs(port=9223):string[]{
+export function buildChromeLaunchArgs(port=9223,options:{isolatedProfileDir?:string|undefined}={}):string[]{
  if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid CDP port');
- return [`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1'];
+ const flags=[`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1'];
+ if(options.isolatedProfileDir!==undefined){
+  if(!options.isolatedProfileDir||!(isAbsolute(options.isolatedProfileDir)||win32.isAbsolute(options.isolatedProfileDir)))
+   throw new Error('Isolated Chrome profile directory must be absolute');
+  flags.push('--user-data-dir='+options.isolatedProfileDir);
+ }
+ return flags;
 }
 function validPort(value:number){if(!Number.isInteger(value)||value<1024||value>65535)throw new Error('Invalid CDP port');}
 export async function getChromeStatus({port=9223,host='127.0.0.1'}:{port?:number;host?:string}={}):Promise<ChromeStatus>{
@@ -33,10 +40,11 @@ export async function getChromeStatus({port=9223,host='127.0.0.1'}:{port?:number
   return {browser:info.Browser,protocolVersion:typeof info['Protocol-Version']==='string'?info['Protocol-Version']:null,pages,browserSocket};
  }finally{clearTimeout(timeout);}
 }
-export async function launchSelectedChrome({executablePath,port=9223}:{executablePath:string;port?:number}):Promise<ChildProcess>{
+export async function launchSelectedChrome({executablePath,port=9223,isolatedProfileDir}:{executablePath:string;port?:number;isolatedProfileDir?:string|undefined}):Promise<ChildProcess>{
  validPort(port);if(!isAbsolute(executablePath))throw new Error('Chrome executable path must be absolute');
  const item=await lstat(executablePath);if(!item.isFile())throw new Error('Selected Chrome path is not a file');
  // Chrome >=136 may ignore debugging switches for its default profile: verify getChromeStatus after launch.
- const child=spawn(executablePath,buildChromeLaunchArgs(port),{detached:false,stdio:'ignore',windowsHide:false});
+ if(isolatedProfileDir!==undefined)await ensureWritableDataRoot(isolatedProfileDir);
+ const child=spawn(executablePath,buildChromeLaunchArgs(port,{isolatedProfileDir}),{detached:false,stdio:'ignore',windowsHide:false});
  return child;
 }

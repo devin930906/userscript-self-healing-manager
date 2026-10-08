@@ -78,6 +78,14 @@ async function bootstrap():Promise<void>{
   if(!approvedChromePath)throw new Error('请先通过文件选择器选择 Chrome');
   await launchSelectedChrome({executablePath:approvedChromePath,port:9223});return {started:true,port:9223};
  });
+ ipcMain.handle('usshm:launch-isolated-chrome',async event=>{assertSender(event);
+  if(!approvedChromePath)throw new Error('请先通过文件选择器选择 Chrome');
+  // Only this explicit action opens a separate profile. Never copy the user's default profile.
+  const isolatedProfileDir=join(dataRoot,'Chrome-CDP-Profile');
+  await ensureWritableDataRoot(isolatedProfileDir);
+  await launchSelectedChrome({executablePath:approvedChromePath,port:9223,isolatedProfileDir});
+  return {started:true,port:9223,isolated:true};
+ });
  ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
  ipcMain.handle('usshm:probe-locators',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;targetId:string;approved:true}|null;

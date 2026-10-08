@@ -33,6 +33,7 @@ const api={
  listScripts:()=>ipcRenderer.invoke('usshm:list-scripts'),
  pickChrome:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-chrome'),
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
+ launchIsolatedChrome:()=>ipcRenderer.invoke('usshm:launch-isolated-chrome'),
  getCdpStatus:()=>ipcRenderer.invoke('usshm:cdp-status'),
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:probe-locators',input),
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:suggest-repair',input),
