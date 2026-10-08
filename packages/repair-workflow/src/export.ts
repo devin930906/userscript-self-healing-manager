@@ -28,6 +28,14 @@ export async function exportManagedCurrent({managedRoot,scriptId,destinationPath
  const hash=createHash('sha256').update(content).digest('hex');
  if(!archived.some(r=>r.hash===hash))
   throw new Error('Managed current contains unverified external edits; refusing export');
+ // Windows can follow a dangling symlink with exclusive-create flags; reject
+ // any existing directory entry with lstat before attempting an exclusive write.
+ try{
+  await lstat(destinationPath);
+  throw new Error('Export destination already exists; refusing overwrite');
+ }catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+ }
  try{
   // Exclusive create is deliberately required even after the native Save dialog.
   // It also rejects a symlink occupying the destination.
