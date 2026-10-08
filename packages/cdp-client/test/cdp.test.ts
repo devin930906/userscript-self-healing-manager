@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createServer} from 'node:http';
-import {getChromeStatus,buildChromeLaunchArgs} from '../src/index.ts';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {getChromeStatus,buildChromeLaunchArgs,launchSelectedChrome} from '../src/index.ts';
 
 test('launch args bind Chrome CDP to localhost without auto-adding user-data-dir',()=>{
  const args=buildChromeLaunchArgs(9223);
@@ -38,4 +41,14 @@ test('explicit isolated Chrome profile can be enabled without changing default C
  assert.ok(args.some(x=>x.startsWith('--user-data-dir=')));
  assert.equal(args.filter(x=>x.startsWith('--user-data-dir=')).length,1);
  assert.throws(()=>buildChromeLaunchArgs(9223,{isolatedProfileDir:'relative/profile'}),/absolute/i);
+});
+
+test('launching malformed chosen Chrome EXE rejects instead of reporting a started browser',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-invalid-exe-'));
+ const fake=join(root,'Invalid Chrome.exe');
+ try{
+  await writeFile(fake,'not a Windows executable');
+  await assert.rejects(launchSelectedChrome({executablePath:fake,port:9223}),
+   /spawn|exec|executable|format|permission|access|invalid/i);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
