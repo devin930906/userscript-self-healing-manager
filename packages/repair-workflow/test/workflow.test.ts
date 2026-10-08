@@ -50,3 +50,12 @@ test('applying a reviewed patch updates the managed current copy, never source',
  assert.equal(await readFile(receipt.managedPath,'utf8'),await readFile(join(managedRoot,'managed','safe-script','current.user.js'),'utf8'));
  assert.deepEqual(await readFile(sourcePath),original);
 }));
+
+test('workflow can target the second repeated selector without changing first occurrence',async()=>withSource(async(sourcePath,managedRoot)=>{
+ await writeFile(sourcePath,'document.querySelector("#old");\ndocument.querySelector("#old");\n');
+ const flow=createRepairWorkflow({managedRoot});
+ const p=await flow.propose({sourcePath,scriptId:'duplicated',oldSelector:'#old',newSelector:'#new',selectorLocation:{method:'querySelector',line:2,column:1}});
+ const receipt=await flow.apply({proposalId:p.proposalId,approved:true});
+ assert.equal(await readFile(receipt.managedPath,'utf8'),'document.querySelector("#old");\ndocument.querySelector("#new");\n');
+ assert.equal(await readFile(sourcePath,'utf8'),'document.querySelector("#old");\ndocument.querySelector("#old");\n');
+}));

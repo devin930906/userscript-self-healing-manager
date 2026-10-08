@@ -35,3 +35,12 @@ test('managed patch rejects symlink redirection to another directory',async(t)=>
  await assert.rejects(applyManagedPatch({sourcePath:source,managedRoot:managed,scriptId:'demo',draft,expectedHash:draft.baseHash,approved:true}),/symlink/i);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('same selector in multiple calls can patch only the explicitly selected AST location',()=>{
+ const src='document.querySelector("#old");\ndocument.querySelector("#old");';
+ const bytes=new TextEncoder().encode(src);
+ const selected={method:'querySelector',line:2,column:1};
+ const draft=proposeLiteralPatch({sourceBytes:bytes,oldSelector:'#old',newSelector:'#new',selectorLocation:selected});
+ assert.equal(draft.proposedSource,'document.querySelector("#old");\ndocument.querySelector("#new");');
+ assert.throws(()=>proposeLiteralPatch({sourceBytes:bytes,oldSelector:'#old',newSelector:'#new',selectorLocation:{method:'getElementById',line:2,column:1}}),/exactly one|location/i);
+});
