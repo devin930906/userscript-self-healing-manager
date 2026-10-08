@@ -190,6 +190,10 @@ try{
  const applied=await flow.apply({proposalId:draft.proposalId,approved:true});
  assert.equal(await readFile(sourcePath,'utf8'),original);
  assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
+ // One DOM selector being repaired is insufficient: this fixture requires BOTH.
+ const partiallyRepairedBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,
+  source:await readFile(applied.managedPath,'utf8')});
+ assert.equal(partiallyRepairedBehavior,false);
  const active=join(profile,'managed','chrome-smoke-fixture','current.user.js');
  assert.equal(await readFile(active,'utf8'),await readFile(applied.managedPath,'utf8'));
  // The second repair must build on the first one, rather than reloading the source.
