@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {readFile,lstat} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
-import {applyManagedPatch,proposeLiteralPatch,type LiteralPatchDraft} from '../../patch-engine/src/index.ts';
+import {applyManagedPatch,proposeLiteralPatch,type LiteralPatchDraft,type SelectorLocation} from '../../patch-engine/src/index.ts';
 import {activateManagedRevision} from './history.ts';
 export interface ProposalReceipt {
  proposalId:string;scriptId:string;oldSelector:string;newSelector:string;
@@ -14,14 +14,14 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  if(!isAbsolute(managedRoot))throw new Error('Managed root must be absolute');
  const pending=new Map<string,PendingProposal>();
  return {
-  async propose({sourcePath,scriptId,oldSelector,newSelector}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string}):Promise<ProposalReceipt>{
+  async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
    const file=await lstat(sourcePath);
    if(!file.isFile()||file.isSymbolicLink())throw new Error('Source must be an ordinary file');
    if(file.size>512*1024)throw new Error('Script is too large');
    const bytes=await readFile(sourcePath);
-   const draft=proposeLiteralPatch({sourceBytes:bytes,oldSelector,newSelector});
+   const draft=proposeLiteralPatch({sourceBytes:bytes,oldSelector,newSelector,selectorLocation});
    if(pending.size>=100)throw new Error('Too many pending patch proposals');
    const proposalId=randomUUID();
    pending.set(proposalId,{sourcePath,scriptId,draft});

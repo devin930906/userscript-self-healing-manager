@@ -4,19 +4,24 @@ import {lstat,readFile,mkdir,writeFile,stat} from 'node:fs/promises';
 import ts from 'typescript';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 
+export interface SelectorLocation {readonly method:string;readonly line:number;readonly column:number}
 export interface LiteralPatchDraft {
  baseHash:string;proposedHash:string;oldSelector:string;newSelector:string;
  proposedSource:string;sourceRange:{start:number;end:number};
 }
 const sha=(bytes:Uint8Array|string)=>createHash('sha256').update(bytes).digest('hex');
-export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector}:{sourceBytes:Uint8Array;oldSelector:string;newSelector:string}):LiteralPatchDraft{
+export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selectorLocation}:{sourceBytes:Uint8Array;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):LiteralPatchDraft{
  if(!oldSelector||!newSelector||newSelector.length>1024)throw new Error('Selectors must be nonempty and short');
  const hasBom=sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191;
  const text=new TextDecoder().decode(sourceBytes);
  const file=ts.createSourceFile('script.user.js',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const matches:ts.StringLiteral[]=[];
  function visit(node:ts.Node):void{
-  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])&&node.arguments[0].text===oldSelector)matches.push(node.arguments[0]);
+  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])&&node.arguments[0].text===oldSelector){
+   const pos=file.getLineAndCharacterOfPosition(node.getStart(file));
+   if(!selectorLocation||(selectorLocation.method===node.expression.name.text&&selectorLocation.line===pos.line+1&&selectorLocation.column===pos.character+1))
+    matches.push(node.arguments[0]);
+  }
   ts.forEachChild(node,visit);
  }
  visit(file);
