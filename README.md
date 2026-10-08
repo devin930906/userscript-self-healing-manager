@@ -1,20 +1,20 @@
 # Userscript Self-Healing Manager — V0.1 开发预览源码
 
-**当前构建状态：Windows Alpha 内测软件，之前的 Alpha.3/Alpha.4 已通过 Windows CI 构建和 ZIP EXE 启动检查；**Alpha.5 必须单独通过 CI 后才能视为已验证**；未通过真实 Windows 10/真实 Tampermonkey 全功能验收，不是 Stable 正式版。**
+**构建状态（2026-10-08）：Alpha.3 是最近已核实完整 Windows CI 成功、三包生成且解压版 EXE 启动的预览版本；Alpha.5 源码已更新但最新 GitHub Actions 仍排队，未通过独立构建。所有版本均未完成 Windows 10 + 真实 Tampermonkey 的 Stable 验收。**
 
 本仓库源码用于开发和测试 Windows 油猴脚本诊断工具。长期完整需求、架构和 Superpowers 实施计划位于 [GitHub 主仓库](https://github.com/devin930906/userscript-self-healing-manager)。
 
-## Alpha.5 可下载的 Windows 预览版
-构建仓库的 `feat/v01-continuation` 分支通过 GitHub Actions，进入最新成功的 [Windows three-edition preview build](https://github.com/devin930906/userscript-self-healing-manager/actions/workflows/windows-build.yml) 后在 Artifacts 下载 `usshm-windows-three-editions-preview`，解压外层 Actions artifact 后选择 Setup.exe、Portable.exe 或完整 ZIP 文件夹版。
+## Windows Alpha 预览版：已验证版本与正在构建的版本
+**现在可以下载 Alpha.3 预览包**：打开 [最后已验证的 Windows CI #37771109973](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37771109973)，在 Artifacts 下载 `usshm-windows-three-editions-preview`。**Alpha.5 尚未有经核实通过的 Windows 安装包**；可在 [Windows 构建列表](https://github.com/devin930906/userscript-self-healing-manager/actions/workflows/windows-build.yml) 查到与当前提交一致且成功的运行后下载。
 **说明：仅为未签名 Alpha 预览；Windows CI 成功打包不等于在 Windows 10 真实用户桌面启动和真实 Tampermonkey 环境验收通过。**
 
 ## 最简下载并使用（不需要自己编译）
 1. 打开 [Alpha Windows Builds](https://github.com/devin930906/userscript-self-healing-manager/actions/workflows/windows-build.yml?query=branch%3Afeat%2Fv01-continuation)。
-2. 选择 Alpha.5 对应且显示绿色 Success 的运行；在运行页面底部 Artifacts 下载 usshm-windows-three-editions-preview（可能需要 GitHub 登录）。
+2. 目前选 Alpha.3 已完成的绿色运行 #37771109973 下载；**只有当 Alpha.5 自己的流水线变成绿色 Success，才选择 Alpha.5 工件**。在运行页面底部 Artifacts 下载 `usshm-windows-three-editions-preview`（可能需要 GitHub 登录）。
 3. **先解压 GitHub 的外层 Artifacts ZIP**，即可得到 Setup.exe、单文件 Portable.exe 和完整程序 ZIP（还带 SHA256SUMS.txt）。
 4. 常规安装：双击 Setup.exe；便携 EXE：放在有读写权限的文件夹后双击；完整 ZIP：先解压为完整程序文件夹，再打开主 EXE。不要只从 ZIP 内直接双击 EXE。
 5. **Alpha 版未签名**。验证工件来自本仓库 GitHub Actions 并核对 SHA-256；如 Windows SmartScreen 阻止，应仔细评估来源风险，**不需要关闭系统安全防护**。
-6. 启动后先导入自己的测试用 user.js，运行静态诊断；选定 Chrome 路径并检查 CDP 连接；如发现定位器失效，可手动指定新定位器，在受控修复工作台完成预览并确认保存新的**受管副本**。原文件保持不变。
+6. 启动后先导入自己的测试用 `.user.js` 并运行静态诊断；选择 Chrome 并检查 CDP。Alpha.3 可人工输入替代选择器，预览并审核保存受管副本；**Alpha.5 通过自身 CI 验证后**还可以让程序根据当前网页的稳定 DOM 属性建议替代候选。原文件保持不变。
 ## 目前可以做什么
 
 - Windows 桌面 UI（Electron + React，中文深色界面；等待 Windows 实机验收）。
@@ -26,7 +26,7 @@
 - 独立命令行脚本诊断入口（可在有 Node.js 24、npm 安装依赖的系统使用）。
 - **DOM 候选修复（Alpha.5 新增）**：用户先选择 Chrome 页面与已扫描脚本，执行只读核验；仅在旧静态定位器零匹配时点击“生成候选定位器”，程序通过受限 DOMSnapshot 的安全属性推选候选，随后再次确认候选在当前网页仅匹配一个元素。用户点击采用候选，再生成预览、明确批准，才会创建受管副本和原件备份。**仅候选和 DOM 匹配，不等于已证明脚本功能正确。**
 
-**尚未实现：** DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、GUI 一键回滚、AI Provider、健康监控。现有 Alpha.5 候选仅支持当前 document 中的 querySelector/getElementById 静态调用，且需人工确认。界面中不得把“静态解析完成”称作“脚本已经修复”。
+**尚未实现：** DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、GUI 一键回滚、AI Provider、健康监控。现有 Alpha.5 候选仅支持当前 document 中的 `document.querySelector` / `document.getElementById` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
 
