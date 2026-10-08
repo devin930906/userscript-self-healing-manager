@@ -39,3 +39,11 @@ test('AST records document vs element receiver, so DOM checks cannot mistake nes
  const r=analyzeSource({scriptId:'scoped',sourceBytes:encoder.encode(source)});
  assert.deepEqual(r.selectorRecords.map(x=>x.receiver),['document','target','document']);
 });
+
+test('invalid UTF-8 bytes cannot be silently analyzed and treated as a working userscript',()=>{
+ const bytes=new Uint8Array([...encoder.encode('// ==UserScript==\n// @name Broken bytes\n// ==/UserScript==\ndocument.querySelector("#old");'),0xff,0xfe]);
+ const analysis=analyzeSource({scriptId:'broken-utf8',sourceBytes:bytes});
+ assert.equal(analysis.encoding,'invalid');
+ assert.match(analysis.parseDiagnostics.join(' '),/UTF-8|encoding/i);
+ assert.equal(analysis.selectorRecords.length,0);
+});
