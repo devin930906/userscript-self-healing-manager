@@ -30,3 +30,10 @@ test('DOMSnapshot cannot falsely pass malformed responses',async()=>{
 test('DOM summary refuses redirect to unrelated loopback debugger ports',async()=>{
  await assert.rejects(captureDomSummary({...target,webSocketDebuggerUrl:'ws://127.0.0.1:9224/devtools/page/p1'}),/port/i);
 });
+
+test('DOM summary rejects excessive frame and node counts before returning misleading evidence',async()=>{
+ const frames=Array.from({length:65},()=>({nodes:{nodeName:[0]}}));
+ await assert.rejects(captureDomSummary(target,{socketFactory:()=>new FakeSocket({documents:frames}) as any}),/limit|count/i);
+ const huge={documents:[{nodes:{nodeName:Array.from({length:200001},()=>0)}}]};
+ await assert.rejects(captureDomSummary(target,{socketFactory:()=>new FakeSocket(huge) as any}),/limit|count/i);
+});
