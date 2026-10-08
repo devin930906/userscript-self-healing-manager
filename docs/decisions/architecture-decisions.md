@@ -72,6 +72,15 @@
 ## ADR-016：不确定项全部强制标记
 动态 selector、不可访问的 frame、未知执行 world、没有功能测试、身份未知的 CDP 连接、未知模型响应格式、未实测 Chrome 155 launcher，一律保留 `unknown/blocked/runtime_required/needs_secondary_verification`；禁止借助推测将其升级为事实。
 
+## ADR-017：Windows 正式版必须三形式同时发布（用户已明确指定）
+**强制需求已确认（不等于已完成开发）**：每个 Windows 稳定版 Release 同时提供 **EXE 安装版（NSIS Setup.exe）**、**单文件 EXE 便携版（Portable.exe）**、**ZIP 完整程序文件夹解压即用版（zip of unpacked app）**。三者同版本/源码、功能一致，不能以将 Portable.exe 压缩成 ZIP 代替第三项。
+
+**技术方案**：推荐 Electron Builder `nsis` + `portable` + `zip` 三 targets，从同一个 tag 和固定依赖建包。Setup 使用系统用户数据目录；两个便携版在外部执行文件所在根目录创建 `Data/`，ZIP 版必须连完整二进制依赖一起携带。`Portable.exe` 可能临时解包，持久化数据不能写进临时 unpack 路径，且 API keys 受 Windows OS 加密保护，跨用户/设备时需重新录入。
+
+**强制质量门槛**：RG-09，QA-061~074，DIST-001~014；三包缺失/无法启动/资料丢失则不能 Stable。详见 [三形式发行规范](../distribution/windows-three-editions.md)。
+
+**仍需测试**：具体 Electron Builder 版本、Windows 10/11 三包行为、Data 的实盘权限、签名/SmartScreen 等。本决策锁定**产品形态**，不代表所有技术细节已经通过用户评审。
+
 ## 需用户评审决策（不阻塞阅读本规划）
 1. **架构**：是否接受 Electron + TS 单栈，允许较大的 EXE/安装包来降低维护成本？
 2. **浏览器**：严格“不使用 `--user-data-dir`”是否仅为默认约束，还是即使特定 Chrome 无法连接也永不允许用户显式启用隔离 profile？
