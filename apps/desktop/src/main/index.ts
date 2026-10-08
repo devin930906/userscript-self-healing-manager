@@ -100,9 +100,10 @@ async function bootstrap():Promise<void>{
  });
  ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
  ipcMain.handle('usshm:probe-locators',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number;targetId:string;approved:true}|null;
+  const q=input as {scanId:string;itemIndex:number;targetId:string;approved:true}|null;
   if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||typeof q.targetId!=='string'||q.targetId.length>128)throw new Error('Explicit target and consent required');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item||!item.analysis)throw new Error('No imported script for this scan index');
   const status=await getChromeStatus({port:9223});const selected=status.pages.find(x=>x.id===q.targetId);
   if(!selected)throw new Error('Selected CDP page target no longer exists');
@@ -116,6 +117,7 @@ async function bootstrap():Promise<void>{
   const probe=await probePageLocators(selected,records);
   // Fail closed if the selected page navigated while snapshots were being collected.
   await confirmPageIdentity(selected);
+  scanSessions.assertCurrent(scanSnapshot);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
  ipcMain.handle('usshm:batch-diagnose',async(event,input:unknown)=>{assertSender(event);
@@ -138,9 +140,10 @@ async function bootstrap():Promise<void>{
   return {...result,items:result.items.map(entry=>({...entry,index:entry.index+offset})),startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
+  const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
   if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||q.itemIndex<0||!Number.isInteger(q.selectorIndex)||q.selectorIndex<0||typeof q.targetId!=='string'||q.targetId.length>128)throw new Error('Explicit CDP target and user approval required');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Script is not an authorized scanned file');
   const record=item.analysis.selectorRecords[q.selectorIndex];
   if(!record||record.runtimeRequired||record.receiver!=='document')throw new Error('A document-scoped literal selector is required');
@@ -154,16 +157,18 @@ async function bootstrap():Promise<void>{
    capture:()=>captureCandidateNodes(selected),
   }});
   await confirmPageIdentity(selected);
+  scanSessions.assertCurrent(scanSnapshot);
   return candidates;
  });
  ipcMain.handle('usshm:suggest-repairs-bulk',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number;targetId:string;approved:true;offset?:number}|null;
+  const q=input as {scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number}|null;
   if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
     typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128)
    throw new Error('Explicit CDP target and consent required');
   if(q.offset!==undefined&&(!Number.isSafeInteger(q.offset)||q.offset<0||q.offset>48||q.offset%8!==0))
    throw new Error('Invalid candidate offset');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
    throw new Error('Selected script is not authorized for page inspection');
   const status=await getChromeStatus({port:9223});
@@ -183,19 +188,23 @@ async function bootstrap():Promise<void>{
    deps:{probe:inputs=>probePageLocators(selected,inputs),capture:()=>captureCandidateNodes(selected)},
   });
   await confirmPageIdentity(selected);
+  scanSessions.assertCurrent(scanSnapshot);
   return suggestions;
  });
  ipcMain.handle('usshm:propose-repair',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number;selectorIndex:number;newSelector:string}|null;
+  const q=input as {scanId:string;itemIndex:number;selectorIndex:number;newSelector:string}|null;
   if(!q||!Number.isInteger(q.itemIndex)||!Number.isInteger(q.selectorIndex)||typeof q.newSelector!=='string'||q.newSelector.length<1||q.newSelector.length>1024)throw new Error('Invalid patch request');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item||!item.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Source script is not authorized');
   const sel=item.analysis.selectorRecords[q.selectorIndex];
   if(!sel||sel.runtimeRequired)throw new Error('Only a known static literal can be patched');
   const current=await readFile(item.path);
   const currentSha=createHash('sha256').update(current).digest('hex');
   if(currentSha!==item.analysis.sourceSha256)throw new Error('Source changed since static scan, please rescan');
+  scanSessions.assertCurrent(scanSnapshot);
   const proposal=await repairs.propose({sourcePath:item.path,scriptId:item.scriptId,oldSelector:sel.expression,newSelector:q.newSelector,selectorLocation:{method:sel.method,line:sel.sourceRange.start.line,column:sel.sourceRange.start.column}});
+  scanSessions.assertCurrent(scanSnapshot);
   if(proposal.originalHash!==item.analysis.sourceSha256)throw new Error('Original scan hash mismatch; please rescan');
   return proposal;
  });
@@ -205,28 +214,32 @@ async function bootstrap():Promise<void>{
   return repairs.apply({proposalId:q.proposalId,approved:true});
  });
  ipcMain.handle('usshm:managed-revisions',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number}|null;
+  const q=input as {scanId:string;itemIndex:number}|null;
   if(!q||!Number.isInteger(q.itemIndex)||q.itemIndex<0)throw new Error('Invalid managed revision item index');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
  });
  ipcMain.handle('usshm:export-managed',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number}|null;
+  const q=input as {scanId:string;itemIndex:number}|null;
   if(!q||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0)throw new Error('Invalid managed export script index');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Source script is not authorized');
   const suggested=basename(item.path).replace(/\.user\.js$/i,'')+'-repaired.user.js';
   const save=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),suggested),
    filters:[{name:'Tampermonkey UserScript',extensions:['js']}]});
   if(save.canceled||!save.filePath)return {canceled:true};
+  scanSessions.assertCurrent(scanSnapshot);
   const receipt=await exportManagedCurrent({managedRoot:dataRoot,scriptId:item.scriptId,destinationPath:save.filePath});
   return {canceled:false,...receipt};
  });
  ipcMain.handle('usshm:rollback-managed',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number;hash:string;approved:true}|null;
+  const q=input as {scanId:string;itemIndex:number;hash:string;approved:true}|null;
   if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||q.itemIndex<0||typeof q.hash!=='string'||!/^[a-f0-9]{64}$/.test(q.hash))throw new Error('Explicit managed revision rollback approval required');
-  const item=lastScan?.items[q.itemIndex];
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return activateManagedRevision({managedRoot:dataRoot,scriptId:item.scriptId,hash:q.hash,approved:true});
  });
