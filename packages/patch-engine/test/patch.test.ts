@@ -44,3 +44,14 @@ test('same selector in multiple calls can patch only the explicitly selected AST
  assert.equal(draft.proposedSource,'document.querySelector("#old");\ndocument.querySelector("#new");');
  assert.throws(()=>proposeLiteralPatch({sourceBytes:bytes,oldSelector:'#old',newSelector:'#new',selectorLocation:{method:'getElementById',line:2,column:1}}),/exactly one|location/i);
 });
+
+test('patch refuses non-UTF-8 source bytes instead of silently replacing invalid characters',()=>{
+ const a=new TextEncoder().encode('document.querySelector("#old");');
+ const input=new Uint8Array([...a,0xff]);
+ assert.throws(()=>proposeLiteralPatch({sourceBytes:input,oldSelector:'#old',newSelector:'#new'}),/UTF-8/i);
+});
+test('no-substitution template literal is precisely patchable without running script code',()=>{
+ const source='document.querySelector(`#old`);\nconst untouched=`keep`;\n';
+ const d=proposeLiteralPatch({sourceBytes:new TextEncoder().encode(source),oldSelector:'#old',newSelector:'#new'});
+ assert.equal(d.proposedSource,'document.querySelector("#new");\nconst untouched=`keep`;\n');
+});
