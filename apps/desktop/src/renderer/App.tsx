@@ -12,7 +12,7 @@ import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 
 declare global {interface Window{ussm:{
- getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string}>;
+ getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  batchDiagnose:(input:{targetId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
@@ -30,7 +30,7 @@ declare global {interface Window{ussm:{
 }}}
 const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
- const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string}|null>(null);
+ const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
  const [paths,setPaths]=useState<string[]>([]);const [result,setResult]=useState<ScanBatchResult|null>(null);
  const [history,setHistory]=useState<ScriptRecord[]>([]);const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
@@ -54,7 +54,7 @@ function App(){
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
- useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);}).catch(e=>setError(String(e)));},[]);
+ useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
