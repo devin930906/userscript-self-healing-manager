@@ -27,7 +27,7 @@ test('batch uses metadata page scope and never probes out-of-scope or invalid sc
  assert.equal(result.items[0]?.missing,1);
  assert.equal(result.items[1]?.checked,0);
  assert.equal(result.items[2]?.needsReview,1);
- assert.equal(identities,2,'validate actual frame before and after each CDP probe');
+ assert.equal(identities,4,'validate page at operation boundaries and on both sides of each CDP probe');
 });
 
 test('batch isolates a failed script probe but refuses to treat navigation as success',async()=>{
@@ -57,4 +57,25 @@ test('strict consent, bounded batch size, bounded selectors and identity reject 
  const failed=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps});
  assert.equal(failed.items[0]?.status,'error');
  assert.match(failed.items[0]?.reason??'',/identity/i);
+});
+
+test('read-only batch never trusts stale page identity even when all scripts are out of scope',async()=>{
+ let probed=0;
+ await assert.rejects(diagnoseScriptsOnPage({
+  items:[items[1]],target:page,consent:true,deps:{
+   confirm:async()=>{throw new Error('CDP page navigated before scope evaluation');},
+   probe:async()=>{probed++;throw new Error('not called');},
+  },
+ }),/navigated/);
+ assert.equal(probed,0);
+});
+test('read-only batch performs final identity recheck when all scripts have no static selectors',async()=>{
+ let checks=0;
+ await assert.rejects(diagnoseScriptsOnPage({
+  items:[items[2]],target:page,consent:true,deps:{
+   confirm:async()=>{checks++;return {targetId:page.id,confirmedUrl:checks===1?page.url:'https://other.example'};},
+   probe:async()=>{throw new Error('no static locators');},
+  },
+ }),/identity/i);
+ assert.equal(checks,2);
 });
