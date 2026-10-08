@@ -16,6 +16,8 @@ import {buildChromeLaunchArgs,getChromeStatus} from '../packages/cdp-client/src/
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
+import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
+import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
 const candidates=[
@@ -85,8 +87,18 @@ try{
  ]);
  assert.deepEqual(result.checks.map(x=>x.status),['found','found','missing']);
  assert.deepEqual(result.checks.map(x=>x.matchCount),[1,1,0]);
+ // Exercise the actual offline-first repair recommendation flow against Chrome.
+ const evidence=await captureCandidateNodes(selected);
+ assert.ok(evidence.nodes.some(x=>x.attributes.id==='heal-button'));
+ const candidates=await suggestCandidateRepairs({
+  target:{id:selected.id,url:selected.url},
+  locator:{method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
+  deps:{probe:(locators)=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+ });
+ assert.ok(candidates.some(x=>x.expression==='#heal-button'&&x.validationLevel==='dom-candidate-verified'),
+  'a missing selector should yield a uniquely matched, DOM-confirmed candidate');
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: frame identity, count-only DOM snapshot, selectors [found,found,missing].');
+ console.log('PASS real Chrome CDP: frame identity, DOM snapshot, selectors [found,found,missing], candidate capture and confirmation.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
