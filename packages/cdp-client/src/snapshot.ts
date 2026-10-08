@@ -1,5 +1,8 @@
 import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
+const MAX_SNAPSHOT_BYTES=5_000_000;
+const MAX_SNAPSHOT_DOCUMENTS=64;
+const MAX_SNAPSHOT_NODES=200_000;
 export interface SocketLike {
  addEventListener(type:'open'|'message'|'error'|'close',listener:(event:any)=>void):void;
  removeEventListener(type:'open'|'message'|'error'|'close',listener:(event:any)=>void):void;
@@ -24,12 +27,18 @@ export async function captureDomSummary(target:ChromeTarget,options:{socketFacto
   const onOpen=()=>{try{socket.send(JSON.stringify({id:1,method:'DOMSnapshot.captureSnapshot',params:{computedStyles:[],includePaintOrder:false,includeDOMRects:false}}));}catch(error){complete(error instanceof Error?error:new Error('Cannot send CDP snapshot request'));}};
   const onMessage=(event:{data:unknown})=>{
    try{
-    const message=JSON.parse(String(event.data));if(message.id!==1)return;
+    if(typeof event.data!=='string'||event.data.length>MAX_SNAPSHOT_BYTES)throw new Error('CDP DOM snapshot payload limit exceeded');
+    const message=JSON.parse(event.data);if(message.id!==1)return;
     if(message.error)throw new Error('CDP snapshot failed');
     const documents=message.result?.documents;
     if(!Array.isArray(documents)||documents.length===0)throw new Error('Invalid DOM snapshot response');
+    if(documents.length>MAX_SNAPSHOT_DOCUMENTS)throw new Error('CDP DOM snapshot document count limit exceeded');
     let count=0;
-    for(const doc of documents){if(!Array.isArray(doc?.nodes?.nodeName))throw new Error('Invalid DOM snapshot nodes');count+=doc.nodes.nodeName.length;}
+    for(const doc of documents){
+     if(!Array.isArray(doc?.nodes?.nodeName))throw new Error('Invalid DOM snapshot nodes');
+     count+=doc.nodes.nodeName.length;
+     if(count>MAX_SNAPSHOT_NODES)throw new Error('CDP DOM snapshot node count limit exceeded');
+    }
     complete(undefined,{targetId:target.id,url:target.url,documentCount:documents.length,nodeCount:count,validationLevel:'evidence-only'});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP response'));}
   };
