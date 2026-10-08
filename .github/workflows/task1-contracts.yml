@@ -11,6 +11,9 @@ on:
       - "packages/contracts/**"
   workflow_dispatch:
 
+concurrency:
+  group: usshm-contracts-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 
