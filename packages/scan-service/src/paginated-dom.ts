@@ -14,7 +14,7 @@ export interface PaginatedDomProgress extends BatchDomResult {
 }
 function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,expectedItems}:{
  offset:number;total:number;targetId:string;pageUrl:string|null;
- expectedItems?:readonly {scriptId?:string|undefined;path:string}[];
+ expectedItems:readonly {scriptId?:string|undefined;path:string}[]|undefined;
 }):void{
  const count=Math.min(25,total-offset);
  if(page.validationLevel!=='dom-only'||page.pageTargetId!==targetId||
