@@ -2,7 +2,7 @@ import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
 
-export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string}
+export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number}
 
 /**
  * Validate the live top-level frame rather than trusting a potentially stale
@@ -42,7 +42,26 @@ export async function confirmPageIdentity(
     const url=response.result?.frameTree?.frame?.url;
     if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL (urlType='+typeof url+', responseFields='+Object.keys(response.result??{}).slice(0,5).join(',')+')');
     if(url!==target.url)throw new Error('CDP page URL changed or frame identity mismatch');
-    complete(undefined,{targetId:target.id,confirmedUrl:url});
+    // Record only the number of nested browsing contexts; never expose child
+    // URLs (which could contain private query parameters) to UI/reports.
+    // Depth and count are bounded independently of the WebSocket response cap.
+    const frameTree=response.result?.frameTree;
+    const queue:unknown[]=[frameTree];
+    let nestedFrames=0;
+    for(let index=0;index<queue.length;index++){
+     const node=queue[index] as {frame?:{id?:unknown};childFrames?:unknown}|null;
+     if(!node||!node.frame||typeof node.frame.id!=='string')
+      throw new Error('Invalid nested CDP frame tree');
+     if(node.childFrames!==undefined){
+      if(!Array.isArray(node.childFrames))throw new Error('Invalid nested CDP frame list');
+      nestedFrames+=node.childFrames.length;
+      if(nestedFrames>64)throw new Error('CDP nested frame limit exceeded');
+      queue.push(...node.childFrames);
+     }
+    }
+    complete(undefined,nestedFrames>0?
+     {targetId:target.id,confirmedUrl:url,subframeCount:nestedFrames}:
+     {targetId:target.id,confirmedUrl:url});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP frame tree'));}
   };
   const onError=()=>complete(new Error('CDP page identity socket error'));
