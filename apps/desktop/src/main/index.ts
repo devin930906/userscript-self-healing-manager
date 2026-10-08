@@ -16,6 +16,7 @@ import {listManagedRevisions,activateManagedRevision} from '../../../../packages
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
+import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:ScanBatchResult|null=null;
@@ -106,6 +107,21 @@ async function bootstrap():Promise<void>{
   // Fail closed if the selected page navigated while snapshots were being collected.
   await confirmPageIdentity(selected);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
+ });
+ ipcMain.handle('usshm:batch-diagnose',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {targetId:string;approved:true}|null;
+  if(!q||q.approved!==true||typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128)
+   throw new Error('Explicit CDP page consent required for batch diagnosis');
+  if(!lastScan)throw new Error('No imported scripts in current scan');
+  const status=await getChromeStatus({port:9223});
+  const selected=status.pages.find(p=>p.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page is no longer available');
+  // Bounded first page of scripts; no untrusted JS execution and no source writes.
+  const checked=lastScan.items.slice(0,25);
+  const result=await diagnoseScriptsOnPage({items:checked,target:selected,consent:true,deps:{
+   confirm:confirmPageIdentity,probe:probePageLocators,
+  }});
+  return {...result,remainingItems:Math.max(0,lastScan.items.length-checked.length)};
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
