@@ -51,6 +51,20 @@ export async function activateManagedRevision({managedRoot,scriptId,hash,approve
  }
  if(!bytes)throw new Error('Revision hash not found in managed archive');
  const activePath=join(folder,'current.user.js');
+ // Fail closed: never silently discard edits made to current.user.js outside this manager.
+ let existingInfo:Awaited<ReturnType<typeof lstat>>|undefined;
+ try{existingInfo=await lstat(activePath);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ if(existingInfo){
+  if(!existingInfo.isFile()||existingInfo.isSymbolicLink())throw new Error('Unsafe managed current file: symlink or non-regular file');
+  if(existingInfo.size>512*1024)throw new Error('Managed current file is too large');
+  const currentHash=hashBytes(await readFile(activePath));
+  let isArchived=false;
+  for(const kind of ['revision','original'] as const){
+   try{await verifiedArchive(folder,kind+'-'+currentHash+'.user.js',currentHash);isArchived=true;break;}
+   catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+  }
+  if(!isArchived)throw new Error('Managed current contains unmanaged external edits; preserve them before restoring');
+ }
  const temporary=join(folder,'current-'+randomUUID()+'.tmp');
  try{
   await writeFile(temporary,bytes,{flag:'wx',mode:0o600});
