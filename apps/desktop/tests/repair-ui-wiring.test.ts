@@ -21,3 +21,10 @@ test('preload exposes named proposal and approval only',async()=>{
  assert.match(p,/applyRepair:/);
  assert.ok(!p.includes('writeFile('));
 });
+
+test('desktop IPC validates stable original source hash rather than rejecting a second managed repair',async()=>{
+ const m=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const ipc=m.split("ipcMain.handle('usshm:propose-repair'")[1]?.split("ipcMain.handle('usshm:apply-repair'")[0]??'';
+ assert.match(ipc,/proposal\.originalHash!==item\.analysis\.sourceSha256/);
+ assert.doesNotMatch(ipc,/proposal\.baseHash!==item\.analysis\.sourceSha256/);
+});
