@@ -13,11 +13,13 @@ const sha=(bytes:Uint8Array|string)=>createHash('sha256').update(bytes).digest('
 export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selectorLocation}:{sourceBytes:Uint8Array;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):LiteralPatchDraft{
  if(!oldSelector||!newSelector||newSelector.length>1024)throw new Error('Selectors must be nonempty and short');
  const hasBom=sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191;
- const text=new TextDecoder().decode(sourceBytes);
+ let text:string;
+ try{text=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);}
+ catch{throw new Error('Source encoding is not valid UTF-8; refusing patch');}
  const file=ts.createSourceFile('script.user.js',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
- const matches:ts.StringLiteral[]=[];
+ const matches:ts.StringLiteralLike[]=[];
  function visit(node:ts.Node):void{
-  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])&&node.arguments[0].text===oldSelector){
+  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])&&node.arguments[0].text===oldSelector){
    const pos=file.getLineAndCharacterOfPosition(node.getStart(file));
    if(!selectorLocation||(selectorLocation.method===node.expression.name.text&&selectorLocation.line===pos.line+1&&selectorLocation.column===pos.character+1))
     matches.push(node.arguments[0]);
