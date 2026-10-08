@@ -41,3 +41,12 @@ test('rejects unsafe source and oversized selectors',async()=>withSource(async(s
  await assert.rejects(flow.propose({sourcePath,oldSelector:'#old',newSelector:'x'.repeat(1025),scriptId:'a'}),/short|selector/i);
  await assert.rejects(flow.propose({sourcePath:managedRoot,oldSelector:'#old',newSelector:'#new',scriptId:'a'}));
 }));
+
+test('applying a reviewed patch updates the managed current copy, never source',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});const original=await readFile(sourcePath);
+ const proposal=await flow.propose({sourcePath,scriptId:'safe-script',oldSelector:'#old',newSelector:'#now'});
+ const receipt=await flow.apply({proposalId:proposal.proposalId,approved:true});
+ assert.match(await readFile(join(managedRoot,'managed','safe-script','current.user.js'),'utf8'),/#now/);
+ assert.equal(await readFile(receipt.managedPath,'utf8'),await readFile(join(managedRoot,'managed','safe-script','current.user.js'),'utf8'));
+ assert.deepEqual(await readFile(sourcePath),original);
+}));

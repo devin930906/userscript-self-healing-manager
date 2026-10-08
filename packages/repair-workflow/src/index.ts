@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {readFile,lstat} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
 import {applyManagedPatch,proposeLiteralPatch,type LiteralPatchDraft} from '../../patch-engine/src/index.ts';
+import {activateManagedRevision} from './history.ts';
 export interface ProposalReceipt {
  proposalId:string;scriptId:string;oldSelector:string;newSelector:string;
  baseHash:string;proposedHash:string;preview:string;
@@ -33,7 +34,9 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    const found=pending.get(proposalId);
    if(!found)throw new Error('Proposal not found or already applied');
    pending.delete(proposalId);
-   return applyManagedPatch({sourcePath:found.sourcePath,managedRoot,scriptId:found.scriptId,draft:found.draft,expectedHash:found.draft.baseHash,approved:true});
+   const receipt=await applyManagedPatch({sourcePath:found.sourcePath,managedRoot,scriptId:found.scriptId,draft:found.draft,expectedHash:found.draft.baseHash,approved:true});
+   await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,approved:true});
+   return receipt;
   },
  };
 }
