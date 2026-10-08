@@ -13,6 +13,7 @@ import {probePageLocators} from '../../../../packages/cdp-client/src/locator-pro
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
+import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:ScanBatchResult|null=null;
@@ -84,6 +85,7 @@ async function bootstrap():Promise<void>{
   if(!item||!item.analysis)throw new Error('No imported script for this scan index');
   const status=await getChromeStatus({port:9223});const selected=status.pages.find(x=>x.id===q.targetId);
   if(!selected)throw new Error('Selected CDP page target no longer exists');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   if(!selected.webSocketDebuggerUrl)throw new Error('CDP page has no debugger endpoint');
   // Read-only evidence. No userscript execution, no page text transmitted to renderer.
   const summary=await captureDomSummary(selected);
@@ -100,6 +102,7 @@ async function bootstrap():Promise<void>{
   if(!record||record.runtimeRequired)throw new Error('A literal selector is required');
   const status=await getChromeStatus({port:9223});const selected=status.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
   return suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
    probe:(locators)=>probePageLocators(selected,locators),

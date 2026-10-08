@@ -16,3 +16,8 @@ test('UI only offers candidates for currently missing selectors and populates ma
  assert.match(code,/setRepairNew\(candidate\.expression\)/);
  assert.match(code,/候选不代表功能验证通过/);
 });
+test('candidate IPC rejects target pages outside userscript @match rules',async()=>{
+ const code=await readFile('apps/desktop/src/main/index.ts','utf8');
+ assert.match(code,/checkUserscriptPageScope\(item\.analysis\.metadata,selected\.url\)/);
+ assert.match(code,/scope\.status!=='allowed'/);
+});
