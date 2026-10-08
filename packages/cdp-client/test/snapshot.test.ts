@@ -26,3 +26,7 @@ test('DOMSnapshot rejects untrusted socket locations',async()=>{
 test('DOMSnapshot cannot falsely pass malformed responses',async()=>{
  await assert.rejects(captureDomSummary(target,{socketFactory:()=>new FakeSocket({documents:[]}) as any}),/snapshot/);
 });
+
+test('DOM summary refuses redirect to unrelated loopback debugger ports',async()=>{
+ await assert.rejects(captureDomSummary({...target,webSocketDebuggerUrl:'ws://127.0.0.1:9224/devtools/page/p1'}),/port/i);
+});

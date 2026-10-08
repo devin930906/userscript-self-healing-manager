@@ -31,3 +31,7 @@ test('invalid snapshot and oversized documents must not produce guessed candidat
  const huge={strings:['BUTTON'],documents:[{nodes:{nodeName:Array.from({length:5001},()=>0),attributes:Array.from({length:5001},()=>[])}}]};
  await assert.rejects(captureCandidateNodes(target,{socketFactory:()=>new FakeSocket(huge)}),/limit/i);
 });
+
+test('candidate snapshot blocks cross-port local CDP target redirect',async()=>{
+ await assert.rejects(captureCandidateNodes({...target,webSocketDebuggerUrl:'ws://localhost:9224/devtools/page/p1'}),/port/i);
+});

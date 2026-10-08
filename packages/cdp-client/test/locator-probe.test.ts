@@ -41,3 +41,7 @@ test('invalid CDP document root is rejected',async()=>{
  const socket=new ProtocolSocket({'DOM.getDocument':()=>({root:{nodeId:0}})});
  await assert.rejects(probePageLocators(page,[{method:'querySelector',expression:'div',runtimeRequired:false}],{socketFactory:()=>socket}),/document root/);
 });
+
+test('page locator checks refuse a different local debugger port',async()=>{
+ await assert.rejects(probePageLocators({...page,webSocketDebuggerUrl:'ws://127.0.0.1:9224/devtools/page/alpha'},[{method:'querySelector',expression:'div',runtimeRequired:false}]),/port/i);
+});
