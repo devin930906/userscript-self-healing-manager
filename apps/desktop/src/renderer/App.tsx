@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {summarizeLiveLocatorCheck,type LiveLocatorSummary} from '../../../../packages/scan-service/src/health.ts';
 import {createRoot} from 'react-dom/client';
 import type {ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
+import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -11,6 +12,7 @@ import type {ManagedRevision} from '../../../../packages/repair-workflow/src/his
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string}>;
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
+ batchDiagnose:(input:{targetId:string;approved:true})=>Promise<BatchDomResult&{remainingItems:number}>;
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
  proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
@@ -32,6 +34,7 @@ function App(){
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
  const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
  const [targetId,setTargetId]=useState('');
+ const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [pageProbe,setPageProbe]=useState<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}|null>(null);
  const [watchEnabled,setWatchEnabled]=useState(false);
  const [watchStatus,setWatchStatus]=useState<LiveLocatorSummary|null>(null);
@@ -48,6 +51,7 @@ function App(){
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
+ useEffect(()=>{setBatchResult(null);},[targetId,result]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId)return;
   let cancelled=false;
@@ -84,6 +88,16 @@ function App(){
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('已请求启动选定 Chrome；请点击检查 CDP 连接确认握手成功。');}catch(e){setError(String(e));}}
  async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 已启动；这是新的独立资料目录，不包含原有登录信息和扩展。请检查 CDP 握手。');}catch(e){setError(String(e));}}
  async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${String(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
+ async function batchDiagnose(){
+  if(!targetId||!result)return;
+  setBusy(true);setError('');setBatchResult(null);
+  try{
+   const evidence=await window.ussm.batchDiagnose({targetId,approved:true});
+   setBatchResult(evidence);
+   setMessage('批量网页诊断完成：已检查 '+evidence.totalItems+' 份脚本；结果仅为 DOM 证据，不代表功能恢复。');
+  }catch(error){setError('批量网页诊断失败：'+String(error));}
+  finally{setBusy(false);}
+ }
  async function probePage(){if(focused===null||!targetId)return;
   setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
   try{const r=await window.ussm.probeLocators({itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
@@ -136,6 +150,14 @@ function App(){
      <p className="dim">如 Chrome 136+ 的现有资料目录禁用远程调试，可主动使用隔离模式；资料保存在本软件 Data/Chrome-CDP-Profile。不会使用原有 Chrome 的登录状态或扩展，需要自行安装 Tampermonkey 与测试脚本。</p>
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
+    <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button><span className="dim">对本次导入的前 25 份脚本依次做范围验证、DOM 定位器检查；需要先选定同一网页。</span></div>
+    <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。</p>
+    {batchResult&&<div className="batch-diagnosis">
+      <div className="notice">批量诊断结果：{batchResult.totalItems} 份 · 页面：{batchResult.pageUrl} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份未检查（每次上限 25 份）`:'本次扫描范围已全部处理'}</div>
+      <div className="table-wrapper"><table><thead><tr><th>脚本</th><th>结果（仅 DOM）</th><th>已检查</th><th>匹配</th><th>缺失</th><th>需复核</th></tr></thead><tbody>
+       {batchResult.items.map(row=><tr key={row.index}><td title={row.path}>{nameOf(row.path)}</td><td>{row.status==='locator-missing'?'有选择器缺失':row.status==='dom-present'?'DOM 有匹配':row.status==='out-of-scope'?'不在脚本匹配范围':row.status==='needs-review'?'需要运行时复核':row.status==='skipped'?'跳过':row.status==='error'?'检查失败':'无定位器证据'}{row.reason&&<small>{row.reason}</small>}</td><td>{row.checked}</td><td>{row.found}</td><td>{row.missing}</td><td>{row.needsReview}</td></tr>)}
+      </tbody></table></div>
+    </div>}
    </section>
    {(error||message)&&<div role="status" className={'notice '+(error?'error':'')}>{error||message}</div>}
    <section className="panel"><div className="panel-head"><div><h2>静态诊断结果</h2><p>每个脚本独立显示解析状态与需要运行时确认的定位器。</p></div><div className="actions small"><button disabled={!result} className="secondary" onClick={()=>void exportReport('json')}>导出 JSON</button><button disabled={!result} className="secondary" onClick={()=>void exportReport('markdown')}>导出 Markdown</button></div></div>
