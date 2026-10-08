@@ -12,7 +12,7 @@ export interface ScanBatchResult {
 }
 export async function runStaticScan(request:ScanRequest,deps:{repository:ScriptRepository}):Promise<ScanBatchResult>{
  if(!Number.isSafeInteger(request.maxFiles)||request.maxFiles<1||request.paths.length>request.maxFiles)throw new Error('limit-exceeded');
- const results=await importPaths({paths:request.paths,recursive:request.recursive,repository:deps.repository});
+ const results=await importPaths({paths:request.paths,recursive:request.recursive,repository:deps.repository,maxFiles:request.maxFiles});
  if(results.length>request.maxFiles)throw new Error('limit-exceeded');
  const items:ScanItemResult[]=results.map(r=>({path:r.path,scriptId:r.scriptId,status:r.status==='imported'?'parsed':r.status==='parse-error'?'parse-error':r.status==='unreadable'?'unreadable':'skipped',selectorCount:r.analysis?.selectorRecords.length??0,runtimeRequiredCount:r.analysis?.selectorRecords.filter(x=>x.runtimeRequired).length??0,diagnostics:r.analysis?.parseDiagnostics??(r.message?[r.message]:[]),analysis:r.analysis}));
  return {scanMode:'static-only',createdAt:new Date().toISOString(),requestedCount:request.paths.length,enumeratedCount:results.length,processedCount:items.length,passedCount:items.filter(x=>x.status==='parsed').length,errorCount:items.filter(x=>x.status==='parse-error'||x.status==='unreadable').length,items};
