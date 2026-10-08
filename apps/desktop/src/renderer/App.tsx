@@ -17,7 +17,7 @@ declare global {interface Window{ussm:{
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  batchDiagnose:(input:{targetId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
- suggestRepairsBulk:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<BulkCandidateResult>;
+ suggestRepairsBulk:(input:{itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  listManagedRevisions:(input:{itemIndex:number})=>Promise<ManagedRevision[]>;
@@ -130,14 +130,21 @@ function App(){
   try{const r=await window.ussm.probeLocators({itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
   catch(e){setError('页面定位器核验失败：'+String(e));}finally{setBusy(false);}
  }
- async function suggestBulkRepairs(){
+ async function suggestBulkRepairs(offset=0){
   if(focused===null||!targetId)return;
-  setBusy(true);setError('');setBulkRepairResults(null);
+  setBusy(true);setError('');
+  if(offset===0)setBulkRepairResults(null);
   try{
-   const suggestions=await window.ussm.suggestRepairsBulk({itemIndex:focused,targetId,approved:true});
-   setBulkRepairResults(suggestions);
+   const suggestions=await window.ussm.suggestRepairsBulk({itemIndex:focused,targetId,approved:true,offset});
+   if(offset!==0&&(!bulkRepairResults||bulkRepairResults.checkedMissing!==offset||
+    bulkRepairResults.pageUrl!==suggestions.pageUrl||
+    bulkRepairResults.pageTargetId!==suggestions.pageTargetId||
+    bulkRepairResults.totalMissing!==suggestions.totalMissing))
+    throw new Error('批量候选页面或结果数量发生变化，请重新检查');
+   setBulkRepairResults(previous=>offset>0&&previous?
+    {...suggestions,items:[...previous.items,...suggestions.items]}:suggestions);
    setMessage('批量候选只基于当前 DOM 的唯一匹配结果；不会执行脚本或自动写入补丁。');
-  }catch(error){setError('批量候选检查失败：'+String(error));}
+  }catch(error){setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));}
   finally{setBusy(false);}
  }
  async function suggestRepair(){if(focused===null||!targetId||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
@@ -233,6 +240,7 @@ function App(){
        <button type="button" className="secondary" disabled={busy} onClick={()=>{setWatchEnabled(false);setRepairIndex(row.selectorIndex);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用并生成预览前复核</button>
       </div>)}
      </div>)}
+     {bulkRepairResults.remainingMissing>0&&<button type="button" className="secondary" disabled={busy} onClick={()=>void suggestBulkRepairs(bulkRepairResults.checkedMissing)}>继续下一组修复候选</button>}
     </div>}
     {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setWatchEnabled(false);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
     {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button></div>}
