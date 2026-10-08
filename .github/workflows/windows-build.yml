@@ -61,6 +61,29 @@ jobs:
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
+      - name: Smoke-check single-file Portable EXE
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem release -File -Filter '*-Portable-*.exe' | Select-Object -First 1
+          if (!$portable) { throw 'Missing Portable.exe' }
+          $root = Join-Path $env:RUNNER_TEMP 'usshm-portable-exe-smoke'
+          New-Item -Path $root -ItemType Directory -Force | Out-Null
+          $exe = Join-Path $root $portable.Name
+          Copy-Item $portable.FullName $exe -Force
+          $db = Join-Path $root 'Data/registry.sqlite'
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+            $ok = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              if (Test-Path $db) { $ok = $true; break }
+              Start-Sleep -Seconds 1
+            }
+            if (!$ok) { throw 'Portable single-file EXE did not initialize adjacent Data/registry.sqlite' }
+            Write-Host 'Smoke PASS: Portable EXE initialized data beside external EXE'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Generate SHA256 manifest
         shell: pwsh
         run: |
