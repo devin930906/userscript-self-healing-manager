@@ -30,3 +30,12 @@ test('CDP target from /json/list cannot redirect probes to another local port',a
   await assert.rejects(getChromeStatus({port:address.port}),/port/i);}
  finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
+
+test('explicit isolated Chrome profile can be enabled without changing default Chrome launch flags',()=>{
+ const defaults=buildChromeLaunchArgs(9223);
+ assert.equal(defaults.some(x=>x.startsWith('--user-data-dir=')),false);
+ const args=buildChromeLaunchArgs(9223,{isolatedProfileDir:'C:\\\\USSHM Data\\\\Chrome-CDP-Profile'});
+ assert.ok(args.some(x=>x.startsWith('--user-data-dir=')));
+ assert.equal(args.filter(x=>x.startsWith('--user-data-dir=')).length,1);
+ assert.throws(()=>buildChromeLaunchArgs(9223,{isolatedProfileDir:'relative/profile'}),/absolute/i);
+});

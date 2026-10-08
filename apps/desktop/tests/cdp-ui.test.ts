@@ -5,3 +5,14 @@ test('Chrome CDP connection is user-triggered and exposed only through named IPC
  assert.match(b,/pickChrome/);assert.match(b,/launchChrome/);assert.match(b,/getCdpStatus/);
  assert.match(c,/选择 Chrome/);assert.match(c,/检查 CDP 连接/);assert.match(c,/未验证是否为已选择的 Chrome/);
 });
+
+test('separate isolated Chrome debug profile requires explicit user action in UI',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const renderer=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(main,/ipcMain\.handle\('usshm:launch-isolated-chrome'/);
+ assert.match(main,/Chrome-CDP-Profile/);
+ assert.match(preload,/launchIsolatedChrome:/);
+ assert.match(renderer,/启动隔离调试 Chrome/);
+ assert.match(renderer,/不会使用原有 Chrome 的登录状态/);
+});
