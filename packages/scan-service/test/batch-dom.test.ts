@@ -97,3 +97,15 @@ test('unsupported scope metadata remains needs-review, never falsely out-of-scop
  assert.ok(result.items.every(row=>row.needsReview>=1));
  assert.equal(probes,0);
 });
+
+test('unverified iframe contexts prevent a false missing or out-of-scope verdict for the whole userscript',async()=>{
+ const result=await diagnoseScriptsOnPage({items:[items[0],items[1]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,subframeCount:2}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+ }});
+ assert.deepEqual(result.items.map(x=>x.status),['needs-review','needs-review']);
+ assert.ok(result.items.every(x=>(x.reason??'').includes('iframe')));
+ assert.ok(result.items.every(x=>x.needsReview>=1));
+ assert.equal(result.items[0]?.missing,0);
+});
