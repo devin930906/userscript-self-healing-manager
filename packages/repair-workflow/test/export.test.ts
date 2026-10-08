@@ -43,5 +43,6 @@ test('export blocks managed-root destinations and existing symlink outputs',asyn
   const outside=join(q.root,'outside.user.js');
   try{await symlink(outside,join(q.root,'shortcut.user.js'));}catch(e){if(['EPERM','EACCES'].includes((e as NodeJS.ErrnoException).code??'')){t.skip('Cannot create symlink');return;}throw e;}
   await assert.rejects(exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',destinationPath:join(q.root,'shortcut.user.js')}),/exists|overwrite/i);
+  await assert.rejects(readFile(outside),{code:'ENOENT'});
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
