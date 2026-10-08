@@ -18,6 +18,7 @@ declare global {interface Window{ussm:{
  applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  listManagedRevisions:(input:{itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
+ exportManaged:(input:{itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -140,6 +141,13 @@ function App(){
   try{setManagedRevisions(await window.ussm.listManagedRevisions({itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+String(e));}finally{setBusy(false);}
  }
+ async function exportManaged(){if(focused===null)return;
+  setBusy(true);setError('');
+  try{const exported=await window.ussm.exportManaged({itemIndex:focused});
+   if(!exported.canceled)setMessage('已安全导出受管脚本：'+exported.path+'。仍需在 Tampermonkey 导入并验证实际功能。');
+  }catch(error){setError('导出受管脚本失败：'+String(error));}
+  finally{setBusy(false);}
+ }
  async function rollbackManaged(hash:string){if(focused===null)return;
   setBusy(true);setError('');setRepairProposal(null);
   try{const result=await window.ussm.rollbackManaged({itemIndex:focused,hash,approved:true});setManagedActive(result);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
@@ -201,6 +209,8 @@ function App(){
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p></div>}
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
+     <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
+     <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
      {managedActive&&<p className="dim">当前受管副本：<code>{managedActive.activePath}</code> · SHA256 {managedActive.hash.slice(0,12)}…</p>}
      {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
     </section>
