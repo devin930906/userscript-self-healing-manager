@@ -174,3 +174,12 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **GREEN**：`includePattern` 只对 scheme / host 进行大小写规范化，保留 path/query 原文进行有界 glob 匹配；没有用正则动态执行脚本 metadata。提交 `c154fafbebaa239ad8bb6b57edffb4dfd4cff778`。
 - **Windows 自动验证**：[Development CI #37811659144](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37811659144) **168/168 测试 PASS，TypeScript PASS，Electron build PASS，真实 Chrome CDP smoke PASS**。Chrome 冒烟包含已有的 preferred executable reload、51 脚本分页与批量候选、累积修复、导出与回滚。
 - 未使用实际 Tampermonkey/GM_* 或指定 Win10 便携 Chrome 155；本次没有生成中途安装包、发布 Stable 或合并 main。此限制继续约束发布门禁。
+
+
+## 2026-10-09：UserScript 元数据空行容错
+
+- 根因：`parseUserscriptMetadata` 遇到 header 内的空行直接停止，因此遗漏了后面的 `@match/@grant`，使真实脚本被误判为缺失站点生效规则。
+- [RED #37812006993](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37812006993)：新增空行容错与元数据结束标记回归；170 tests 中 1 项失败，明确复现。
+- 修复：header 内空行继续解析；遇到 `// ==/UserScript==` 或真正的非注释可执行代码立即停止，仍不会读取正文中的伪造元数据。提交 `193d5116a231c542d190359ca1355af2d155f56e`。
+- [GREEN #37812131995](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37812131995)：**170/170 tests PASS、0 failures**；TypeScript、Electron 构建与真实隔离 Chrome CDP 冒烟全部 PASS。
+- 保持 PR #2 Draft；没有测试真实 Tampermonkey 或用户 Windows 10 便携 Chrome 155、没有生成中途安装包，不能据此声称 Stable 完成。
