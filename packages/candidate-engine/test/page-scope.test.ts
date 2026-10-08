@@ -45,3 +45,11 @@ test('many wildcard pieces match deterministically without regular expressions',
  assert.equal(checkUserscriptPageScope(meta([many]),'https://example.com/target').status,'allowed');
  assert.equal(checkUserscriptPageScope(meta([many]),'https://example.com/miss').status,'blocked');
 });
+
+test('unsupported host syntax in exclusion rules cannot silently authorize the page',()=>{
+ const invalid=['*://foo*bar.example.org/*','https://example.org:443/*','https://**.example.org/*'];
+ for(const deny of invalid){
+  const m=meta(['https://example.org/*'],[],{'exclude-match':[deny]});
+  assert.equal(checkUserscriptPageScope(m,'https://example.org/page').status,'unknown',deny);
+ }
+});
