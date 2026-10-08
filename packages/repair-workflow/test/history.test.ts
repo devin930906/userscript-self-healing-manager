@@ -46,3 +46,18 @@ test('rejects tampered and symlinked archived snapshots',async()=>withRevisions(
  await assert.rejects(activateManagedRevision({managedRoot:root,scriptId:'my-script',hash:revisionHash,approved:true}),/symlink/i);
  assert.equal(await readFile(join(folder,'original-'+originalHash+'.user.js'),'utf8'),source);
 }));
+
+test('rollback refuses to overwrite a managed current file with unmanaged external edits',async()=>withRevisions(async(root,_source,_revision,originalHash,revisionHash)=>{
+ const folder=join(root,'managed','my-script');
+ const active=await activateManagedRevision({managedRoot:root,scriptId:'my-script',hash:revisionHash,approved:true});
+ await writeFile(active.activePath,'external content that is not an archived revision');
+ await assert.rejects(activateManagedRevision({managedRoot:root,scriptId:'my-script',hash:originalHash,approved:true}),/unmanaged|modified|external/i);
+ assert.equal(await readFile(active.activePath,'utf8'),'external content that is not an archived revision');
+}));
+test('rollback rejects symlinked managed current file and leaves outside target unchanged',async()=>withRevisions(async(root,_source,_revision,originalHash)=>{
+ const folder=join(root,'managed','my-script'),external=join(root,'keep.txt');
+ await writeFile(external,'outside safety marker');
+ await symlink(external,join(folder,'current.user.js'));
+ await assert.rejects(activateManagedRevision({managedRoot:root,scriptId:'my-script',hash:originalHash,approved:true}),/symlink/i);
+ assert.equal(await readFile(external,'utf8'),'outside safety marker');
+}));
