@@ -183,3 +183,15 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - 修复：header 内空行继续解析；遇到 `// ==/UserScript==` 或真正的非注释可执行代码立即停止，仍不会读取正文中的伪造元数据。提交 `193d5116a231c542d190359ca1355af2d155f56e`。
 - [GREEN #37812131995](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37812131995)：**170/170 tests PASS、0 failures**；TypeScript、Electron 构建与真实隔离 Chrome CDP 冒烟全部 PASS。
 - 保持 PR #2 Draft；没有测试真实 Tampermonkey 或用户 Windows 10 便携 Chrome 155、没有生成中途安装包，不能据此声称 Stable 完成。
+
+
+## 2026-10-09：桌面端累积修复与并发过期保护、元数据伪装防御
+
+本轮在已批准 Native 开发计划下继续执行测试先行。目标不是给 DOM 候选误贴“功能正常”标签，而是修复软件内部可能令用户已有修复成果丢失的错误。
+
+1. **修复 GUI 连续修订假冲突。** `packages/repair-workflow` 在累积补丁时 `baseHash` 代表**当前受管副本**的 SHA-256，原桌面主进程却将其与用户原始扫描文件的 `sourceSha256` 直接比较，从而错误拒绝第二次修复。现在 `ProposalReceipt.originalHash` 单独标记原始源文件的哈希；主进程继续验证扫描原件未变化，但不再错误拒绝合法修订链。首次修订的 `baseHash` 与原件一致，后续修订指向上一受管活动文件的哈希。
+2. **拒绝并发旧预览覆盖。** 同一脚本两个预览都从尚未激活的原件生成时，批准第一个之后再批准第二个旧预览，以前可能把刚批准的结果覆盖。现在 `apply` 会在写入任何修订文件之前核对当前受管副本/归档是否已被创建；已改变则要求重新生成预览。原件 SHA-256 和原始文件始终不变。并发同时提交测试在当前文件系统行为中本来就能因已有哈希校验而拒绝冲突，仅作为补充覆盖，**不能冒充一个 RED 的新缺陷**。
+3. **防止伪造 UserScript 元数据头。** 以前会从任意源码行寻找 `// ==UserScript==`，即使它位于先前 JavaScript 代码之后，也会错误信任后面的 `@match`。现在只识别文件开头最多 128 行的空白/单行注释前缀内的 header，遇到可执行代码立即停止，继续保留元数据块内部合法空行容错。该保守实现可能不支持不规范的前置块注释，宁可显示生效范围未知，也不从 JS 正文伪造站点授权。
+4. **RED/GREEN 审核证据**：GUI 哈希双身份 [RED #37812909243](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37812909243) → [GREEN #37813032419](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37813032419)；旧预览丢失更新 [RED #37813222624](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37813222624) → [GREEN #37813361587](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37813361587)；伪造元数据 [RED #37813656537](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37813656537) → [GREEN #37813778886](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37813778886)。
+5. **最近完整自动验证**：[Windows Development CI #37814024099](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37814024099) 在代码提交 `4f7861cf898663e2fa94506dd850cdaf3a9ca16d` 上 **176/176 自动测试通过、0 失败、TypeScript PASS、Electron 构建 PASS、真实隔离 Chrome CDP 冒烟 PASS**。Chrome 自动冒烟仍包含 51 脚本跨批、候选诊断、连续修订、导出和回滚。
+6. **Release Gate 限制不变**：未验证真实 Tampermonkey/GM_* 以及 iframe/shadow-root、V3/V4/功能恢复；未在用户指定的 Win10 + 便携 Chrome 155 上端到端测试；本轮没有生成中途预览安装包，不合并 main，不发布 Stable，PR #2 保持 Draft。
