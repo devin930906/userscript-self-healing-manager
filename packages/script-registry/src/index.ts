@@ -6,38 +6,47 @@ import type {ScriptRepository} from '../../persistence/src/index.ts';
 
 export interface EnumeratedScript {path:string;status:'found'|'unreadable'|'symlink-skipped'; message?:string|undefined}
 export interface ImportResult {path:string;status:'imported'|'parse-error'|'duplicate-path'|'invalid-extension'|'unreadable'|'too-large'|'symlink-skipped';scriptId?:string|undefined;analysis?:SourceAnalysis|undefined;message?:string|undefined}
-export async function enumerateScripts({paths,recursive,followSymlinks}:{paths:string[];recursive:boolean;followSymlinks:false}):Promise<EnumeratedScript[]>{
+export async function enumerateScripts({paths,recursive,followSymlinks,maxEntries=Number.MAX_SAFE_INTEGER}:{paths:string[];recursive:boolean;followSymlinks:false;maxEntries?:number}):Promise<EnumeratedScript[]>{
+ if(!Number.isSafeInteger(maxEntries)||maxEntries<0)throw new Error('limit-exceeded');
  const output:EnumeratedScript[]=[];const visited=new Set<string>();
+ // Abort during enumeration, not after reading/importing every script in a huge directory.
+ function append(item:EnumeratedScript):void{
+  if(output.length>=maxEntries)throw new Error('limit-exceeded');
+  output.push(item);
+ }
  async function walk(input:string):Promise<void>{
   const absolute=resolve(input);
   let info;
-  try {info=await lstat(absolute);}catch(error){output.push({path:absolute,status:'unreadable',message:String(error)});return;}
-  if(info.isSymbolicLink()){output.push({path:absolute,status:'symlink-skipped'});return;}
+  try {info=await lstat(absolute);}catch(error){append({path:absolute,status:'unreadable',message:String(error)});return;}
+  if(info.isSymbolicLink()){append({path:absolute,status:'symlink-skipped'});return;}
   const key=await realpath(absolute).catch(()=>absolute);
   if(visited.has(key))return;visited.add(key);
   if(info.isDirectory()){
-   let contents:string[];try{contents=await readdir(absolute);}catch(error){output.push({path:absolute,status:'unreadable',message:String(error)});return;}
+   let contents:string[];try{contents=await readdir(absolute);}catch(error){append({path:absolute,status:'unreadable',message:String(error)});return;}
    if(!recursive && paths.every(x=>resolve(x)!==absolute))return;
    for(const name of contents.sort()){
     const target=resolve(absolute,name);const stat=await lstat(target).catch(()=>null);
     if(stat?.isDirectory()&&!recursive)continue;
     await walk(target);
    }
-  } else if(info.isFile() && absolute.endsWith('.user.js'))output.push({path:absolute,status:'found'});
+  } else if(info.isFile() && absolute.endsWith('.user.js'))append({path:absolute,status:'found'});
  }
  for(const path of paths)await walk(path);
  return output;
 }
-export async function importPaths({paths,recursive,repository}:{paths:string[];recursive:boolean;repository:ScriptRepository}):Promise<ImportResult[]>{
+export async function importPaths({paths,recursive,repository,maxFiles=Number.MAX_SAFE_INTEGER}:{paths:string[];recursive:boolean;repository:ScriptRepository;maxFiles?:number}):Promise<ImportResult[]>{
+ if(!Number.isSafeInteger(maxFiles)||maxFiles<1||paths.length>maxFiles)throw new Error('limit-exceeded');
  const output:ImportResult[]=[];
  // Expand directories explicitly; direct file requests preserve invalid-extension feedback.
  const candidates:EnumeratedScript[]=[];
  for(const input of paths){
   const path=resolve(input);const info=await lstat(path).catch(()=>null);
-  if(info?.isDirectory()){candidates.push(...await enumerateScripts({paths:[path],recursive,followSymlinks:false}));}
+  if(info?.isDirectory()){candidates.push(...await enumerateScripts({paths:[path],recursive,followSymlinks:false,maxEntries:maxFiles-candidates.length}));}
   else if(info?.isSymbolicLink())candidates.push({path,status:'symlink-skipped'});
   else candidates.push({path,status:info?'found':'unreadable'});
+  if(candidates.length>maxFiles)throw new Error('limit-exceeded');
  }
+ // Every selected directory is expanded before any bytes are read or SQLite rows are written.
  const seen=new Set<string>();
  for(const entry of candidates){
   const path=entry.path;
