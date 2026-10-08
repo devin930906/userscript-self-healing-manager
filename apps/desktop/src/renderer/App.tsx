@@ -67,12 +67,13 @@ function App(){
  useEffect(()=>{batchGeneration.current++;batchCancel.current=true;setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
+  const currentScanId=result.scanId;
   let cancelled=false;
   async function poll(){
    if(watchRunning.current)return;
    watchRunning.current=true;
    try{
-    const evidence=await window.ussm.probeLocators({scanId:result.scanId,itemIndex:focused!,targetId,approved:true});
+    const evidence=await window.ussm.probeLocators({scanId:currentScanId,itemIndex:focused!,targetId,approved:true});
     if(cancelled)return;
     setPageProbe(evidence);
     setRepairCandidates(null);
