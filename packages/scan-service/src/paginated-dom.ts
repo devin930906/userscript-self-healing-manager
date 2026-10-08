@@ -12,9 +12,6 @@ export interface CompletedDomBatch extends BatchDomResult {
 export interface PaginatedDomProgress extends BatchDomResult {
  readonly remainingItems:number;
 }
-function argumentsForIdentity(expectedItems:readonly {scriptId?:string|undefined;path:string}[]|undefined,index:number){
- return expectedItems?.[index];
-}
 function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,expectedItems}:{
  offset:number;total:number;targetId:string;pageUrl:string|null;
  expectedItems?:readonly {scriptId?:string|undefined;path:string}[];
@@ -31,7 +28,7 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,e
   const row=page.items[i];
   if(row?.index!==offset+i)
    throw new Error('CDP pagination item index mismatch');
-  const expected=argumentsForIdentity(expectedItems,offset+i);
+  const expected=expectedItems?.[offset+i];
   if(expected&&(row?.scriptId!==(expected.scriptId??null)||row.path!==expected.path))
    throw new Error('CDP script identity changed during paginated diagnosis; stale scan evidence rejected');
  }
