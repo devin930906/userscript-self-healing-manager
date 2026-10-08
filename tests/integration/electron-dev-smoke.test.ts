@@ -8,8 +8,8 @@ test('development CI launches built Electron GUI with isolated Windows AppData w
  assert.ok(existsSync(path),'native desktop startup must be verified, not merely compiled');
  const source=readFileSync(path,'utf8');
  assert.match(source,/ELECTRON_RUN_AS_NODE/,'launch GUI Electron rather than Electron-as-Node');
- assert.match(source,/APPDATA/,'use disposable profile rather than real user AppData');
- assert.match(source,/registry\.sqlite/,'wait for real persistent SQLite initialization');
+ assert.match(source,/PORTABLE_EXECUTABLE_DIR/,'use a test-only portable data root, never the runner user profile');
+ assert.match(source,/registry\.sqlite/,'wait for real portable Data SQLite initialization');
  assert.match(source,/taskkill/,'kill only the test-created Electron process tree');
  const workflow=readFileSync('.github/workflows/dev-ci.yml','utf8');
  assert.match(workflow,/node scripts\/smoke-electron-dev\.mjs/);
