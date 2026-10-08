@@ -1,5 +1,5 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
-import {dirname,join,resolve,relative,isAbsolute} from 'node:path';
+import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {existsSync} from 'node:fs';
 import {writeFile,lstat,readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -13,6 +13,7 @@ import {probePageLocators} from '../../../../packages/cdp-client/src/locator-pro
 import {confirmPageIdentity} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {listManagedRevisions,activateManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
+import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
@@ -169,6 +170,18 @@ async function bootstrap():Promise<void>{
   const item=lastScan?.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+ });
+ ipcMain.handle('usshm:export-managed',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number}|null;
+  if(!q||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0)throw new Error('Invalid managed export script index');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Source script is not authorized');
+  const suggested=basename(item.path).replace(/\.user\.js$/i,'')+'-repaired.user.js';
+  const save=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),suggested),
+   filters:[{name:'Tampermonkey UserScript',extensions:['user.js']}]});
+  if(save.canceled||!save.filePath)return {canceled:true};
+  const receipt=await exportManagedCurrent({managedRoot:dataRoot,scriptId:item.scriptId,destinationPath:save.filePath});
+  return {canceled:false,...receipt};
  });
  ipcMain.handle('usshm:rollback-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;hash:string;approved:true}|null;
