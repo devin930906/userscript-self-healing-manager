@@ -8,7 +8,7 @@ test('rollback IPC binds revisions to authorized scanned script rather than arbi
  const s=await main();
  assert.match(s,/ipcMain\.handle\('usshm:managed-revisions'/);
  assert.match(s,/ipcMain\.handle\('usshm:rollback-managed'/);
- assert.match(s,/lastScan\?\.items\[q\.itemIndex\]/);
+ assert.match(s,/scanSnapshot\?\.items\[q\.itemIndex\]/);
  assert.match(s,/withinAuthorized\(item\.path\)/);
  assert.match(s,/activateManagedRevision\(/);
 });
