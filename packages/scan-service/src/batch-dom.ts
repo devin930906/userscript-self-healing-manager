@@ -81,6 +81,8 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   let evidence:LocatorProbeResult;
   try{evidence=await deps.probe(target,locators);}
   catch(error){
+   // Even a failed request may have raced with a navigation; do not accept stale batch context.
+   assertPageIdentity(target,await deps.confirm(target));
    results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:errorMessage(error)});
    continue;
   }
