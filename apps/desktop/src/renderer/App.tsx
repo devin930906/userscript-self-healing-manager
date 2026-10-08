@@ -17,7 +17,7 @@ declare global {interface Window{ussm:{
  rollbackManaged:(input:{itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
- grantDroppedFiles:(files:File[])=>Promise<string[]>;
+ onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
  scan:(request:{paths:string[];recursive:boolean})=>Promise<ScanBatchResult>;
  listScripts:()=>Promise<ScriptRecord[]>;
  exportReport:(format:'json'|'markdown')=>Promise<{canceled:boolean;path?:string}>;
@@ -42,7 +42,11 @@ function App(){
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  async function chooseFiles(){try{const selected=await window.ussm.pickFiles();setPaths(old=>[...new Set([...old,...selected])]);setError('');}catch(e){setError(String(e));}}
  async function chooseDirectory(){try{const selected=await window.ussm.pickDirectory();if(selected)setPaths(old=>[...new Set([...old,selected])]);setError('');}catch(e){setError(String(e));}}
- async function onDrop(event:React.DragEvent<HTMLDivElement>){event.preventDefault();setDragging(false);try{const files=Array.from(event.dataTransfer.files);const allowed=await window.ussm.grantDroppedFiles(files);setPaths(old=>[...new Set([...old,...allowed])]);setMessage(`已接收 ${allowed.length} 个脚本文件`);}catch(e){setError(String(e));}}
+ function onDrop(event:React.DragEvent<HTMLDivElement>){event.preventDefault();setDragging(false);}
+ useEffect(()=>window.ussm.onTrustedDrop(allowed=>{
+  setPaths(old=>[...new Set([...old,...allowed])]);
+  setError('');setMessage('已接收 '+allowed.length+' 个系统拖放的脚本文件');
+ }),[]);
  async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
