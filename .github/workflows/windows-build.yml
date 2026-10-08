@@ -1,7 +1,5 @@
 name: Windows three-edition preview build
 on:
-  push:
-    branches: [feat/v01-continuation]
   workflow_dispatch:
 concurrency:
   group: usshm-windows-${{ github.ref }}
