@@ -9,6 +9,7 @@ import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/workflow.ts';
+import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 
 declare global {interface Window{ussm:{
@@ -16,6 +17,7 @@ declare global {interface Window{ussm:{
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  batchDiagnose:(input:{targetId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
+ suggestRepairsBulk:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  listManagedRevisions:(input:{itemIndex:number})=>Promise<ManagedRevision[]>;
@@ -50,6 +52,7 @@ function App(){
  const watchRunning=useRef(false);
  const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
+ const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
@@ -58,6 +61,7 @@ function App(){
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
+ useEffect(()=>{setBulkRepairResults(null);},[focused,targetId,result]);
  useEffect(()=>{batchGeneration.current++;batchCancel.current=true;setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId)return;
@@ -125,6 +129,16 @@ function App(){
   setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
   try{const r=await window.ussm.probeLocators({itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
   catch(e){setError('页面定位器核验失败：'+String(e));}finally{setBusy(false);}
+ }
+ async function suggestBulkRepairs(){
+  if(focused===null||!targetId)return;
+  setBusy(true);setError('');setBulkRepairResults(null);
+  try{
+   const suggestions=await window.ussm.suggestRepairsBulk({itemIndex:focused,targetId,approved:true});
+   setBulkRepairResults(suggestions);
+   setMessage('批量候选只基于当前 DOM 的唯一匹配结果；不会执行脚本或自动写入补丁。');
+  }catch(error){setError('批量候选检查失败：'+String(error));}
+  finally{setBusy(false);}
  }
  async function suggestRepair(){if(focused===null||!targetId||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
@@ -206,9 +220,20 @@ function App(){
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
      <label>旧选择器<select aria-label="选择需要替换的静态定位器" value={repairIndex} onChange={e=>{setRepairIndex(Number(e.target.value));setRepairProposal(null);setRepairCandidates(null);setRepairNew('');}}>{details.analysis?.selectorRecords.map((s,i)=><option key={i} value={i} disabled={s.runtimeRequired}>{s.method} · {s.expression.slice(0,90)}{s.runtimeRequired?'（动态，不可直接补丁）':''}</option>)}</select></label>
      <label>新的方法参数<input aria-label="输入新选择器" value={repairNew} onChange={e=>{setRepairNew(e.target.value);setRepairProposal(null);}} placeholder={getRepairInputHint(details.analysis?.selectorRecords[repairIndex]?.method)} /></label>
+     <button type="button" disabled={busy||!targetId||!details.analysis} onClick={()=>void suggestBulkRepairs()}>批量生成修复候选（最多 8 处）</button>
      <button disabled={busy||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void suggestRepair()}>生成候选定位器（只读）</button>
      <button disabled={busy||!repairNew.trim()||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired} onClick={()=>void proposeRepair()}>生成修复预览</button>
     </div>
+    {bulkRepairResults&&<div className="notice">
+     <p><b>批量缺失选择器建议</b>：当前前 50 个定位器中可检查的缺失 {bulkRepairResults.totalMissing} 处；已处理 {bulkRepairResults.checkedMissing} 处{bulkRepairResults.remainingMissing>0?`，还有 ${bulkRepairResults.remainingMissing} 处未检查`:''}。仅为 DOM 证据，不自动修改代码。</p>
+     {bulkRepairResults.items.map(row=><div className="selector" key={row.selectorIndex}>
+      <div className="selector-top"><span>源码定位器 {row.selectorIndex+1} · {row.method}</span><code>{row.oldSelector}</code></div>
+      {row.candidates.length===0?<small>没有唯一可验证的候选，请自行核查。</small>:row.candidates.map(candidate=><div key={candidate.expression} className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
+       <code>{candidate.expression}</code><small>排序分 {candidate.confidenceScore} · DOM 唯一匹配，不保证业务逻辑正确</small>
+       <button type="button" className="secondary" disabled={busy} onClick={()=>{setWatchEnabled(false);setRepairIndex(row.selectorIndex);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用并生成预览前复核</button>
+      </div>)}
+     </div>)}
+    </div>}
     {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setWatchEnabled(false);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
     {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button></div>}
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p></div>}
