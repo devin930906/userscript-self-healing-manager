@@ -6,7 +6,10 @@
 - **SQLite DB**：标识、索引、工作流状态、元数据、关系、批次、检查记录、审计、配置、证据引用和版本关系。数据库本身不保存未经脱敏的密钥、完整 DOM 或超大 JS blob。
 - **Content-addressed filesystem store**：脚本原件/版本、AST 索引缓存、DOMSnapshot 脱敏快照、diff、报告和可控日志，使用 `sha256` 内容寻址并引用 `EvidenceId`。
 - **Windows 凭据保护**：AI API Key 使用 OS-backed 密钥能力存储（Electron safeStorage 可作为适配候选，但必须在 Windows 真机确认其回退行为并实施拒绝不安全回退）；不加入日志与导出配置。
-- **项目工作区**：默认位于用户本地 AppData 的应用专用目录（具体路径由操作系统 API 决定）；用户可选管理目录并进行权限检查。不得使用安装包目录储存可变数据。
+- **项目工作区与发行形态**：Setup 安装版默认位于本地系统用户数据目录（具体路径由操作系统 API 决定），与程序安装目录分离；**单文件 Portable.exe** 默认在外部 EXE 所在目录的 `Data/`；**ZIP 解压版** 默认在解压应用文件夹的 `Data/`。便携数据路径不得从单文件 EXE 的临时解包目录推导。所有模式保留用户自定义目录和可写权限验证，拒绝静默降级到不受控的 AppData。参见 [三形式发行规范](../distribution/windows-three-editions.md)。
+
+### 1.1 三形式数据目录策略与迁移
+应用包在构建时嵌入 `distributionMode=installed|portable-exe|portable-zip`；初始化任何数据库、cache/session 之前解析并验证 dataRoot。发布产物不携带真实用户 `Data/`；跨文件夹迁移不得改变 script UUID/revision/hash。API key 存 OS-backed 加密存储，跨 Windows 账户/设备后可能无法解密，必须提示重新录入；不能将密钥输出为 plaintext。
 
 ## 2. 主键与版本约定
 `id` 使用稳定的随机 UUID，禁止仅根据文件名或网站名唯一识别。版本采用以下层次：
