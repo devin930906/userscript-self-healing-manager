@@ -157,7 +157,7 @@ try{
  const chosen=candidates.find(x=>x.expression==='#heal-button');
  assert.ok(chosen);
  const sourcePath=join(profile,'fixture.user.js');
- const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\ndocument.querySelector("#old-heal-button");\n';
+ const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\ndocument.querySelector("#old-heal-button");\ndocument.querySelector(".old-target-pane");\n';
  await writeFile(sourcePath,original,'utf8');
  const flow=createRepairWorkflow({managedRoot:profile});
  const draft=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'#old-heal-button',newSelector:chosen.expression});
@@ -167,6 +167,15 @@ try{
  assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
  const active=join(profile,'managed','chrome-smoke-fixture','current.user.js');
  assert.equal(await readFile(active,'utf8'),await readFile(applied.managedPath,'utf8'));
+ // The second repair must build on the first one, rather than reloading the source.
+ const nextProposal=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'.old-target-pane',newSelector:'.target-pane'});
+ const nextReceipt=await flow.apply({proposalId:nextProposal.proposalId,approved:true});
+ const combinedRevision=await readFile(active,'utf8');
+ assert.match(combinedRevision,/#heal-button/);
+ assert.match(combinedRevision,/\.target-pane/);
+ assert.doesNotMatch(combinedRevision,/old-heal-button|old-target-pane/);
+ assert.equal(combinedRevision,await readFile(nextReceipt.managedPath,'utf8'));
+ assert.equal(await readFile(nextReceipt.backupPath,'utf8'),await readFile(applied.managedPath,'utf8'));
  exportRoot=await mkdtemp(join(tmpdir(),'usshm-export-smoke-'));
  const exported=await exportManagedCurrent({managedRoot:profile,scriptId:'chrome-smoke-fixture',destinationPath:join(exportRoot,'checked.user.js')});
  assert.match(await readFile(exported.path,'utf8'),/#heal-button/);
@@ -174,7 +183,7 @@ try{
  const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: page identity, 51-script batches, CSS/name/class candidates, managed patch, export and restore.');
+ console.log('PASS real Chrome CDP: page identity, 51-script batches, CSS/name/class candidates, two cumulative managed repairs, export and restore.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
