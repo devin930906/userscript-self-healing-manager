@@ -53,3 +53,17 @@ test('unsupported host syntax in exclusion rules cannot silently authorize the p
   assert.equal(checkUserscriptPageScope(m,'https://example.org/page').status,'unknown',deny);
  }
 });
+
+test('include path is case sensitive while URL scheme and host are case insensitive',()=>{
+ const m=meta([],['https://example.com/Admin/*']);
+ assert.equal(checkUserscriptPageScope(m,'https://EXAMPLE.COM/Admin/settings').status,'allowed');
+ assert.equal(checkUserscriptPageScope(m,'https://example.com/admin/settings').status,'blocked');
+});
+test('case-sensitive @exclude does not block a distinct lower-case path',()=>{
+ const m=meta(['https://example.com/*'],[],{exclude:['https://example.com/Admin/*']});
+ assert.equal(checkUserscriptPageScope(m,'https://example.com/Admin/settings').status,'blocked');
+ assert.equal(checkUserscriptPageScope(m,'https://example.com/admin/settings').status,'allowed');
+});
+test('unsupported regular-expression URL include remains unknown, not a match',()=>{
+ assert.equal(checkUserscriptPageScope(meta([],['/example\\.com\/admin/']),'https://example.com/admin').status,'unknown');
+});
