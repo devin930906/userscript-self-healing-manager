@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
-test('recommendation IPC binds real lastScan source to selected local CDP page',async()=>{
+test('recommendation IPC binds real scanSnapshot source to selected local CDP page',async()=>{
  const code=await readFile('apps/desktop/src/main/index.ts','utf8');
  assert.match(code,/ipcMain\.handle\('usshm:suggest-repair'/);
  assert.match(code,/assertSender\(event\)/);
- assert.match(code,/lastScan\?\.items\[q\.itemIndex\]/);
+ assert.match(code,/scanSnapshot\?\.items\[q\.itemIndex\]/);
  assert.match(code,/status\.pages\.find\(/);
  assert.match(code,/suggestCandidateRepairs\(/);
 });
