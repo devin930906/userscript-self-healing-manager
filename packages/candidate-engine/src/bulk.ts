@@ -6,19 +6,21 @@ export interface BulkCandidateItem {
 }
 export interface BulkCandidateResult {
  readonly validationLevel:'dom-only';readonly pageTargetId:string;readonly pageUrl:string;
- readonly totalMissing:number;readonly checkedMissing:number;readonly remainingMissing:number;
+ readonly totalMissing:number;readonly checkedMissing:number;readonly remainingMissing:number;readonly candidateOffset:number;
  readonly items:readonly BulkCandidateItem[];
 }
 const SUPPORTED=new Set(['querySelector','getElementById','getElementsByName','getElementsByClassName']);
 /** Bounded, read-only candidate discovery. No JS injection, script execution or edits. */
-export async function suggestMissingCandidatesBulk({target,locators,checks,deps,evidenceIdentity}:{
+export async function suggestMissingCandidatesBulk({target,locators,checks,deps,evidenceIdentity,offset=0}:{
  target:{id:string;url:string};
  locators:readonly MissingLocator[];
  checks:readonly DomProbeCheck[];
  deps:CandidateDeps;
  evidenceIdentity?:{targetId:string;url:string};
+ offset?:number;
 }):Promise<BulkCandidateResult>{
  if(!target.id||!/^https?:\/\//i.test(target.url))throw new Error('Invalid selected page identity');
+ if(!Number.isSafeInteger(offset)||offset<0||offset>48||offset%8!==0)throw new Error('Invalid candidate offset');
  if(evidenceIdentity&&(evidenceIdentity.targetId!==target.id||evidenceIdentity.url!==target.url))
   throw new Error('Initial CDP page identity mismatch');
  if(locators.length>50||locators.length!==checks.length)throw new Error('Unbounded or partial locator probe evidence');
@@ -33,7 +35,7 @@ export async function suggestMissingCandidatesBulk({target,locators,checks,deps,
  }
  const results:BulkCandidateItem[]=[];
  const usedExpressions=new Set<string>();
- for(const i of eligible.slice(0,8)){
+ for(const i of eligible.slice(offset,offset+8)){
   const locator=locators[i]!;
   const suggestions=await suggestCandidateRepairs({target,locator,deps});
   const candidates=suggestions.filter(candidate=>{
@@ -44,6 +46,6 @@ export async function suggestMissingCandidatesBulk({target,locators,checks,deps,
   results.push({selectorIndex:i,method:locator.method,oldSelector:locator.expression,candidates});
  }
  return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
-  totalMissing:eligible.length,checkedMissing:results.length,remainingMissing:eligible.length-results.length,
+  totalMissing:eligible.length,checkedMissing:Math.min(eligible.length,offset+results.length),remainingMissing:Math.max(0,eligible.length-offset-results.length),candidateOffset:offset,
   items:results};
 }
