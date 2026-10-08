@@ -14,6 +14,7 @@ import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {confirmPageIdentity} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
+import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions,activateManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
@@ -25,6 +26,7 @@ import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch
 let mainWindow:BrowserWindow;
 let lastScan:(ScanBatchResult&{scanId:string})|null=null;
 const scanSessions=new ScanSessionCoordinator<ScanBatchResult>();
+const pendingApprovals=new ProposalApprovalGate();
 const authorizedRoots=new Set<string>();
 let approvedChromePath:string|null=null;
 function distributionMode():DistributionMode{
@@ -77,7 +79,8 @@ async function bootstrap():Promise<void>{
  if(!Array.isArray(q.paths)||q.paths.length>1000||q.paths.some(x=>typeof x!=='string'||!withinAuthorized(x)))throw new Error('Paths not authorized by file picker');
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
  const scanPaths=q.paths as string[],recursive=q.recursive as boolean;
- lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));return lastScan;});
+ lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
+ pendingApprovals.clear();return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
@@ -206,12 +209,17 @@ async function bootstrap():Promise<void>{
   const proposal=await repairs.propose({sourcePath:item.path,scriptId:item.scriptId,oldSelector:sel.expression,newSelector:q.newSelector,selectorLocation:{method:sel.method,line:sel.sourceRange.start.line,column:sel.sourceRange.start.column}});
   scanSessions.assertCurrent(scanSnapshot);
   if(proposal.originalHash!==item.analysis.sourceSha256)throw new Error('Original scan hash mismatch; please rescan');
+  pendingApprovals.register(proposal.proposalId,scanSnapshot.scanId);
   return proposal;
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {proposalId:string;approved:true}|null;
+  const q=input as {scanId:string;proposalId:string;approved:true}|null;
   if(!q||q.approved!==true||typeof q.proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(q.proposalId))throw new Error('Explicit repair approval required');
-  return repairs.apply({proposalId:q.proposalId,approved:true});
+  const scanSnapshot=scanSessions.require(q.scanId);
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  const applied=await repairs.apply({proposalId:q.proposalId,approved:true});
+  pendingApprovals.consume(q.proposalId);
+  return applied;
  });
  ipcMain.handle('usshm:managed-revisions',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number}|null;
