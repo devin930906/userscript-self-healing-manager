@@ -6,8 +6,9 @@ test('desktop probes and suggested repairs check live frame identity on both sid
  const main=readFileSync(join(process.cwd(),'apps/desktop/src/main/index.ts'),'utf8');
  assert.match(main,/from '\.\.\/\.\.\/\.\.\/\.\.\/packages\/cdp-client\/src\/page-identity\.ts'/);
  const probes=main.split("ipcMain.handle('usshm:probe-locators'")[1]?.split("ipcMain.handle('usshm:suggest-repair'")[0]??'';
- const suggestions=main.split("ipcMain.handle('usshm:suggest-repair'")[1]?.split("ipcMain.handle('usshm:propose-repair'")[0]??'';
- for(const handler of [probes,suggestions]){
+ const suggestions=main.split("ipcMain.handle('usshm:suggest-repair'")[1]?.split("ipcMain.handle('usshm:suggest-repairs-bulk'")[0]??'';
+ const bulk=main.split("ipcMain.handle('usshm:suggest-repairs-bulk'")[1]?.split("ipcMain.handle('usshm:propose-repair'")[0]??'';
+ for(const handler of [probes,suggestions,bulk]){
   assert.equal((handler.match(/await confirmPageIdentity\(selected\)/g)??[]).length,2,'each operation requires a before-and-after frame check');
  }
 });
