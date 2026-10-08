@@ -6,7 +6,7 @@ import {analyzeSource} from '../../source-analyzer/src/index.ts';
 import {activateManagedRevision,listManagedRevisions} from './history.ts';
 export interface ProposalReceipt {
  proposalId:string;scriptId:string;oldSelector:string;newSelector:string;
- baseHash:string;proposedHash:string;preview:string;
+ originalHash:string;baseHash:string;proposedHash:string;preview:string;
 }
 export interface AppliedReceipt {backupPath:string;managedPath:string;hash:string}
 interface PendingProposal {sourcePath:string;workingPath:string;originalHash:string;scriptId:string;baseRevisionKind:'original'|'revision';draft:LiteralPatchDraft}
@@ -68,7 +68,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    pending.set(proposalId,{sourcePath,workingPath,originalHash,baseRevisionKind,scriptId,draft});
    const focus=draft.sourceRange.start;
    const preview=draft.proposedSource.slice(Math.max(0,focus-90),Math.min(draft.proposedSource.length,focus+150));
-   return {proposalId,scriptId,oldSelector,newSelector,baseHash:draft.baseHash,proposedHash:draft.proposedHash,preview};
+   return {proposalId,scriptId,oldSelector,newSelector,originalHash,baseHash:draft.baseHash,proposedHash:draft.proposedHash,preview};
   },
   async apply({proposalId,approved}:{proposalId:string;approved:boolean}):Promise<AppliedReceipt>{
    if(approved!==true)throw new Error('Explicit approval required');
