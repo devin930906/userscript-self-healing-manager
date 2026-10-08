@@ -28,3 +28,19 @@ test('rejects snapshot-only candidate that no longer matches exactly one live no
  const testDeps={...deps,probe:async(inputs:readonly typeof locator[])=>({...await deps.probe(inputs),checks:inputs.map(input=>({method:input.method,expression:input.expression,status:input.expression==='#save-old'?'missing':'ambiguous',matchCount:input.expression==='#save-old'?0:2}))})};
  assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:testDeps}),[]);
 });
+
+test('name and class collection repairs require unique live CDP confirmation',async()=>{
+ for(const method of ['getElementsByName','getElementsByClassName']){
+  const value=method==='getElementsByName'?'new-field':'new-panel';
+  const nodes=[{tagName:'INPUT',attributes:method==='getElementsByName'?{name:value}:{class:value}}];
+  const locator={method,expression:'old-value',runtimeRequired:false};
+  const proposed=await suggestCandidateRepairs({target,locator,deps:{
+   probe:async inputs=>({targetId:target.id,url:target.url,checks:inputs.map(x=>({
+    method:x.method,expression:x.expression,status:x.expression==='old-value'?'missing':'found',
+    matchCount:x.expression==='old-value'?0:1,
+   }))}),
+   capture:async()=>({targetId:target.id,url:target.url,scope:'top-document',nodes}),
+  }});
+  assert.deepEqual(proposed.map(x=>x.expression),[value]);
+ }
+});
