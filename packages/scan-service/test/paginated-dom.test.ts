@@ -61,3 +61,24 @@ test('malformed or partial pagination is rejected before reporting results',asyn
   assert.equal(notices,0);
  }
 });
+
+test('paged DOM collection rejects a changed script identity even if URL and row indexes match',async()=>{
+ const expected=Array.from({length:51},(_,i)=>({scriptId:'script-'+i,path:'script-'+i+'.user.js'}));
+ let notifications=0;
+ await assert.rejects(collectPagedDomDiagnosis({
+  total:51,targetId,expectedItems:expected,
+  requestPage:async offset=>offset===25?
+   {...page(offset),items:page(offset).items.map((item,i)=>i===0?{...item,scriptId:'replaced-script',path:'replaced.user.js'}:item)}:
+   page(offset),
+  isCancelled:()=>false,onProgress:()=>{notifications++;},
+ }),/script.*identity|script.*changed|stale.*scan/i);
+ assert.equal(notifications,1,'do not publish second page with stale script evidence');
+});
+test('paged DOM collection rejects identity substitution even within its first page',async()=>{
+ const expected=Array.from({length:25},(_,i)=>({scriptId:'script-'+i,path:'script-'+i+'.user.js'}));
+ await assert.rejects(collectPagedDomDiagnosis({
+  total:25,targetId,expectedItems:expected,
+  requestPage:async()=>({...page(0,25),items:page(0,25).items.map((item,i)=>i===4?{...item,path:'other.user.js'}:item)}),
+  isCancelled:()=>false,onProgress:()=>{throw new Error('must not publish substituted evidence');},
+ }),/script.*identity|script.*changed|stale.*scan/i);
+});
