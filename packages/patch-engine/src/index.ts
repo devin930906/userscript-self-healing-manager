@@ -33,7 +33,7 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
  const proposedBytes=new TextEncoder().encode(changed);const outputBytes=hasBom?new Uint8Array([239,187,191,...proposedBytes]):proposedBytes;
  return {baseHash:sha(sourceBytes),proposedHash:sha(outputBytes),oldSelector,newSelector,proposedSource:(hasBom?'\ufeff':'')+changed,sourceRange:{start,end}};
 }
-export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,expectedHash,approved}:{sourcePath:string;managedRoot:string;scriptId:string;draft:LiteralPatchDraft;expectedHash:string;approved:boolean}):Promise<{backupPath:string;managedPath:string;hash:string}>{
+export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,expectedHash,approved,baseRevisionKind='original'}:{sourcePath:string;managedRoot:string;scriptId:string;draft:LiteralPatchDraft;expectedHash:string;approved:boolean;baseRevisionKind?:'original'|'revision'}):Promise<{backupPath:string;managedPath:string;hash:string}>{
  if(!approved)throw new Error('Explicit user approval required');
  if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
  if(!isAbsolute(sourcePath)||!isAbsolute(managedRoot))throw new Error('Absolute source and managed paths required');
@@ -43,7 +43,7 @@ export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,e
  const proposedBytes=new TextEncoder().encode(draft.proposedSource);
  if(sha(proposedBytes)!==draft.proposedHash)throw new Error('Candidate patch hash mismatch');
  const folder=join(managedRoot,'managed',scriptId);await ensureWritableDataRoot(folder);
- const backupPath=join(folder,`original-${expectedHash}.user.js`),managedPath=join(folder,`revision-${draft.proposedHash}.user.js`);
+ const backupPath=join(folder,`${baseRevisionKind}-${expectedHash}.user.js`),managedPath=join(folder,`revision-${draft.proposedHash}.user.js`);
  async function writeImmutable(path:string,content:Uint8Array){
   try{await writeFile(path,content,{flag:'wx',mode:0o600});}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
    const info=await lstat(path);if(!info.isFile()||info.isSymbolicLink())throw new Error('Immutable revision path is not a regular file');
