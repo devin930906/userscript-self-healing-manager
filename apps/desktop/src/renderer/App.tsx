@@ -15,15 +15,15 @@ import type {ManagedRevision} from '../../../../packages/repair-workflow/src/his
 
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
- probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
+ probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
- suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
- suggestRepairsBulk:(input:{itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
- proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
+ suggestRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
+ suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
+ proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
- listManagedRevisions:(input:{itemIndex:number})=>Promise<ManagedRevision[]>;
- rollbackManaged:(input:{itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
- exportManaged:(input:{itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
+ listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
+ rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
+ exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -66,13 +66,13 @@ function App(){
  useEffect(()=>{bulkGeneration.current++;setBulkRepairResults(null);},[focused,targetId,result]);
  useEffect(()=>{batchGeneration.current++;batchCancel.current=true;setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{
-  if(!watchEnabled||focused===null||!targetId)return;
+  if(!watchEnabled||focused===null||!targetId||!result)return;
   let cancelled=false;
   async function poll(){
    if(watchRunning.current)return;
    watchRunning.current=true;
    try{
-    const evidence=await window.ussm.probeLocators({itemIndex:focused!,targetId,approved:true});
+    const evidence=await window.ussm.probeLocators({scanId:result.scanId,itemIndex:focused!,targetId,approved:true});
     if(cancelled)return;
     setPageProbe(evidence);
     setRepairCandidates(null);
@@ -86,7 +86,7 @@ function App(){
   void poll();
   const interval=setInterval(()=>void poll(),60_000);
   return ()=>{cancelled=true;clearInterval(interval);};
- },[watchEnabled,focused,targetId]);
+ },[watchEnabled,focused,targetId,result]);
 
  async function chooseFiles(){try{const selected=await window.ussm.pickFiles();setPaths(old=>[...new Set([...old,...selected])]);setError('');}catch(e){setError(String(e));}}
  async function chooseDirectory(){try{const selected=await window.ussm.pickDirectory();if(selected)setPaths(old=>[...new Set([...old,selected])]);setError('');}catch(e){setError(String(e));}}
@@ -128,19 +128,19 @@ function App(){
    }
   }finally{setBatchRunning(false);setBusy(false);}
  }
- async function probePage(){if(focused===null||!targetId)return;
+ async function probePage(){if(focused===null||!targetId||!result)return;
   setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
-  try{const r=await window.ussm.probeLocators({itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
+  try{const r=await window.ussm.probeLocators({scanId:result.scanId,itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
   catch(e){setError('页面定位器核验失败：'+String(e));}finally{setBusy(false);}
  }
  async function suggestBulkRepairs(offset=0){
-  if(focused===null||!targetId)return;
+  if(focused===null||!targetId||!result)return;
   const token=bulkGeneration.current;
   const selectedIndex=focused,selectedTarget=targetId;
   setBusy(true);setError('');
   if(offset===0)setBulkRepairResults(null);
   try{
-   const suggestions=await window.ussm.suggestRepairsBulk({itemIndex:selectedIndex,targetId:selectedTarget,approved:true,offset});
+   const suggestions=await window.ussm.suggestRepairsBulk({scanId:result.scanId,itemIndex:selectedIndex,targetId:selectedTarget,approved:true,offset});
    if(token!==bulkGeneration.current)return;
    if(offset!==0&&(!bulkRepairResults||bulkRepairResults.checkedMissing!==offset||
     bulkRepairResults.pageUrl!==suggestions.pageUrl||
@@ -155,14 +155,14 @@ function App(){
    setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));
   }finally{setBusy(false);}
  }
- async function suggestRepair(){if(focused===null||!targetId||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
+ async function suggestRepair(){if(focused===null||!targetId||!result||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
-  try{const result=await window.ussm.suggestRepair({itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true});setRepairCandidates(result);setMessage(result.length?'取得 '+result.length+' 个 DOM 匹配的候选；候选不代表功能验证通过。':'当前网页没有足够可靠的唯一候选，请手动输入新选择器。');}
+  try{const candidates=await window.ussm.suggestRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true});setRepairCandidates(candidates);setMessage(candidates.length?'取得 '+candidates.length+' 个 DOM 匹配的候选；候选不代表功能验证通过。':'当前网页没有足够可靠的唯一候选，请手动输入新选择器。');}
   catch(e){setError('候选定位器提取失败：'+String(e));}finally{setBusy(false);}
  }
- async function proposeRepair(){if(focused===null||!repairNew.trim())return;
+ async function proposeRepair(){if(focused===null||!result||!repairNew.trim())return;
   setWatchEnabled(false);setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
-  try{const r=await window.ussm.proposeRepair({itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
+  try{const r=await window.ussm.proposeRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
   catch(e){setError('生成预览失败：'+String(e));}finally{setBusy(false);}
  }
  async function applyRepair(){if(!repairProposal)return;
@@ -170,21 +170,21 @@ function App(){
   try{const r=await window.ussm.applyRepair({proposalId:repairProposal.proposalId,approved:true});setRepairApplied(r);setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.managedPath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
  }
- async function showManagedHistory(){if(focused===null)return;
+ async function showManagedHistory(){if(focused===null||!result)return;
   setBusy(true);setError('');
-  try{setManagedRevisions(await window.ussm.listManagedRevisions({itemIndex:focused}));}
+  try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+String(e));}finally{setBusy(false);}
  }
- async function exportManaged(){if(focused===null)return;
+ async function exportManaged(){if(focused===null||!result)return;
   setBusy(true);setError('');
-  try{const exported=await window.ussm.exportManaged({itemIndex:focused});
+  try{const exported=await window.ussm.exportManaged({scanId:result.scanId,itemIndex:focused});
    if(!exported.canceled)setMessage('已安全导出受管脚本：'+exported.path+'。仍需在 Tampermonkey 导入并验证实际功能。');
   }catch(error){setError('导出受管脚本失败：'+String(error));}
   finally{setBusy(false);}
  }
- async function rollbackManaged(hash:string){if(focused===null)return;
+ async function rollbackManaged(hash:string){if(focused===null||!result)return;
   setBusy(true);setError('');setRepairProposal(null);
-  try{const result=await window.ussm.rollbackManaged({itemIndex:focused,hash,approved:true});setManagedActive(result);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
+  try{const restored=await window.ussm.rollbackManaged({scanId:result.scanId,itemIndex:focused,hash,approved:true});setManagedActive(restored);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
   catch(e){setError('恢复受管副本失败：'+String(e));}finally{setBusy(false);}
  }
  const details=focused===null?null:result?.items[focused];
