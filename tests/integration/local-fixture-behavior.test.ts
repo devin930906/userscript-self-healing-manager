@@ -21,14 +21,15 @@ class FixtureSocket extends EventEmitter{
  close(){this.emit('close');}
 }
 test('explicit local-only fixture can verify behavior via isolated Chrome runtime without exposing a desktop userscript execution API',async()=>{
- const socket=new FixtureSocket(true);let confirms=0;
+ let socket:FixtureSocket|undefined;let confirms=0;
  const observed=await runIsolatedFixtureBehavior({
   target,fixtureUrl,source,
   confirm:async()=>{confirms++;return {targetId:target.id,confirmedUrl:fixtureUrl};},
-  socketFactory:()=>socket,
+  socketFactory:()=>{socket=new FixtureSocket(true);return socket;},
  });
  assert.equal(observed,true);
  assert.equal(confirms,2,'must verify the live top frame on both sides of fixture execution');
+ assert.ok(socket);
  assert.equal(socket.sent.length,1);
  const request=socket.sent[0] as {method:string;params:{expression:string;returnByValue:boolean}};
  assert.equal(request.method,'Runtime.evaluate');
