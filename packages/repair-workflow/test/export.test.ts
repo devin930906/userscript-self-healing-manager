@@ -46,3 +46,21 @@ test('export blocks managed-root destinations and existing symlink outputs',asyn
   await assert.rejects(readFile(outside),{code:'ENOENT'});
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
+
+test('export rejects destination parent symlink resolving inside managed archives',async(t)=>{
+ const q=await setup();
+ try{
+  const link=join(q.root,'looks-outside');
+  try{await symlink(join(q.managedRoot,'managed','demo'),link,'junction');}
+  catch(error){
+   if(['EPERM','EACCES','ENOTSUP'].includes((error as NodeJS.ErrnoException).code??'')){t.skip('Directory links unavailable');return;}
+   throw error;
+  }
+  const redirected=join(link,'injected.user.js');
+  await assert.rejects(
+   exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',destinationPath:redirected}),
+   /managed|resolved|directory/i,
+  );
+  await assert.rejects(readFile(join(q.managedRoot,'managed','demo','injected.user.js')),{code:'ENOENT'});
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
