@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
-import {join,isAbsolute,relative} from 'node:path';
-import {lstat,readFile,writeFile} from 'node:fs/promises';
+import {join,isAbsolute,relative,dirname} from 'node:path';
+import {lstat,readFile,writeFile,realpath} from 'node:fs/promises';
 import {listManagedRevisions} from './history.ts';
 
 export interface ExportManagedReceipt {readonly path:string;readonly hash:string;readonly bytes:number}
@@ -17,6 +17,14 @@ export async function exportManagedCurrent({managedRoot,scriptId,destinationPath
  const relativeToRoot=relative(managedRoot,destinationPath);
  if(relativeToRoot===''||(!relativeToRoot.startsWith('..')&&!isAbsolute(relativeToRoot)))
   throw new Error('Cannot export into the managed data root');
+ // Lexical checks alone can be bypassed by a user-created junction or symlink
+ // in the Save dialog's parent directory (especially on Windows). Reject the
+ // resolved parent if it aliases any part of managedRoot.
+ const [resolvedRoot,resolvedParent]=await Promise.all([realpath(managedRoot),realpath(dirname(destinationPath))]);
+ const resolvedRel=relative(resolvedRoot,resolvedParent);
+ if(resolvedRel===''||(!resolvedRel.startsWith('..')&&!isAbsolute(resolvedRel)))
+  throw new Error('Resolved export directory is inside managed data root');
+
  // listManagedRevisions validates the managed path hierarchy and the content hashes.
  const archived=await listManagedRevisions({managedRoot,scriptId});
  if(!archived.length)throw new Error('No verified managed revision available for export');
