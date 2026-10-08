@@ -47,3 +47,14 @@ test('invalid UTF-8 bytes cannot be silently analyzed and treated as a working u
  assert.match(analysis.parseDiagnostics.join(' '),/UTF-8|encoding/i);
  assert.equal(analysis.selectorRecords.length,0);
 });
+
+test('userscript metadata tolerates blank lines inside header and still reads later activation rules',()=>{
+ const src='// ==UserScript==\n// @name Example\n\n// @match https://example.org/*\n//\n// @grant GM_getValue\n// ==/UserScript==\n';
+ const data=parseUserscriptMetadata(src);
+ assert.deepEqual(data.match,['https://example.org/*']);
+ assert.deepEqual(data.grant,['GM_getValue']);
+});
+test('metadata parsing never consumes code after the closing userscript marker',()=>{
+ const src='// ==UserScript==\n// @name Safe\n// ==/UserScript==\n// @match https://attacker.example/*';
+ assert.deepEqual(parseUserscriptMetadata(src).match,[]);
+});
