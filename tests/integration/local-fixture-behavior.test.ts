@@ -8,7 +8,8 @@ const target={id:'fixture-tab',type:'page',url:fixtureUrl,webSocketDebuggerUrl:'
 const source='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\nconst action=document.querySelector("#old-heal-button");\nif(action)action.setAttribute("data-usshm-functional","pass");\n';
 class FixtureSocket extends EventEmitter{
  sent:unknown[]=[];
- constructor(readonly value:boolean,readonly fail=false){super();queueMicrotask(()=>this.emit('open'));}
+ readonly value:boolean;readonly fail:boolean;
+ constructor(value:boolean,fail=false){super();this.value=value;this.fail=fail;queueMicrotask(()=>this.emit('open'));}
  addEventListener(event:string,listener:(e:any)=>void){this.on(event,listener);}
  removeEventListener(event:string,listener:(e:any)=>void){this.off(event,listener);}
  send(message:string){
