@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {createServer} from 'node:http';
-import {access,mkdtemp,rm} from 'node:fs/promises';
+import {access,mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -18,6 +18,9 @@ import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
+import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
+import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
+import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
 const candidates=[
@@ -97,8 +100,35 @@ try{
  });
  assert.ok(candidates.some(x=>x.expression==='#heal-button'&&x.validationLevel==='dom-candidate-verified'),
   'a missing selector should yield a uniquely matched, DOM-confirmed candidate');
+ const scope={match:['http://127.0.0.1/*'],include:[],raw:{}};
+ const fakeAnalysis=(expression,runtimeRequired=false)=>({metadata:scope,selectorRecords:[{method:'querySelector',expression,runtimeRequired,receiver:'document'}]});
+ const bulk=await diagnoseScriptsOnPage({items:[
+  {path:'missing.user.js',scriptId:'missing',status:'parsed',analysis:fakeAnalysis('#old-heal-button')},
+  {path:'present.user.js',scriptId:'present',status:'parsed',analysis:fakeAnalysis('#heal-button')},
+  {path:'outside.user.js',scriptId:'outside',status:'parsed',analysis:{metadata:{match:['https://elsewhere.test/*'],include:[],raw:{}},selectorRecords:[]}},
+  {path:'dynamic.user.js',scriptId:'dynamic',status:'parsed',analysis:fakeAnalysis('template',true)},
+ ],target:selected,consent:true,deps:{confirm:confirmPageIdentity,probe:probePageLocators}});
+ assert.deepEqual(bulk.items.map(x=>x.status),['locator-missing','dom-present','out-of-scope','needs-review']);
+
+ // End-to-end local revision lifecycle using a synthetic fixture source only.
+ // Applying a managed patch never changes the original .user.js file.
+ const chosen=candidates.find(x=>x.expression==='#heal-button');
+ assert.ok(chosen);
+ const sourcePath=join(profile,'fixture.user.js');
+ const original='// ==UserScript==\\n// @name Local CDP Smoke\\n// @match http://127.0.0.1/*\\n// ==/UserScript==\\ndocument.querySelector("#old-heal-button");\\n';
+ await writeFile(sourcePath,original,'utf8');
+ const flow=createRepairWorkflow({managedRoot:profile});
+ const draft=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'#old-heal-button',newSelector:chosen.expression});
+ assert.match(draft.preview,/heal-button/);
+ const applied=await flow.apply({proposalId:draft.proposalId,approved:true});
+ assert.equal(await readFile(sourcePath,'utf8'),original);
+ assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
+ const active=join(profile,'managed','chrome-smoke-fixture','current.user.js');
+ assert.equal(await readFile(active,'utf8'),await readFile(applied.managedPath,'utf8'));
+ const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
+ assert.equal(await readFile(restored.activePath,'utf8'),original);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: frame identity, DOM snapshot, selectors [found,found,missing], candidate capture and confirmation.');
+ console.log('PASS real Chrome CDP: identity, locator and batch diagnosis, candidate confirmation, managed patch + restore.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
