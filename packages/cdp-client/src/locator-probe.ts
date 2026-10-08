@@ -1,4 +1,5 @@
 import type {ChromeTarget} from './index.ts';
+import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
 export interface LiteralLocator {method:string;expression:string;runtimeRequired:boolean}
 export interface LocatorCheck {method:string;expression:string;status:'found'|'missing'|'ambiguous'|'unverified'|'blocked';matchCount:number|null;reason?:string}
@@ -23,10 +24,7 @@ function asCss(input:LiteralLocator):string|null{
 /** Read-only DOM domain queries; no JS eval and no userscript execution. */
 export async function probePageLocators(target:ChromeTarget,locators:readonly LiteralLocator[],options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number}={}):Promise<LocatorProbeResult>{
  if(locators.length>50)throw new Error('Too many locators: maximum 50');
- const endpoint=target.webSocketDebuggerUrl;if(!endpoint)throw new Error('CDP page target has no debugger socket');
- const parsed=new URL(endpoint);
- if(parsed.protocol!=='ws:'||!['localhost','127.0.0.1'].includes(parsed.hostname)||parsed.username||parsed.password)throw new Error('CDP socket must use loopback without credentials');
- if(!/^\/devtools\/page\/[^/]+$/.test(parsed.pathname)||!parsed.pathname.endsWith('/'+encodeURIComponent(target.id)))throw new Error('CDP page socket does not match selected target');
+ const endpoint=validateCdpPageSocket(target);
  const timeout=options.timeoutMs??8000;if(!Number.isInteger(timeout)||timeout<100||timeout>30000)throw new Error('Invalid CDP probe timeout');
  const checks:LocatorCheck[]=locators.map(x=>({method:x.method,expression:x.expression,status:'unverified',matchCount:null,reason:'仅支持 document 作用域的静态 CSS 定位器'}));
  if(!locators.some(x=>asCss(x)!==null))return {targetId:target.id,url:target.url,validationLevel:'dom-only',checks};

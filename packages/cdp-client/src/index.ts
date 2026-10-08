@@ -1,6 +1,7 @@
 import {spawn,type ChildProcess} from 'node:child_process';
 import {isAbsolute} from 'node:path';
 import {lstat} from 'node:fs/promises';
+import {validateCdpPageSocket,validateCdpBrowserSocket} from './endpoint.ts';
 
 export interface ChromeTarget {type:string;id:string;url:string;webSocketDebuggerUrl?:string|undefined}
 export interface ChromeStatus {browser:string;protocolVersion:string|null;pages:ChromeTarget[];browserSocket:string|null}
@@ -23,12 +24,12 @@ export async function getChromeStatus({port=9223,host='127.0.0.1'}:{port?:number
    const t=entry as Record<string,unknown>;
    if(t.type==='page'&&typeof t.id==='string'&&typeof t.url==='string'){
     const ws=typeof t.webSocketDebuggerUrl==='string'?t.webSocketDebuggerUrl:undefined;
-    if(ws){const parsed=new URL(ws);if(parsed.protocol!=='ws:'||!['localhost','127.0.0.1'].includes(parsed.hostname))throw new Error('CDP page socket not local');}
+    if(ws)validateCdpPageSocket({id:t.id,webSocketDebuggerUrl:ws},port);
     pages.push({type:'page',id:t.id,url:t.url,webSocketDebuggerUrl:ws});
    }
   }
   const browserSocket=typeof info.webSocketDebuggerUrl==='string'?info.webSocketDebuggerUrl:null;
-  if(browserSocket){const parsed=new URL(browserSocket);if(parsed.protocol!=='ws:'||!['localhost','127.0.0.1'].includes(parsed.hostname))throw new Error('CDP browser socket not local');}
+  if(browserSocket)validateCdpBrowserSocket(browserSocket,port);
   return {browser:info.Browser,protocolVersion:typeof info['Protocol-Version']==='string'?info['Protocol-Version']:null,pages,browserSocket};
  }finally{clearTimeout(timeout);}
 }

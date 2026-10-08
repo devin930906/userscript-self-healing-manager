@@ -1,4 +1,5 @@
 import type {ChromeTarget} from './index.ts';
+import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
 import {isSafeLocatorToken,type SafeDomNode} from '../../candidate-engine/src/index.ts';
 const ALLOWED=new Set(['id','data-testid','data-test','data-qa','name','class']);
@@ -13,13 +14,7 @@ export interface CandidateDomEvidence {
 }
 /** Reads only a bounded set of safe identifier attributes; never returns text, input values or arbitrary DOM. */
 export async function captureCandidateNodes(target:ChromeTarget,options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number}={}):Promise<CandidateDomEvidence>{
- const endpoint=target.webSocketDebuggerUrl;
- if(!endpoint)throw new Error('CDP page has no debugger endpoint');
- const parsed=new URL(endpoint);
- if(parsed.protocol!=='ws:'||!['localhost','127.0.0.1'].includes(parsed.hostname)||parsed.username||parsed.password)
-  throw new Error('CDP socket must use loopback without credentials');
- if(!/^\/devtools\/page\/[^/]+$/.test(parsed.pathname)||!parsed.pathname.endsWith('/'+encodeURIComponent(target.id)))
-  throw new Error('CDP page socket does not match target id');
+ const endpoint=validateCdpPageSocket(target);
  const timeoutMs=options.timeoutMs??6500;
  if(!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000)throw new Error('Invalid snapshot timeout');
  const socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);

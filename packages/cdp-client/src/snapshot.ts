@@ -1,4 +1,5 @@
 import type {ChromeTarget} from './index.ts';
+import {validateCdpPageSocket} from './endpoint.ts';
 export interface SocketLike {
  addEventListener(type:'open'|'message'|'error'|'close',listener:(event:any)=>void):void;
  removeEventListener(type:'open'|'message'|'error'|'close',listener:(event:any)=>void):void;
@@ -8,11 +9,7 @@ export interface SocketLike {
 export interface DomSummary {targetId:string;url:string;documentCount:number;nodeCount:number;validationLevel:'evidence-only'}
 /** Count-only snapshot: no raw DOM text leaves this module. */
 export async function captureDomSummary(target:ChromeTarget,options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number}={}):Promise<DomSummary>{
- const endpoint=target.webSocketDebuggerUrl;
- if(!endpoint)throw new Error('CDP target has no debugger socket');
- const parsed=new URL(endpoint);
- if(parsed.protocol!=='ws:'||!['127.0.0.1','localhost'].includes(parsed.hostname)||parsed.username||parsed.password)throw new Error('CDP WebSocket must use loopback without credentials');
- if(!/^\/devtools\/page\/[^/]+$/.test(parsed.pathname)||!parsed.pathname.endsWith('/'+encodeURIComponent(target.id)))throw new Error('CDP page target socket does not match target id');
+ const endpoint=validateCdpPageSocket(target);
  const timeout=options.timeoutMs??3500;
  if(!Number.isInteger(timeout)||timeout<100||timeout>30000)throw new Error('Invalid CDP timeout');
  const socket=(options.socketFactory??((value:string)=>new WebSocket(value) as unknown as SocketLike))(endpoint);
