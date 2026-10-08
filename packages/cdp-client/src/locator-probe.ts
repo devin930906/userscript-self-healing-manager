@@ -67,7 +67,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
   };
   const onError=()=>complete(new Error('CDP socket error'));
   const onClose=()=>complete(new Error('CDP socket closed before locator results'));
-  const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[['open',onOpen],['message',onMessage],['error',onError],['close',onClose']];
+  const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[['open',onOpen],['message',onMessage],['error',onError],['close',onClose]];
   const timer=setTimeout(()=>complete(new Error('CDP locator probe timeout')),timeout);
   for(const [name,fn] of handlers)socket.addEventListener(name,fn);
  });
