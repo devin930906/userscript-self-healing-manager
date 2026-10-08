@@ -11,7 +11,7 @@ test('managed export only accepts selected script index and native Save dialog d
  assert.match(handler,/withinAuthorized\(item\.path\)/);
  assert.match(handler,/exportManagedCurrent/);
  assert.doesNotMatch(handler,/q\.destinationPath|q\.path|writeFile\(/);
- assert.match(preload,/exportManaged:\(input:\{itemIndex:number\}\)=>ipcRenderer\.invoke\('usshm:export-managed'/);
+ assert.match(preload,/exportManaged:\(input:\{scanId:string;itemIndex:number\}\)=>ipcRenderer\.invoke\('usshm:export-managed'/);
  assert.match(renderer,/安全导出 \.user\.js/);
- assert.match(renderer,/window\.ussm\.exportManaged\(\{itemIndex:focused\}\)/);
+ assert.match(renderer,/window\.ussm\.exportManaged\(\{scanId:result\.scanId,itemIndex:focused\}\)/);
 });
