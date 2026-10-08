@@ -1,0 +1,49 @@
+import {suggestCandidateRepairs,type CandidateDeps,type DomProbeCheck,type MissingLocator,type VerifiedCandidate} from './workflow.ts';
+
+export interface BulkCandidateItem {
+ readonly selectorIndex:number;readonly method:string;readonly oldSelector:string;
+ readonly candidates:readonly VerifiedCandidate[];
+}
+export interface BulkCandidateResult {
+ readonly validationLevel:'dom-only';readonly pageTargetId:string;readonly pageUrl:string;
+ readonly totalMissing:number;readonly checkedMissing:number;readonly remainingMissing:number;
+ readonly items:readonly BulkCandidateItem[];
+}
+const SUPPORTED=new Set(['querySelector','getElementById','getElementsByName','getElementsByClassName']);
+/** Bounded, read-only candidate discovery. No JS injection, script execution or edits. */
+export async function suggestMissingCandidatesBulk({target,locators,checks,deps,evidenceIdentity}:{
+ target:{id:string;url:string};
+ locators:readonly MissingLocator[];
+ checks:readonly DomProbeCheck[];
+ deps:CandidateDeps;
+ evidenceIdentity?:{targetId:string;url:string};
+}):Promise<BulkCandidateResult>{
+ if(!target.id||!/^https?:\/\//i.test(target.url))throw new Error('Invalid selected page identity');
+ if(evidenceIdentity&&(evidenceIdentity.targetId!==target.id||evidenceIdentity.url!==target.url))
+  throw new Error('Initial CDP page identity mismatch');
+ if(locators.length>50||locators.length!==checks.length)throw new Error('Unbounded or partial locator probe evidence');
+ const eligible:number[]=[];
+ for(let i=0;i<locators.length;i++){
+  const locator=locators[i]!,check=checks[i]!;
+  if(locator.method!==check.method||locator.expression!==check.expression)
+   throw new Error('Locator probe evidence shape mismatch');
+  if(check.status==='missing'&&check.matchCount===0&&!locator.runtimeRequired&&
+    SUPPORTED.has(locator.method)&&locator.expression.length<=1024&&locator.expression)
+   eligible.push(i);
+ }
+ const results:BulkCandidateItem[]=[];
+ const usedExpressions=new Set<string>();
+ for(const i of eligible.slice(0,8)){
+  const locator=locators[i]!;
+  const suggestions=await suggestCandidateRepairs({target,locator,deps});
+  const candidates=suggestions.filter(candidate=>{
+   if(usedExpressions.has(candidate.method+'|'+candidate.expression))return false;
+   usedExpressions.add(candidate.method+'|'+candidate.expression);
+   return true;
+  });
+  results.push({selectorIndex:i,method:locator.method,oldSelector:locator.expression,candidates});
+ }
+ return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
+  totalMissing:eligible.length,checkedMissing:results.length,remainingMissing:eligible.length-results.length,
+  items:results};
+}
