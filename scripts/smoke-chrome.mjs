@@ -36,7 +36,7 @@ for(const path of candidates){try{await access(path);executable=path;break;}catc
 if(!executable)throw new Error('Chrome is not installed in the Windows runner; cannot claim browser CDP smoke PASS');
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
-const html='<!doctype html><html><head><title>USSHM CDP local fixture</title></head><body><main><button id="heal-button" data-testid="heal-control">Action</button><div class="target-pane"></div></main></body></html>';
+const html='<!doctype html><html><head><title>USSHM CDP local fixture</title></head><body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button><div class="target-pane"></div></main></body></html>';
 const server=createServer((req,res)=>{
  res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});
  res.end(html);
@@ -103,6 +103,20 @@ try{
  });
  assert.ok(candidates.some(x=>x.expression==='#heal-button'&&x.validationLevel==='dom-candidate-verified'),
   'a missing selector should yield a uniquely matched, DOM-confirmed candidate');
+
+ for(const [method,oldSelector,expected] of [
+  ['getElementsByName','legacy-action','heal-action'],
+  ['getElementsByClassName','legacy-class','heal-button-unique'],
+ ]){
+  const repair=await suggestCandidateRepairs({
+   target:{id:selected.id,url:selected.url},
+   locator:{method,expression:oldSelector,runtimeRequired:false},
+   deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+  });
+  assert.ok(repair.some(x=>x.expression===expected&&x.validationLevel==='dom-candidate-verified'),
+   'real CDP must verify raw name/class candidate for '+method);
+ }
+
  const scope={match:['http://127.0.0.1/*'],include:[],raw:{}};
  const fakeAnalysis=(expression,runtimeRequired=false)=>({metadata:scope,selectorRecords:[{method:'querySelector',expression,runtimeRequired,receiver:'document'}]});
  const bulk=await diagnoseScriptsOnPage({items:[
@@ -160,7 +174,7 @@ try{
  const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: page identity, 51-script paginated batch, candidate confirmation, managed patch, export and restore.');
+ console.log('PASS real Chrome CDP: page identity, 51-script batches, CSS/name/class candidates, managed patch, export and restore.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
