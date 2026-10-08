@@ -110,3 +110,23 @@ test('second repair targets original AST call after earlier same-line replacemen
   'document.querySelector("#first-replacement-with-a-longer-name");document.querySelector("#second-fixed");\n');
  assert.equal(await readFile(sourcePath,'utf8'),original);
 }));
+
+test('proposal receipt tracks immutable original hash separately from active managed revision hash',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const original='document.querySelector("#first");\ndocument.querySelector("#second");\n';
+ await writeFile(sourcePath,original);
+ const flow=createRepairWorkflow({managedRoot});
+ const crypto=await import('node:crypto');
+ const originalHash=crypto.createHash('sha256').update(original).digest('hex');
+ const first=await flow.propose({sourcePath,scriptId:'receipt-chain',oldSelector:'#first',newSelector:'#repaired-first'});
+ assert.equal(first.originalHash,originalHash);
+ assert.equal(first.baseHash,originalHash);
+ const firstApplied=await flow.apply({proposalId:first.proposalId,approved:true});
+ const second=await flow.propose({sourcePath,scriptId:'receipt-chain',oldSelector:'#second',newSelector:'#repaired-second'});
+ assert.equal(second.originalHash,originalHash,'source scan identity remains the original byte hash');
+ assert.equal(second.baseHash,firstApplied.hash,'patch base must be the verified active managed version');
+ assert.notEqual(second.baseHash,second.originalHash,'second managed patch must not be rejected as changed original');
+ const secondApplied=await flow.apply({proposalId:second.proposalId,approved:true});
+ assert.match(await readFile(secondApplied.managedPath,'utf8'),/#repaired-first/);
+ assert.match(await readFile(secondApplied.managedPath,'utf8'),/#repaired-second/);
+ assert.equal(await readFile(sourcePath,'utf8'),original);
+}));
