@@ -32,6 +32,7 @@ test('saved selection does not follow symlink executable or settings file',async
  await writeFile(outside,'outside');
  await symlink(outside,config);
  await assert.rejects(savePreferredChromePath({dataRoot:root,executablePath:exe}),/symlink|unsafe/i);
+ assert.equal(await loadPreferredChromePath({dataRoot:root}),null,'compromised preference must not prevent the desktop app starting');
  assert.equal(await readFile(outside,'utf8'),'outside');
 }));
 test('rejects a non-absolute or non-EXE Chrome choice',async()=>fixture(async(root,exe)=>{
