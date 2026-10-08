@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: '24'
       - name: Install dependencies
-        run: npm install --ignore-scripts=false
+        run: npm ci
       - name: Unit tests
         run: npm test
       - name: Full TypeScript typecheck
@@ -37,6 +37,28 @@ jobs:
           [System.IO.Compression.ZipFile]::CreateFromDirectory($unpacked, $zip)
           if (!(Test-Path $zip)) { throw "Missing ZIP: $zip" }
           if (!(Test-Path "$unpacked/resources/app.asar")) { throw 'Missing packaged app resources' }
+      - name: Smoke-check unpacked Windows executable
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path 'release/win-unpacked').Path
+          $exe = Join-Path $root 'Userscript-Self-Healing-Manager.exe'
+          if (!(Test-Path $exe)) { throw "Missing unpacked EXE" }
+          $database = Join-Path $root 'Data/registry.sqlite'
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+            $ok = $false
+            for ($i=0; $i -lt 20; $i++) {
+              if (Test-Path $database) { $ok = $true; break }
+              Start-Sleep -Seconds 1
+              if ($proc.HasExited) { throw "Packaged EXE exited before database initialization, exit $($proc.ExitCode)" }
+            }
+            if (!$ok) { throw "Packaged application did not initialize portable registry.sqlite" }
+            Write-Host 'Smoke PASS: unpacked ZIP portable EXE initialized registry.sqlite'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Generate SHA256 manifest
         shell: pwsh
         run: |
