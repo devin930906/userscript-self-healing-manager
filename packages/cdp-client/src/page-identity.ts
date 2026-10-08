@@ -40,7 +40,7 @@ export async function confirmPageIdentity(
     if(response.id!==1)return;
     if(response.error)throw new Error('CDP frame tree rejected');
     const url=response.result?.frameTree?.frame?.url;
-    if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL');
+    if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL (urlType='+typeof url+', responseFields='+Object.keys(response.result??{}).slice(0,5).join(',')+')');
     if(url!==target.url)throw new Error('CDP page URL changed or frame identity mismatch');
     complete(undefined,{targetId:target.id,confirmedUrl:url});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP frame tree'));}
