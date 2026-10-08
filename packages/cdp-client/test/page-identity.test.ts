@@ -5,7 +5,8 @@ import {confirmPageIdentity} from '../src/page-identity.ts';
 
 class FakeSocket extends EventEmitter {
  readonly sent:Array<{id:number;method:string}>=[];
- constructor(private readonly pageUrl:string|null) {super();queueMicrotask(()=>this.emit('open'));}
+ private readonly pageUrl:string|null;
+ constructor(pageUrl:string|null) {super();this.pageUrl=pageUrl;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,listener:(event:any)=>void){this.on(name,listener);}
  removeEventListener(name:string,listener:(event:any)=>void){this.off(name,listener);}
  send(body:string) {
