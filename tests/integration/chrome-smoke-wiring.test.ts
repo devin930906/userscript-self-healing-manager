@@ -28,3 +28,12 @@ test('Windows Chrome smoke proves synthetic userscript behavior changes only aft
  const main=readFileSync(join(process.cwd(),'apps','desktop','src','main','index.ts'),'utf8');
  assert.doesNotMatch(main,/Runtime\.evaluate|runIsolatedFixtureBehavior/,'production desktop remains CDP read-only');
 });
+
+test('real Chrome fixture exercises a nested iframe and @noframes top-only classification',()=>{
+ const source=readFileSync(join(process.cwd(),'scripts','smoke-chrome.mjs'),'utf8');
+ assert.match(source,/const nestedIdentity=await confirmPageIdentity\(selected\)/);
+ assert.match(source,/nestedIdentity\.subframeCount/);
+ assert.match(source,/nestedContextDiagnosis/);
+ assert.match(source,/topOnlyDiagnosis/);
+ assert.match(source,/@noframes/);
+});
