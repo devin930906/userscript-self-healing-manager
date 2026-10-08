@@ -235,3 +235,24 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - iframe 与 Shadow DOM 中实际定位/修复仍不支持；本轮只是阻断 iframe 场景的假阳性故障结论。
 - CI 的 Windows runner 不是指定 Windows 10 + 便携 Chrome 155，尚无该组合的 E2E 证据；三种最终发行包在本轮没有重新打包、签名或验证。
 - PR #2 继续 Draft，不合并 main，不发布 Stable。只有完成真正 Release Gates 才能改变此状态。
+
+
+## 2026-10-09：跨扫描异步隔离与预览授权生命周期
+
+### 问题与完成边界
+
+之前的 `batch-diagnose` 以及逐脚本 `probe/suggest/propose/export/rollback` IPC 均依赖 `lastScan.items[itemIndex]`。当重新扫描产生一份同样下标、路径甚至相同名称的不同源码后，旧 DOM 请求可能读到新脚本的诊断依据；异步跨页查询无法仅凭 `targetId`、页码和脚本路径防止跨扫描混淆。特别是 UI 批量诊断时，程序必须能够判断旧证据属于哪一次扫描。
+
+### 实现
+
+- 增加 `ScanSessionCoordinator<T>`：每次成功扫描生成随机 `scanId`，更晚启动的扫描优先，慢扫描的旧完成结果不得覆盖新扫描。扫描出错时保留上一份已成功提交的扫描快照。各类 IPC 通过 `scanSessions.require(q.scanId)` 取得原始快照，在异步 CDP 诊断、静态候选或修复准备结束时调用 `assertCurrent`；不依赖任何用户可伪造的文件名作为访问凭据。
+- React UI 和受限 preload 对所有按 `itemIndex` 访问扫描脚本的操作均传递同一个 `scanId`，包括逐脚本定位器/候选、批量诊断、补丁预览、受管历史、保存对话框导出、历史回滚。切换扫描后，旧 UI 操作自动被主进程拒绝而不会访问新扫描中的同下标脚本。每一批分页诊断仍对 `scriptId/path` 做独立逐行身份核对。
+- 完整受管修复的批准还需额外的 `ProposalApprovalGate`：仅允许原扫描产生的提案通过一次批准，禁止历史预览被另一个扫描授权或被重复使用，最多保存 100 个待批准凭据。
+- 重新扫描成功后同时清理 `ProposalApprovalGate` 与 `createRepairWorkflow().invalidatePending()` 中的未发布字节提案，避免长时间重复扫描占满 100 项内存限制而无法继续生成预览。只有原件的受管备份和已批准修订保留。未自动写入或覆盖用户原始 `.user.js`。
+- 健康巡检的异步回调使用捕获的扫描 epoch，避免 React 闭包内的可能为 null 的 `result`，并在扫描变化时重新绑定、停止旧巡检。
+
+### Superpowers TDD 验收
+
+- RED：[扫描版本接口缺失 #37831641684](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37831641684)、[IPC wiring 缺失 #37831793645](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37831793645)、[逐脚本 IPC 版本门禁缺失 #37832505213](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37832505213)、[新预览授权 gate 缺失 #37833552129](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37833552129)、[旧预览清理缺失 #37834164070](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37834164070)。历史源码接口更新后曾短暂导致旧 wiring 测试按 `lastScan` 误判失败；已把这些测试升级为验证 `scanSnapshot`，并修复了异步 React 严格空值校验。
+- GREEN：[Windows Development CI #37834296649](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37834296649) 对应源码 HEAD `22872bb31ddb7b27cc60857b1617e79fc40f5a94`：**207/207 自动测试通过，严格 TypeScript、Electron/React 构建、真实 Windows Electron GUI + 隔离 SQLite 数据目录、真实 Chrome CDP、合成脚本修复前→部分修复→完整修复→回滚全部 PASS**。
+- 当前仍没有通过真实 Tampermonkey/GM_*、目标 Windows 10 + 便携 Chrome 155、Shadow DOM/iframe 内定位器真正修复及三个最终可发行产物的完整门禁。**Ruling：只按经过真实证据验证的能力报告当前状态，维持 Draft，不以新增单测数量替代 Stable 功能合格证明**。本次没有触发安装包生成、外部发布、合并 main 或用户环境人工检查。
