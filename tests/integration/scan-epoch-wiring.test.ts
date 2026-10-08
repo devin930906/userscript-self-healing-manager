@@ -58,3 +58,10 @@ test('repair approval is limited to a proposal created under the same scan and c
  assert.match(preload,/applyRepair:\(input:\{scanId:string;/);
  assert.match(ui,/ussm\.applyRepair\(\{scanId:result\.scanId,/);
 });
+
+test('new scan also discards underlying staged patch bytes, not just UI approval grants',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const scan=main.split("ipcMain.handle('usshm:scan'")[1]?.split("ipcMain.handle('usshm:list-scripts'")[0]??'';
+ assert.match(scan,/pendingApprovals\.clear\(\)/);
+ assert.match(scan,/repairs\.invalidatePending\(\)/);
+});
