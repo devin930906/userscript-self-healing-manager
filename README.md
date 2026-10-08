@@ -19,9 +19,10 @@
 - SQLite 本地脚本索引；每份脚本独立报错；JSON/Markdown 离线报告。
 - 用户主动指定 Chrome 可执行路径，用 `--remote-debugging-port=9223`、`--remote-debugging-address=127.0.0.1` 启动；通过 CDP 本机端口 `/json/version` 和 `/json/list` 验证握手。当前 UI **需要人工授权发起 DOM 检查，尚未进行网页业务功能验收**。
 - 独立命令行脚本诊断入口（可在有 Node.js 24、npm 安装依赖的系统使用）。
+- **可选只读页面巡检（开发分支新增）**：对选定脚本和 CDP 页面手动点击“启动每分钟只读巡检”，前台程序运行期间大约每分钟检查文档定位器；脚本或页面切换时停止，不运行源代码、不自动保存补丁，匹配节点不等于脚本功能通过。
 - **DOM 候选修复（Alpha.5 新增）**：用户先选择 Chrome 页面与已扫描脚本，执行只读核验；仅在旧静态定位器零匹配时点击“生成候选定位器”，程序通过受限 DOMSnapshot 的安全属性推选候选，随后再次确认候选在当前网页仅匹配一个元素。用户点击采用候选，再生成预览、明确批准，才会创建受管副本和原件备份。**仅候选和 DOM 匹配，不等于已证明脚本功能正确。**
 
-**尚未实现：** DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、健康监控与 Windows 10 真实设备端到端验收。现有 Alpha.5 候选仅支持当前 document 中的 `document.querySelector` / `document.getElementById` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
+**尚未实现：** DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。现有 Alpha.5 候选仅支持当前 document 中的 `document.querySelector` / `document.getElementById` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
 
