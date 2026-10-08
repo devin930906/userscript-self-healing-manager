@@ -53,6 +53,7 @@ function App(){
  const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
+ const bulkGeneration=useRef(0);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
@@ -61,7 +62,7 @@ function App(){
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
- useEffect(()=>{setBulkRepairResults(null);},[focused,targetId,result]);
+ useEffect(()=>{bulkGeneration.current++;setBulkRepairResults(null);},[focused,targetId,result]);
  useEffect(()=>{batchGeneration.current++;batchCancel.current=true;setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId)return;
@@ -132,20 +133,25 @@ function App(){
  }
  async function suggestBulkRepairs(offset=0){
   if(focused===null||!targetId)return;
+  const token=bulkGeneration.current;
+  const selectedIndex=focused,selectedTarget=targetId;
   setBusy(true);setError('');
   if(offset===0)setBulkRepairResults(null);
   try{
-   const suggestions=await window.ussm.suggestRepairsBulk({itemIndex:focused,targetId,approved:true,offset});
+   const suggestions=await window.ussm.suggestRepairsBulk({itemIndex:selectedIndex,targetId:selectedTarget,approved:true,offset});
+   if(token!==bulkGeneration.current)return;
    if(offset!==0&&(!bulkRepairResults||bulkRepairResults.checkedMissing!==offset||
     bulkRepairResults.pageUrl!==suggestions.pageUrl||
     bulkRepairResults.pageTargetId!==suggestions.pageTargetId||
     bulkRepairResults.totalMissing!==suggestions.totalMissing))
     throw new Error('批量候选页面或结果数量发生变化，请重新检查');
-   setBulkRepairResults(previous=>offset>0&&previous?
-    {...suggestions,items:[...previous.items,...suggestions.items]}:suggestions);
+   setBulkRepairResults(previous=>token===bulkGeneration.current?
+    offset>0&&previous?{...suggestions,items:[...previous.items,...suggestions.items]}:suggestions:previous);
    setMessage('批量候选只基于当前 DOM 的唯一匹配结果；不会执行脚本或自动写入补丁。');
-  }catch(error){setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));}
-  finally{setBusy(false);}
+  }catch(error){
+   if(token!==bulkGeneration.current)return;
+   setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));
+  }finally{setBusy(false);}
  }
  async function suggestRepair(){if(focused===null||!targetId||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
