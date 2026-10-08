@@ -10,6 +10,7 @@ import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
+import {confirmPageIdentity} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {listManagedRevisions,activateManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
@@ -96,10 +97,14 @@ async function bootstrap():Promise<void>{
   if(!selected)throw new Error('Selected CDP page target no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   if(!selected.webSocketDebuggerUrl)throw new Error('CDP page has no debugger endpoint');
+  // Check the live main-frame URL: /json/list can become stale after navigation.
+  await confirmPageIdentity(selected);
   // Read-only evidence. No userscript execution, no page text transmitted to renderer.
   const summary=await captureDomSummary(selected);
   const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired||x.receiver!=='document'}));
   const probe=await probePageLocators(selected,records);
+  // Fail closed if the selected page navigated while snapshots were being collected.
+  await confirmPageIdentity(selected);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
@@ -113,10 +118,13 @@ async function bootstrap():Promise<void>{
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
-  return suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
+  await confirmPageIdentity(selected);
+  const candidates=await suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
    probe:(locators)=>probePageLocators(selected,locators),
    capture:()=>captureCandidateNodes(selected),
   }});
+  await confirmPageIdentity(selected);
+  return candidates;
  });
  ipcMain.handle('usshm:propose-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;selectorIndex:number;newSelector:string}|null;
