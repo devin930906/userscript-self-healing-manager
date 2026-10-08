@@ -115,7 +115,7 @@ try{
  const chosen=candidates.find(x=>x.expression==='#heal-button');
  assert.ok(chosen);
  const sourcePath=join(profile,'fixture.user.js');
- const original='// ==UserScript==\\n// @name Local CDP Smoke\\n// @match http://127.0.0.1/*\\n// ==/UserScript==\\ndocument.querySelector("#old-heal-button");\\n';
+ const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\ndocument.querySelector("#old-heal-button");\n';
  await writeFile(sourcePath,original,'utf8');
  const flow=createRepairWorkflow({managedRoot:profile});
  const draft=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'#old-heal-button',newSelector:chosen.expression});
