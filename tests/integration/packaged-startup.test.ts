@@ -18,3 +18,9 @@ test('single-file Portable EXE is smoke-tested for Data next to the external EXE
  assert.match(config,/Data[\\/]registry\.sqlite/);
  assert.match(config,/Get-ChildItem release -File -Filter/);
 });
+test('Windows CI smoke tests Setup installer and uninstall entry, not only ZIP build',async()=>{
+ const yml=await readFile('.github/workflows/windows-build.yml','utf8');
+ assert.match(yml,/Smoke-check NSIS Setup installer/);
+ assert.match(yml,/Get-ChildItem release -File -Filter '\*-Setup-\*\.exe'/);
+ assert.match(yml,/Uninstall/);
+});

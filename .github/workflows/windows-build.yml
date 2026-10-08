@@ -84,6 +84,30 @@ jobs:
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
+      - name: Smoke-check NSIS Setup installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release -File -Filter '*-Setup-*.exe' | Select-Object -First 1
+          if (!$installer) { throw 'Missing Setup.exe' }
+          $root = Join-Path $env:RUNNER_TEMP 'usshm-setup-smoke'
+          $installed = Join-Path $root 'Userscript-Self-Healing-Manager.exe'
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList @('/S',"/D=$root") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "NSIS silent install failed with code $($install.ExitCode)" }
+          if (!(Test-Path $installed)) { throw 'NSIS install did not create the desktop executable' }
+          $running = $null
+          try {
+            $running = Start-Process -FilePath $installed -WorkingDirectory $root -PassThru
+            Start-Sleep -Seconds 5
+            if ($running.HasExited) { throw "Installed EXE exited unexpectedly: $($running.ExitCode)" }
+            Write-Host 'Smoke PASS: installed desktop EXE launched'
+          } finally {
+            if ($running -and !$running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
+          }
+          $uninstaller = Get-ChildItem -Path $root -File -Filter '*Uninstall*.exe' | Select-Object -First 1
+          if (!$uninstaller) { throw 'NSIS uninstaller is missing' }
+          $removed = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/S') -Wait -PassThru
+          if ($removed.ExitCode -ne 0) { throw "NSIS uninstall failed: $($removed.ExitCode)" }
+          Write-Host 'Smoke PASS: NSIS silent uninstall finished'
       - name: Generate SHA256 manifest
         shell: pwsh
         run: |
