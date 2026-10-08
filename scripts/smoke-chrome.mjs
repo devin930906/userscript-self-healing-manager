@@ -180,7 +180,7 @@ try{
  const chosen=candidates.find(x=>x.expression==='#heal-button');
  assert.ok(chosen);
  const sourcePath=join(profile,'fixture.user.js');
- const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\nconst actionButton=document.querySelector("#old-heal-button");const targetPane=document.querySelector(".old-target-pane");\nif(actionButton&&targetPane){actionButton.setAttribute("data-usshm-functional","pass");targetPane.setAttribute("data-usshm-functional","pass");}\nif(!document.getElementById("usshm-nested-frame")){const frame=document.createElement("iframe");frame.id="usshm-nested-frame";frame.srcdoc="<button id=\\'iframe-only\\'>Nested DOM</button>";document.body.append(frame);}\n';
+ const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\nconst actionButton=document.querySelector("#old-heal-button");const targetPane=document.querySelector(".old-target-pane");\nif(actionButton&&targetPane){actionButton.setAttribute("data-usshm-functional","pass");targetPane.setAttribute("data-usshm-functional","pass");}\nif(!document.getElementById("usshm-nested-frame")){const frame=document.createElement("iframe");frame.id="usshm-nested-frame";frame.srcdoc="<button id=iframe-only>Nested DOM</button>";document.body.append(frame);}\n';
  await writeFile(sourcePath,original,'utf8');
  const baselineBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:original});
  assert.equal(baselineBehavior,false);
