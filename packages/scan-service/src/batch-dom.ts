@@ -45,8 +45,15 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  if(consent!==true)throw new Error('Explicit user consent required for batch page inspection');
  if(items.length>25)throw new Error('Batch safety limit exceeded: maximum 25 scripts per operation');
  if(!target.id||!target.webSocketDebuggerUrl||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP page target');
- // Page identity must be authenticated even if all scripts are out of scope or have only dynamic locators.
- assertPageIdentity(target,await deps.confirm(target));
+ // Page identity must be authenticated even if all scripts are out of scope
+ // or have only dynamic locators. Observe nested frames without storing URLs.
+ let nestedFramesSeen=false;
+ const checkIdentity=async()=>{
+  const identity=await deps.confirm(target);
+  assertPageIdentity(target,identity);
+  if((identity.subframeCount??0)>0)nestedFramesSeen=true;
+ };
+ await checkIdentity();
  const results:BatchDomItem[]=[];
  for(let index=0;index<items.length;index++){
   const script=items[index]!;
@@ -83,16 +90,16 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    continue;
   }
   // Live identity check failures are global: never classify the navigated page as another script's error.
-  assertPageIdentity(target,await deps.confirm(target));
+  await checkIdentity();
   let evidence:LocatorProbeResult;
   try{evidence=await deps.probe(target,locators);}
   catch(error){
    // Even a failed request may have raced with a navigation; do not accept stale batch context.
-   assertPageIdentity(target,await deps.confirm(target));
+   await checkIdentity();
    results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:errorMessage(error)});
    continue;
   }
-  assertPageIdentity(target,await deps.confirm(target));
+  await checkIdentity();
   if(evidence.targetId!==target.id||evidence.url!==target.url||evidence.validationLevel!=='dom-only'||
     evidence.checks.length!==locators.length||evidence.checks.some((check,i)=>check.method!==locators[i]!.method||check.expression!==locators[i]!.expression)){
    results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:'CDP evidence identity or shape mismatch'});
@@ -102,6 +109,15 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   results.push({...common,status:summary.status,checked:summary.total,found:summary.found,missing:summary.missing,needsReview:summary.needsReview});
  }
  // An all-skipped batch is still evidence about the selected page; reject navigations.
- assertPageIdentity(target,await deps.confirm(target));
- return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,totalItems:items.length,items:results};
+ await checkIdentity();
+ // A script could activate in an iframe whose URL differs from the outer page.
+ // A top-document miss or top-page scope mismatch is therefore inconclusive.
+ // Do not silently call such scripts broken or out of scope.
+ const finalItems=nestedFramesSeen?results.map(item=>{
+  if(item.status!=='locator-missing'&&item.status!=='out-of-scope')return item;
+  return {...item,status:'needs-review' as const,missing:0,
+   needsReview:item.needsReview+Math.max(1,item.missing),
+   reason:'iframe browsing context detected; top-document evidence cannot verify nested frames'};
+ }):results;
+ return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,totalItems:items.length,items:finalItems};
 }
