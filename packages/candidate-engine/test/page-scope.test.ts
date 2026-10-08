@@ -34,3 +34,14 @@ test('unsupported @exclude-match syntax cannot silently disable protection',()=>
  const m=meta(['*://example.com/*'],[],{'exclude-match':['not-a-match-pattern']});
  assert.equal(checkUserscriptPageScope(m,'https://example.com/profile').status,'unknown');
 });
+
+test('oversized userscript match patterns are unknown rather than compiled as unbounded regular expressions',()=>{
+ const huge='https://example.com/'+('a'.repeat(2100));
+ assert.equal(checkUserscriptPageScope(meta([huge]),'https://example.com/a').status,'unknown');
+ assert.equal(checkUserscriptPageScope(meta(['https://example.com/*'],[],{'exclude-match':[huge]}),'https://example.com/a').status,'unknown');
+});
+test('many wildcard pieces match deterministically without regular expressions',()=>{
+ const many='https://example.com/'+'*'.repeat(350)+'target';
+ assert.equal(checkUserscriptPageScope(meta([many]),'https://example.com/target').status,'allowed');
+ assert.equal(checkUserscriptPageScope(meta([many]),'https://example.com/miss').status,'blocked');
+});
