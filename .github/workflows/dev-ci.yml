@@ -30,7 +30,7 @@ jobs:
         run: npm run build
       - name: Ensure locked Electron runtime exists for GUI smoke
         run: node node_modules/electron/install.js
-      - name: Real built Electron GUI launch (disposable AppData; no installers)
+      - name: Real built Electron GUI launch (isolated Data; no installers)
         run: node scripts/smoke-electron-dev.mjs
       - name: Real Chrome CDP integration smoke (no installers)
         run: node --experimental-strip-types scripts/smoke-chrome.mjs
