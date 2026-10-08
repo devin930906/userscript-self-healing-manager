@@ -42,6 +42,7 @@ const api={
  applyRepair:(input:{proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair',input),
  listManagedRevisions:(input:{itemIndex:number})=>ipcRenderer.invoke('usshm:managed-revisions',input),
  rollbackManaged:(input:{itemIndex:number;hash:string;approved:true})=>ipcRenderer.invoke('usshm:rollback-managed',input),
+ exportManaged:(input:{itemIndex:number})=>ipcRenderer.invoke('usshm:export-managed',input),
  exportReport:(format:'json'|'markdown')=>ipcRenderer.invoke('usshm:export',format),
 };
 contextBridge.exposeInMainWorld('ussm',api);
