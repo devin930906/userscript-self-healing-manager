@@ -1,0 +1,7 @@
+{
+  "name": "@usshm/desktop",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "description": "Reserved for the Electron desktop application (Task 2)"
+}

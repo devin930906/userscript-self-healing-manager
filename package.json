@@ -1,0 +1,19 @@
+{
+  "name": "userscript-self-healing-manager",
+  "private": true,
+  "version": "0.1.0-alpha.1",
+  "description": "Local-first Windows desktop userscript diagnostics and self-healing manager",
+  "type": "module",
+  "packageManager": "npm@10.9.2",
+  "engines": { "node": ">=24 <27" },
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "test": "node --experimental-strip-types --test packages/contracts/test/contracts.test.ts",
+    "typecheck": "tsc -p packages/contracts/tsconfig.json --noEmit",
+    "build": "tsc -p packages/contracts/tsconfig.json",
+    "lint": "npm run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

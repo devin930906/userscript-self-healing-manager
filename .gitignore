@@ -1,0 +1,22 @@
+# Dependencies and output
+node_modules/
+**/dist/
+**/.vite/
+coverage/
+*.tsbuildinfo
+# Secrets and local state
+.env
+.env.*
+!.env.example
+Data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Superpowers isolated work / generated reports
+.superpowers/
+.worktrees/
