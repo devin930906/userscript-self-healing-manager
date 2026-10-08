@@ -44,7 +44,12 @@ function matchPattern(pattern:string,url:URL):boolean|null {
 function includePattern(pattern:string,url:URL):boolean|null {
  if(pattern.startsWith('/')&&pattern.endsWith('/'))return null;
  if(pattern.length>500||!pattern.includes('://'))return null;
- return wildcardMatch(pattern,url.href,true);
+ // URL schemes and hostnames are case-insensitive, but paths and queries
+ // are not. Normalizing the entire URL would invent userscript activation.
+ const parts=/^([^:]+:\/\/)([^/]+)(.*)$/.exec(pattern);
+ if(!parts)return null;
+ const canonicalPattern=parts[1]!.toLowerCase()+parts[2]!.toLowerCase()+parts[3]!;
+ return wildcardMatch(canonicalPattern,url.href);
 }
 export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:string):PageScopeResult {
  let url:URL;
