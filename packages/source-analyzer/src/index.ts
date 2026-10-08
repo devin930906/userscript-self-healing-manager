@@ -18,7 +18,11 @@ export function parseUserscriptMetadata(source:string):MetadataParseResult {
  const lines=source.split(/\r?\n/); const start=lines.findIndex(x=>/^\s*\/\/\s*==UserScript==\s*$/.test(x));
  const raw:Record<string,string[]>={};
  if(start>=0)for(let i=start+1;i<lines.length;i++){
-   const line=lines[i];if(!line||/^\s*\/\/\s*==\/UserScript==/.test(line))break;
+   const line=lines[i]!;
+   if(/^\s*\/\/\s*==\/UserScript==/.test(line))break;
+   if(!line.trim())continue;
+   // A blank line is legal in metadata; executable content is not metadata.
+   if(!/^\s*\/\//.test(line))break;
    const m=line.match(/^\s*\/\/\s*@([\w-]+)\s*(.*?)\s*$/);if(m&&m[1]) (raw[m[1]]??=[]).push(m[2]??'');
  }
  return {name:raw.name?.[0]??null,match:raw.match??[],include:raw.include??[],grant:raw.grant??[],runAt:raw['run-at']?.[0]??null,raw};
