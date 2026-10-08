@@ -22,6 +22,7 @@ test('Windows Chrome smoke proves synthetic userscript behavior changes only aft
  const source=readFileSync(join(process.cwd(),'scripts','smoke-chrome.mjs'),'utf8');
  assert.match(source,/runIsolatedFixtureBehavior/,'must run synthetic code in the disposable test-only page');
  assert.match(source,/assert\.equal\(baselineBehavior,false\)/,'unrepaired synthetic script must fail behavior verification');
+ assert.match(source,/assert\.equal\(partiallyRepairedBehavior,false\)/,'first selector fix alone must not claim a functional recovery');
  assert.match(source,/assert\.equal\(repairedBehavior,true\)/,'managed repaired script must produce the intended browser effect');
  assert.match(source,/assert\.equal\(restoredBehavior,false\)/,'restored original should return to baseline');
  const main=readFileSync(join(process.cwd(),'apps','desktop','src','main','index.ts'),'utf8');
