@@ -41,3 +41,19 @@ test('bulk candidate generation stays bounded at eight missing locators',async()
  assert.equal(result.checkedMissing,8);
  assert.equal(result.remainingMissing,4);
 });
+
+test('second bounded batch resumes at the ninth missing locator instead of repeating the first eight',async()=>{
+ const locators=Array.from({length:12},(_,i)=>missing('#old-'+i));
+ const checks=locators.map(x=>({method:x.method,expression:x.expression,status:'missing',matchCount:0}));
+ const first=await suggestMissingCandidatesBulk({target,locators,checks,deps:deps(),offset:0});
+ const second=await suggestMissingCandidatesBulk({target,locators,checks,deps:deps(),offset:8});
+ assert.equal(first.candidateOffset,0);
+ assert.equal(second.candidateOffset,8);
+ assert.equal(first.items.length,8);
+ assert.equal(second.items.length,4);
+ assert.deepEqual(second.items.map(x=>x.selectorIndex),[8,9,10,11]);
+ assert.equal(second.checkedMissing,12);
+ assert.equal(second.remainingMissing,0);
+ await assert.rejects(suggestMissingCandidatesBulk({target,locators,checks,deps:deps(),offset:-1}),/offset/i);
+ await assert.rejects(suggestMissingCandidatesBulk({target,locators,checks,deps:deps(),offset:7}),/offset/i);
+});
