@@ -109,6 +109,7 @@ function App(){
   try{
    const outcome=await collectPagedDomDiagnosis({
     total:result.items.length,targetId:selectedTarget,
+    expectedItems:result.items.map(item=>({scriptId:item.scriptId,path:item.path})),
     requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,approved:true,offset}),
     isCancelled:()=>batchCancel.current||token!==batchGeneration.current,
     onProgress:evidence=>{
