@@ -130,3 +130,23 @@ test('proposal receipt tracks immutable original hash separately from active man
  assert.match(await readFile(secondApplied.managedPath,'utf8'),/#repaired-second/);
  assert.equal(await readFile(sourcePath,'utf8'),original);
 }));
+
+test('stale proposal made before first activation cannot silently replace a newer managed revision',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const original='document.querySelector("#first-old");\ndocument.querySelector("#second-old");\n';
+ await writeFile(sourcePath,original);
+ const flow=createRepairWorkflow({managedRoot});
+ const first=await flow.propose({sourcePath,scriptId:'proposal-conflict',oldSelector:'#first-old',newSelector:'#first-new'});
+ const staleSecond=await flow.propose({sourcePath,scriptId:'proposal-conflict',oldSelector:'#second-old',newSelector:'#second-new'});
+ const firstApplied=await flow.apply({proposalId:first.proposalId,approved:true});
+ const current=join(managedRoot,'managed','proposal-conflict','current.user.js');
+ const approvedContent=await readFile(current,'utf8');
+ assert.match(approvedContent,/#first-new/);
+ await assert.rejects(flow.apply({proposalId:staleSecond.proposalId,approved:true}),/stale|changed|active|revision|conflict/i);
+ assert.equal(await readFile(current,'utf8'),approvedContent,'an old preview must not discard newer approved work');
+ assert.equal(await readFile(sourcePath,'utf8'),original);
+ const fresh=await flow.propose({sourcePath,scriptId:'proposal-conflict',oldSelector:'#second-old',newSelector:'#second-new'});
+ const secondApplied=await flow.apply({proposalId:fresh.proposalId,approved:true});
+ assert.match(await readFile(secondApplied.managedPath,'utf8'),/#first-new/);
+ assert.match(await readFile(secondApplied.managedPath,'utf8'),/#second-new/);
+ assert.equal(firstApplied.hash!==secondApplied.hash,true);
+}));
