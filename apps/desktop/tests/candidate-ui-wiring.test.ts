@@ -26,3 +26,8 @@ test('DOM validation is marked unknown when selector receiver is not document',a
  assert.match(code,/x\.receiver!=='document'/);
  assert.match(code,/record\.receiver!=='document'/);
 });
+test('changing page or original selector invalidates previously chosen candidate and patch approval',async()=>{
+ const code=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(code,/setTargetId\(e\.target\.value\);setPageProbe\(null\);setRepairCandidates\(null\);setRepairNew\(''\);setRepairProposal\(null\)/);
+ assert.match(code,/setRepairIndex\(Number\(e\.target\.value\)\);setRepairProposal\(null\);setRepairCandidates\(null\);setRepairNew\(''\)/);
+});
