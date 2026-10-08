@@ -109,19 +109,21 @@ async function bootstrap():Promise<void>{
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
  ipcMain.handle('usshm:batch-diagnose',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {targetId:string;approved:true}|null;
+  const q=input as {targetId:string;approved:true;offset?:number}|null;
   if(!q||q.approved!==true||typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128)
    throw new Error('Explicit CDP page consent required for batch diagnosis');
+  const offset=q.offset??0;
+  if(!Number.isSafeInteger(offset)||offset<0||offset>1000||offset%25!==0)throw new Error('Invalid batch offset');
   if(!lastScan)throw new Error('No imported scripts in current scan');
   const status=await getChromeStatus({port:9223});
   const selected=status.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page is no longer available');
   // Bounded first page of scripts; no untrusted JS execution and no source writes.
-  const checked=lastScan.items.slice(0,25);
+  const checked=lastScan.items.slice(offset,offset+25);
   const result=await diagnoseScriptsOnPage({items:checked,target:selected,consent:true,deps:{
    confirm:confirmPageIdentity,probe:probePageLocators,
   }});
-  return {...result,remainingItems:Math.max(0,lastScan.items.length-checked.length)};
+  return {...result,items:result.items.map(entry=>({...entry,index:entry.index+offset})),startIndex:offset,remainingItems:Math.max(0,lastScan.items.length-offset-checked.length)};
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
