@@ -169,3 +169,22 @@ test('simultaneous approvals for the same script cannot both overwrite active ma
  assert.match(current,/#one|#two/);
  assert.match(await readFile(sourcePath,'utf8'),/#old/);
 }));
+
+test('a completed rescan invalidates unpublished repair previews and frees their bounded memory',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ for(let i=0;i<100;i++){
+  await flow.propose({sourcePath,scriptId:'clear-pending',oldSelector:'#old',newSelector:'#fixed-'+i});
+ }
+ await assert.rejects(flow.propose({sourcePath,scriptId:'clear-pending',oldSelector:'#old',newSelector:'#overflow'}),/too many|limit/i);
+ flow.invalidatePending();
+ const fresh=await flow.propose({sourcePath,scriptId:'clear-pending',oldSelector:'#old',newSelector:'#post-rescan'});
+ const applied=await flow.apply({proposalId:fresh.proposalId,approved:true});
+ assert.match(await readFile(applied.managedPath,'utf8'),/#post-rescan/);
+}));
+test('an old repair preview cannot be applied after its scan is invalidated',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const old=await flow.propose({sourcePath,scriptId:'invalidated',oldSelector:'#old',newSelector:'#old-preview'});
+ flow.invalidatePending();
+ await assert.rejects(flow.apply({proposalId:old.proposalId,approved:true}),/not found|stale|invalid/i);
+ assert.match(await readFile(sourcePath,'utf8'),/#old/);
+}));
