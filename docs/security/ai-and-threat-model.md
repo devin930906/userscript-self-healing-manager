@@ -15,10 +15,12 @@
 `ProviderConfig`（用户可管理多组）：
 - id/displayName/type: `openai-compatible`（首发必有）；`ollama` / `lmstudio` / 其他可作为带明确兼容检测的后期专用 adapter。
 - baseURL：完整协议+host+port+可选 path，示例 `https://api.example.com/v1`、`http://127.0.0.1:1234/v1`；必须以 URL 解析和路径安全拼接为准，避免重复 `/v1/v1`。
-- API Key：可为空（仅服务明确支持匿名时）；隐藏显示、更新与删除；OS-backed encrypted storage，不得存明文配置或 logs。
+- API Key：可为空（仅服务明确支持匿名时）；隐藏显示、更新与删除；OS-backed encrypted storage，不得存明文配置或 logs。**当便携 EXE/ZIP 与 `Data/` 复制到另一 Windows 用户/电脑时，不保证旧用户可解密，必须要求重新输入而不能退回明文储存**。
 - model：`auto-list` + `manual`；展示完整模型标识，不私自替换前缀。
 - timeout、maxRetries、retryBackoff、maxInputTokens、maxOutputTokens、maxRequestsPerJob、maxRequestsPerDay、estimatedCostLimit、allowedDataClasses、`enabled=false` 默认。
 - 首次调用前校验目标 host、TLS、是否本地服务、实际将发送什么数据；非 TLS 外网端点默认阻断，只有明确额外风险批准才能允许。
+
+便携数据放置与迁移规则：[Windows 三形式发行规范](../distribution/windows-three-editions.md)；不要将单文件便携 EXE 的临时解包目录作为持久化机密存储位置。
 
 ## 3. 模型发现、手动填写及协议处理
 - 对声明支持 OpenAI-compatible 的提供方，尝试 `GET <normalized-baseURL>/models`；若 baseURL 本身已是 `/v1`，不自动再补一层。
