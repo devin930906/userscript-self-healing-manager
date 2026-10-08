@@ -191,7 +191,7 @@ async function bootstrap():Promise<void>{
   const currentSha=createHash('sha256').update(current).digest('hex');
   if(currentSha!==item.analysis.sourceSha256)throw new Error('Source changed since static scan, please rescan');
   const proposal=await repairs.propose({sourcePath:item.path,scriptId:item.scriptId,oldSelector:sel.expression,newSelector:q.newSelector,selectorLocation:{method:sel.method,line:sel.sourceRange.start.line,column:sel.sourceRange.start.column}});
-  if(proposal.baseHash!==item.analysis.sourceSha256)throw new Error('Patch base hash mismatch');
+  if(proposal.originalHash!==item.analysis.sourceSha256)throw new Error('Original scan hash mismatch; please rescan');
   return proposal;
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
