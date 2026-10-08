@@ -54,16 +54,25 @@ try{
  let spawnFailure;
  chrome.on('error',error=>{spawnFailure=error;});
  let selected;
+ let lastIdentityError='';
  for(let attempt=0;attempt<55;attempt++){
   if(spawnFailure)throw spawnFailure;
   try{
    const status=await getChromeStatus({port:9223});
-   selected=status.pages.find(x=>x.url===fixtureUrl&&x.webSocketDebuggerUrl);
-   if(selected)break;
+   const candidate=status.pages.find(x=>x.url===fixtureUrl&&x.webSocketDebuggerUrl);
+   if(candidate){
+    // /json/list may announce the URL just before the top FrameTree is ready.
+    // Wait for the live frame to confirm before treating this as browser-ready.
+    try{
+     await confirmPageIdentity(candidate);
+     selected=candidate;
+     break;
+    }catch(error){lastIdentityError=String(error);}
+   }
   }catch{ /* Chrome may not have opened its CDP port yet. */ }
   await delay(300);
  }
- if(!selected)throw new Error('Real Chrome did not expose the loopback fixture page over CDP: '+diagnostics);
+ if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture: '+lastIdentityError+' '+diagnostics);
  const identity=await confirmPageIdentity(selected);
  assert.equal(identity.confirmedUrl,fixtureUrl);
  const summary=await captureDomSummary(selected);
