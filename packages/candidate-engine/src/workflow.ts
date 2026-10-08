@@ -13,7 +13,7 @@ function ensureIdentity(expected:{id:string;url:string},actual:{targetId:string;
 }
 /** Require two independent live CDP DOM checks; suggestions always need manual approval. */
 export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:string;url:string};locator:MissingLocator;deps:CandidateDeps}):Promise<VerifiedCandidate[]>{
- if(!['querySelector','getElementById'].includes(locator.method)||locator.runtimeRequired||!locator.expression||locator.expression.length>1024)return [];
+ if(!['querySelector','getElementById','getElementsByName','getElementsByClassName'].includes(locator.method)||locator.runtimeRequired||!locator.expression||locator.expression.length>1024)return [];
  const originalProbe=await deps.probe([locator]);ensureIdentity(target,originalProbe);
  const old=originalProbe.checks[0];
  if(originalProbe.checks.length!==1||old?.expression!==locator.expression||old.method!==locator.method||old.status!=='missing'||old.matchCount!==0)return [];
