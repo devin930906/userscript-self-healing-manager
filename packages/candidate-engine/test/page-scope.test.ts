@@ -25,3 +25,12 @@ test('include globs accept exact host and path without matching lookalikes',()=>
  assert.equal(checkUserscriptPageScope(m,'https://example.com/products/one').status,'allowed');
  assert.equal(checkUserscriptPageScope(m,'https://sub.example.com/products/one').status,'blocked');
 });
+
+test('unsupported @exclude rules fail closed even when @match allows the page',()=>{
+ const m=meta(['*://example.com/*'],[],{'exclude':['/^https:\\\/\\\/example\\.com/']});
+ assert.equal(checkUserscriptPageScope(m,'https://example.com/profile').status,'unknown');
+});
+test('unsupported @exclude-match syntax cannot silently disable protection',()=>{
+ const m=meta(['*://example.com/*'],[],{'exclude-match':['not-a-match-pattern']});
+ assert.equal(checkUserscriptPageScope(m,'https://example.com/profile').status,'unknown');
+});
