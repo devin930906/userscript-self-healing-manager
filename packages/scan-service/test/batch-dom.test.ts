@@ -79,3 +79,21 @@ test('read-only batch performs final identity recheck when all scripts have no s
  }),/identity/i);
  assert.equal(checks,2);
 });
+
+test('unsupported scope metadata remains needs-review, never falsely out-of-scope',async()=>{
+ const cases:any[]=[
+  {path:'no-rule.user.js',scriptId:'no-rule',status:'parsed',analysis:analysis(meta([]))},
+  {path:'regex-rule.user.js',scriptId:'regex',status:'parsed',analysis:analysis(meta([],))},
+  {path:'unknown-exclude.user.js',scriptId:'exclude',status:'parsed',analysis:analysis({
+   match:['https://example.org/*'],include:[],raw:{'exclude':['/example\\.org/']},
+  })},
+ ];
+ let probes=0;
+ const result=await diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  probe:async()=>{probes++;throw new Error('must not inspect unsupported scopes');},
+ }});
+ assert.deepEqual(result.items.map(row=>row.status),['needs-review','needs-review','needs-review']);
+ assert.ok(result.items.every(row=>row.needsReview>=1));
+ assert.equal(probes,0);
+});
