@@ -57,7 +57,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    pending.delete(proposalId);
    const sourceInfo=await lstat(found.sourcePath);
    if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink()||sha(await readFile(found.sourcePath))!==found.originalHash)
-    throw new Error('Original source hash changed after patch proposal; refusing stale repair');
+    throw new Error('Original source hash mismatch after patch proposal; refusing stale repair');
    const receipt=await applyManagedPatch({sourcePath:found.workingPath,managedRoot,scriptId:found.scriptId,draft:found.draft,expectedHash:found.draft.baseHash,approved:true,baseRevisionKind:found.baseRevisionKind});
    await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,approved:true});
    return receipt;
