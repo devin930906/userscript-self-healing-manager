@@ -39,3 +39,10 @@
 - Windows CI 全部通过的 Alpha.3 运行：[Windows #37771109973](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37771109973)，并有源码测试、TypeScript、三版打包、ZIP EXE 启动创建 registry.sqlite 的真实成功证据。
 - Alpha.4 的 Windows 启动冒烟已从 continue-on-error 改为硬性要求。CI 必须重新验证对应 commit，不能沿用 Alpha.3 结果。
 - 尚未完成跨 iframe/shadow root、自动 selector 候选生成和评分、自动修复、业务功能 V3/V4、真实 Windows 10 用户机上的便携 Chrome、AI Provider、共享兼容层、健康巡检与 GUI 一键恢复。
+
+## Alpha.5：DOM 选择器候选生成（2026-10-08）
+- 本轮新增 `packages/candidate-engine`：只在旧 Selector 当前 DOM 零匹配、类型为静态 `querySelector` 或 `getElementById` 时，生成有上限的候选，按稳定 DOM 属性与词汇相似度排序。
+- 新增 `packages/cdp-client/src/candidate-snapshot.ts`：只允许本机 CDP page WebSocket，读取上限 5000 节点和 3 MB 的快照响应，不传输 DOM 文字、输入框 value、Cookie 和任意属性；仅保留允许的静态属性值。
+- 候选在展示前由 DOM.querySelectorAll 再次验证单一匹配；目标 page id/url 在每一步保持一致，否则拒绝；候选本身不是修复成功或 V4 功能证明。
+- GUI 有“生成候选定位器（只读）”和“采用候选”入口，后续仍遵循已有显式修复预览、人工批准、原件不改的保存流程。
+- 开发隔离分支本地 RED→GREEN，完整 75 项单元/集成测试通过；候选引擎与安全 DOM 采集的局部严格 TypeScript 检查通过。本轮 Alpha.5 的 Node 24 完整 CI 和 Windows 三包验收应单独以该版实际运行记录确认。
