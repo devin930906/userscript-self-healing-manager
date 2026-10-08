@@ -17,7 +17,7 @@ export async function suggestMissingCandidatesBulk({target,locators,checks,deps,
  checks:readonly DomProbeCheck[];
  deps:CandidateDeps;
  evidenceIdentity?:{targetId:string;url:string};
- offset?:number;
+ offset?:number|undefined;
 }):Promise<BulkCandidateResult>{
  if(!target.id||!/^https?:\/\//i.test(target.url))throw new Error('Invalid selected page identity');
  if(!Number.isSafeInteger(offset)||offset<0||offset>48||offset%8!==0)throw new Error('Invalid candidate offset');
