@@ -152,10 +152,12 @@ async function bootstrap():Promise<void>{
   return candidates;
  });
  ipcMain.handle('usshm:suggest-repairs-bulk',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {itemIndex:number;targetId:string;approved:true}|null;
+  const q=input as {itemIndex:number;targetId:string;approved:true;offset?:number}|null;
   if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
     typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128)
    throw new Error('Explicit CDP target and consent required');
+  if(q.offset!==undefined&&(!Number.isSafeInteger(q.offset)||q.offset<0||q.offset>48||q.offset%8!==0))
+   throw new Error('Invalid candidate offset');
   const item=lastScan?.items[q.itemIndex];
   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
    throw new Error('Selected script is not authorized for page inspection');
@@ -172,7 +174,7 @@ async function bootstrap():Promise<void>{
   const evidence=await probePageLocators(selected,locators);
   const suggestions=await suggestMissingCandidatesBulk({
    target:{id:selected.id,url:selected.url},locators,checks:evidence.checks,
-   evidenceIdentity:{targetId:evidence.targetId,url:evidence.url},
+   evidenceIdentity:{targetId:evidence.targetId,url:evidence.url},offset:q.offset,
    deps:{probe:inputs=>probePageLocators(selected,inputs),capture:()=>captureCandidateNodes(selected)},
   });
   await confirmPageIdentity(selected);
