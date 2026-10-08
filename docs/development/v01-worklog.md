@@ -32,3 +32,10 @@
 - 完整 IPC 安全负例、ZIP 打包与安装/更新 smoke、可信构建供应链校验。
 
 以上不设定已验证通过的发布时间或完成百分比。
+
+## Alpha.4 新证据补充（2026-10-08）
+- 已用 TDD 新增 DOMSnapshot 文档数、节点数的只读取证；CDP DOM.querySelectorAll 测当前主 document 静态定位器，返回 found/missing/ambiguous/blocked/unverified。GUI 允许选择目标网页、脚本、提交一次性页面探针；不会读取返回网页敏感文本，不执行真实脚本。
+- 已用 TDD 新增 GUI 的人工预览、明确批准、受管副本保存 workflow，防 stale source hash 冲突，原源文件不被覆盖。
+- Windows CI 全部通过的 Alpha.3 运行：[Windows #37771109973](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37771109973)，并有源码测试、TypeScript、三版打包、ZIP EXE 启动创建 registry.sqlite 的真实成功证据。
+- Alpha.4 的 Windows 启动冒烟已从 continue-on-error 改为硬性要求。CI 必须重新验证对应 commit，不能沿用 Alpha.3 结果。
+- 尚未完成跨 iframe/shadow root、自动 selector 候选生成和评分、自动修复、业务功能 V3/V4、真实 Windows 10 用户机上的便携 Chrome、AI Provider、共享兼容层、健康巡检与 GUI 一键恢复。
