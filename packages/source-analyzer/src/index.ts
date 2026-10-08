@@ -6,7 +6,7 @@ export interface SourceRange {start:Position;end:Position}
 export type DynamicKind='literal'|'template-dynamic'|'concat-dynamic'|'wrapper-unknown';
 export interface SelectorRecord {
   scriptId:string; expression:string; method:string;sourceRange:SourceRange;
-  functionName:string|null;scope:string[];alternateSelectors:string[];
+  functionName:string|null;scope:string[];alternateSelectors:string[];receiver:string;
   dynamicKind:DynamicKind;runtimeRequired:boolean;
 }
 export interface MetadataParseResult {name:string|null;match:string[];include:string[];grant:string[];runAt:string|null;raw:Record<string,string[]>}
@@ -59,7 +59,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
      const scope=functionScope(node);
      selectorRecords.push({scriptId,expression:selector.expression,method:node.expression.name.text,
        sourceRange:{start:{line:start.line+1,column:start.character+1},end:{line:end.line+1,column:end.character+1}},
-       functionName:scope.name,scope:scope.scope,alternateSelectors:getAlternates(node),
+       functionName:scope.name,scope:scope.scope,alternateSelectors:getAlternates(node),receiver:node.expression.expression.getText(source),
        dynamicKind:selector.dynamicKind,runtimeRequired:selector.dynamicKind!=='literal'});
    }
    ts.forEachChild(node,walk);

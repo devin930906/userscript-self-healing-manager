@@ -21,3 +21,8 @@ test('candidate IPC rejects target pages outside userscript @match rules',async(
  assert.match(code,/checkUserscriptPageScope\(item\.analysis\.metadata,selected\.url\)/);
  assert.match(code,/scope\.status!=='allowed'/);
 });
+test('DOM validation is marked unknown when selector receiver is not document',async()=>{
+ const code=await readFile('apps/desktop/src/main/index.ts','utf8');
+ assert.match(code,/x\.receiver!=='document'/);
+ assert.match(code,/record\.receiver!=='document'/);
+});

@@ -89,7 +89,7 @@ async function bootstrap():Promise<void>{
   if(!selected.webSocketDebuggerUrl)throw new Error('CDP page has no debugger endpoint');
   // Read-only evidence. No userscript execution, no page text transmitted to renderer.
   const summary=await captureDomSummary(selected);
-  const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired}));
+  const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired||x.receiver!=='document'}));
   const probe=await probePageLocators(selected,records);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
@@ -99,7 +99,7 @@ async function bootstrap():Promise<void>{
   const item=lastScan?.items[q.itemIndex];
   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Script is not an authorized scanned file');
   const record=item.analysis.selectorRecords[q.selectorIndex];
-  if(!record||record.runtimeRequired)throw new Error('A literal selector is required');
+  if(!record||record.runtimeRequired||record.receiver!=='document')throw new Error('A document-scoped literal selector is required');
   const status=await getChromeStatus({port:9223});const selected=status.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);

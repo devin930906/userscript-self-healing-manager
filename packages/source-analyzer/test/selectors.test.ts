@@ -34,3 +34,8 @@ test('BOM and CRLF produce correct byte hash and lineEnding',async()=>{
  const {createHash}=await import('node:crypto');assert.equal(r.sourceSha256,createHash('sha256').update(sourceBytes).digest('hex'));
  assert.equal(r.encoding,'utf-8-bom');assert.equal(r.lineEnding,'crlf');
 });
+test('AST records document vs element receiver, so DOM checks cannot mistake nested scope',()=>{
+ const source="const target = document.querySelector('.outer');\ntarget.querySelector('.child');\ndocument.getElementById('ok');";
+ const r=analyzeSource({scriptId:'scoped',sourceBytes:encoder.encode(source)});
+ assert.deepEqual(r.selectorRecords.map(x=>x.receiver),['document','target','document']);
+});
