@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {summarizeLiveLocatorCheck,type LiveLocatorSummary} from '../../../../packages/scan-service/src/health.ts';
 import {createRoot} from 'react-dom/client';
 import type {ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
+type DesktopScanResult=ScanBatchResult&{scanId:string};
 import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {collectPagedDomDiagnosis} from '../../../../packages/scan-service/src/paginated-dom.ts';
 import {getRepairInputHint} from './repair-hints.ts';
@@ -15,7 +16,7 @@ import type {ManagedRevision} from '../../../../packages/repair-workflow/src/his
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
- batchDiagnose:(input:{targetId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
+ batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
  suggestRepairsBulk:(input:{itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
@@ -26,14 +27,14 @@ declare global {interface Window{ussm:{
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
- scan:(request:{paths:string[];recursive:boolean})=>Promise<ScanBatchResult>;
+ scan:(request:{paths:string[];recursive:boolean})=>Promise<DesktopScanResult>;
  listScripts:()=>Promise<ScriptRecord[]>;
  exportReport:(format:'json'|'markdown')=>Promise<{canceled:boolean;path?:string}>;
 }}}
 const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
- const [paths,setPaths]=useState<string[]>([]);const [result,setResult]=useState<ScanBatchResult|null>(null);
+ const [paths,setPaths]=useState<string[]>([]);const [result,setResult]=useState<DesktopScanResult|null>(null);
  const [history,setHistory]=useState<ScriptRecord[]>([]);const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
@@ -110,7 +111,7 @@ function App(){
    const outcome=await collectPagedDomDiagnosis({
     total:result.items.length,targetId:selectedTarget,
     expectedItems:result.items.map(item=>({scriptId:item.scriptId,path:item.path})),
-    requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,approved:true,offset}),
+    requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,scanId:result.scanId,approved:true,offset}),
     isCancelled:()=>batchCancel.current||token!==batchGeneration.current,
     onProgress:evidence=>{
      if(token!==batchGeneration.current)return;
