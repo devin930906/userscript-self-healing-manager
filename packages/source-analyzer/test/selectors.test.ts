@@ -58,3 +58,18 @@ test('metadata parsing never consumes code after the closing userscript marker',
  const src='// ==UserScript==\n// @name Safe\n// ==/UserScript==\n// @match https://attacker.example/*';
  assert.deepEqual(parseUserscriptMetadata(src).match,[]);
 });
+
+test('metadata parser rejects a forged UserScript header inserted after executable JavaScript',()=>{
+ const src='window.changedByPage=true;\n// ==UserScript==\n// @match https://evil.example/*\n// ==/UserScript==\n';
+ const meta=parseUserscriptMetadata(src);
+ assert.deepEqual(meta.match,[]);
+ assert.equal(meta.name,null);
+ const analysis=analyzeSource({scriptId:'forged-header',sourceBytes:encoder.encode(src)});
+ assert.deepEqual(analysis.metadata.match,[]);
+});
+test('metadata parser allows a benign leading line comment but not a header hidden inside a JS template',()=>{
+ const legitimate='// userscript source header follows\n\n// ==UserScript==\n// @match https://safe.example/*\n// ==/UserScript==\n';
+ assert.deepEqual(parseUserscriptMetadata(legitimate).match,['https://safe.example/*']);
+ const injected='const html = `page\\n// ==UserScript==\\n// @match https://evil.example/*\\n// ==/UserScript==`;';
+ assert.deepEqual(parseUserscriptMetadata(injected).match,[]);
+});
