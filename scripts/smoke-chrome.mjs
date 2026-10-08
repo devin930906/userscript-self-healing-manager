@@ -180,7 +180,7 @@ try{
  const chosen=candidates.find(x=>x.expression==='#heal-button');
  assert.ok(chosen);
  const sourcePath=join(profile,'fixture.user.js');
- const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\nconst actionButton=document.querySelector("#old-heal-button");const targetPane=document.querySelector(".old-target-pane");\nif(actionButton&&targetPane){actionButton.setAttribute("data-usshm-functional","pass");targetPane.setAttribute("data-usshm-functional","pass");}\n';
+ const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\nconst actionButton=document.querySelector("#old-heal-button");const targetPane=document.querySelector(".old-target-pane");\nif(actionButton&&targetPane){actionButton.setAttribute("data-usshm-functional","pass");targetPane.setAttribute("data-usshm-functional","pass");}\nif(!document.getElementById("usshm-nested-frame")){const frame=document.createElement("iframe");frame.id="usshm-nested-frame";frame.srcdoc="<button id=\\'iframe-only\\'>Nested DOM</button>";document.body.append(frame);}\n';
  await writeFile(sourcePath,original,'utf8');
  const baselineBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:original});
  assert.equal(baselineBehavior,false);
@@ -220,6 +220,25 @@ try{
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  const restoredBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:await readFile(restored.activePath,'utf8')});
  assert.equal(restoredBehavior,false);
+ // The fixture script creates a real about:srcdoc iframe. A top-level document
+ // miss does not prove that a userscript which can run in frames is broken.
+ await delay(400);
+ const nestedIdentity=await confirmPageIdentity(selected);
+ assert.ok((nestedIdentity.subframeCount??0)>=1,'real Chrome must report a nested iframe');
+ const nestedContextDiagnosis=await diagnoseScriptsOnPage({
+  items:[{path:'nested-fixture.user.js',scriptId:'nested-fixture',status:'parsed',
+   analysis:fakeAnalysis('#iframe-only')}],
+  target:selected,consent:true,deps:{confirm:confirmPageIdentity,probe:probePageLocators},
+ });
+ assert.equal(nestedContextDiagnosis.items[0]?.status,'needs-review',
+  'a selector that is only in an iframe cannot be classified as broken from the top document');
+ const topOnlyDiagnosis=await diagnoseScriptsOnPage({
+  items:[{path:'top-only-fixture.user.js',scriptId:'top-only-fixture',status:'parsed',
+   analysis:{...fakeAnalysis('#iframe-only'),metadata:{...scope,raw:{noframes:['']}}}}],
+  target:selected,consent:true,deps:{confirm:confirmPageIdentity,probe:probePageLocators},
+ });
+ assert.equal(topOnlyDiagnosis.items[0]?.status,'locator-missing',
+  '@noframes is defined as top-level only by Tampermonkey');
  await confirmPageIdentity(selected);
  console.log('PASS real Chrome CDP: page identity, 51-script batches, bulk candidates, synthetic behavior fail/repair-pass/rollback-fail, export.');
  console.log('Fixture-only browser DOM side effects verified. No Tampermonkey extension, GM_* API, or real userscript was executed.');
