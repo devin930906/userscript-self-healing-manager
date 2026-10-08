@@ -14,7 +14,9 @@ test('batch DOM flow uses narrow preload IPC and explicit approval; UI never wri
  assert.match(ui,/批量网页诊断（只读）/);
  assert.match(ui,/批量诊断不执行油猴脚本/);
  assert.match(main,/offset%25!==0/);
- assert.match(main,/lastScan\.items\.slice\(offset,offset\+25\)/);
+ assert.match(main,/scanSnapshot\.items\.slice\(offset,offset\+25\)/);
+ assert.match(main,/scanSessions\.require\(q\.scanId\)/);
+ assert.match(main,/scanSessions\.assertCurrent\(scanSnapshot\)/);
  assert.match(ui,/collectPagedDomDiagnosis\(/);
  assert.match(ui,/requestPage:offset=>window\.ussm\.batchDiagnose/);
  assert.match(ui,/setBatchResult\(evidence\)/);
