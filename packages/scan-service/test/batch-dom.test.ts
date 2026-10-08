@@ -109,3 +109,15 @@ test('unverified iframe contexts prevent a false missing or out-of-scope verdict
  assert.ok(result.items.every(x=>x.needsReview>=1));
  assert.equal(result.items[0]?.missing,0);
 });
+
+test('@noframes metadata retains definitive top-document verdict even if the page embeds iframes',async()=>{
+ const withNoFrames={match:['https://example.org/*'],include:[],raw:{noframes:['']}};
+ const nested=[{path:'top-only.user.js',scriptId:'top-only',status:'parsed',analysis:analysis(withNoFrames)},
+  {path:'top-only-other.user.js',scriptId:'other',status:'parsed',analysis:analysis({...withNoFrames,match:['https://other.example/*']})}] as any[];
+ const out=await diagnoseScriptsOnPage({items:nested,target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,subframeCount:1}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+ }});
+ assert.deepEqual(out.items.map(x=>x.status),['locator-missing','out-of-scope']);
+});
