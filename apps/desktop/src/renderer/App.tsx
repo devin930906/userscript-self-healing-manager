@@ -113,7 +113,7 @@ function App(){
     setMessage(batchCancel.current?'已取消后续检查，保留已完成的只读结果。':'批量网页诊断完成：已检查 '+combined.length+' 份脚本；结果仅为 DOM 证据。');
    }
   }catch(error){if(token===batchGeneration.current)setError('批量网页诊断失败：'+String(error));}
-  finally{if(token===batchGeneration.current){setBatchRunning(false);setBusy(false);}}
+  finally{setBatchRunning(false);setBusy(false);}
  }
  async function probePage(){if(focused===null||!targetId)return;
   setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
