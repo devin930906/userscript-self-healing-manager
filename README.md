@@ -20,6 +20,8 @@
 - 用户主动指定 Chrome 可执行路径，用 `--remote-debugging-port=9223`、`--remote-debugging-address=127.0.0.1` 启动；通过 CDP 本机端口 `/json/version` 和 `/json/list` 验证握手。当前 UI **需要人工授权发起 DOM 检查，尚未进行网页业务功能验收**。
 - 独立命令行脚本诊断入口（可在有 Node.js 24、npm 安装依赖的系统使用）。
 - **可选只读页面巡检（开发分支新增）**：对选定脚本和 CDP 页面手动点击“启动每分钟只读巡检”，前台程序运行期间大约每分钟检查文档定位器；脚本或页面切换时停止，不运行源代码、不自动保存补丁，匹配节点不等于脚本功能通过。
+- **iframe 与 `@noframes` 诊断保护（开发分支）**：从真实 Chrome 的只读 FrameTree 获取有界子 Frame 数量，不读取子网页 URL。一般 userscript 的顶层 DOM 缺失在存在 iframe 时改标「需要复核」，避免虚假的故障或范围外结论；对明文声明 `@noframes` 的脚本仍可作出顶层诊断。**尚未提供 iframe/ShadowRoot 内自动定位与修复**。
+- **真实 Electron GUI 自动启动门禁（开发分支）**：Windows Development CI 除单测、TypeScript 与 Electron 编译之外，还会在一次性 Data 目录实际启动 Electron，核实 `registry.sqlite` 和 React renderer 均加载成功；不制作任何中途安装包。这不是指定 Windows 10 实机或三种发行包验收。
 - **同网页批量只读诊断（开发分支）**：选择已导入脚本和 Chrome CDP 网页后，点击「批量网页诊断（只读）」，按 25 份一批自动处理当前所有已扫描脚本；显示进度、支持取消剩余批次，并逐脚本区分 `DOM 有匹配 / 选择器缺失 / 范围外 / 需复核 / 跳过 / 失败`。每份脚本独立失败，网页导航或身份不一致时拒绝继续使用证据。受限于每份脚本最多 50 个定位器、只检查顶层 document，仍非 Tampermonkey 行为验收。
 - **安全匹配规则（开发分支）**：`@match/@include/@exclude/@exclude-match` 使用受限、线性时间通配符匹配，不把脚本来源的任意 glob 编译成高风险正则；超长或不受支持的主机模式 fail closed。
 - **受管脚本安全导出（开发分支）**：成功保存修订后或打开受管历史后，可点击「安全导出 .user.js」，通过系统原生保存对话框把经过 SHA-256 归档验证的 `current.user.js` 导出为新文件；不覆盖已有输出、不覆盖原始脚本，不自动写入 Tampermonkey。支持 Windows 符号链接与外部改动拒绝策略；真实扩展内运行验证尚未完成。
