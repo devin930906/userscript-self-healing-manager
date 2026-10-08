@@ -43,3 +43,18 @@ test('every index-based desktop script action requires a scan epoch, not just an
   assert.match(ui,new RegExp('ussm\\.'+method+'\\(\\{[^}]*scanId:result\\.scanId'),method+' must pass the selected scan epoch');
  }
 });
+
+test('repair approval is limited to a proposal created under the same scan and consumed once',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ const propose=main.split("ipcMain.handle('usshm:propose-repair'")[1]?.split("ipcMain.handle('usshm:apply-repair'")[0]??'';
+ const apply=main.split("ipcMain.handle('usshm:apply-repair'")[1]?.split("ipcMain.handle('usshm:managed-revisions'")[0]??'';
+ assert.match(main,/new ProposalApprovalGate\(/);
+ assert.match(propose,/pendingApprovals\.register\(proposal\.proposalId,scanSnapshot\.scanId\)/);
+ assert.match(apply,/scanSessions\.require\(q\.scanId\)/);
+ assert.match(apply,/pendingApprovals\.require\(q\.proposalId,scanSnapshot\.scanId\)/);
+ assert.match(apply,/pendingApprovals\.consume\(q\.proposalId\)/);
+ assert.match(preload,/applyRepair:\(input:\{scanId:string;/);
+ assert.match(ui,/ussm\.applyRepair\(\{scanId:result\.scanId,/);
+});
