@@ -80,7 +80,7 @@ async function bootstrap():Promise<void>{
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
  const scanPaths=q.paths as string[],recursive=q.recursive as boolean;
  lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
- pendingApprovals.clear();return lastScan;});
+ pendingApprovals.clear();repairs.invalidatePending();return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
