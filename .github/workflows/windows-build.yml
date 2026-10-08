@@ -18,6 +18,8 @@ jobs:
         run: npm install --ignore-scripts=false
       - name: Unit tests
         run: npm test
+      - name: Full TypeScript typecheck
+        run: npm run typecheck
       - name: Bundle desktop
         run: npm run build
       - name: Build Setup and Portable EXEs

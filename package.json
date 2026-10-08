@@ -15,7 +15,7 @@
     "lint":"npm run typecheck",
     "build":"node scripts/build.mjs",
     "dev":"npm run build && electron .",
-    "dist:win":"electron-builder --win nsis portable --x64"
+    "dist:win":"electron-builder --config build/electron-builder.yml --win nsis portable --x64 --publish never"
   },
   "dependencies":{"react":"19.2.0","react-dom":"19.2.0","typescript":"5.8.3"},
   "devDependencies":{"@types/node":"^24.0.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0","esbuild":"0.28.2","electron":"44.7.0","electron-builder":"26.15.3"}
