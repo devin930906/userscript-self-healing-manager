@@ -19,7 +19,7 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
  const file=ts.createSourceFile('script.user.js',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const matches:ts.StringLiteralLike[]=[];
  function visit(node:ts.Node):void{
-  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])&&node.arguments[0].text===oldSelector){
+  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById','getElementsByName','getElementsByClassName'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])&&node.arguments[0].text===oldSelector){
    const pos=file.getLineAndCharacterOfPosition(node.getStart(file));
    if(!selectorLocation||(selectorLocation.method===node.expression.name.text&&selectorLocation.line===pos.line+1&&selectorLocation.column===pos.character+1))
     matches.push(node.arguments[0]);
