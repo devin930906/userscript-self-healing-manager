@@ -26,13 +26,18 @@ function matchPattern(pattern:string,url:URL):boolean|null {
  const match=pattern.match(/^(\*|http|https):\/\/([^/]+)(\/.*)$/i);
  if(!match)return null;
  const scheme=match[1]!.toLowerCase(),host=match[2]!.toLowerCase(),path=match[3]!;
+ // Chrome match patterns do not allow arbitrary host wildcards or explicit ports.
+ // Syntax is validated *before* checking whether a deny rule matches the URL.
+ const base=host.startsWith('*.')?host.slice(2):host;
+ if(host!=='*'&&(!base||base.includes('*')||base.includes(':')||base.includes('..')||
+    !/^[a-z0-9.-]+$/i.test(base)||base.startsWith('.')||base.endsWith('.')))
+  return null;
  if(!['http:','https:'].includes(url.protocol))return false;
  if(scheme!=='*'&&scheme+':'!==url.protocol)return false;
  if(host!=='*') {
   if(host.startsWith('*.')){
-   const base=host.slice(2);
-   if(!base||host.slice(2).includes('*')||!(url.hostname===base||url.hostname.endsWith('.'+base)))return false;
-  }else if(host.includes('*')||url.hostname!==host)return false;
+   if(!(url.hostname===base||url.hostname.endsWith('.'+base)))return false;
+  }else if(url.hostname!==host)return false;
  }
  return wildcardMatch(path,url.pathname+url.search);
 }
