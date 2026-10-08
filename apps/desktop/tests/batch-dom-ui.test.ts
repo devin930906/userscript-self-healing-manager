@@ -13,4 +13,10 @@ test('batch DOM flow uses narrow preload IPC and explicit approval; UI never wri
  assert.match(ui,/ussm\.batchDiagnose\(/);
  assert.match(ui,/批量网页诊断（只读）/);
  assert.match(ui,/批量诊断不执行油猴脚本/);
+ assert.match(main,/offset%25!==0/);
+ assert.match(main,/lastScan\.items\.slice\(offset,offset\+25\)/);
+ assert.match(ui,/for\(let offset=0;offset<result\.items\.length;offset\+=25\)/);
+ assert.match(ui,/batchCancel\.current/);
+ assert.match(ui,/取消剩余检查/);
+ assert.match(ui,/setBatchProgress\(combined\.length\)/);
 });
