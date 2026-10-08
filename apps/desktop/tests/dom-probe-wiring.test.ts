@@ -9,7 +9,7 @@ test('only approved imported script and selected CDP target can be probed',async
  assert.match(file,/ipcMain\.handle\('usshm:probe-locators'/);
  assert.match(file,/captureDomSummary\(/);
  assert.match(file,/probePageLocators\(/);
- assert.match(file,/lastScan\?\.items\[/);
+ assert.match(file,/scanSnapshot\?\.items\[/);
  assert.match(file,/approved:true/);
 });
 test('preload only exposes a narrow locator command',async()=>{assert.match(await preload(),/probeLocators:/);});
