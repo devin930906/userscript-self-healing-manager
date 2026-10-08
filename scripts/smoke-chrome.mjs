@@ -18,6 +18,8 @@ import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
+import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
+import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-client/src/preferred-chrome.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
@@ -81,6 +83,9 @@ try{
   await delay(300);
  }
  if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture: '+lastIdentityError+' '+diagnostics);
+ // Verify the actual installed Chrome EXE survives a preference reload (no autorun).
+ await savePreferredChromePath({dataRoot:profile,executablePath:executable});
+ assert.equal(await loadPreferredChromePath({dataRoot:profile}),executable);
  const identity=await confirmPageIdentity(selected);
  assert.equal(identity.confirmedUrl,fixtureUrl);
  const summary=await captureDomSummary(selected);
@@ -93,6 +98,23 @@ try{
  ]);
  assert.deepEqual(result.checks.map(x=>x.status),['found','found','missing']);
  assert.deepEqual(result.checks.map(x=>x.matchCount),[1,1,0]);
+
+ const bulkCandidatesInputs=[
+  {method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
+  {method:'getElementById',expression:'old-heal-button',runtimeRequired:false},
+  {method:'getElementsByName',expression:'old-action-name',runtimeRequired:false},
+  {method:'getElementsByClassName',expression:'old-action-class',runtimeRequired:false},
+ ];
+ const bulkEvidence=await probePageLocators(selected,bulkCandidatesInputs);
+ const bulkSuggestions=await suggestMissingCandidatesBulk({
+  target:{id:selected.id,url:selected.url},locators:bulkCandidatesInputs,
+  checks:bulkEvidence.checks,
+  evidenceIdentity:{targetId:bulkEvidence.targetId,url:bulkEvidence.url},
+  deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+ });
+ assert.equal(bulkSuggestions.checkedMissing,4);
+ assert.ok(bulkSuggestions.items.every(item=>item.candidates.length>0),'all four DOM methods must offer real confirmed candidates');
+
  // Exercise the actual offline-first repair recommendation flow against Chrome.
  const evidence=await captureCandidateNodes(selected);
  assert.ok(evidence.nodes.some(x=>x.attributes.id==='heal-button'));
@@ -183,7 +205,7 @@ try{
  const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: page identity, 51-script batches, CSS/name/class candidates, two cumulative managed repairs, export and restore.');
+ console.log('PASS real Chrome CDP: preferred executable reload, page identity, 51-script batches, bulk CSS/name/class candidates, cumulative repairs, export and restore.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
