@@ -7,6 +7,8 @@ import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../p
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
+import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
+import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:ScanBatchResult|null=null;
@@ -70,6 +72,20 @@ async function bootstrap():Promise<void>{
   await launchSelectedChrome({executablePath:approvedChromePath,port:9223});return {started:true,port:9223};
  });
  ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
+ ipcMain.handle('usshm:probe-locators',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number;targetId:string;approved:true}|null;
+  if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||typeof q.targetId!=='string'||q.targetId.length>128)throw new Error('Explicit target and consent required');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item||!item.analysis)throw new Error('No imported script for this scan index');
+  const status=await getChromeStatus({port:9223});const selected=status.pages.find(x=>x.id===q.targetId);
+  if(!selected)throw new Error('Selected CDP page target no longer exists');
+  if(!selected.webSocketDebuggerUrl)throw new Error('CDP page has no debugger endpoint');
+  // Read-only evidence. No userscript execution, no page text transmitted to renderer.
+  const summary=await captureDomSummary(selected);
+  const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired}));
+  const probe=await probePageLocators(selected,records);
+  return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
+ });
  ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');if(!lastScan)throw new Error('No scan has been performed');
  const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});
  if(result.canceled||!result.filePath)return {canceled:true};await writeFile(result.filePath,serializeStaticReport(lastScan,format),{encoding:'utf8',flag:'w'});return {canceled:false,path:result.filePath};});

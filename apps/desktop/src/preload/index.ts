@@ -10,6 +10,7 @@ const api={
  pickChrome:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-chrome'),
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
  getCdpStatus:()=>ipcRenderer.invoke('usshm:cdp-status'),
+ probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:probe-locators',input),
  exportReport:(format:'json'|'markdown')=>ipcRenderer.invoke('usshm:export',format),
 };
 contextBridge.exposeInMainWorld('ussm',api);
