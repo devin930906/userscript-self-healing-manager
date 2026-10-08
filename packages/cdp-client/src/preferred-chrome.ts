@@ -45,7 +45,9 @@ export async function savePreferredChromePath({dataRoot,executablePath}:{
 export async function loadPreferredChromePath({dataRoot}:{dataRoot:string}):Promise<string|null>{
  if(!isAbsolute(dataRoot))throw new Error('Absolute application data root required');
  const config=join(dataRoot,PREFERENCE_FILE);
- if(!await checkConfigPath(config))return null;
+ // A damaged, oversized or symlinked optional preference must not brick startup.
+ try{if(!await checkConfigPath(config))return null;}
+ catch{return null;}
  let parsed:unknown;
  try{parsed=JSON.parse(await readFile(config,'utf8'));}
  catch(error){if(error instanceof SyntaxError)return null;throw error;}
