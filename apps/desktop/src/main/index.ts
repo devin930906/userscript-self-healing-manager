@@ -11,6 +11,7 @@ import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-cli
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
+import {listManagedRevisions,activateManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
@@ -127,6 +128,20 @@ async function bootstrap():Promise<void>{
   const q=input as {proposalId:string;approved:true}|null;
   if(!q||q.approved!==true||typeof q.proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(q.proposalId))throw new Error('Explicit repair approval required');
   return repairs.apply({proposalId:q.proposalId,approved:true});
+ });
+ ipcMain.handle('usshm:managed-revisions',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number}|null;
+  if(!q||!Number.isInteger(q.itemIndex)||q.itemIndex<0)throw new Error('Invalid managed revision item index');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  return listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+ });
+ ipcMain.handle('usshm:rollback-managed',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number;hash:string;approved:true}|null;
+  if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||q.itemIndex<0||typeof q.hash!=='string'||!/^[a-f0-9]{64}$/.test(q.hash))throw new Error('Explicit managed revision rollback approval required');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  return activateManagedRevision({managedRoot:dataRoot,scriptId:item.scriptId,hash:q.hash,approved:true});
  });
  ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');if(!lastScan)throw new Error('No scan has been performed');
  const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});

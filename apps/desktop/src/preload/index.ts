@@ -14,6 +14,8 @@ const api={
  suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:suggest-repair',input),
  proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>ipcRenderer.invoke('usshm:propose-repair',input),
  applyRepair:(input:{proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair',input),
+ listManagedRevisions:(input:{itemIndex:number})=>ipcRenderer.invoke('usshm:managed-revisions',input),
+ rollbackManaged:(input:{itemIndex:number;hash:string;approved:true})=>ipcRenderer.invoke('usshm:rollback-managed',input),
  exportReport:(format:'json'|'markdown')=>ipcRenderer.invoke('usshm:export',format),
 };
 contextBridge.exposeInMainWorld('ussm',api);
