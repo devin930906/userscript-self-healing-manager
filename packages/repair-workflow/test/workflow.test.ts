@@ -93,3 +93,20 @@ test('second repair blocks changed original before writing another revision',asy
  await writeFile(sourcePath,'document.querySelector("#changed-original");\n');
  await assert.rejects(flow.propose({sourcePath,scriptId:'changed-source',oldSelector:'#first',newSelector:'#second'}),/original|source|hash/i);
 }));
+
+test('second repair targets original AST call after earlier same-line replacement shifts its column',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const original='document.querySelector("#first");document.querySelector("#second");\n';
+ await writeFile(sourcePath,original);
+ const flow=createRepairWorkflow({managedRoot});
+ const initialSecondColumn=original.indexOf('document.querySelector("#second")')+1;
+ const first=await flow.propose({sourcePath,scriptId:'shifted',oldSelector:'#first',
+  newSelector:'#first-replacement-with-a-longer-name',
+  selectorLocation:{method:'querySelector',line:1,column:1}});
+ await flow.apply({proposalId:first.proposalId,approved:true});
+ const second=await flow.propose({sourcePath,scriptId:'shifted',oldSelector:'#second',newSelector:'#second-fixed',
+  selectorLocation:{method:'querySelector',line:1,column:initialSecondColumn}});
+ const applied=await flow.apply({proposalId:second.proposalId,approved:true});
+ assert.equal(await readFile(applied.managedPath,'utf8'),
+  'document.querySelector("#first-replacement-with-a-longer-name");document.querySelector("#second-fixed");\n');
+ assert.equal(await readFile(sourcePath,'utf8'),original);
+}));
