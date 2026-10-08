@@ -1,4 +1,5 @@
-import React,{useEffect,useMemo,useState} from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
+import {summarizeLiveLocatorCheck,type LiveLocatorSummary} from '../../../../packages/scan-service/src/health.ts';
 import {createRoot} from 'react-dom/client';
 import type {ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
@@ -32,6 +33,11 @@ function App(){
  const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
  const [targetId,setTargetId]=useState('');
  const [pageProbe,setPageProbe]=useState<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}|null>(null);
+ const [watchEnabled,setWatchEnabled]=useState(false);
+ const [watchStatus,setWatchStatus]=useState<LiveLocatorSummary|null>(null);
+ const [watchCheckedAt,setWatchCheckedAt]=useState('');
+ const [watchError,setWatchError]=useState('');
+ const watchRunning=useRef(false);
  const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
@@ -40,6 +46,31 @@ function App(){
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);}).catch(e=>setError(String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
+ // Switching site or script revokes a previously granted read-only health watch.
+ useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
+ useEffect(()=>{
+  if(!watchEnabled||focused===null||!targetId)return;
+  let cancelled=false;
+  async function poll(){
+   if(watchRunning.current)return;
+   watchRunning.current=true;
+   try{
+    const evidence=await window.ussm.probeLocators({itemIndex:focused!,targetId,approved:true});
+    if(cancelled)return;
+    setPageProbe(evidence);
+    setRepairCandidates(null);
+    setWatchStatus(summarizeLiveLocatorCheck(evidence.probe.checks));
+    setWatchCheckedAt(new Date().toLocaleString());
+    setWatchError('');
+   }catch(error){
+    if(!cancelled){setWatchError('巡检暂停校验：'+String(error));setWatchStatus(null);}
+   }finally{watchRunning.current=false;}
+  }
+  void poll();
+  const interval=setInterval(()=>void poll(),60_000);
+  return ()=>{cancelled=true;clearInterval(interval);};
+ },[watchEnabled,focused,targetId]);
+
  async function chooseFiles(){try{const selected=await window.ussm.pickFiles();setPaths(old=>[...new Set([...old,...selected])]);setError('');}catch(e){setError(String(e));}}
  async function chooseDirectory(){try{const selected=await window.ussm.pickDirectory();if(selected)setPaths(old=>[...new Set([...old,selected])]);setError('');}catch(e){setError(String(e));}}
  function onDrop(event:React.DragEvent<HTMLDivElement>){event.preventDefault();setDragging(false);}
@@ -64,12 +95,12 @@ function App(){
   catch(e){setError('候选定位器提取失败：'+String(e));}finally{setBusy(false);}
  }
  async function proposeRepair(){if(focused===null||!repairNew.trim())return;
-  setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
+  setWatchEnabled(false);setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
   try{const r=await window.ussm.proposeRepair({itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
   catch(e){setError('生成预览失败：'+String(e));}finally{setBusy(false);}
  }
  async function applyRepair(){if(!repairProposal)return;
-  setBusy(true);setError('');
+  setWatchEnabled(false);setBusy(true);setError('');
   try{const r=await window.ussm.applyRepair({proposalId:repairProposal.proposalId,approved:true});setRepairApplied(r);setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.managedPath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
  }
@@ -112,6 +143,10 @@ function App(){
    </section>
    {details&&<section className="panel"><div className="panel-head"><div><h2>{nameOf(details.path)} · Selector 清单</h2><p>先选目标网页，再点击授权核验；不代表油猴脚本功能通过。</p></div><button className="secondary" onClick={()=>{setFocused(null);setPageProbe(null);}}>关闭</button></div>
    <div className="toolbar"><button disabled={!cdp||!targetId||busy} onClick={()=>void probePage()}>页面定位器核验（只读）</button><span className="dim">每次最多检查前 50 个定位器；不执行脚本、不自动修改文件。</span></div>
+    <div className="toolbar"><button disabled={!cdp||!targetId||busy||(!watchEnabled&&!pageProbe)} onClick={()=>setWatchEnabled(old=>!old)}>{watchEnabled?'停止巡检':'启动每分钟只读巡检'}</button><span className="dim">只有窗口运行、目标页面保持匹配时定期复核；不写入脚本、不自动修复。</span></div>
+    <p className="dim">巡检只用于 DOM 检测，不代表 Tampermonkey 功能通过。</p>
+    {watchStatus&&<div className="notice">最近巡检：{watchCheckedAt} · {watchStatus.status==='locator-missing'?'当前页面存在未匹配的选择器':watchStatus.status==='dom-present'?'当前 DOM 有匹配节点（非功能通过）':watchStatus.status==='needs-review'?'当前结果需人工确认':'当前没有可检查的定位器'} · 匹配 {watchStatus.found} · 缺失 {watchStatus.missing} · 未确定 {watchStatus.needsReview}</div>}
+    {watchError&&<div className="notice error">{watchError}</div>}
    {pageProbe&&<div className="notice"><b>DOM 文档节点：</b>{pageProbe.summary.nodeCount} · 文档：{pageProbe.summary.documentCount} · 已检查 {pageProbe.checkedLocators}/{pageProbe.totalLocators} 个定位器；仅当前 document 作用域，不代表油猴脚本功能通过。</div>}
    {pageProbe?.probe.checks.map((check,index)=><div className="selector" key={index}><div className="selector-top"><span>{check.method}</span><b>{check.status==='found'?'当前匹配':check.status==='missing'?'无匹配':check.status==='ambiguous'?'多重匹配':check.status==='blocked'?'无法核验':'需要运行时确认'}</b></div><code>{check.expression}</code><small>匹配数：{check.matchCount===null?'未知':check.matchCount} · {check.reason}</small></div>)}
    <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
@@ -122,7 +157,7 @@ function App(){
      <button disabled={busy||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void suggestRepair()}>生成候选定位器（只读）</button>
      <button disabled={busy||!repairNew.trim()||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired} onClick={()=>void proposeRepair()}>生成修复预览</button>
     </div>
-    {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
+    {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setWatchEnabled(false);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
     {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button></div>}
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p></div>}
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
