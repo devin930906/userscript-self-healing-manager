@@ -165,3 +165,12 @@
 ### 仍未达到 Stable
 
 CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tampermonkey 扩展没有在本轮测试中加载或执行，GM_* / V3/V4 行为、跨 iframe/ShadowRoot、真实脚本副作用、自动化语义修复准确性、持久后台守护、AI provider、独立安全审查、发行版签名与全部 Release Gate 仍需进一步实现和验证。DOM 匹配唯一性不能冒充脚本功能已恢复。**不可将本轮功能或测试数量表述为最终 Stable 完成。**
+
+
+## 2026-10-09：@include/@exclude URL 大小写语义
+
+- **Root cause**：`packages/candidate-engine/src/page-scope.ts` 的 `includePattern` 将 `pattern` 与 `url.href` 整体转为小写比较；但 URL 的 scheme / host 才不区分大小写，pathname / search 需要保留大小写。原行为错误允许大写路径模式匹配不同的小写页面，并可能误拦截 `@exclude` 条目。
+- **RED**：[CI #37811535540](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37811535540) 先增加 `@include` 和 `@exclude` 回归测试，168 项中有 2 项如预期失败。
+- **GREEN**：`includePattern` 只对 scheme / host 进行大小写规范化，保留 path/query 原文进行有界 glob 匹配；没有用正则动态执行脚本 metadata。提交 `c154fafbebaa239ad8bb6b57edffb4dfd4cff778`。
+- **Windows 自动验证**：[Development CI #37811659144](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37811659144) **168/168 测试 PASS，TypeScript PASS，Electron build PASS，真实 Chrome CDP smoke PASS**。Chrome 冒烟包含已有的 preferred executable reload、51 脚本分页与批量候选、累积修复、导出与回滚。
+- 未使用实际 Tampermonkey/GM_* 或指定 Win10 便携 Chrome 155；本次没有生成中途安装包、发布 Stable 或合并 main。此限制继续约束发布门禁。
