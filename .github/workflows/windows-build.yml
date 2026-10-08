@@ -38,7 +38,6 @@ jobs:
           if (!(Test-Path $zip)) { throw "Missing ZIP: $zip" }
           if (!(Test-Path "$unpacked/resources/app.asar")) { throw 'Missing packaged app resources' }
       - name: Smoke-check unpacked Windows executable
-        continue-on-error: true
         shell: pwsh
         run: |
           $root = (Resolve-Path 'release/win-unpacked').Path

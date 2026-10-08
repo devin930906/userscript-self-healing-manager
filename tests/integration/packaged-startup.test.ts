@@ -6,7 +6,7 @@ test('Windows preview probes unpacked exe and persistent Data path',async()=>{
  assert.match(config,/Smoke-check unpacked Windows executable/);
  assert.match(config,/registry\.sqlite/);
  assert.match(config,/Stop-Process/);
- assert.match(config,/continue-on-error: true/);
+ assert.doesNotMatch(config,/continue-on-error: true/);
 });
 test('Windows preview uses npm ci with committed lockfile',async()=>{
  const config=await readFile('.github/workflows/windows-build.yml','utf8');
