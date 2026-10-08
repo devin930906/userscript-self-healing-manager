@@ -3,6 +3,7 @@ import {summarizeLiveLocatorCheck,type LiveLocatorSummary} from '../../../../pac
 import {createRoot} from 'react-dom/client';
 import type {ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
+import {collectPagedDomDiagnosis} from '../../../../packages/scan-service/src/paginated-dom.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -96,25 +97,28 @@ function App(){
  async function batchDiagnose(){
   if(!targetId||!result||batchRunning||busy)return;
   const token=++batchGeneration.current;
+  const selectedTarget=targetId;
   batchCancel.current=false;setBatchRunning(true);setBatchProgress(0);
   setBusy(true);setError('');setBatchResult(null);
-  const combined:BatchDomResult['items'][number][]=[];
   try{
-   for(let offset=0;offset<result.items.length;offset+=25){
-    if(batchCancel.current||token!==batchGeneration.current)break;
-    const page=await window.ussm.batchDiagnose({targetId,approved:true,offset});
-    if(batchCancel.current||token!==batchGeneration.current)break;
-    if(page.startIndex!==offset||page.pageTargetId!==targetId||page.items.length>25)
-     throw new Error('批量诊断返回的分页身份不一致');
-    combined.push(...page.items);
-    setBatchResult({validationLevel:'dom-only',pageTargetId:targetId,pageUrl:page.pageUrl,totalItems:combined.length,items:[...combined],remainingItems:result.items.length-combined.length});
-    setBatchProgress(combined.length);
-   }
+   const outcome=await collectPagedDomDiagnosis({
+    total:result.items.length,targetId:selectedTarget,
+    requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,approved:true,offset}),
+    isCancelled:()=>batchCancel.current||token!==batchGeneration.current,
+    onProgress:evidence=>{
+     if(token!==batchGeneration.current)return;
+     setBatchResult(evidence);setBatchProgress(evidence.totalItems);
+    },
+   });
+   if(token===batchGeneration.current)
+    setMessage(outcome.cancelled?'已取消后续检查，保留已完成的只读结果。':'批量网页诊断完成：已检查 '+outcome.totalItems+' 份脚本；结果仅为 DOM 证据。');
+  }catch(error){
    if(token===batchGeneration.current){
-    setMessage(batchCancel.current?'已取消后续检查，保留已完成的只读结果。':'批量网页诊断完成：已检查 '+combined.length+' 份脚本；结果仅为 DOM 证据。');
+    // Never display a partial result after inconsistent URL or page evidence.
+    setBatchResult(null);setBatchProgress(0);
+    setError('批量网页诊断失败，已清除不完整结果：'+String(error));
    }
-  }catch(error){if(token===batchGeneration.current)setError('批量网页诊断失败：'+String(error));}
-  finally{setBatchRunning(false);setBusy(false);}
+  }finally{setBatchRunning(false);setBusy(false);}
  }
  async function probePage(){if(focused===null||!targetId)return;
   setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
