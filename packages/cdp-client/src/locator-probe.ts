@@ -15,6 +15,12 @@ function asCss(input:LiteralLocator):string|null{
  if(input.runtimeRequired||!input.expression||input.expression.length>1024)return null;
  if(input.method==='querySelector'||input.method==='querySelectorAll')return input.expression;
  if(input.method==='getElementById')return '#'+escapeIdentifier(input.expression);
+ if(input.method==='getElementsByName'){
+  // CSS attribute values are strings, not identifier tokens. Reject unsafe control bytes.
+  if(/[\u0000-\u001f\u007f]/.test(input.expression)||input.expression.length>256)return null;
+  const escaped=input.expression.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+  return '[name="'+escaped+'"]';
+ }
  if(input.method==='getElementsByClassName'){
   const tokens=input.expression.trim().split(/\s+/).filter(Boolean);
   return tokens.length?tokens.map(x=>'.'+escapeIdentifier(x)).join(''):null;
@@ -56,7 +62,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      else if(!Array.isArray(message.result?.nodeIds)){check.status='blocked';check.reason='CDP 返回格式异常';}
      else{
       const count=message.result.nodeIds.length;check.matchCount=count;
-      check.status=count===0?'missing':count===1||locators[index]!.method==='querySelectorAll'?'found':'ambiguous';
+      check.status=count===0?'missing':count===1||['querySelectorAll','getElementsByName','getElementsByClassName'].includes(locators[index]!.method)?'found':'ambiguous';
       check.reason=count===0?'当前 document 无匹配节点':count>1?'匹配多个节点，请确认目标':'当前 document 存在匹配节点';
      }
      if(pending.size===0)complete();
