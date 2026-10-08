@@ -26,6 +26,9 @@
 
 > **重要：** 自 Chrome 136 起，正式 Chrome 对默认资料目录的远程调试开关有限制。仅“便携版”不构成豁免。程序默认不擅自添加 `--user-data-dir`，连接失败必须明确提示并提供由用户选择的兼容路径。详见 CDP 文档与[Chrome 官方公告](https://developer.chrome.com/blog/remote-debugging-port/)。
 
+## Superpowers 第一阶段实施计划（等待评审）
+- [Phase 1：V0.1 本地桌面软件与静态脚本诊断，12 项 TDD 任务](docs/superpowers/plans/2026-10-08-phase-1-offline-desktop-implementation.md)。目前只完成实施计划，产品源码/测试尚未开始，批准计划与执行方式后才开始写代码。
+
 ## Windows 最终发行合同（必须交付三种格式）
 - **EXE 安装版**：`Userscript-Self-Healing-Manager-Setup-<version>-win-x64.exe`。
 - **单文件 EXE 便携版**：`Userscript-Self-Healing-Manager-Portable-<version>-win-x64.exe`，无需安装，持久数据应保存在 EXE 外部所在目录的 `Data/`（可写性验证）。
