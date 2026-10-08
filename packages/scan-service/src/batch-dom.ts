@@ -113,7 +113,11 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  // A script could activate in an iframe whose URL differs from the outer page.
  // A top-document miss or top-page scope mismatch is therefore inconclusive.
  // Do not silently call such scripts broken or out of scope.
- const finalItems=nestedFramesSeen?results.map(item=>{
+ const finalItems=nestedFramesSeen?results.map((item,index)=>{
+  // Tampermonkey @noframes explicitly restricts this userscript to the
+  // outermost document; an embedded frame cannot change its verdict.
+  const metadata=items[index]?.analysis?.metadata;
+  if(metadata?.raw.noframes?.length)return item;
   if(item.status!=='locator-missing'&&item.status!=='out-of-scope')return item;
   return {...item,status:'needs-review' as const,missing:0,
    needsReview:item.needsReview+Math.max(1,item.missing),
