@@ -207,3 +207,31 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **RED**：[CI #37816033941](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37816033941) 记录测试前验证 API 缺失；[CI #37816498671](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37816498671) 记录 Windows Chrome smoke 缺少行为回归；[CI #37816874540](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37816874540) 记录单点修复假成功的遗漏断言。实现中发现了 Node 24 strip-types 测试替身不能采用 TypeScript 参数属性，以及创建假的 websocket 早于 await 会错过 open 事件，均已按真实测试约束修正。
 - **GREEN**：[Windows Development CI #37816968552](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37816968552)，提交 `93e8e0dcd4a8505df998eeffd8eda33344e5174d`，**181 / 181 tests PASS、0 FAIL；TypeScript PASS；Electron build PASS；真实 Chrome synthetic behavior end-to-end PASS**。前一次同类行为闭环验证为 [#37816653743](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37816653743)。
 - **开放发布门禁**：尚无真实 Tampermonkey 插件注入和 GM_* 行为、真实业务脚本的用户许可执行方案、Win10 + 便携 Chrome 155 E2E、iframe/shadow DOM 覆盖及 Stable 安全审查。CDP 生产 API 仍只读、测试运行器验证不是用户环境验证。保持 PR #2 Draft；不合并、不发布、不产生预览安装包。
+
+
+## 2026-10-09：接近 Stable 的保守诊断与真实桌面窗口验收
+
+本轮仍按已经批准的 Superpowers Native/TDD 计划继续，直接在 `feat/v01-continuation` 提交代码，不触发安装包工作流。
+
+### 正式版正确性：脚本生效范围与多 Frame
+
+- 修复 `packages/scan-service/src/batch-dom.ts`：原先 `@match/@include/@exclude` 无法判定（`unknown`）被错误归类为 `out-of-scope`，对无法判断的脚本现在只能标记 `needs-review`；已确认不匹配仍为 `out-of-scope`。避免把“证据不足”错误说成“脚本不在该网页运行”。
+- 扩展 `confirmPageIdentity` 的 `Page.getFrameTree` 只读检查：以最多 64 个子 Frame 为安全边界，仅返回 `subframeCount` 而不返回可能包含用户凭证/查询参数的 Frame URL。框架树不完整或过大立即拒绝。
+- 仅检查顶层 document 时，如果页面存在 iframe，原本的顶层“缺失”和顶层“范围外”都不能证明用户脚本在嵌套页面无效，默认降级为 `needs-review`。**这只是诚实区分未知，不是实现了 iframe 内实际修复**。
+- Tampermonkey 官方 `@noframes` 明确规定脚本只在顶层页面运行，因此这类脚本仍允许给出顶层 `locator-missing/out-of-scope` 结论；参考 [官方文档](https://www.tampermonkey.net/documentation.php?locale=en&q=noframes)。
+- RED：范围未知误报 [#37818774492](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37818774492)；帧边界及错误分类 [#37819096443](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37819096443)；`@noframes` 语义 [#37819562414](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37819562414)；缺少真实 Chrome nested Frame E2E [#37819793300](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37819793300)。
+- Windows Chrome 冒烟现在由虚构脚本在测试 localhost 页面创建实际 `srcdoc` iframe，再分别确认多 Frame 普通脚本为 `needs-review`、标注 `@noframes` 的顶层脚本为 `locator-missing`。不读取 iframe 源码、不泄露子页 URL、不调用真实用户脚本。
+
+### 发行门禁：编译后实际 Electron GUI 启动
+
+- 过去 Development CI 只编译 Electron/React，不能证明图形应用实际打开。现在新增 `scripts/smoke-electron-dev.mjs`，**在 GitHub Windows runner 上真正执行已编译 Electron**：使用一次性 `PORTABLE_EXECUTABLE_DIR` 数据目录，检查 `Data/registry.sqlite` 已初始化，并通过单独 loopback DevTools 9224 确认 `file://.../dist/index.html` 的真实 renderer 页面。测试后仅清理本次启动的 Electron 进程树与临时目录。
+- **没有构建或上传任何 Setup/Portable/ZIP 预览安装包。** 测试的 executable 是 lockfile 所指定 npm Electron 开发依赖，非提供给用户安装的产物。
+- 初次 RED：[缺少桌面启动门禁 #37820249704](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37820249704)。第一次真实运行发现 `npm ci` 没有准备 Electron runtime EXE；新增显式 `node node_modules/electron/install.js`。第二次真实运行证明 Windows Known Folder 路径不可靠地遵循 `APPDATA` 覆写，改用项目正式 `PORTABLE_EXECUTABLE_DIR` 机制的测试专用数据目录。这些都是来自 Windows CI 的真实失败，而非静态推测。
+- GREEN：[Windows Development CI #37821000622](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37821000622) 对应 `bac86142782c7a28ab01884b220d9fa78b1a263c`：**188/188 自动测试 PASS、0 FAIL；严格 TypeScript PASS；Electron/React 构建 PASS；编译后 Windows Electron 真实窗口和持久 Data/registry.sqlite PASS；真实 Chrome CDP 跨批诊断、iframe、合成脚本功能前后对比、修复/导出/回滚 PASS**。
+
+### 还未满足的 Stable 验收
+
+- CI 没有安装和执行真正的 Tampermonkey 浏览器扩展，未验证 GM_* API、Tampermonkey V3/V4 注入、权限与隔离行为；合成代码行为测试无法替代这些。
+- iframe 与 Shadow DOM 中实际定位/修复仍不支持；本轮只是阻断 iframe 场景的假阳性故障结论。
+- CI 的 Windows runner 不是指定 Windows 10 + 便携 Chrome 155，尚无该组合的 E2E 证据；三种最终发行包在本轮没有重新打包、签名或验证。
+- PR #2 继续 Draft，不合并 main，不发布 Stable。只有完成真正 Release Gates 才能改变此状态。
