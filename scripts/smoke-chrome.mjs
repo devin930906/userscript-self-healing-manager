@@ -21,6 +21,7 @@ import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
+import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
 const candidates=[
@@ -40,6 +41,7 @@ const server=createServer((req,res)=>{
  res.end(html);
 });
 let chrome;
+let exportRoot;
 let diagnostics='';
 try{
  await new Promise((resolve,reject)=>{
@@ -125,10 +127,14 @@ try{
  assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
  const active=join(profile,'managed','chrome-smoke-fixture','current.user.js');
  assert.equal(await readFile(active,'utf8'),await readFile(applied.managedPath,'utf8'));
+ exportRoot=await mkdtemp(join(tmpdir(),'usshm-export-smoke-'));
+ const exported=await exportManagedCurrent({managedRoot:profile,scriptId:'chrome-smoke-fixture',destinationPath:join(exportRoot,'checked.user.js')});
+ assert.match(await readFile(exported.path,'utf8'),/#heal-button/);
+ assert.equal(await readFile(sourcePath,'utf8'),original);
  const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: identity, locator and batch diagnosis, candidate confirmation, managed patch + restore.');
+ console.log('PASS real Chrome CDP: identity, batch diagnosis, candidate confirmation, managed patch, export and restore.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
@@ -141,4 +147,5 @@ try{
  }
  await new Promise(resolve=>server.close(()=>resolve()));
  await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:300}).catch(()=>{});
+ if(exportRoot)await rm(exportRoot,{recursive:true,force:true,maxRetries:5,retryDelay:300}).catch(()=>{});
 }
