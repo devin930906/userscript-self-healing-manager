@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../packages/persistence/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
+import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
@@ -22,7 +23,8 @@ import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/sr
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 
 let mainWindow:BrowserWindow;
-let lastScan:ScanBatchResult|null=null;
+let lastScan:(ScanBatchResult&{scanId:string})|null=null;
+const scanSessions=new ScanSessionCoordinator<ScanBatchResult>();
 const authorizedRoots=new Set<string>();
 let approvedChromePath:string|null=null;
 function distributionMode():DistributionMode{
@@ -74,7 +76,7 @@ async function bootstrap():Promise<void>{
  if(!input||typeof input!=='object')throw new Error('Invalid scan request');const q=input as Record<string,unknown>;
  if(!Array.isArray(q.paths)||q.paths.length>1000||q.paths.some(x=>typeof x!=='string'||!withinAuthorized(x)))throw new Error('Paths not authorized by file picker');
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
- lastScan=await runStaticScan({paths:q.paths as string[],recursive:q.recursive,maxFiles:1000},{repository});return lastScan;});
+ lastScan=await scanSessions.replace(()=>runStaticScan({paths:q.paths as string[],recursive:q.recursive,maxFiles:1000},{repository}));return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
@@ -116,21 +118,23 @@ async function bootstrap():Promise<void>{
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
  ipcMain.handle('usshm:batch-diagnose',async(event,input:unknown)=>{assertSender(event);
-  const q=input as {targetId:string;approved:true;offset?:number}|null;
-  if(!q||q.approved!==true||typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128)
-   throw new Error('Explicit CDP page consent required for batch diagnosis');
+  const q=input as {targetId:string;scanId:string;approved:true;offset?:number}|null;
+  if(!q||q.approved!==true||typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128||typeof q.scanId!=='string')
+   throw new Error('Explicit CDP page consent and scan identity required for batch diagnosis');
   const offset=q.offset??0;
   if(!Number.isSafeInteger(offset)||offset<0||offset>1000||offset%25!==0)throw new Error('Invalid batch offset');
-  if(!lastScan)throw new Error('No imported scripts in current scan');
+  const scanSnapshot=scanSessions.require(q.scanId);
   const status=await getChromeStatus({port:9223});
+  scanSessions.assertCurrent(scanSnapshot);
   const selected=status.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page is no longer available');
   // Bounded first page of scripts; no untrusted JS execution and no source writes.
-  const checked=lastScan.items.slice(offset,offset+25);
+  const checked=scanSnapshot.items.slice(offset,offset+25);
   const result=await diagnoseScriptsOnPage({items:checked,target:selected,consent:true,deps:{
    confirm:confirmPageIdentity,probe:probePageLocators,
   }});
-  return {...result,items:result.items.map(entry=>({...entry,index:entry.index+offset})),startIndex:offset,remainingItems:Math.max(0,lastScan.items.length-offset-checked.length)};
+  scanSessions.assertCurrent(scanSnapshot);
+  return {...result,items:result.items.map(entry=>({...entry,index:entry.index+offset})),startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
