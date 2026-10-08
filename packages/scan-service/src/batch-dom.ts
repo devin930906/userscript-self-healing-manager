@@ -45,6 +45,8 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  if(consent!==true)throw new Error('Explicit user consent required for batch page inspection');
  if(items.length>25)throw new Error('Batch safety limit exceeded: maximum 25 scripts per operation');
  if(!target.id||!target.webSocketDebuggerUrl||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP page target');
+ // Page identity must be authenticated even if all scripts are out of scope or have only dynamic locators.
+ assertPageIdentity(target,await deps.confirm(target));
  const results:BatchDomItem[]=[];
  for(let index=0;index<items.length;index++){
   const script=items[index]!;
@@ -95,5 +97,7 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   const summary=summarizeLiveLocatorCheck(evidence.checks);
   results.push({...common,status:summary.status,checked:summary.total,found:summary.found,missing:summary.missing,needsReview:summary.needsReview});
  }
+ // An all-skipped batch is still evidence about the selected page; reject navigations.
+ assertPageIdentity(target,await deps.confirm(target));
  return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,totalItems:items.length,items:results};
 }
