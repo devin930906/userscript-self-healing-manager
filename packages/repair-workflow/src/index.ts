@@ -77,7 +77,19 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    pending.delete(proposalId);
    const sourceInfo=await lstat(found.sourcePath);
    if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink()||sha(await readFile(found.sourcePath))!==found.originalHash)
-    throw new Error('Original source hash mismatch after patch proposal; refusing stale repair');
+    throw new Error('Original source hash mismatch after patch proposal; refusing stale repair'); 
+   // A preview staged before the first managed revision must never overwrite a
+   // different preview that was approved in the meantime. Earlier versions
+   // validated only the unchanged original source and lost the first repair.
+   if(found.workingPath===found.sourcePath){
+    const active=join(managedRoot,'managed',found.scriptId,'current.user.js');
+    const present=await lstat(active).then(()=>true,(error:unknown)=>{
+     if((error as NodeJS.ErrnoException).code==='ENOENT')return false;
+     throw error;
+    });
+    if(present||(await listManagedRevisions({managedRoot,scriptId:found.scriptId})).length)
+     throw new Error('Stale repair proposal: managed revision changed after preview; create a fresh proposal');
+   }
    const receipt=await applyManagedPatch({sourcePath:found.workingPath,managedRoot,scriptId:found.scriptId,draft:found.draft,expectedHash:found.draft.baseHash,approved:true,baseRevisionKind:found.baseRevisionKind});
    await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,approved:true});
    return receipt;
