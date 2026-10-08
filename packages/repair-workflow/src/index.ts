@@ -2,6 +2,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {readFile,lstat} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {applyManagedPatch,proposeLiteralPatch,type LiteralPatchDraft,type SelectorLocation} from '../../patch-engine/src/index.ts';
+import {analyzeSource} from '../../source-analyzer/src/index.ts';
 import {activateManagedRevision,listManagedRevisions} from './history.ts';
 export interface ProposalReceipt {
  proposalId:string;scriptId:string;oldSelector:string;newSelector:string;
@@ -42,7 +43,26 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    }else if(revisions.length){
     throw new Error('Managed current is missing; restore an archived revision before repairing');
    }
-   const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation});
+   // Literal replacements can change the length of an earlier selector on the
+   // same source line. Translate the originally scanned AST call position to the
+   // corresponding call in the verified managed revision by stable AST order.
+   let updatedLocation=selectorLocation;
+   if(workingPath!==sourcePath&&selectorLocation){
+    const originalCalls=analyzeSource({scriptId,sourceBytes:originalBytes}).selectorRecords;
+    const activeCalls=analyzeSource({scriptId,sourceBytes:workingBytes}).selectorRecords;
+    if(originalCalls.length!==activeCalls.length)
+     throw new Error('Managed revision AST structure differs from original; refusing positional patch');
+    const ordinal=originalCalls.findIndex(record=>
+     record.method===selectorLocation.method&&
+     record.sourceRange.start.line===selectorLocation.line&&
+     record.sourceRange.start.column===selectorLocation.column);
+    const active=ordinal>=0?activeCalls[ordinal]:undefined;
+    if(!active||active.method!==selectorLocation.method||active.expression!==oldSelector||
+       active.dynamicKind!=='literal')
+     throw new Error('Original locator position no longer maps to the same managed AST call');
+    updatedLocation={method:active.method,line:active.sourceRange.start.line,column:active.sourceRange.start.column};
+   }
+   const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation:updatedLocation});
    if(pending.size>=100)throw new Error('Too many pending patch proposals');
    const proposalId=randomUUID();
    pending.set(proposalId,{sourcePath,workingPath,originalHash,baseRevisionKind,scriptId,draft});
