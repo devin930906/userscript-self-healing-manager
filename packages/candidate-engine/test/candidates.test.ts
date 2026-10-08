@@ -34,3 +34,16 @@ test('candidate output is size-bounded and stable across repeated runs',()=>{
  const a=rankSelectorCandidates(input);const b=rankSelectorCandidates(input);
  assert.deepEqual(a,b);assert.ok(a.length<=10);assert.ok(a.every(x=>x.expression.length<=160));
 });
+
+test('candidate engine emits raw name and class arguments for DOM collection methods',()=>{
+ const named=rankSelectorCandidates({method:'getElementsByName',oldSelector:'old-action',nodes:[
+  node('INPUT',{name:'new-action',id:'different-id'}),node('INPUT',{id:'another-id'}),
+ ]});
+ assert.equal(named.length,1);assert.equal(named[0]?.expression,'new-action');
+ assert.equal(named[0]?.cssSelector,'[name="new-action"]');
+ const classed=rankSelectorCandidates({method:'getElementsByClassName',oldSelector:'old-panel',nodes:[
+  node('DIV',{class:'new-panel shared-box'}),node('DIV',{class:'shared-box'}),
+ ]});
+ assert.deepEqual(classed.map(x=>x.expression),['new-panel']);
+ assert.equal(classed[0]?.cssSelector,'.new-panel');
+});
