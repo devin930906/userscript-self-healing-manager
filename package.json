@@ -1,7 +1,7 @@
 {
   "name":"userscript-self-healing-manager",
   "productName":"Userscript Self-Healing Manager",
-  "version":"0.1.0-alpha.2",
+  "version":"0.1.0-alpha.3",
   "private":true,
   "type":"module",
   "main":"dist/main.cjs",

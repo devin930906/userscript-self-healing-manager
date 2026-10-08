@@ -1,0 +1,35 @@
+name: Refresh lockfile evidence (preview)
+on:
+  push:
+    branches: [feat/v01-continuation]
+    paths:
+      - '.github/workflows/lockfile-refresh.yml'
+      - 'package.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Generate full reproducible dependency lockfile
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Print sanitized npm lockfile chunks for review and source commit
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const doc=fs.readFileSync('package-lock.json');
+          const object=JSON.parse(doc.toString('utf8'));
+          if(!object.packages?.['node_modules/electron'] || !object.packages?.['node_modules/react'])throw Error('missing locked runtime packages');
+          const raw=doc.toString('base64');
+          const size=3000;
+          const count=Math.ceil(raw.length/size);
+          for(let i=0;i<count;i++)console.log('USSHM_LOCK_CHUNK:'+i+':'+raw.slice(i*size,(i+1)*size));
+          console.log('USSHM_LOCK_COUNT:'+count);
+          NODE

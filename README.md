@@ -4,6 +4,10 @@
 
 本仓库源码用于开发和测试 Windows 油猴脚本诊断工具。长期完整需求、架构和 Superpowers 实施计划位于 [GitHub 主仓库](https://github.com/devin930906/userscript-self-healing-manager)。
 
+## Alpha.3 可下载的 Windows 预览版
+构建仓库的 `feat/v01-continuation` 分支通过 GitHub Actions，进入最新成功的 [Windows three-edition preview build](https://github.com/devin930906/userscript-self-healing-manager/actions/workflows/windows-build.yml) 后在 Artifacts 下载 `usshm-windows-three-editions-preview`，解压外层 Actions artifact 后选择 Setup.exe、Portable.exe 或完整 ZIP 文件夹版。
+**说明：仅为未签名 Alpha 预览；Windows CI 成功打包不等于在 Windows 10 真实用户桌面启动和真实 Tampermonkey 环境验收通过。**
+
 ## 目前可以做什么
 
 - Windows 桌面 UI（Electron + React，中文深色界面；等待 Windows 实机验收）。
@@ -11,7 +15,7 @@
 - TypeScript AST 定位 `querySelector`、`querySelectorAll`、`getElementById`、`getElementsByClassName`、`getElementsByName`、`closest`、`matches` 等表达式。
 - 记录源行、函数名、备选 locator；动态字符串表达式显示“需要运行时确认”，不会执行源码。
 - SQLite 本地脚本索引；每份脚本独立报错；JSON/Markdown 离线报告。
-- 用户主动指定 Chrome 可执行路径，用 `--remote-debugging-port=9223`、`--remote-debugging-address=127.0.0.1` 启动；通过 CDP 本机端口 `/json/version` 和 `/json/list` 验证握手。当前 UI **尚未自动进行 DOM 快照和网页功能验收**。
+- 用户主动指定 Chrome 可执行路径，用 `--remote-debugging-port=9223`、`--remote-debugging-address=127.0.0.1` 启动；通过 CDP 本机端口 `/json/version` 和 `/json/list` 验证握手。当前 UI **需要人工授权发起 DOM 检查，尚未进行网页业务功能验收**。
 - 独立命令行脚本诊断入口（可在有 Node.js 24、npm 安装依赖的系统使用）。
 - 试验性 **literal-only** 选择器补丁核心：仅接受人工指定的新旧 selector，必须显式批准、验证源码哈希后写入独立受管副本并保留原件备份。**此能力仅为受测试的库接口，未连接 GUI，不能根据网页自动生成候选。**
 
@@ -24,13 +28,13 @@
 3. 构建和测试全部通过时，`release/` 文件夹应包含：
 
 ```text
-Userscript-Self-Healing-Manager-Setup-0.1.0-alpha.2-win-x64.exe
-Userscript-Self-Healing-Manager-Portable-0.1.0-alpha.2-win-x64.exe
-Userscript-Self-Healing-Manager-0.1.0-alpha.2-win-x64.zip
+Userscript-Self-Healing-Manager-Setup-0.1.0-alpha.3-win-x64.exe
+Userscript-Self-Healing-Manager-Portable-0.1.0-alpha.3-win-x64.exe
+Userscript-Self-Healing-Manager-0.1.0-alpha.3-win-x64.zip
 SHA256SUMS.txt
 ```
 
-**这些只是输出命名规范；目前没有实际生成并验证上述三个 Windows 二进制文件。** 首次打包仍需 Windows 测试、Electron 安装、签名状态和数据目录迁移确认。不要把未经实测的 Preview 版本发布为 Stable。
+**上述三种预览包已由 GitHub Windows 构建流水线生成，但目前仍缺少 Windows 10/11 真实桌面程序启动、用户指定便携版 Chrome 以及修复/回滚的端到端验收。** 不得标记为 Stable。不要把未经实测的 Preview 版本发布为 Stable。
 
 ### Windows 数据目录
 
