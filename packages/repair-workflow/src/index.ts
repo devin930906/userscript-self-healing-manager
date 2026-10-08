@@ -16,6 +16,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  if(!isAbsolute(managedRoot))throw new Error('Managed root must be absolute');
  const pending=new Map<string,PendingProposal>();
  return {
+  invalidatePending():void{pending.clear();},
   async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
