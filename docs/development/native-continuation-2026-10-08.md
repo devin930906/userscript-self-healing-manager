@@ -103,3 +103,36 @@
 ### 未通过的最终发行门禁
 
 真实 Tampermonkey V3/V4 行为/GM_* 回归、iframe/ShadowRoot 作用域、自动语义修复的可信证明、后台持久守护、可选 AI provider、安全签名供应链、真实 Windows 10 + 指定便携 Chrome 155 GUI/E2E、三种 Windows 正式发行形式的本次源码重测与 RG-01…09 全部关闭仍未完成。保持 PR Draft，禁止宣称 Stable 完成或可直接安装正式版。
+
+
+## 后续 Native 续接：发布前关键安全与连续分页回归
+
+此部分继续沿用已批准的 Native 实施计划和 Superpowers RED → GREEN → COMMIT 流程。目标是在不运行任何用户脚本、不覆盖原件、不访问真实用户登录目录的前提下，补全可核验的维护能力。
+
+### 1. 受管导出防止链接绕过
+
+- 新增 `packages/repair-workflow/test/export.test.ts`：将看似位于 Data 外部的保存文件夹设为指向 `Data/managed/<scriptId>` 的 symlink/junction，要求导出拒绝且原档案不新增文件。
+- [RED: Windows CI #37802020210](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37802020210) 重现失败；随后在 `packages/repair-workflow/src/export.ts` 中使用真实目录路径 `realpath` 及相对路径边界校验。
+- [GREEN: Windows Development CI #37802154000](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37802154000) 验证补丁，原 `wx` 与 `lstat` 双重拒绝机制保留。此验证不意味着消除 OS 层任意外部进程制造的所有 TOCTOU 竞态。
+
+### 2. 批量诊断的页面身份与完整性
+
+- 新增 `packages/scan-service/src/paginated-dom.ts`：一批 25 份，串行收集全部扫描脚本，校验 `targetId`、页面 URL、`startIndex`、`remainingItems`、每项索引连续且数量完整。目标跳转、数据缺失或批次身份混淆会阻断拼接；界面发生失败后清除不完整证据。
+- 新增取消后续批次的确定性行为测试。取消不会谎称已经中止在途 CDP 调用，也不会把未完成脚本当成成功。
+- 新增所有脚本都范围外或无静态定位器时的真实主 Frame 前后校验；即使没有 DOM 探针，也不能信任旧的 `/json/list` 页面列表。
+- [RED #37802362927](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37802362927) 验证分页收集器测试缺失会失败；[RED #37803053010](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37803053010) 验证 all-skipped 页面身份断言。
+- Windows Chrome smoke 使用仅在 localhost 的伪造网页，在真实 Chrome 中通过三个批次检查 **51 份脚本**，包括可定位和范围外脚本，严禁运行真实油猴代码。
+
+### 3. 扩展受控修复方法
+
+- 修正 `getElementsByName`、`getElementsByClassName` 原本被 AST 识别却不能由字节补丁引擎精确替换的问题。追加针对源码位置的补丁测试、原文件 SHA-256 不变检查。
+- 为 `getElementById`、`getElementsByName`、`getElementsByClassName` 添加原始参数提示；避免将 `#selector` 或 `[name="..."]` 误传为原始 ID/name。
+- 候选引擎和 workflow 增加 name/class 两种受限快照候选，要求再次用实时 Chrome CDP 唯一定位匹配，输出依然只能是供用户复核的候选，不保证原脚本业务语义。
+- [RED #37803614110](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37803614110) 证明原名称/类名替换缺失；[RED #37804198489](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37804198489) 证明原候选引擎不支持集合方法。
+
+### 4. 最新自动验证
+
+- [Windows Development CI #37804376837](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37804376837)：对应实现提交 `d4afc7307dc49412fea69a7efb4a289cd625e897`，**149 / 149 tests PASS、0 failures；TypeScript PASS；Electron build PASS；真实 Chrome CDP smoke PASS**。
+- Chrome 输出：`PASS real Chrome CDP: page identity, 51-script batches, CSS/name/class candidates, managed patch, export and restore.`
+- 测试机为 GitHub Hosted Windows Runner 的浏览器，不是用户 Windows 10 与指定便携版 Chrome 155。亦未安装/运行 Tampermonkey 扩展，因此不得声称 GM API 或真正脚本行为已通过。
+- 所有改动留在 `feat/v01-continuation`，PR #2 保持 Draft；本轮未制作中途预览安装包，未合并 main，未发布 Stable。
