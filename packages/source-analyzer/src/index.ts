@@ -15,7 +15,16 @@ export interface SourceAnalysis {
  parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom'|'invalid';lineEnding:'crlf'|'lf'|'mixed'|'none';
 }
 export function parseUserscriptMetadata(source:string):MetadataParseResult {
- const lines=source.split(/\r?\n/); const start=lines.findIndex(x=>/^\s*\/\/\s*==UserScript==\s*$/.test(x));
+ const lines=source.split(/\r?\n/);
+ // A metadata opener appearing after real JavaScript (including a template)
+ // is not an activation header. Inspect only a bounded, comment-only prefix.
+ let start=-1;
+ for(let i=0;i<lines.length&&i<128;i++){
+  const line=lines[i]!;
+  if(/^\s*\/\/\s*==UserScript==\s*$/.test(line)){start=i;break;}
+  if(!line.trim()||/^\s*\/\//.test(line))continue;
+  break;
+ }
  const raw:Record<string,string[]>={};
  if(start>=0)for(let i=start+1;i<lines.length;i++){
    const line=lines[i]!;
