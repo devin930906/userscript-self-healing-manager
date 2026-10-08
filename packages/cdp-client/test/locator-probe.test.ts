@@ -45,3 +45,21 @@ test('invalid CDP document root is rejected',async()=>{
 test('page locator checks refuse a different local debugger port',async()=>{
  await assert.rejects(probePageLocators({...page,webSocketDebuggerUrl:'ws://127.0.0.1:9224/devtools/page/alpha'},[{method:'querySelector',expression:'div',runtimeRequired:false}]),/port/i);
 });
+
+test('DOM collections by name and class return collection presence instead of scalar ambiguity',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':({selector})=>({nodeIds:['[name="contact"]','.card.primary'].includes(selector)?[12,13]:[]}),
+ });
+ const checks=await probePageLocators(page,[
+  {method:'getElementsByName',expression:'contact',runtimeRequired:false},
+  {method:'getElementsByClassName',expression:'card primary',runtimeRequired:false},
+ ],{socketFactory:()=>socket});
+ assert.deepEqual(socket.sent.filter(s=>s.method==='DOM.querySelectorAll').map(x=>x.params.selector),['[name="contact"]','.card.primary']);
+ assert.deepEqual(checks.checks.map(c=>c.status),['found','found']);
+ assert.deepEqual(checks.checks.map(c=>c.matchCount),[2,2]);
+});
+test('unsafe control characters in getElementsByName remain unverified',async()=>{
+ const result=await probePageLocators(page,[{method:'getElementsByName',expression:'x\\u0000y',runtimeRequired:false}]);
+ assert.equal(result.checks[0]?.status,'unverified');
+});
