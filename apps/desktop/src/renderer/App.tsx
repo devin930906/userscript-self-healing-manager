@@ -20,7 +20,7 @@ declare global {interface Window{ussm:{
  suggestRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
- applyRepair:(input:{proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
+ applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
@@ -166,9 +166,9 @@ function App(){
   try{const r=await window.ussm.proposeRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
   catch(e){setError('生成预览失败：'+String(e));}finally{setBusy(false);}
  }
- async function applyRepair(){if(!repairProposal)return;
+ async function applyRepair(){if(!repairProposal||!result)return;
   setWatchEnabled(false);setBusy(true);setError('');
-  try{const r=await window.ussm.applyRepair({proposalId:repairProposal.proposalId,approved:true});setRepairApplied(r);setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.managedPath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
+  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied(r);setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.managedPath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
  }
  async function showManagedHistory(){if(focused===null||!result)return;
