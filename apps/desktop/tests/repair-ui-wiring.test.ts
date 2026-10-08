@@ -5,7 +5,7 @@ test('patch IPC uses authorized imported script and hash guard',async()=>{
  const m=await readFile('apps/desktop/src/main/index.ts','utf8');
  assert.match(m,/ipcMain\.handle\('usshm:propose-repair'/);
  assert.match(m,/ipcMain\.handle\('usshm:apply-repair'/);
- assert.match(m,/lastScan\?\.items\[/);
+ assert.match(m,/scanSnapshot\?\.items\[/);
  assert.match(m,/withinAuthorized\(item\.path\)/);
  assert.match(m,/sourceSha256/);
 });
