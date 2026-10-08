@@ -8,7 +8,7 @@ export interface DataRootInput {
   distributionMode: DistributionMode;
   exeDirectory: string;
   osUserDataDirectory: string;
-  portableExternalDirectory?: string;
+  portableExternalDirectory?: string | undefined;
 }
 
 function pathModule(path: string) {
