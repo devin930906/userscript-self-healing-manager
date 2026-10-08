@@ -59,3 +59,36 @@ test('workflow can target the second repeated selector without changing first oc
  assert.equal(await readFile(receipt.managedPath,'utf8'),'document.querySelector("#old");\ndocument.querySelector("#new");\n');
  assert.equal(await readFile(sourcePath,'utf8'),'document.querySelector("#old");\ndocument.querySelector("#old");\n');
 }));
+
+test('successive fixes accumulate on verified managed current without erasing earlier changes',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const original='document.querySelector("#first-old");\ndocument.querySelector("#second-old");\n';
+ await writeFile(sourcePath,original);
+ const flow=createRepairWorkflow({managedRoot});
+ const first=await flow.propose({sourcePath,scriptId:'multi-fix',oldSelector:'#first-old',newSelector:'#first-new'});
+ const appliedOne=await flow.apply({proposalId:first.proposalId,approved:true});
+ const second=await flow.propose({sourcePath,scriptId:'multi-fix',oldSelector:'#second-old',newSelector:'#second-new'});
+ const appliedTwo=await flow.apply({proposalId:second.proposalId,approved:true});
+ const current=await readFile(join(managedRoot,'managed','multi-fix','current.user.js'),'utf8');
+ assert.equal(current,'document.querySelector("#first-new");\ndocument.querySelector("#second-new");\n');
+ assert.equal(await readFile(sourcePath,'utf8'),original);
+ assert.match(await readFile(appliedOne.managedPath,'utf8'),/#first-new/);
+ assert.doesNotMatch(await readFile(appliedOne.managedPath,'utf8'),/#second-new/);
+ assert.equal(await readFile(appliedTwo.managedPath,'utf8'),current);
+ assert.equal(await readFile(appliedTwo.backupPath,'utf8'),original,'the original archive remains the actual original');
+}));
+test('second repair refuses externally edited managed current rather than discarding its changes',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const first=await flow.propose({sourcePath,scriptId:'external-change',oldSelector:'#old',newSelector:'#first'});
+ await flow.apply({proposalId:first.proposalId,approved:true});
+ const current=join(managedRoot,'managed','external-change','current.user.js');
+ await writeFile(current,'document.querySelector("#private-unarchived");\n');
+ await assert.rejects(flow.propose({sourcePath,scriptId:'external-change',oldSelector:'#private-unarchived',newSelector:'#second'}),/unmanaged|unverified|external/i);
+ assert.equal(await readFile(current,'utf8'),'document.querySelector("#private-unarchived");\n');
+}));
+test('second repair blocks changed original before writing another revision',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const first=await flow.propose({sourcePath,scriptId:'changed-source',oldSelector:'#old',newSelector:'#first'});
+ await flow.apply({proposalId:first.proposalId,approved:true});
+ await writeFile(sourcePath,'document.querySelector("#changed-original");\n');
+ await assert.rejects(flow.propose({sourcePath,scriptId:'changed-source',oldSelector:'#first',newSelector:'#second'}),/original|source|hash/i);
+}));
