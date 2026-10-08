@@ -12,7 +12,7 @@ export interface SelectorRecord {
 export interface MetadataParseResult {name:string|null;match:string[];include:string[];grant:string[];runAt:string|null;raw:Record<string,string[]>}
 export interface SourceAnalysis {
  scriptId:string;sourceSha256:string;metadata:MetadataParseResult;selectorRecords:SelectorRecord[];
- parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom';lineEnding:'crlf'|'lf'|'mixed'|'none';
+ parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom'|'invalid';lineEnding:'crlf'|'lf'|'mixed'|'none';
 }
 export function parseUserscriptMetadata(source:string):MetadataParseResult {
  const lines=source.split(/\r?\n/); const start=lines.findIndex(x=>/^\s*\/\/\s*==UserScript==\s*$/.test(x));
@@ -50,7 +50,15 @@ function getAlternates(node:ts.CallExpression):string[]{
 }
 export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceBytes:Uint8Array}):SourceAnalysis{
  const sourceSha256=createHash('sha256').update(sourceBytes).digest('hex');
- const text=new TextDecoder('utf-8',{fatal:false}).decode(sourceBytes);
+ let text:string;
+ try{text=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);}
+ catch{
+  // Never turn corrupt user scripts into a successful AST scan with replacement
+  // characters. The original byte hash remains available for diagnostics.
+  return {scriptId,sourceSha256,metadata:parseUserscriptMetadata(''),
+   selectorRecords:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
+   encoding:'invalid',lineEnding:'none'};
+ }
  const source=ts.createSourceFile(`${scriptId}.user.js`,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const selectorRecords:SelectorRecord[]=[];
  function walk(node:ts.Node):void{
