@@ -37,8 +37,8 @@ export async function suggestMissingCandidatesBulk({target,locators,checks,deps,
   const locator=locators[i]!;
   const suggestions=await suggestCandidateRepairs({target,locator,deps});
   const candidates=suggestions.filter(candidate=>{
-   if(usedExpressions.has(candidate.method+'|'+candidate.expression))return false;
-   usedExpressions.add(candidate.method+'|'+candidate.expression);
+   if(usedExpressions.has(locator.method+'|'+candidate.expression))return false;
+   usedExpressions.add(locator.method+'|'+candidate.expression);
    return true;
   });
   results.push({selectorIndex:i,method:locator.method,oldSelector:locator.expression,candidates});
