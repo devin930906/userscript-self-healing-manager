@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import type {ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {collectPagedDomDiagnosis} from '../../../../packages/scan-service/src/paginated-dom.ts';
+import {getRepairInputHint} from './repair-hints.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -204,7 +205,7 @@ function App(){
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
      <label>旧选择器<select aria-label="选择需要替换的静态定位器" value={repairIndex} onChange={e=>{setRepairIndex(Number(e.target.value));setRepairProposal(null);setRepairCandidates(null);setRepairNew('');}}>{details.analysis?.selectorRecords.map((s,i)=><option key={i} value={i} disabled={s.runtimeRequired}>{s.method} · {s.expression.slice(0,90)}{s.runtimeRequired?'（动态，不可直接补丁）':''}</option>)}</select></label>
-     <label>新的选择器<input aria-label="输入新选择器" value={repairNew} onChange={e=>{setRepairNew(e.target.value);setRepairProposal(null);}} placeholder="#new-id 或 [data-testid=...]" /></label>
+     <label>新的方法参数<input aria-label="输入新选择器" value={repairNew} onChange={e=>{setRepairNew(e.target.value);setRepairProposal(null);}} placeholder={getRepairInputHint(details.analysis?.selectorRecords[repairIndex]?.method)} /></label>
      <button disabled={busy||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void suggestRepair()}>生成候选定位器（只读）</button>
      <button disabled={busy||!repairNew.trim()||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired} onClick={()=>void proposeRepair()}>生成修复预览</button>
     </div>
