@@ -1,7 +1,7 @@
 /**
  * Real external Chrome + CDP integration smoke, Windows development CI only.
  * Uses a disposable Chrome profile and a loopback-only HTML fixture. It never
- * loads Tampermonkey, executes userscript code, uploads files, or packages an EXE.
+ * loads Tampermonkey, uploads files, or packages an EXE. It executes only its\n * own synthetic fixture code inside this disposable localhost browser.
  *
  * Run: node --experimental-strip-types scripts/smoke-chrome.mjs
  */
@@ -25,6 +25,7 @@ import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-d
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
+import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
 const candidates=[
@@ -179,8 +180,10 @@ try{
  const chosen=candidates.find(x=>x.expression==='#heal-button');
  assert.ok(chosen);
  const sourcePath=join(profile,'fixture.user.js');
- const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\ndocument.querySelector("#old-heal-button");document.querySelector(".old-target-pane");\n';
+ const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\nconst actionButton=document.querySelector("#old-heal-button");const targetPane=document.querySelector(".old-target-pane");\nif(actionButton&&targetPane){actionButton.setAttribute("data-usshm-functional","pass");targetPane.setAttribute("data-usshm-functional","pass");}\n';
  await writeFile(sourcePath,original,'utf8');
+ const baselineBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:original});
+ assert.equal(baselineBehavior,false);
  const flow=createRepairWorkflow({managedRoot:profile});
  const draft=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'#old-heal-button',newSelector:chosen.expression});
  assert.match(draft.preview,/heal-button/);
@@ -198,6 +201,8 @@ try{
   selectorLocation:{method:'querySelector',line:5,column:secondColumn}});
  const nextReceipt=await flow.apply({proposalId:nextProposal.proposalId,approved:true});
  const combinedRevision=await readFile(active,'utf8');
+ const repairedBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:combinedRevision});
+ assert.equal(repairedBehavior,true);
  assert.match(combinedRevision,/#heal-button/);
  assert.match(combinedRevision,/\.target-pane/);
  assert.doesNotMatch(combinedRevision,/old-heal-button|old-target-pane/);
@@ -209,9 +214,11 @@ try{
  assert.equal(await readFile(sourcePath,'utf8'),original);
  const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
  assert.equal(await readFile(restored.activePath,'utf8'),original);
+ const restoredBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:await readFile(restored.activePath,'utf8')});
+ assert.equal(restoredBehavior,false);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: preferred executable reload, page identity, 51-script batches, bulk CSS/name/class candidates, cumulative repairs, export and restore.');
- console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
+ console.log('PASS real Chrome CDP: page identity, 51-script batches, bulk candidates, synthetic behavior fail/repair-pass/rollback-fail, export.');
+ console.log('Fixture-only browser DOM side effects verified. No Tampermonkey extension, GM_* API, or real userscript was executed.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
  if(diagnostics)console.error('Chrome stderr (tail):',diagnostics);
