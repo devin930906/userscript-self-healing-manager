@@ -179,7 +179,7 @@ try{
  const chosen=candidates.find(x=>x.expression==='#heal-button');
  assert.ok(chosen);
  const sourcePath=join(profile,'fixture.user.js');
- const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\ndocument.querySelector("#old-heal-button");\ndocument.querySelector(".old-target-pane");\n';
+ const original='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\ndocument.querySelector("#old-heal-button");document.querySelector(".old-target-pane");\n';
  await writeFile(sourcePath,original,'utf8');
  const flow=createRepairWorkflow({managedRoot:profile});
  const draft=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'#old-heal-button',newSelector:chosen.expression});
@@ -190,7 +190,12 @@ try{
  const active=join(profile,'managed','chrome-smoke-fixture','current.user.js');
  assert.equal(await readFile(active,'utf8'),await readFile(applied.managedPath,'utf8'));
  // The second repair must build on the first one, rather than reloading the source.
- const nextProposal=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'.old-target-pane',newSelector:'.target-pane'});
+ const originalScriptLine=original.split('\n')[4];
+ assert.ok(originalScriptLine);
+ const secondColumn=originalScriptLine.indexOf('document.querySelector(".old-target-pane")')+1;
+ assert.ok(secondColumn>1);
+ const nextProposal=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'.old-target-pane',newSelector:'.target-pane',
+  selectorLocation:{method:'querySelector',line:5,column:secondColumn}});
  const nextReceipt=await flow.apply({proposalId:nextProposal.proposalId,approved:true});
  const combinedRevision=await readFile(active,'utf8');
  assert.match(combinedRevision,/#heal-button/);
