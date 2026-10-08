@@ -60,6 +60,6 @@ test('DOM collections by name and class return collection presence instead of sc
  assert.deepEqual(checks.checks.map(c=>c.matchCount),[2,2]);
 });
 test('unsafe control characters in getElementsByName remain unverified',async()=>{
- const result=await probePageLocators(page,[{method:'getElementsByName',expression:'x\\u0000y',runtimeRequired:false}]);
+ const result=await probePageLocators(page,[{method:'getElementsByName',expression:'x\u0000y',runtimeRequired:false}]);
  assert.equal(result.checks[0]?.status,'unverified');
 });
