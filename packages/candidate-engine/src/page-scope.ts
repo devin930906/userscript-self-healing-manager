@@ -29,8 +29,17 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
  let url:URL;
  try{url=new URL(pageUrl);}catch{return {status:'blocked',reason:'Invalid page URL'};}
  if(!['http:','https:'].includes(url.protocol))return {status:'blocked',reason:'Only HTTP(S) CDP pages are supported'};
- for(const p of meta.raw['exclude-match']??[])if(matchPattern(p,url)===true)return {status:'blocked',reason:'Page matches @exclude-match'};
- for(const p of meta.raw.exclude??[])if(includePattern(p,url)===true)return {status:'blocked',reason:'Page matches @exclude'};
+ // An unsupported deny rule must not silently permit a matching allow rule.
+ for(const p of meta.raw['exclude-match']??[]){
+  const excluded=matchPattern(p,url);
+  if(excluded===true)return {status:'blocked',reason:'Page matches @exclude-match'};
+  if(excluded===null)return {status:'unknown',reason:'Unsupported @exclude-match prevents safe scope confirmation'};
+ }
+ for(const p of meta.raw.exclude??[]){
+  const excluded=includePattern(p,url);
+  if(excluded===true)return {status:'blocked',reason:'Page matches @exclude'};
+  if(excluded===null)return {status:'unknown',reason:'Unsupported @exclude prevents safe scope confirmation'};
+ }
  const matches=meta.match.map(p=>matchPattern(p,url)),includes=meta.include.map(p=>includePattern(p,url));
  if(matches.some(v=>v===true)||includes.some(v=>v===true))return {status:'allowed',reason:'Page matches a userscript activation rule'};
  if(matches.length===0&&includes.length===0||[...matches,...includes].some(v=>v===null))return {status:'unknown',reason:'Missing or unsupported @match/@include rule'};
