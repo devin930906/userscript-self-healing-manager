@@ -74,7 +74,8 @@ test('successive fixes accumulate on verified managed current without erasing ea
  assert.match(await readFile(appliedOne.managedPath,'utf8'),/#first-new/);
  assert.doesNotMatch(await readFile(appliedOne.managedPath,'utf8'),/#second-new/);
  assert.equal(await readFile(appliedTwo.managedPath,'utf8'),current);
- assert.equal(await readFile(appliedTwo.backupPath,'utf8'),original,'the original archive remains the actual original');
+ assert.equal(await readFile(appliedOne.backupPath,'utf8'),original,'the original archive remains immutable');
+ assert.equal(await readFile(appliedTwo.backupPath,'utf8'),await readFile(appliedOne.managedPath,'utf8'),'second backup is the prior managed revision');
 }));
 test('second repair refuses externally edited managed current rather than discarding its changes',async()=>withSource(async(sourcePath,managedRoot)=>{
  const flow=createRepairWorkflow({managedRoot});
