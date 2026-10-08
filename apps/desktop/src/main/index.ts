@@ -17,6 +17,7 @@ import {listManagedRevisions,activateManagedRevision} from '../../../../packages
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
+import {suggestMissingCandidatesBulk} from '../../../../packages/candidate-engine/src/bulk.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 
@@ -149,6 +150,33 @@ async function bootstrap():Promise<void>{
   }});
   await confirmPageIdentity(selected);
   return candidates;
+ });
+ ipcMain.handle('usshm:suggest-repairs-bulk',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number;targetId:string;approved:true}|null;
+  if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
+    typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128)
+   throw new Error('Explicit CDP target and consent required');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Selected script is not authorized for page inspection');
+  const status=await getChromeStatus({port:9223});
+  const selected=status.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('CDP target no longer available');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
+  const locators=item.analysis.selectorRecords.slice(0,50).map(record=>({
+   method:record.method,expression:record.expression,
+   runtimeRequired:record.runtimeRequired||record.receiver!=='document',
+  }));
+  await confirmPageIdentity(selected);
+  const evidence=await probePageLocators(selected,locators);
+  const suggestions=await suggestMissingCandidatesBulk({
+   target:{id:selected.id,url:selected.url},locators,checks:evidence.checks,
+   evidenceIdentity:{targetId:evidence.targetId,url:evidence.url},
+   deps:{probe:inputs=>probePageLocators(selected,inputs),capture:()=>captureCandidateNodes(selected)},
+  });
+  await confirmPageIdentity(selected);
+  return suggestions;
  });
  ipcMain.handle('usshm:propose-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;selectorIndex:number;newSelector:string}|null;
