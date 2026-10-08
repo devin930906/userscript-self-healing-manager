@@ -5,7 +5,7 @@ test('recommendation IPC binds real scanSnapshot source to selected local CDP pa
  const code=await readFile('apps/desktop/src/main/index.ts','utf8');
  assert.match(code,/ipcMain\.handle\('usshm:suggest-repair'/);
  assert.match(code,/assertSender\(event\)/);
- assert.match(code,/scanSnapshot\?\.items\[q\.itemIndex\]/);
+ assert.match(code,/scanSnapshot\.items\[q\.itemIndex\]/);
  assert.match(code,/status\.pages\.find\(/);
  assert.match(code,/suggestCandidateRepairs\(/);
 });
