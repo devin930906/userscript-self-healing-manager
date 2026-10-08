@@ -11,6 +11,8 @@ import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-cli
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
+import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
+import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:ScanBatchResult|null=null;
@@ -88,6 +90,21 @@ async function bootstrap():Promise<void>{
   const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired}));
   const probe=await probePageLocators(selected,records);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
+ });
+ ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
+  if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||q.itemIndex<0||!Number.isInteger(q.selectorIndex)||q.selectorIndex<0||typeof q.targetId!=='string'||q.targetId.length>128)throw new Error('Explicit CDP target and user approval required');
+  const item=lastScan?.items[q.itemIndex];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Script is not an authorized scanned file');
+  const record=item.analysis.selectorRecords[q.selectorIndex];
+  if(!record||record.runtimeRequired)throw new Error('A literal selector is required');
+  const status=await getChromeStatus({port:9223});const selected=status.pages.find(p=>p.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
+  const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
+  return suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
+   probe:(locators)=>probePageLocators(selected,locators),
+   capture:()=>captureCandidateNodes(selected),
+  }});
  });
  ipcMain.handle('usshm:propose-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {itemIndex:number;selectorIndex:number;newSelector:string}|null;

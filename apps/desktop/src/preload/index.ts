@@ -11,6 +11,7 @@ const api={
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
  getCdpStatus:()=>ipcRenderer.invoke('usshm:cdp-status'),
  probeLocators:(input:{itemIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:probe-locators',input),
+ suggestRepair:(input:{itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:suggest-repair',input),
  proposeRepair:(input:{itemIndex:number;selectorIndex:number;newSelector:string})=>ipcRenderer.invoke('usshm:propose-repair',input),
  applyRepair:(input:{proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair',input),
  exportReport:(format:'json'|'markdown')=>ipcRenderer.invoke('usshm:export',format),
