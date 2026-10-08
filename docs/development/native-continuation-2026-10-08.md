@@ -78,3 +78,28 @@
 - 清理范围严格限制为本轮测试新启动的 Chrome 进程树和临时独立 profile；不触碰系统默认 Chrome 配置。
 
 **仍不满足 Stable 门禁：** Tampermonkey 脚本实际注入执行、GM_*、跨 iframe / Shadow DOM、行为/网络副作用验证、复杂修复语义、持久后台守护、AI Provider、Win10 x64 + 用户便携 Chrome 155、发行版三格式最终复测/签名及独立安全审查。PR 必须保留 Draft；严格不得将只读浏览器检查或候选唯一性表述为功能修复成功。
+
+
+## Native 续接：批量诊断、安全作用域与可交付受管导出
+
+本次仍只对 `feat/v01-continuation` 开发分支进行提交；没有中途预览安装包、没有合并 `main`、没有修改真实 Tampermonkey 存储或用户原始脚本。
+
+### 已完成源码范围
+
+1. **批量诊断调度（只读）**：新增 `packages/scan-service/src/batch-dom.ts`，对每份脚本逐项执行 `@match/@include/@exclude` 校验；区分范围外、静态定位器缺失、匹配、无证据、需复核与局部失败。每份上限 50 定位器、每次 IPC 上限 25 份。前后检查实时主 Frame 身份，导航发生时中止，而不是复用旧 DOM。
+2. **GUI 自动批次 / 取消**：渲染端对全部已扫描脚本使用 25 份分页循环、显示已完成数量、支持取消尚未发出的批次；IPC 校验整齐对齐的 offset 和页面明确授权。按钮是用户主动启动的只读操作，绝不运行未知脚本或自动覆盖原件。
+3. **安全规则匹配加固**：`packages/candidate-engine/src/page-scope.ts` 的通配符检查采用不编译任意正则的受限线性匹配；`@match` 超长规则与非法 host 通配写法/端口返回 `unknown`，不能让无效的排除规则静默失效。
+4. **原始字节保护**：补丁引擎遇无效 UTF-8 直接拒绝修改，不把不合法字节替换为 U+FFFD 后重新写入；新增不含变量插值的模板字符串定位器精确替换能力。
+5. **受管 current 安全导出**：`packages/repair-workflow/src/export.ts` 用归档哈希验证活动修订，拒绝篡改、缺失和不安全输出；Electron Main 使用原生 Save 对话框选择目标路径；不覆盖任何已存在的 `.user.js`，不修改源文件。导出后需要在 Tampermonkey 中独立导入。
+6. **Windows 特有符号链接边界**：首轮 `wx` 独占写入测试在 Windows 发现悬空 symlink 目标可被意外创建。加上 `lstat` 预检和 `wx` 二次防护，测试同时断言符号链接目标不被创建。该组合减少普通竞态风险，但不是原子、完全无 TOCTOU 的 OS 内核级保护。
+
+### 实际测试证据
+
+- [失败 Windows CI #37799802488](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37799802488)：137 项执行中 136 通过、1 失败，明确重现 Windows 导出 symlink 安全问题。其后完成修复和更严格的回归。
+- [成功 Windows Development CI #37800076289](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37800076289)：对应代码提交 `315a7015dadc48dea3d1c957397f6d43a2b452ad`，**137/137 自动测试通过、0 失败；Node24 TypeScript typecheck PASS；Electron build PASS；真实 Chrome CDP smoke PASS**。
+- 实际 Chrome smoke 在临时资料目录中验证：顶层网页身份、批量 DOM 检查、候选唯一匹配、受管补丁、独立 `.user.js` 导出和修订恢复；没有运行真实油猴脚本，亦未上传私人 DOM 或登录资料。
+- 没有将真正 Tampermonkey/GM_* 运行结果冒充为通过。所有测试均自动执行，不要求开发中途人工验收。
+
+### 未通过的最终发行门禁
+
+真实 Tampermonkey V3/V4 行为/GM_* 回归、iframe/ShadowRoot 作用域、自动语义修复的可信证明、后台持久守护、可选 AI provider、安全签名供应链、真实 Windows 10 + 指定便携 Chrome 155 GUI/E2E、三种 Windows 正式发行形式的本次源码重测与 RG-01…09 全部关闭仍未完成。保持 PR Draft，禁止宣称 Stable 完成或可直接安装正式版。
