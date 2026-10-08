@@ -19,6 +19,7 @@ import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
+import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
@@ -112,6 +113,31 @@ try{
  ],target:selected,consent:true,deps:{confirm:confirmPageIdentity,probe:probePageLocators}});
  assert.deepEqual(bulk.items.map(x=>x.status),['locator-missing','dom-present','out-of-scope','needs-review']);
 
+ // Exercise three real Chrome-backed paginated requests, including all-out-of-scope
+ // entries that must still be bounded by current top-frame identity checks.
+ const bulkScripts=Array.from({length:51},(_,i)=>i%25===0?{
+  path:'matched-'+i+'.user.js',scriptId:'matched-'+i,status:'parsed',analysis:fakeAnalysis('#heal-button'),
+ }:{
+  path:'outside-'+i+'.user.js',scriptId:'outside-'+i,status:'parsed',
+  analysis:{metadata:{match:['https://elsewhere.test/*'],include:[],raw:{}},selectorRecords:[]},
+ });
+ const realPaged=await collectPagedDomDiagnosis({
+  total:bulkScripts.length,targetId:selected.id,isCancelled:()=>false,onProgress:()=>{},
+  requestPage:async offset=>{
+   const single=await diagnoseScriptsOnPage({
+    items:bulkScripts.slice(offset,offset+25),target:selected,consent:true,
+    deps:{confirm:confirmPageIdentity,probe:probePageLocators},
+   });
+   return {...single,startIndex:offset,items:single.items.map(row=>({...row,index:row.index+offset})),
+    remainingItems:bulkScripts.length-offset-single.items.length};
+  },
+ });
+ assert.equal(realPaged.items.length,51);
+ assert.equal(realPaged.remainingItems,0);
+ assert.equal(realPaged.items.filter(x=>x.status==='dom-present').length,3);
+ assert.equal(realPaged.items.filter(x=>x.status==='out-of-scope').length,48);
+
+
  // End-to-end local revision lifecycle using a synthetic fixture source only.
  // Applying a managed patch never changes the original .user.js file.
  const chosen=candidates.find(x=>x.expression==='#heal-button');
@@ -134,7 +160,7 @@ try{
  const restored=await activateManagedRevision({managedRoot:profile,scriptId:'chrome-smoke-fixture',hash:draft.baseHash,approved:true});
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  await confirmPageIdentity(selected);
- console.log('PASS real Chrome CDP: identity, batch diagnosis, candidate confirmation, managed patch, export and restore.');
+ console.log('PASS real Chrome CDP: page identity, 51-script paginated batch, candidate confirmation, managed patch, export and restore.');
  console.log('Evidence only; not Tampermonkey/GM_* functional validation.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
