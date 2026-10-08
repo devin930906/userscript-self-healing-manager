@@ -1,43 +1,70 @@
-# Userscript Self-Healing Manager
+# Userscript Self-Healing Manager — V0.1 开发预览源码
 
-> Local-first desktop software for diagnosing, repairing and validating Tampermonkey/Violentmonkey userscripts against changing web DOMs via Chrome DevTools Protocol (CDP).
+**当前构建状态：源码预览，不是已验证的 Windows 正式发行版。**
 
-**状态：设计评审阶段（2026-10-08）**。本仓库现阶段仅维护需求、架构、安全、验收与路线图文档；**尚未实现软件功能，也未声称修复、测试通过**。
+本仓库源码用于开发和测试 Windows 油猴脚本诊断工具。长期完整需求、架构和 Superpowers 实施计划位于 [GitHub 主仓库](https://github.com/devin930906/userscript-self-healing-manager)。
 
-## 愿景
-- 自定义 Chrome/便携版浏览器程序路径，默认尝试以 `--remote-debugging-port=9223 --remote-debugging-address=127.0.0.1` 启动并验证 CDP。
-- 批量导入 `.user.js` 文件或目录；静态 AST 检查和真实网页动态验证。
-- 按证据执行本地自愈；低置信度时可选接入用户自备 Base URL / API Key / 模型。
-- 每次修复都有 diff、功能断言、日志、审阅、备份与回滚。
-- 支持共享兼容层、健康检查、缓存和分阶段的安全自动化。
+## 目前可以做什么
 
-## 设计文档
-1. [总体设计规范（Superpowers）](docs/superpowers/specs/2026-10-08-userscript-self-healing-manager-design.md)
-2. [产品需求与可追踪矩阵](docs/requirements/product-requirements.md)
-3. [CDP 浏览器接入与运行时](docs/architecture/browser-cdp-and-runtime.md)
-4. [多级自愈引擎与兼容层](docs/architecture/healing-engine.md)
-5. [数据契约、持久化与状态机](docs/architecture/data-contracts.md)
-6. [AI 提供方、隐私与安全模型](docs/security/ai-and-threat-model.md)
-7. [界面与交互规范](docs/design/ux-and-workflows.md)
-8. [质量、测试与验收规范](docs/quality/test-and-acceptance.md)
-9. [项目阶段、里程碑与交付路线图](docs/roadmap/master-roadmap.md)
-10. [技术决策、已知风险与核验依据](docs/decisions/architecture-decisions.md)
-11. [Windows 三种发行版：安装 EXE / 便携 EXE / ZIP 解压版](docs/distribution/windows-three-editions.md)
+- Windows 桌面 UI（Electron + React，中文深色界面；等待 Windows 实机验收）。
+- 手动选择或拖入 `.user.js` 文件，或选择包含脚本的文件夹，批量静态分析。
+- TypeScript AST 定位 `querySelector`、`querySelectorAll`、`getElementById`、`getElementsByClassName`、`getElementsByName`、`closest`、`matches` 等表达式。
+- 记录源行、函数名、备选 locator；动态字符串表达式显示“需要运行时确认”，不会执行源码。
+- SQLite 本地脚本索引；每份脚本独立报错；JSON/Markdown 离线报告。
+- 用户主动指定 Chrome 可执行路径，用 `--remote-debugging-port=9223`、`--remote-debugging-address=127.0.0.1` 启动；通过 CDP 本机端口 `/json/version` 和 `/json/list` 验证握手。当前 UI **尚未自动进行 DOM 快照和网页功能验收**。
+- 独立命令行脚本诊断入口（可在有 Node.js 24、npm 安装依赖的系统使用）。
+- 试验性 **literal-only** 选择器补丁核心：仅接受人工指定的新旧 selector，必须显式批准、验证源码哈希后写入独立受管副本并保留原件备份。**此能力仅为受测试的库接口，未连接 GUI，不能根据网页自动生成候选。**
 
-> **重要：** 自 Chrome 136 起，正式 Chrome 对默认资料目录的远程调试开关有限制。仅“便携版”不构成豁免。程序默认不擅自添加 `--user-data-dir`，连接失败必须明确提示并提供由用户选择的兼容路径。详见 CDP 文档与[Chrome 官方公告](https://developer.chrome.com/blog/remote-debugging-port/)。
+**尚未实现：** DOM 动态故障归因、自动候选补丁生成与 GUI 应用、真实网站回归/V4 Tampermonkey 探针、GUI 一键备份回滚、AI Provider、健康监控。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
-## Superpowers 第一阶段实施计划（等待评审）
-- [Phase 1：V0.1 本地桌面软件与静态脚本诊断，12 项 TDD 任务](docs/superpowers/plans/2026-10-08-phase-1-offline-desktop-implementation.md)。目前只完成实施计划，产品源码/测试尚未开始，批准计划与执行方式后才开始写代码。
+## Windows 10/11 x64：构建三个格式
 
-## Windows 最终发行合同（必须交付三种格式）
-- **EXE 安装版**：`Userscript-Self-Healing-Manager-Setup-<version>-win-x64.exe`。
-- **单文件 EXE 便携版**：`Userscript-Self-Healing-Manager-Portable-<version>-win-x64.exe`，无需安装，持久数据应保存在 EXE 外部所在目录的 `Data/`（可写性验证）。
-- **ZIP 完整解压版**：`Userscript-Self-Healing-Manager-<version>-win-x64.zip`，解压的是**完整 unpacked 应用目录**，不是只把单文件 Portable.exe 打进压缩包；直接打开解压后的主 EXE，数据保存在该应用文件夹的 `Data/`。
-- 三者对应同一个版本号和 Git commit、功能一致，正式稳定版缺少任意一种即不得发布。现阶段**还没有生成任何发行安装包**。
-- 详见 [三形式发行与数据迁移规范](docs/distribution/windows-three-editions.md)。
+1. 在 Windows 电脑安装 Node.js 24 LTS（包含 npm），克隆或解压这份完整源码。
+2. 双击项目根目录的 `build-windows.cmd`。脚本执行 `npm install`、`npm test`、`npm run build`、`npm run dist:win`，并将完整 `win-unpacked` 目录另外打成 ZIP。
+3. 构建和测试全部通过时，`release/` 文件夹应包含：
 
-## 开发边界
-设计规范在评审确认前，不开始产品代码、浏览器自动操控或对现有 userscript 的覆盖。技术版本、依赖授权及 Windows 10 运行支持在锁定实现版本时重新核验。
+```text
+Userscript-Self-Healing-Manager-Setup-0.1.0-alpha.2-win-x64.exe
+Userscript-Self-Healing-Manager-Portable-0.1.0-alpha.2-win-x64.exe
+Userscript-Self-Healing-Manager-0.1.0-alpha.2-win-x64.zip
+SHA256SUMS.txt
+```
 
-## License
-尚未决定。在许可文件明确之前，请勿推断本仓库已有开源授权。
+**这些只是输出命名规范；目前没有实际生成并验证上述三个 Windows 二进制文件。** 首次打包仍需 Windows 测试、Electron 安装、签名状态和数据目录迁移确认。不要把未经实测的 Preview 版本发布为 Stable。
+
+### Windows 数据目录
+
+- **Setup.exe**：持久资料在用户 AppData 下的应用用户数据目录，不放到安装目录。
+- **Portable.exe**：以外部 EXE 的真实路径为准，在旁边创建 `Data/`；不可写时提示错误，不默默写 AppData。
+- **完整 ZIP**：完整解压后运行 EXE，在解压应用目录旁创建 `Data/`，不要只从压缩包内部双击 EXE。
+
+ZIP 打包脚本会添加内部 `.usshm-portable` 标记，程序据此识别 ZIP 解压版。临时解包文件和操作系统自身缓存不等于持久用户数据。
+
+## 开发者运行与测试
+
+```powershell
+npm install
+npm test
+npm run typecheck
+npm run build
+npm run dev
+```
+
+命令行静态诊断：
+
+```powershell
+node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\YourScripts"
+```
+
+`--markdown` 可以输出 Markdown。命令行不会执行任何被读取的 `.user.js` 源码。导入路径默认不跟随符号链接，单份文件上限 512 KiB。
+
+## 已知开发限制
+
+- Windows EXE 需要在 Windows 实际构建和验收；本源码包**不是安装包**。
+- 当前本地沙箱只有 Node.js 22/系统 TypeScript 5.8，无法下载 Electron/React/esbuild/npm 依赖；因此本地执行过的是 Node 原生测试与 TypeScript 语法转译，而非 Windows Electron E2E。
+- 原有 Task 1 的 `package-lock.json` 已不匹配新增依赖；本预览使用 `npm install` 重新生成锁文件，稳定发布前必须提交完整锁文件并使用 `npm ci`。
+- Chrome 136+ 在默认数据资料目录可能忽略远程调试标志。程序默认不擅自添加 `--user-data-dir`；不成功时报告握手失败，允许用户自主使用兼容 Chrome 配置。
+- 未做任何用户账号登录、绕过反自动化机制、对真实网站执行破坏性动作、擅自写入 Tampermonkey 扩展存储。
+- 此预览不会修改用户现有 `.user.js` 源文件。试验补丁引擎只生成受控副本，使用前需要独立安全审查。
+
+- Full Windows build is only valid after real Windows CI smoke tests; local Node tests are not that proof.

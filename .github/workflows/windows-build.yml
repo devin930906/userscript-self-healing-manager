@@ -1,0 +1,54 @@
+name: Windows three-edition preview build
+on:
+  push:
+    branches: [feat/v01-continuation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --ignore-scripts=false
+      - name: Unit tests
+        run: npm test
+      - name: Bundle desktop
+        run: npm run build
+      - name: Build Setup and Portable EXEs
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Create complete unpacked ZIP portable application
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $unpacked = Resolve-Path 'release/win-unpacked'
+          Set-Content -NoNewline -Path "$unpacked/.usshm-portable" -Value 'zip-portable-v1'
+          $zip = Join-Path (Resolve-Path 'release') "Userscript-Self-Healing-Manager-$version-win-x64.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($unpacked, $zip)
+          if (!(Test-Path $zip)) { throw "Missing ZIP: $zip" }
+          if (!(Test-Path "$unpacked/resources/app.asar")) { throw 'Missing packaged app resources' }
+      - name: Generate SHA256 manifest
+        shell: pwsh
+        run: |
+          Get-ChildItem release -File | Where-Object {$_.Extension -in '.exe','.zip'} | ForEach-Object {
+            $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content release/SHA256SUMS.txt
+      - name: Upload untrusted preview artifacts (not Stable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: usshm-windows-three-editions-preview
+          path: |
+            release/*.exe
+            release/*.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7

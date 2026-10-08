@@ -20,3 +20,6 @@ Thumbs.db
 # Superpowers isolated work / generated reports
 .superpowers/
 .worktrees/
+
+# Build output
+release/
