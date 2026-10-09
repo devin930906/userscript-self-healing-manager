@@ -9,7 +9,7 @@ export interface SocketLike {
  send(data:string):void;
  close():void;
 }
-export interface DomSummary {targetId:string;url:string;documentCount:number;nodeCount:number;validationLevel:'evidence-only'}
+export interface DomSummary {targetId:string;url:string;documentCount:number;nodeCount:number;authorShadowTreeNodes:number;validationLevel:'evidence-only'}
 /** Count-only snapshot: no raw DOM text leaves this module. */
 export async function captureDomSummary(target:ChromeTarget,options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number}={}):Promise<DomSummary>{
  const endpoint=validateCdpPageSocket(target);
@@ -33,13 +33,35 @@ export async function captureDomSummary(target:ChromeTarget,options:{socketFacto
     const documents=message.result?.documents;
     if(!Array.isArray(documents)||documents.length===0)throw new Error('Invalid DOM snapshot response');
     if(documents.length>MAX_SNAPSHOT_DOCUMENTS)throw new Error('CDP DOM snapshot document count limit exceeded');
-    let count=0;
-    for(const doc of documents){
+    let count=0,authorShadowTreeNodes=0;
+    for(const [documentIndex,doc] of documents.entries()){
      if(!Array.isArray(doc?.nodes?.nodeName))throw new Error('Invalid DOM snapshot nodes');
-     count+=doc.nodes.nodeName.length;
+     const size=doc.nodes.nodeName.length;
+     count+=size;
      if(count>MAX_SNAPSHOT_NODES)throw new Error('CDP DOM snapshot node count limit exceeded');
+     // DOMSnapshot.shadowRootType marks nodes *inside* a shadow tree, not
+     // distinct ShadowRoot objects. Check the top document only, and ignore
+     // browser-owned user-agent roots which appear in ordinary input controls.
+     if(documentIndex!==0||doc.nodes.shadowRootType===undefined)continue;
+     const rare=doc.nodes.shadowRootType;
+     const strings=message.result?.strings;
+     if(!Array.isArray(strings)||!Array.isArray(rare.index)||!Array.isArray(rare.value)||
+        rare.index.length!==rare.value.length||rare.index.length>size)
+      throw new Error('Invalid Shadow DOM snapshot metadata');
+     const seen=new Set<number>();
+     for(let i=0;i<rare.index.length;i++){
+      const nodeIndex=rare.index[i],stringIndex=rare.value[i];
+      if(!Number.isSafeInteger(nodeIndex)||nodeIndex<0||nodeIndex>=size||seen.has(nodeIndex)||
+         !Number.isSafeInteger(stringIndex)||stringIndex<0||stringIndex>=strings.length)
+       throw new Error('Invalid Shadow DOM snapshot index');
+      seen.add(nodeIndex);
+      const rootType=strings[stringIndex];
+      if(rootType==='open'||rootType==='closed')authorShadowTreeNodes++;
+      else if(rootType!=='user-agent')throw new Error('Invalid Shadow DOM root type');
+     }
     }
-    complete(undefined,{targetId:target.id,url:target.url,documentCount:documents.length,nodeCount:count,validationLevel:'evidence-only'});
+    complete(undefined,{targetId:target.id,url:target.url,documentCount:documents.length,
+      nodeCount:count,authorShadowTreeNodes,validationLevel:'evidence-only'});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP response'));}
   };
   const onError=()=>complete(new Error('CDP socket error'));
