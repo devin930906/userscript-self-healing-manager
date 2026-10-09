@@ -1,7 +1,8 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {existsSync} from 'node:fs';
-import {writeFile,lstat,readFile} from 'node:fs/promises';
+import {writeFile,lstat} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinned-file.ts';
 import {createHash} from 'node:crypto';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../packages/persistence/src/index.ts';
@@ -417,7 +418,13 @@ async function bootstrap():Promise<void>{
   if(!item||!item.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Source script is not authorized');
   const sel=item.analysis.selectorRecords[q.selectorIndex];
   if(!sel||sel.runtimeRequired)throw new Error('Only a known static literal can be patched');
-  const current=await readFile(item.path);
+  // Renderer-supplied selectors may not turn an already scanned file into an
+  // unbounded second disk read. Reject path swaps, symlinks and growth even
+  // when the hash will ultimately mismatch.
+  const sourceInfo=await lstat(item.path);
+  if(sourceInfo.isSymbolicLink()||!sourceInfo.isFile())
+   throw new Error('Source script must be an ordinary file; rescan required');
+  const current=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo});
   const currentSha=createHash('sha256').update(current).digest('hex');
   if(currentSha!==item.analysis.sourceSha256)throw new Error('Source changed since static scan, please rescan');
   scanSessions.assertCurrent(scanSnapshot);
