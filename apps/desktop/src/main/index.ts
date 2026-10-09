@@ -18,6 +18,7 @@ import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
+import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefaultBrowserProfile,removeBrowserProfile,resolveBrowserProfileForLaunch} from '../../../../packages/cdp-client/src/browser-profiles.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
@@ -214,6 +215,64 @@ async function bootstrap():Promise<void>{
   const picked=pick.filePaths[0];
   if(picked){await savePreferredChromePath({dataRoot,executablePath:picked});approvedChromePath=picked;}
   return approvedChromePath;
+ });
+ ipcMain.handle('usshm:list-browser-profiles',async event=>{
+  assertSender(event);
+  return listBrowserProfiles({dataRoot});
+ });
+ ipcMain.handle('usshm:create-browser-profile',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {name?:unknown}|null;
+  if(!q||typeof q.name!=='string'||!approvedChromePath)
+   throw new Error('Select a trusted Chrome executable and profile name first');
+  // Only a previously OS-picked chrome.exe is accepted. Renderer never sends
+  // executable or profile data paths for native launch.
+  return createBrowserProfile({dataRoot,name:q.name,executablePath:approvedChromePath});
+ });
+ ipcMain.handle('usshm:rename-browser-profile',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {profileId?:unknown;name?:unknown}|null;
+  if(!q||typeof q.profileId!=='string'||typeof q.name!=='string')
+   throw new Error('Invalid browser profile rename request');
+  return renameBrowserProfile({dataRoot,profileId:q.profileId,name:q.name});
+ });
+ ipcMain.handle('usshm:default-browser-profile',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {profileId?:unknown}|null;
+  if(!q||typeof q.profileId!=='string')throw new Error('Invalid browser profile id');
+  return setDefaultBrowserProfile({dataRoot,profileId:q.profileId});
+ });
+ ipcMain.handle('usshm:remove-browser-profile',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {profileId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q.profileId!=='string'||q.approved!==true)
+   throw new Error('Explicit approval required to delete browser profile record');
+  const list=await listBrowserProfiles({dataRoot});
+  const selected=list.find(p=>p.id===q.profileId);
+  if(!selected)throw new Error('Browser profile not found');
+  // User must confirm this exact named profile in a native OS dialog. No
+  // directory or browser binary is ever deleted, even on confirmation.
+  const decision=await dialog.showMessageBox(mainWindow,{
+   type:'warning',title:'删除浏览器配置记录',
+   message:'确定删除浏览器配置记录：'+selected.name+'？',
+   detail:'只删除管理器保存的配置记录，不删除 Chrome、扩展、配置目录或浏览器数据。',
+   buttons:['取消','仅删除配置记录'],defaultId:0,cancelId:0,noLink:true,
+  });
+  if(decision.response!==1)return {deleted:false};
+  await removeBrowserProfile({dataRoot,profileId:q.profileId,approved:true});
+  return {deleted:true};
+ });
+ ipcMain.handle('usshm:launch-browser-profile',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {profileId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q.profileId!=='string'||q.approved!==true)
+   throw new Error('Explicit browser profile launch approval required');
+  const {executablePath,isolatedProfileDir}=await resolveBrowserProfileForLaunch({
+   dataRoot,profileId:q.profileId,
+  });
+  await ensureWritableDataRoot(isolatedProfileDir);
+  await launchSelectedChrome({executablePath,port:9223,isolatedProfileDir});
+  return {started:true,port:9223,isolated:true};
  });
  ipcMain.handle('usshm:launch-chrome',async event=>{assertSender(event);
   if(!approvedChromePath)throw new Error('请先通过文件选择器选择 Chrome');
