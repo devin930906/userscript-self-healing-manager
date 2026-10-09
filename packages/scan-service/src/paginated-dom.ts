@@ -1,4 +1,5 @@
 import type {BatchDomItem,BatchDomResult} from './batch-dom.ts';
+import type {BatchPauseGate} from './pause-gate.ts';
 
 /** Narrow contract for Electron's explicitly consented 25-script batch IPC. */
 export interface PaginatedDomPage extends BatchDomResult {
@@ -43,11 +44,13 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
  * repeated or reordered pages before exposing them to the renderer. Stopping
  * only prevents future IPC requests: no promises of aborting an in-flight CDP call.
  */
-export async function collectPagedDomDiagnosis({total,targetId,expectedItems,requestPage,isCancelled,onProgress}:{
+export async function collectPagedDomDiagnosis({total,targetId,expectedItems,requestPage,isCancelled,pauseGate,onProgress}:{
  total:number;targetId:string;
  expectedItems?:readonly {scriptId?:string|undefined;path:string}[];
  requestPage:(offset:number)=>Promise<PaginatedDomPage>;
  isCancelled:()=>boolean;
+ /** Does not abort an in-flight page; gates only the next batch. */
+ pauseGate?:Pick<BatchPauseGate,'waitUntilReady'>;
  onProgress:(result:PaginatedDomProgress)=>void;
 }):Promise<CompletedDomBatch>{
  if(!Number.isSafeInteger(total)||total<0||total>1000||!targetId||targetId.length>128)
@@ -57,6 +60,8 @@ export async function collectPagedDomDiagnosis({total,targetId,expectedItems,req
  let pageUrl:string|null=null;
  let pageDocumentToken:string|null=null;
  for(let offset=0;offset<total;offset+=25){
+  if(isCancelled())break;
+  if(pauseGate&&!(await pauseGate.waitUntilReady()))break;
   if(isCancelled())break;
   const page=await requestPage(offset);
   if(isCancelled())break;
