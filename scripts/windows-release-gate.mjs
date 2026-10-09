@@ -132,7 +132,9 @@ export function isWindowsX64Pe(buffer){
  const offset=buffer.readUInt32LE(0x3c);
  if(offset<0x40||offset+6>buffer.length)return false;
  return buffer.readUInt32LE(offset)===0x00004550&&
-  buffer.readUInt16LE(offset+4)===0x8664;
+  buffer.readUInt16LE(offset+4)===0x8664&&
+  offset+24<=buffer.length&&buffer.readUInt16LE(offset+20)>=2&&
+  buffer.readUInt16LE(offset+24)===0x20b;
 }
 
 async function validateX64Pe(path){
@@ -143,9 +145,10 @@ async function validateX64Pe(path){
   if(dos.readUInt16LE(0)!==0x5a4d)return false;
   const offset=dos.readUInt32LE(0x3c);
   if(offset<0x40||offset>1024*1024)return false;
-  const coff=Buffer.alloc(6);
+  const coff=Buffer.alloc(26);
   if((await handle.read(coff,0,coff.length,offset)).bytesRead!==coff.length)return false;
-  return coff.readUInt32LE(0)===0x00004550&&coff.readUInt16LE(4)===0x8664;
+  return coff.readUInt32LE(0)===0x00004550&&coff.readUInt16LE(4)===0x8664&&
+   coff.readUInt16LE(20)>=2&&coff.readUInt16LE(24)===0x20b;
  }finally{await handle.close();}
 }
 
