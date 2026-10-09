@@ -4,7 +4,7 @@ import {createServer} from 'node:http';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {getChromeStatus,buildChromeLaunchArgs,launchSelectedChrome} from '../src/index.ts';
+import {getChromeStatus,buildChromeLaunchArgs,launchSelectedChrome,waitForChromeDebugger} from '../src/index.ts';
 
 test('launch args bind Chrome CDP to localhost without auto-adding user-data-dir',()=>{
  const args=buildChromeLaunchArgs(9223);
@@ -75,4 +75,43 @@ test('CDP discovery refuses oversized localhost JSON and excessive tab listings'
   mode='tabs';
   await assert.rejects(getChromeStatus({port}),/tabs|target|limit/i);
  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
+
+test('Chrome launcher refuses an occupied local debugger port instead of claiming a different browser',async()=>{
+ const server=createServer((_req,res)=>res.end('wrong debugger'));
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const root=await mkdtemp(join(tmpdir(),'usshm-port-check-'));
+ const fake=join(root,'Fake Chrome.exe');
+ try{
+  await writeFile(fake,'an executable-looking file that must never launch');
+  const addr=server.address();if(!addr||typeof addr==='string')throw Error('port');
+  await assert.rejects(launchSelectedChrome({executablePath:fake,port:addr.port}),/port.*(occupied|in use)|already.*used/i);
+ }finally{
+  await new Promise<void>(resolve=>server.close(()=>resolve()));
+  await rm(root,{recursive:true,force:true});
+ }
+});
+test('Chrome handshake must see a validated browser socket, not only a successful process spawn',async()=>{
+ let attempts=0;
+ const validPort=9223;
+ const status={browser:'Chrome/155',protocolVersion:'1.3',pages:[],
+  browserSocket:'ws://127.0.0.1:9223/devtools/browser/valid'};
+ const got=await waitForChromeDebugger({port:validPort,timeoutMs:1000,pollMs:1,
+  inspect:async()=>{attempts++;if(attempts<3)throw Error('CDP not ready');return status;},
+  delay:async()=>{},
+ });
+ assert.equal(got.browser,'Chrome/155');
+ assert.equal(attempts,3);
+ await assert.rejects(waitForChromeDebugger({port:9223,timeoutMs:30,pollMs:1,
+  inspect:async()=>({...status,browserSocket:null}),delay:async()=>new Promise(r=>setTimeout(r,2)),
+ }),/handshake|CDP|browser/i);
+ await assert.rejects(waitForChromeDebugger({port:9223,timeoutMs:30,pollMs:1,
+  inspect:async()=>({...status,browser:'Other/155'}),delay:async()=>new Promise(r=>setTimeout(r,2)),
+ }),/handshake|CDP|browser/i);
+});
+test('Chrome handshake detects a launch that exits without exposing CDP',async()=>{
+ await assert.rejects(waitForChromeDebugger({port:9223,timeoutMs:1000,pollMs:1,
+  inspect:async()=>{throw Error('not started');},delay:async()=>{},
+  hasExited:()=>true,
+ }),/exited|closed|early/i);
 });
