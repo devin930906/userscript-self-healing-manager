@@ -33,7 +33,7 @@ test('mixed old and new schema version rows must refuse downgrade without modify
   db.exec('CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(1),(42);');
   assert.throws(()=>migrateDatabase(db),/unsupported|newer|version/i);
   assert.deepEqual(tables(db),['schema_version']);
-  assert.deepEqual(db.prepare('SELECT version FROM schema_version ORDER BY version').all(),[{version:1},{version:42}]);
+  assert.deepEqual(db.prepare('SELECT version FROM schema_version ORDER BY version').all().map(x=>x.version),[1,42]);
  }finally{db.close();}
 });
 
