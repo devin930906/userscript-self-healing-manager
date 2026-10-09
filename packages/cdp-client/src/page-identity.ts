@@ -2,12 +2,18 @@ import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
 
-export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number;frameId?:string;loaderId?:string}
+export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number;frameId?:string;loaderId?:string;
+ /** Only exactly one same-origin child with a verified loader may be inspected.
+  * Child URLs must not be exposed in UI or reports. */
+ soleSameOriginSubframe?:Readonly<{frameId:string;loaderId:string}>}
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
  if(before.targetId!==after.targetId||before.confirmedUrl!==after.confirmedUrl||
-    before.frameId!==after.frameId||before.loaderId!==after.loaderId)
+    before.frameId!==after.frameId||before.loaderId!==after.loaderId||
+    before.subframeCount!==after.subframeCount||
+    before.soleSameOriginSubframe?.frameId!==after.soleSameOriginSubframe?.frameId||
+    before.soleSameOriginSubframe?.loaderId!==after.soleSameOriginSubframe?.loaderId)
   throw new Error('CDP main-frame document identity changed during inspection (same-URL navigation or reload)');
 }
 
@@ -71,9 +77,28 @@ export async function confirmPageIdentity(
     const loaderId=topFrame.loaderId;
     if(frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
      throw new Error('Invalid main-frame document identity token');
+    // A single same-origin child is the only nested scope that can be
+    // identified unambiguously without a user-supplied frame selector.
+    // Its loader is pinned alongside the main document before both CDP samples.
+    // about:blank/srcdoc and cross-origin children are deliberately unsupported.
+    let soleSameOriginSubframe:Readonly<{frameId:string;loaderId:string}>|undefined;
+    if(nestedFrames===1&&Array.isArray(frameTree.childFrames)&&frameTree.childFrames.length===1){
+     const child=frameTree.childFrames[0]?.frame;
+     const childId=child?.id,childLoader=child?.loaderId,childUrl=child?.url;
+     if(typeof childId==='string'&&childId.length>0&&childId.length<=256&&
+        typeof childLoader==='string'&&childLoader.length>0&&childLoader.length<=256&&
+        typeof childUrl==='string'&&childUrl.length<=8192){
+      try{
+       const parsedChild=new URL(childUrl);
+       if(['http:','https:'].includes(parsedChild.protocol)&&parsedChild.origin===expected.origin)
+        soleSameOriginSubframe={frameId:childId,loaderId:childLoader};
+      }catch{/* Invalid or opaque nested URLs do not authorize iframe reads. */}
+     }
+    }
     complete(undefined,{targetId:target.id,confirmedUrl:url,frameId,
      loaderId,
-     ...(nestedFrames>0?{subframeCount:nestedFrames}:{})});
+     ...(nestedFrames>0?{subframeCount:nestedFrames}:{}),
+     ...(soleSameOriginSubframe?{soleSameOriginSubframe}:{})});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP frame tree'));}
   };
   const onError=()=>complete(new Error('CDP page identity socket error'));
