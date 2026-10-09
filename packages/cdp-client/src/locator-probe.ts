@@ -11,7 +11,7 @@ function escapeIdentifier(value:string):string {
   return '\\'+char.codePointAt(0)!.toString(16)+' ';
  }).join('');
 }
-function asCss(input:LiteralLocator):string|null{
+export function asCss(input:LiteralLocator):string|null{
  if(input.runtimeRequired||!input.expression||input.expression.length>1024)return null;
  if(input.method==='querySelector'||input.method==='querySelectorAll')return input.expression;
  if(input.method==='getElementById')return '#'+escapeIdentifier(input.expression);
