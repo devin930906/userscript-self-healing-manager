@@ -1,12 +1,12 @@
 import {createHash} from 'node:crypto';
-import {lstat} from 'node:fs/promises';
+import {lstat,readdir} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {listManagedRevisions} from './history.ts';
 
 export type ManagedHealthStatus=
  'healthy'|'empty'|'missing-current'|'unarchived-current'|
- 'damaged-archive'|'write-locked'|'unsafe';
+ 'damaged-archive'|'write-locked'|'staging-leftover'|'unsafe';
 export interface ManagedIntegrityReport {
  readonly status:ManagedHealthStatus;
  readonly archiveCount:number;
@@ -54,6 +54,31 @@ export async function inspectManagedIntegrity({managedRoot,scriptId}:{
    return outcome('damaged-archive');
   return outcome('unsafe');
  }
+ // An unexpected termination can leave an unpublished private stage behind.
+ // No file contents, names or directories are returned; the UI only needs
+ // to know that offline recovery/review is required. Never delete the stage.
+ const uuid='[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
+ const orphanStage=new RegExp('^\\.(?:current\\.user\\.js|(?:original|revision)-[a-f0-9]{64}\\.user\\.js)\\.staging-'+uuid+'\\.tmp
+ try{info=await lstat(current);}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='ENOENT')
+   return outcome(archives.length===0?'empty':'missing-current',archives.length);
+  throw error;
+ }
+ if(info.isSymbolicLink()||!info.isFile()||info.size>512*1024)return outcome('unsafe',archives.length);
+ let bytes:Buffer;
+ try{bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info});}
+ catch{return outcome('unsafe',archives.length);}
+ const hash=SHA(bytes);
+ if(!archives.some(x=>x.hash===hash))return outcome('unarchived-current',archives.length);
+ return outcome('healthy',archives.length,hash);
+}
+);
+ let names:string[];
+ try{names=await readdir(folder);}catch{return outcome('unsafe',archives.length);}
+ if(names.length>10000)return outcome('unsafe',archives.length);
+ if(names.some(name=>orphanStage.test(name)))
+  return outcome('staging-leftover',archives.length);
  let info:Awaited<ReturnType<typeof lstat>>;
  try{info=await lstat(current);}
  catch(error){
