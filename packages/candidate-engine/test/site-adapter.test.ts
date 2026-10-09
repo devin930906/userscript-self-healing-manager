@@ -198,3 +198,23 @@ test('mixed top-document and open-shadow contexts cannot be guessed into a singl
  assert.equal(got.status,'blocked-context');
  assert.equal(got.rootScope,null);
 });
+
+test('a declared iframe-only role resolves to explicit iframe-document, never the top document',()=>{
+ const raw=valid();
+ const adapter=parseSiteAdapter(raw);
+ const role=resolveSiteAdapterRole({adapter,pageUrl:'https://example.org/app/inbox',
+  roleId:'chat.frameButton',observedStateId:'ready'});
+ assert.equal(role.status,'candidate-only');
+ assert.equal(role.rootScope,'iframe-document');
+ assert.deepEqual(role.selectors,['#send-inside-frame']);
+});
+test('mixed top-frame and iframe same-state contexts do not silently select one',()=>{
+ const raw=valid();
+ raw.roles['chat.frameButton'].contexts=[
+  {stateId:'ready',frame:'top',shadow:'none'},{stateId:'ready',frame:'iframe',shadow:'none'},
+ ];
+ const role=resolveSiteAdapterRole({adapter:parseSiteAdapter(raw),
+  pageUrl:'https://example.org/app/inbox',roleId:'chat.frameButton',observedStateId:'ready'});
+ assert.equal(role.status,'blocked-context');
+ assert.equal(role.rootScope,null);
+});
