@@ -1,6 +1,6 @@
 # Userscript Self-Healing Manager — V0.1 Native 开发中
 
-**项目状态（2026-10-08）**：当前代码已实现离线脚本分析、人工授权的 Chrome CDP DOM 检查、自动候选定位器建议、受控修改副本与历史恢复；尚未达到“全自动自愈 + Tampermonkey 真实功能回归 + Windows 10 实机”的最终验收要求，故 **尚不发布 Stable**。
+**项目状态（2026-10-09）**：当前代码已实现离线脚本分析、人工授权的 Chrome CDP DOM 检查、自动候选定位器建议、受控修改副本与历史恢复；尚未达到“全自动自愈 + Tampermonkey 真实功能回归 + Windows 10 实机”的最终验收要求，故 **尚不发布 Stable**。
 
 **执行原则**：用户已授权连续开发，不需要逐任务确认或阶段性预览安装包。开发分支推送仅运行 **Development CI（测试、TypeScript、Electron 编译）**；Windows 三种安装包的构建工作流仅保留手动触发，避免每个开发提交生成预览安装包。直到 Release Gates 满足前，**不自动合并 main、发布 Release 或生成供用户验收的中途预览包**。
 
@@ -23,6 +23,8 @@
 - **iframe 与 `@noframes` 诊断保护（开发分支）**：从真实 Chrome 的只读 FrameTree 获取有界子 Frame 数量，不读取子网页 URL。一般 userscript 的顶层 DOM 缺失在存在 iframe 时改标「需要复核」，避免虚假的故障或范围外结论；对明文声明 `@noframes` 的脚本仍可作出顶层诊断。**尚未提供 iframe/ShadowRoot 内自动定位与修复**。
 - **真实 Electron GUI 自动启动门禁（开发分支）**：Windows Development CI 除单测、TypeScript 与 Electron 编译之外，还会在一次性 Data 目录实际启动 Electron，核实 `registry.sqlite` 和 React renderer 均加载成功；不制作任何中途安装包。这不是指定 Windows 10 实机或三种发行包验收。
 - **跨扫描版本隔离与授权过期保护（开发分支）**：每次成功静态扫描具有独立随机 `scanId`；批量 CDP、逐脚本定位器检查、候选、补丁预览、受管历史、导出和回滚必须绑定原扫描，异步跨页返回还会重新校验扫描版本。修复预览只能在创建它的扫描中经批准应用一次；重新扫描会同时撤销未用批准和底层暂存提案，避免旧扫描错操作新脚本及长期堆积预览。这不等于自动判断 Tampermonkey 脚本已恢复功能。
+- **异步请求竞争保护（开发分支）**：批量诊断、单脚本 DOM 核验与批量候选使用互不干扰的请求代号；切换目标、脚本或扫描时，旧请求的结果、错误与结束回调不会覆盖新版任务的状态。
+- **同时操作与多开安全保护（开发分支）**：新扫描开始期间立即暂停旧扫描授权，失败则恢复最近成功快照；同脚本并发修复批准具有互斥写入锁；Electron 的单实例锁防止两个主进程同时写同一个 SQLite/受管修订目录。真实 Windows CI 已覆盖第二次启动自动退出、第一实例保持工作。**这只防护同一桌面应用实例内的写入，并不替代跨设备的文件同步锁。**
 - **同网页批量只读诊断（开发分支）**：选择已导入脚本和 Chrome CDP 网页后，点击「批量网页诊断（只读）」，按 25 份一批自动处理当前所有已扫描脚本；显示进度、支持取消剩余批次，并逐脚本区分 `DOM 有匹配 / 选择器缺失 / 范围外 / 需复核 / 跳过 / 失败`。每份脚本独立失败，网页导航或身份不一致时拒绝继续使用证据。受限于每份脚本最多 50 个定位器、只检查顶层 document，仍非 Tampermonkey 行为验收。
 - **安全匹配规则（开发分支）**：`@match/@include/@exclude/@exclude-match` 使用受限、线性时间通配符匹配，不把脚本来源的任意 glob 编译成高风险正则；超长或不受支持的主机模式 fail closed。
 - **受管脚本安全导出（开发分支）**：成功保存修订后或打开受管历史后，可点击「安全导出 .user.js」，通过系统原生保存对话框把经过 SHA-256 归档验证的 `current.user.js` 导出为新文件；不覆盖已有输出、不覆盖原始脚本，不自动写入 Tampermonkey。支持 Windows 符号链接与外部改动拒绝策略；真实扩展内运行验证尚未完成。
@@ -86,6 +88,6 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 - 原有 Task 1 的 `package-lock.json` 已不匹配新增依赖；已提交完整依赖锁文件（Alpha.5，包含 repair-workflow 工作区），Windows CI 使用 `npm ci`。
 - Chrome 136+ 可能忽略默认资料目录的远程调试开关。程序默认**不**添加 `--user-data-dir`；只有用户主动点击“启动隔离调试 Chrome”后，才会使用本软件 Data/Chrome-CDP-Profile 的独立资料目录。不会复制原来的登录信息或 Tampermonkey 扩展，需用户自行配置隔离环境。
 - 未做任何用户账号登录、绕过反自动化机制、对真实网站执行破坏性动作、擅自写入 Tampermonkey 扩展存储。
-- 此预览不会修改用户现有 `.user.js` 源文件。试验补丁引擎只生成受控副本，使用前需要独立安全审查。
+- 当前开发版不会修改用户现有 `.user.js` 源文件。试验补丁引擎只生成受控副本，使用前需要独立安全审查。
 
 - Windows 打包 startup smoke 已改为**强制门禁**，无法创建 Data/registry.sqlite 即视为当前 CI 失败；测试结果以该 commit 的最新运行记录为准。
