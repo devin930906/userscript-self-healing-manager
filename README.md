@@ -144,6 +144,14 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 `--markdown` 可以输出 Markdown。命令行不会执行任何被读取的 `.user.js` 源码。导入路径默认不跟随符号链接，单份文件上限 512 KiB。
 
+## 受管修订写入锁与异常恢复（2026-10-09）
+
+当前 Native 开发分支通过文件系统排他目录 `managed/<scriptId>/current.user.js.write-lock` 协调多个遵守同一协议的程序进程。提交前必须验证原来的活动修订 SHA-256；两个程序同时审批不同修订时，旧审批不会覆盖新的活动版本。最终代码提交 `50a2fdc` 的 [Windows CI #37953531244](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37953531244) 通过 **516/516** 项测试，并通过 Electron GUI、SQLite、真实 Chrome CDP 冒烟测试。
+
+若应用进程崩溃导致锁目录遗留，**程序会拒绝继续写入，不会自行删除锁或覆盖 `current.user.js`**。离线处理前应关闭全部管理器进程，保留 Data 的完整备份，核对 `current.user.js` 和不可变 `original-*.user.js`、`revision-*.user.js` 归档；确认没有任何写入进程后方可有针对性清理对应的空锁目录。不得直接删除现有 current 或任何 archive 来“解除故障”，不能假定锁存在就一定属于已退出的进程。此机制不能防御恶意本地进程，也不是断电事务保护。
+
+以上属于受管副本可靠性加固，**尚未达到** 真实 Tampermonkey/GM_* V4、业务 V3、Windows10 + 指定便携 Chrome155 和正式 Setup/Portable/ZIP 全部 Release Gate。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
