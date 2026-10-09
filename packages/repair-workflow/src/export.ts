@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {join,isAbsolute,relative,dirname} from 'node:path';
-import {lstat,readFile,writeFile,realpath} from 'node:fs/promises';
+import {lstat,writeFile,realpath} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {listManagedRevisions} from './history.ts';
 
 export interface ExportManagedReceipt {readonly path:string;readonly hash:string;readonly bytes:number}
@@ -32,7 +33,7 @@ export async function exportManagedCurrent({managedRoot,scriptId,destinationPath
  const info=await lstat(currentPath);
  if(!info.isFile()||info.isSymbolicLink()||info.size>512*1024)
   throw new Error('Unsafe managed current file');
- const content=await readFile(currentPath);
+ const content=await readPinnedRegularFile(currentPath,{maxBytes:512*1024,expected:info});
  const hash=createHash('sha256').update(content).digest('hex');
  if(!archived.some(r=>r.hash===hash))
   throw new Error('Managed current contains unverified external edits; refusing export');
