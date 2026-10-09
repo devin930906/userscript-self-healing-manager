@@ -76,6 +76,20 @@ export function validateWindowsReleaseLayout({version,artifactNames,zipEntries})
  const items=zipEntries.map(normalizedZipEntry);
  const normalized=new Set(items.map(s=>s.toLowerCase()));
  if(normalized.size!==items.length)throw new Error('Unsafe duplicate ZIP paths');
+ // A file and directory cannot share the same extraction destination.
+ // Also reject an entry that would have to be both a file and ancestor folder.
+ const directories=new Set(zipEntries.filter(e=>e.endsWith('/')||e.endsWith('\\')).map(normalizedZipEntry).map(s=>s.toLowerCase()));
+ for(const entry of normalized){
+  if(directories.has(entry)&&items.some((name,i)=>name.toLowerCase()===entry&&
+       !zipEntries[i].endsWith('/')&&!zipEntries[i].endsWith('\\')))
+   throw new Error('ZIP file collides with directory path');
+  const parts=entry.split('/');
+  for(let i=1;i<parts.length;i++){
+   const parent=parts.slice(0,i).join('/');
+   if(normalized.has(parent)&&!directories.has(parent))
+    throw new Error('ZIP file collides with nested path');
+  }
+ }
  // electron-builder zip normally uses the win-unpacked root; allow one
  // optional enclosing directory, but require all core files under the same root.
  const executables=items.filter(n=>n.toLowerCase().endsWith('/'+PREFIX.toLowerCase()+'.exe')||
