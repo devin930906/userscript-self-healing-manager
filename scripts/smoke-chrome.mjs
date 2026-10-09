@@ -89,6 +89,7 @@ try{
  assert.equal(await loadPreferredChromePath({dataRoot:profile}),executable);
  const identity=await confirmPageIdentity(selected);
  assert.equal(identity.confirmedUrl,fixtureUrl);
+ assert.ok(identity.frameId&&identity.loaderId,'real Chrome must expose stable main-frame and loader identity');
  const summary=await captureDomSummary(selected);
  assert.ok(summary.nodeCount>0,'must capture real DOM nodes');
  assert.ok(summary.documentCount>=1);
