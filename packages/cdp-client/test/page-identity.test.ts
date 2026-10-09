@@ -57,7 +57,7 @@ test('frame identity fails closed if nested frame tree exceeds the inspection bu
   removeEventListener(name:string,listener:(e:any)=>void){this.off(name,listener);}
   constructor(){super();queueMicrotask(()=>this.emit('open'));}
   send(data:string){const command=JSON.parse(data);queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
-   id:command.id,result:{frameTree:{frame:{id:'root',url:page.url},
+   id:command.id,result:{frameTree:{frame:{id:'root',loaderId:'root-loader',url:page.url},
     childFrames:Array.from({length:65},(_,i)=>({frame:{id:'child-'+i,url:'about:blank'}}))}},
   })}));}
   close(){this.emit('close');}
