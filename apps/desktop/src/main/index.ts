@@ -140,6 +140,7 @@ async function bootstrap():Promise<void>{
    deps:{
     confirm:confirmPageIdentity,
     probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+    probeOpenShadow:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true,rootScope:'open-shadow'}),
     summarize:captureDomSummary,
     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
    },
