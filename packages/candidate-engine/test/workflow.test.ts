@@ -175,7 +175,7 @@ test('candidate verification keeps browser probe fanout bounded',async()=>{
  }};
  const result=await suggestCandidateRepairs({target,locator,deps:budget});
  assert.ok(result.length>0);
- assert.equal(calls,4,'original failure, two candidate probes, final original failure');
+ assert.equal(calls,5,'initial, pre-candidate, repeated candidate and final original checks');
 });
 
 
@@ -185,10 +185,25 @@ test('recovered original selector suppresses obsolete candidate suggestions',asy
   const result=await deps.probe(inputs);
   if(inputs.length===1&&inputs[0]?.expression===locator.expression){
    originalChecks++;
-   if(originalChecks===2)return {...result,checks:[{method:locator.method,expression:locator.expression,status:'found',matchCount:1}]};
+   if(originalChecks===3)return {...result,checks:[{method:locator.method,expression:locator.expression,status:'found',matchCount:1}]};
   }
   return result;
  }};
  assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:recovered}),[]);
+ assert.equal(originalChecks,3);
+});
+
+
+test('transient recovery after snapshot blocks candidate probes entirely',async()=>{
+ let originalChecks=0,candidateChecks=0;
+ const transient={...deps,probe:async(inputs:readonly typeof locator[])=>{
+  const result=await deps.probe(inputs);
+  if(inputs[0]?.expression!==locator.expression){candidateChecks++;return result;}
+  originalChecks++;
+  if(originalChecks===2)return {...result,checks:[{method:locator.method,expression:locator.expression,status:'found',matchCount:1}]};
+  return result;
+ }};
+ assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:transient}),[]);
  assert.equal(originalChecks,2);
+ assert.equal(candidateChecks,0);
 });
