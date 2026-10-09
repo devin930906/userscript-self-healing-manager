@@ -25,7 +25,7 @@ test('verified applied managed current exposes the actual patched literal for su
  assert.deepEqual(result,{method:'querySelector',expression:'#safeNew',
   runtimeRequired:false,revisionHash:saved.hash,validationLevel:'managed-static-only'});
  assert.deepEqual(await readFile(source),before,'original userscript must never change');
-});
+}));
 
 test('post-apply DOM check rejects stale revision hash and unmanaged current mutations',async()=>fixture(async(root,source,flow)=>{
  const proposal=await flow.propose({sourcePath:source,scriptId:'v1-stale',oldSelector:'#old',newSelector:'#new'});
@@ -35,7 +35,7 @@ test('post-apply DOM check rejects stale revision hash and unmanaged current mut
  await writeFile(join(root,'managed','v1-stale','current.user.js'),'document.querySelector("#hijacked");');
  await assert.rejects(readVerifiedManagedLocator({managedRoot:root,scriptId:'v1-stale',
   revisionHash:saved.hash,selectorIndex:0}),/hash|stale|current|revision|external/i);
-});
+}));
 
 test('rollback to archived original cannot be misrepresented as the approved patched revision',async()=>fixture(async(root,source,flow)=>{
  const original=await readFile(source);
@@ -44,7 +44,7 @@ test('rollback to archived original cannot be misrepresented as the approved pat
  await flow.restore({scriptId:'v1-rollback',hash:sha(original),approved:true});
  await assert.rejects(readVerifiedManagedLocator({managedRoot:root,scriptId:'v1-rollback',
   revisionHash:saved.hash,selectorIndex:0}),/hash|stale|current|revision/i);
-});
+}));
 
 test('no patched revision, unsafe index, unknown method or symlinked current is never trusted',async(t)=>fixture(async(root,source,flow)=>{
  await assert.rejects(readVerifiedManagedLocator({managedRoot:root,scriptId:'not-created',
@@ -72,4 +72,4 @@ test('checked current needs a matching immutable revision archive, not merely us
  await unlink(join(root,'managed','v1-archive','revision-'+saved.hash+'.user.js'));
  await assert.rejects(readVerifiedManagedLocator({managedRoot:root,scriptId:'v1-archive',
   revisionHash:saved.hash,selectorIndex:0}),/archive|revision|missing|not found|hash/i);
-});
+}));
