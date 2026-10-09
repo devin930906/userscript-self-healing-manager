@@ -164,3 +164,16 @@ test('candidate that stops being unique on repeated live probe is not recommende
  assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:unstable}),[]);
  assert.equal(candidateProbes,2);
 });
+
+
+test('candidate verification keeps browser probe fanout bounded',async()=>{
+ let calls=0;
+ const budget={...deps,probe:async(inputs:readonly typeof locator[])=>{
+  calls++;
+  assert.ok(inputs.length<=100,'candidate probe budget must never exceed 100');
+  return deps.probe(inputs);
+ }};
+ const result=await suggestCandidateRepairs({target,locator,deps:budget});
+ assert.ok(result.length>0);
+ assert.equal(calls,3,'original, first verification and repeated verification');
+});
