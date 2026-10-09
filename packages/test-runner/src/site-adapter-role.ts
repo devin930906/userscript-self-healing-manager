@@ -22,12 +22,13 @@ export interface RoleCheckDeps {
  wait:()=>Promise<void>;
  summarize:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
-type Counts=number[]|null;
+type LocatorSample={count:number;fingerprint:string|null};
+type Counts=LocatorSample[]|null;
 function counts(evidence:LocatorProbeResult,target:ChromeTarget,locators:readonly LiteralLocator[]):Counts{
  if(!evidence||evidence.targetId!==target.id||evidence.url!==target.url||
     evidence.validationLevel!=='dom-only'||!Array.isArray(evidence.checks)||
     evidence.checks.length!==locators.length)return null;
- const result:number[]=[];
+ const result:LocatorSample[]=[];
  for(let i=0;i<locators.length;i++){
   const locator=locators[i]!,c=evidence.checks[i];
   if(!c||c.method!==locator.method||c.expression!==locator.expression||
@@ -35,7 +36,10 @@ function counts(evidence:LocatorProbeResult,target:ChromeTarget,locators:readonl
     c.matchCount<0||c.matchCount>10000)return null;
   if(c.matchCount===0&&c.status!=='missing')return null;
   if(c.matchCount>0&&c.status!=='found'&&c.status!=='ambiguous')return null;
-  result.push(c.matchCount);
+  // Count one without a stable backend-node identity is insufficient to
+  // establish that the same element survived two distinct CDP connections.
+  if(c.matchCount===1&&(!c.nodeFingerprint||!/^[0-9a-f]{64}$/.test(c.nodeFingerprint)))return null;
+  result.push({count:c.matchCount,fingerprint:c.matchCount===1?c.nodeFingerprint!:null});
  }
  return result;
 }
@@ -96,15 +100,15 @@ export async function runSiteAdapterRoleDomCheck({
  if(first===null)return result('needs-review','First read-only CDP observation unavailable',null,1);
  try{await deps.wait();}catch{await guard();return result('needs-review','Bounded DOM resampling interrupted',null,1);}
  const second=await inspect();
- if(second===null||first.some((n,i)=>n!==second[i]))
+ if(second===null||first.some((sample,i)=>sample.count!==second[i]?.count||sample.fingerprint!==second[i]?.fingerprint))
   return result('needs-review','DOM selector evidence incomplete or unstable',null,2);
- const matching=second.map((n,i)=>({n,i})).filter(x=>x.n>0);
+ const matching=second.map((sample,i)=>({n:sample.count,i})).filter(x=>x.n>0);
  if(matching.length>1)return result('needs-review','Multiple fallback locators matched: element identity cannot be proven',null,2);
  if(matching.length===1){
   const {n,i}=matching[0]!,cardinality=adapter.roles[roleId]!.cardinality;
   if(n<cardinality.min||n>cardinality.max)
    return result('needs-review','DOM matches violate role cardinality',null,2);
-  return result('matched-v1','Declared-state top-document DOM selector count matched twice, not a script functional pass',locators[i]!.expression,2);
+  return result('matched-v1','Declared-state top-document selector count and backend node identity matched twice, not a script functional pass',locators[i]!.expression,2);
  }
  // A top-document absence cannot exclude nested browsing contexts or author
  // shadow roots. Context snapshots must be verifiable and within budget.
