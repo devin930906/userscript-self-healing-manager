@@ -154,3 +154,50 @@ test('backend node identity digest is stable for one node across sockets but cha
  const plain=createHash('sha256').update('usshm-cdp-backend-node-v1:').update('41').digest('hex');
  assert.notEqual(digests[0],plain);
 });
+
+test('opt-in identity for two nodes hashes a bounded, sorted set without leaking IDs',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[51,31]}),
+  'DOM.describeNode':({nodeId})=>({node:{backendNodeId:nodeId===51?801:305,nodeType:1}}),
+ });
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'.batch',runtimeRequired:false}],{
+  socketFactory:()=>socket,includeNodeFingerprints:true,
+ });
+ const check=result.checks[0]!;
+ assert.equal(check.matchCount,2);
+ assert.equal(check.status,'found');
+ assert.equal(check.nodeFingerprint,undefined);
+ assert.equal(check.nodeFingerprints?.length,2);
+ assert.deepEqual(check.nodeFingerprints,[...check.nodeFingerprints!].sort());
+ assert.ok(check.nodeFingerprints!.every(x=>/^[0-9a-f]{64}$/.test(x)));
+ assert.equal(JSON.stringify(result).includes('backendNodeId'),false);
+ assert.equal(socket.sent.filter(x=>x.method==='DOM.describeNode').length,2);
+});
+test('duplicate or incomplete backend node identities never certify a two-element match',async()=>{
+ for(const mode of ['duplicate','invalid']){
+  const socket=new ProtocolSocket({
+   'DOM.getDocument':()=>({root:{nodeId:8}}),
+   'DOM.querySelectorAll':()=>({nodeIds:[10,20]}),
+   'DOM.describeNode':({nodeId})=>({node:{backendNodeId:mode==='duplicate'?77:nodeId===10?10:null,nodeType:1}}),
+  });
+  const check=(await probePageLocators(page,[{method:'querySelectorAll',expression:'.batch',runtimeRequired:false}],{
+   socketFactory:()=>socket,includeNodeFingerprints:true,
+  })).checks[0]!;
+  assert.equal(check.status,'unverified');
+  assert.equal(check.nodeFingerprints,undefined);
+ }
+});
+test('unbounded identity sets never send read-only describe commands or publish verified fingerprints',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':()=>({nodeIds:Array.from({length:11},(_,i)=>i+20)}),
+ });
+ const check=(await probePageLocators(page,[{method:'querySelectorAll',expression:'.batch',runtimeRequired:false}],{
+  socketFactory:()=>socket,includeNodeFingerprints:true,
+ })).checks[0]!;
+ assert.equal(check.status,'unverified');
+ assert.equal(check.matchCount,11);
+ assert.equal(check.nodeFingerprints,undefined);
+ assert.equal(socket.sent.filter(x=>x.method==='DOM.describeNode').length,0);
+});
