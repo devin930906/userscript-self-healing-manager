@@ -256,3 +256,39 @@ test('an unrelated closed shadow root does not become an open-root locator or in
  assert.equal(got.checks[0]?.status,'found');
  assert.deepEqual(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').map(x=>x.params.nodeId),[82]);
 });
+
+test('explicit iframe-document reads only the uniquely frame-pinned in-process contentDocument',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[
+   {nodeId:11,nodeName:'IFRAME',frameId:'child-a',contentDocument:{nodeId:52,nodeName:'#document',
+    children:[{nodeId:61,nodeName:'BUTTON'}]}},
+  ]}}),
+  'DOM.querySelectorAll':({nodeId,selector})=>({nodeIds:nodeId===52&&selector==='#in-frame'?[61]:[]}),
+  'DOM.describeNode':()=>({node:{backendNodeId:1201,nodeType:1}}),
+ });
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#in-frame',runtimeRequired:false}],{
+  socketFactory:()=>socket,rootScope:'iframe-document',expectedFrameId:'child-a',includeNodeFingerprints:true,
+ });
+ assert.equal(result.checks[0]?.status,'found');
+ assert.match(result.checks[0]?.nodeFingerprint??'',/^[0-9a-f]{64}$/);
+ assert.deepEqual(socket.sent.filter(s=>s.method==='DOM.querySelectorAll').map(s=>s.params.nodeId),[52]);
+ assert.deepEqual(socket.sent[0]?.params,{depth:-1,pierce:true});
+});
+test('iframe-document never falls back when child is missing, ambiguous or frame ID mismatches',async()=>{
+ for(const root of [
+  {nodeId:8,children:[{nodeId:11,nodeName:'IFRAME',frameId:'wrong',contentDocument:{nodeId:52}}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'IFRAME',frameId:'child-a'}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'IFRAME',frameId:'child-a',contentDocument:{nodeId:52}},
+                       {nodeId:12,nodeName:'IFRAME',frameId:'child-a',contentDocument:{nodeId:53}}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'IFRAME',frameId:'child-a',contentDocument:{nodeId:'bad'}}]},
+ ]){
+  const socket=new ProtocolSocket({'DOM.getDocument':()=>({root})});
+  const got=await probePageLocators(page,[{method:'querySelectorAll',expression:'#in-frame',runtimeRequired:false}],{
+   socketFactory:()=>socket,rootScope:'iframe-document',expectedFrameId:'child-a',includeNodeFingerprints:true,
+  });
+  assert.equal(got.checks[0]?.status,'unverified');
+  assert.equal(socket.sent.filter(s=>s.method==='DOM.querySelectorAll').length,0);
+ }
+ await assert.rejects(probePageLocators(page,[],{rootScope:'iframe-document'}),/frame/i);
+ await assert.rejects(probePageLocators(page,[],{rootScope:'iframe-document',expectedFrameId:'bad!!'}),/frame/i);
+});
