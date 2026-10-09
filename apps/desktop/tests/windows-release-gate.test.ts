@@ -74,6 +74,8 @@ test('Windows ZIP inventory rejects NTFS alternate streams and reserved DOS devi
   'resources/LPT1.log',
   'resources/COM9.txt',
   'resources/COM¹.txt',
+  'resources/ＣＯＮ.txt',
+  'resources/COM１.txt',
   'resources/com²',
   'resources/LPT³.log',
   'folder/trailing.',
