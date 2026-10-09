@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {validateWindowsReleaseLayout} from '../../../scripts/windows-release-gate.mjs';
+import {assertStablePackageVersion,validateWindowsReleaseLayout} from '../../../scripts/windows-release-gate.mjs';
 const base='Userscript-Self-Healing-Manager';
 const good={
  version:'1.0.0',
@@ -121,4 +121,11 @@ test('large ZIP inventory remains bounded and detects a deep file-directory coll
  assert.throws(()=>validateWindowsReleaseLayout({
   ...good,zipEntries:[...good.zipEntries,...many,'resources/generated'],
  }),/collid|path|ZIP/i);
+});
+
+test('Stable release inventory rejects prerelease and mismatched application versions',()=>{
+ assert.equal(assertStablePackageVersion('1.0.0','1.0.0'),true);
+ for(const appVersion of ['0.1.0-alpha.5','1.0.0-rc.1','1.0.1','v1.0.0','']){
+  assert.throws(()=>assertStablePackageVersion('1.0.0',appVersion),/version|prerelease/i);
+ }
 });
