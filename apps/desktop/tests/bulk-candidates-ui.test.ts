@@ -22,6 +22,6 @@ test('bulk candidate UI is bounded, consented and never performs implicit patch 
  assert.match(ui,/setRepairIndex\(row\.selectorIndex\)/);
  assert.match(ui,/继续下一组修复候选/);
  assert.match(ui,/suggestBulkRepairs\(bulkRepairResults\.checkedMissing\)/);
- assert.match(ui,/bulkGeneration=useRef\(0\)/);
- assert.match(ui,/if\(token!==bulkGeneration\.current\)return/);
+ assert.match(ui,/bulkGeneration=useRef\(new LatestRequestGate\(\)\)/);
+ assert.match(ui,/if\(!bulkGeneration\.current\.isCurrent\(token\)\)return/);
 });
