@@ -150,7 +150,9 @@ try{
   },validationCases:['HEAL_DOM'],
  });
  const roleDeps={
-  confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+  confirm:confirmPageIdentity,
+  probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+  summarize:captureDomSummary,
   wait:()=>delay(120),
  };
  const matchedRole=await runSiteAdapterRoleDomCheck({
