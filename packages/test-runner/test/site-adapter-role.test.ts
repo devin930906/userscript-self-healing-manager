@@ -142,3 +142,68 @@ test('multi-node role counts never certify stable V1 without identity evidence f
   assert.equal(verdict.managerVerified,false);
  }
 });
+
+test('a two-element semantic role passes V1 only when both backend fingerprints match across observations',async()=>{
+ const batch=parseSiteAdapter({
+  schemaVersion:1,siteId:'example-app',version:'1.0.0',urlPatterns:['https://example.org/app/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.batchButtons':{contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+   strategies:[{kind:'css',selector:'.batch-button',weight:100}],cardinality:{min:2,max:3},assertions:['exists']}},
+  validationCases:['BATCH_PRESENT'],
+ });
+ const samples=[['b'.repeat(64),'a'.repeat(64)],['a'.repeat(64),'b'.repeat(64)]];
+ let called=0;
+ const makeReply=()=>({
+  targetId:target.id,url:target.url,validationLevel:'dom-only' as const,
+  checks:[{method:'querySelectorAll',expression:'.batch-button',status:'found' as const,matchCount:2,
+   nodeFingerprints:samples[Math.min(called++,1)]}],
+ });
+ const deps={...makeDeps([2]),probe:async()=>makeReply() as LocatorProbeResult};
+ const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter:batch,
+  roleId:'chat.batchButtons',declaredStateId:'ready',deps});
+ assert.equal(result.status,'matched-v1');
+ assert.equal(result.evidenceLevel,'V1');
+ assert.equal(result.matchedSelector,'.batch-button');
+ assert.equal(result.V3,'not-configured');
+ assert.equal(result.functionalVerified,false);
+ assert.equal(called,2);
+});
+test('a stable two-element count with one replaced identity remains needs-review',async()=>{
+ const batch=parseSiteAdapter({
+  schemaVersion:1,siteId:'example-app',version:'1.0.0',urlPatterns:['https://example.org/app/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.batchButtons':{contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+   strategies:[{kind:'css',selector:'.batch-button',weight:100}],cardinality:{min:2,max:2},assertions:['exists']}},
+  validationCases:['BATCH_PRESENT'],
+ });
+ let count=0;
+ const deps={...makeDeps([2]),probe:async():Promise<LocatorProbeResult>=>({
+  targetId:target.id,url:target.url,validationLevel:'dom-only',
+  checks:[{method:'querySelectorAll',expression:'.batch-button',status:'found',matchCount:2,
+   nodeFingerprints:[...(count++===0?['a'.repeat(64),'b'.repeat(64)]:['a'.repeat(64),'c'.repeat(64)])]}],
+ })};
+ const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter:batch,
+  roleId:'chat.batchButtons',declaredStateId:'ready',deps});
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.matchedSelector,null);
+});
+test('duplicate, malformed, missing or partial multi-node fingerprint lists fail closed',async()=>{
+ const batch=parseSiteAdapter({
+  schemaVersion:1,siteId:'example-app',version:'1.0.0',urlPatterns:['https://example.org/app/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.batchButtons':{contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+   strategies:[{kind:'css',selector:'.batch-button',weight:100}],cardinality:{min:2,max:2},assertions:['exists']}},
+  validationCases:['BATCH_PRESENT'],
+ });
+ for(const fingerprints of [undefined,[],['a'.repeat(64)],['a'.repeat(64),'a'.repeat(64)],
+  ['a'.repeat(64),'short'],['b'.repeat(64),'a'.repeat(64),'c'.repeat(64)]]){
+  const deps={...makeDeps([2]),probe:async():Promise<LocatorProbeResult>=>({
+   targetId:target.id,url:target.url,validationLevel:'dom-only',
+   checks:[{method:'querySelectorAll',expression:'.batch-button',status:'found',matchCount:2,
+    nodeFingerprints:fingerprints}],
+  })};
+  const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter:batch,
+   roleId:'chat.batchButtons',declaredStateId:'ready',deps});
+  assert.equal(result.status,'needs-review');
+ }
+});
