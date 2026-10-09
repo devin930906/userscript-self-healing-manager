@@ -5,7 +5,8 @@ import {runReadOnlyDomContract} from '../src/index.ts';
 const target={type:'page',id:'fixture',url:'https://example.org/page',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/fixture'};
 const locator={method:'querySelector',expression:'#action',runtimeRequired:false};
 function sample(status:'found'|'missing'|'ambiguous'|'blocked',count:number|null){
- return {targetId:target.id,url:target.url,validationLevel:'dom-only' as const,checks:[{method:locator.method,expression:locator.expression,status,matchCount:count}]};
+ return {targetId:target.id,url:target.url,validationLevel:'dom-only' as const,checks:[{method:locator.method,expression:locator.expression,status,matchCount:count,
+  ...(status==='found'&&count===1?{nodeFingerprint:'a'.repeat(64)}:{})}]};
 }
 function deps(checks:ReturnType<typeof sample>[],loaderIds:string[]=['a','a','a','a','a']){
  let scans=0,identities=0,waits=0;
