@@ -16,6 +16,7 @@ import {buildChromeLaunchArgs,getChromeStatus} from '../packages/cdp-client/src/
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
+import {inspectReadOnlyElementVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
@@ -137,6 +138,15 @@ try{
 
  // Use the real Chrome DOM domain to verify a named non-destructive
  // locator contract with two observations and no Runtime.evaluate.
+ const visibility=await inspectReadOnlyElementVisibility(selected,{
+  method:'querySelector',expression:'#heal-button',runtimeRequired:false,
+ });
+ assert.equal(visibility.status,'potentially-visible','real Chrome DOM/CSS box should attest only potentially visible');
+ assert.equal(visibility.matchCount,1);
+ assert.equal(visibility.interactionVerified,false);
+ assert.equal(visibility.V2,'blocked');
+ assert.equal(visibility.V4,'not-configured');
+
  const uniqueContract=await runReadOnlyDomContract({
   approved:true,target:selected,caseId:'SYNTHETIC:heal-button:unique',
   locator:{method:'querySelector',expression:'#heal-button',runtimeRequired:false},
