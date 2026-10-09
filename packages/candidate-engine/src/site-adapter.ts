@@ -29,7 +29,7 @@ export interface AdapterRoleResolution {
  readonly status:'candidate-only'|'out-of-scope'|'blocked-context'|'unknown-role';
  readonly selectors:readonly string[];
  /** Explicit CDP observation root; never merge selectors from distinct contexts. */
- readonly rootScope:'document'|'open-shadow'|null;
+ readonly rootScope:'document'|'open-shadow'|'iframe-document'|null;
  readonly validationLevel:'definition-only';
  readonly functionalVerified:false;
  readonly managerVerified:false;
@@ -213,12 +213,17 @@ export function resolveSiteAdapterRole({adapter,pageUrl,roleId,observedStateId}:
  const role=Object.hasOwn(trusted.roles,roleId)?trusted.roles[roleId]:undefined;
  if(!role)return output('unknown-role');
  if(!observedStateId||!Object.hasOwn(trusted.states,observedStateId))return output('blocked-context');
- const supported=role.contexts.filter(c=>c.stateId===observedStateId&&c.frame==='top'&&
-  (c.shadow==='none'||c.shadow==='open'));
- // Different roots must never be merged or guessed as one context.
+ const supported=role.contexts.filter(c=>c.stateId===observedStateId&&(
+  (c.frame==='top'&&(c.shadow==='none'||c.shadow==='open'))||
+  (c.frame==='iframe'&&c.shadow==='none')
+ ));
+ // A role that mixes different roots in the declared state must never pick
+ // whichever is easiest to observe. Iframe + ShadowRoot remains unsupported.
  if(supported.length!==1)return output('blocked-context');
- return output('candidate-only',role.strategies.map(s=>s.selector),
-  supported[0]!.shadow==='open'?'open-shadow':'document');
+ const context=supported[0]!;
+ const rootScope=context.frame==='iframe'?'iframe-document':
+  context.shadow==='open'?'open-shadow':'document';
+ return output('candidate-only',role.strategies.map(s=>s.selector),rootScope);
 }
 
 /** Changed shared locators never activate automatically, even with zero dependents. */
