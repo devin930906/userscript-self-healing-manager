@@ -4,7 +4,8 @@ import {EventEmitter} from 'node:events';
 import {inspectReadOnlyElementVisibility} from '../src/read-only-visibility.ts';
 class FakeSocket extends EventEmitter{
  sent:Array<{id:number;method:string;params:any}>=[];
- constructor(private steps:Record<string,(params:any)=>any>){super();queueMicrotask(()=>this.emit('open'));}
+ private readonly steps:Record<string,(params:any)=>any>;
+ constructor(steps:Record<string,(params:any)=>any>){super();this.steps=steps;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,cb:(data:any)=>void){this.on(name,cb);}
  removeEventListener(name:string,cb:(data:any)=>void){this.off(name,cb);}
  send(payload:string){
