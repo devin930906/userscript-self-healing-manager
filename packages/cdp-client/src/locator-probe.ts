@@ -42,6 +42,7 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
   if(!Number.isSafeInteger(id)||typeof id!=='number'||id<1||seen.has(id))return null;
   seen.add(id);
   if(data.shadowRootType!==undefined){
+   if(data.shadowRootType==='closed'||data.shadowRootType==='user-agent')continue;
    if(data.shadowRootType!=='open')return null;
    if(openRoot!==null)return null;
    openRoot=id;
