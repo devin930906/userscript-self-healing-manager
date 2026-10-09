@@ -105,7 +105,7 @@ test('pausing after a confirmed page prevents dispatch of the next CDP batch unt
  const first=new Promise<void>(resolve=>{firstComplete=resolve;});
  const work=collectPagedDomDiagnosis({
   total:51,targetId,requestPage:async offset=>{requested.push(offset);return page(offset);},
-  isCancelled:()=>gate.isCancelled,isPaused:()=>gate.isPaused,pauseGate:gate,
+  isCancelled:()=>gate.isCancelled,pauseGate:gate,
   onProgress:outcome=>{if(outcome.totalItems===25){gate.pause();firstComplete();}},
  });
  await first;
