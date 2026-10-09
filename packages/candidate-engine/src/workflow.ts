@@ -45,6 +45,9 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  if(snapshot.scope!=='top-document')throw new Error('Only top-document DOM evidence is supported');
  const ranked=rankSelectorCandidates({method:locator.method,oldSelector:locator.expression,nodes:snapshot.nodes});
  if(!ranked.length)return [];
+ // Untrusted ranking inputs must never amplify a single DOM snapshot into an
+ // unbounded sequence of browser probes.
+ if(ranked.length>100)throw new Error('Candidate verification exceeds safe probe budget');
  const confirmation=await deps.probe(ranked.map(candidate=>({method:locator.method,expression:candidate.expression,runtimeRequired:false})));
  ensureIdentity(target,confirmation);
  if(baseline)await confirmStable(baseline);
