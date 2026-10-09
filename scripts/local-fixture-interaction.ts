@@ -74,6 +74,8 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
     const m=JSON.parse(event.data);
     if(m.id!==serial||done)return;
     if(m.error)throw new Error('Fixture CDP command rejected: '+waiting);
+    if(!m.result||typeof m.result!=='object'||Array.isArray(m.result))
+     throw new Error('Invalid synthetic fixture CDP result');
     switch(waiting){
      case 'DOM.getDocument':
       root=m.result?.root?.nodeId;
