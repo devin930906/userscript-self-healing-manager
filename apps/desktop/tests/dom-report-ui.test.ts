@@ -16,3 +16,16 @@ test('DOM batch export is explicitly requested, tied to the active scan and neve
  assert.match(ui,/导出 DOM Markdown/);
  assert.match(ui,/ussm\.exportDomReport/);
 });
+test('main process owns the export evidence; renderer is prohibited from submitting verification grades',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const preload=readFileSync('apps/desktop/src/preload/index.ts','utf8');
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(main,/new BatchEvidenceStore\(\)/);
+ assert.match(main,/batchEvidence\.record\(/);
+ assert.match(main,/batchEvidence\.snapshot\(/);
+ assert.match(main,/batchEvidence\.clear\(\)/);
+ const handler=main.split("ipcMain.handle('usshm:export-dom-report'")[1]?.split("ipcMain.handle('usshm:export'")[0]??'';
+ assert.doesNotMatch(handler,/q\.report/);
+ assert.doesNotMatch(preload,/report:unknown/);
+ assert.match(ui,/scanId:result\.scanId,targetId:batchResult\.pageTargetId/);
+});
