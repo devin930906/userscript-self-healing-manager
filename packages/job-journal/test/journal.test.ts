@@ -1,0 +1,94 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
+import {openDiagnosisJournal} from '../src/index.ts';
+import type {PaginatedDomPage} from '../../scan-service/src/paginated-dom.ts';
+
+const scanId='scan-private',targetId='page-internal';
+const url='https://example.org/secret?token=do-not-persist#private';
+function page(offset:number,total=26,token='a'.repeat(64)):PaginatedDomPage{
+ const count=Math.min(25,total-offset);
+ return {
+  validationLevel:'dom-only',pageTargetId:targetId,pageUrl:url,
+  pageDocumentToken:token,startIndex:offset,remainingItems:total-offset-count,totalItems:count,
+  items:Array.from({length:count},(_,i)=>({
+   index:offset+i,scriptId:'SECRET-user-script-name',path:'C:\\Users\\Private\\my-secret.user.js',
+   status:'dom-present' as const,checked:1,found:1,missing:0,needsReview:0,
+   verification:{V0:'passed' as const,V1:'passed' as const,V2:'blocked' as const,V3:'not-configured' as const,
+    V4:'not-configured' as const,highestVerified:'V1' as const,functionalVerified:false as const,managerVerified:false as const},
+  })),
+ };
+}
+async function withJournal(work:(path:string)=>Promise<void>){
+ const directory=await mkdtemp(join(tmpdir(),'usshm-journal-'));
+ try{await work(join(directory,'diagnosis-journal.sqlite'));}finally{await rm(directory,{recursive:true,force:true});}
+}
+test('persists ordered pages and their V1-only evidence across SQLite reopen without source paths',async()=>withJournal(async path=>{
+ let journal=openDiagnosisJournal(path);
+ const first=journal.recordPage({scanId,targetId,total:26,offset:0,page:page(0)});
+ assert.equal(first.status,'running');
+ assert.equal(first.processedItems,25);
+ const done=journal.recordPage({scanId,targetId,total:26,offset:25,page:page(25)});
+ assert.equal(done.status,'completed');
+ assert.equal(done.processedItems,26);
+ const id=done.runId;
+ journal.close();
+ journal=openDiagnosisJournal(path);
+ const history=journal.listRecent();
+ assert.equal(history.length,1);
+ assert.equal(history[0]?.runId,id);
+ assert.equal(history[0]?.status,'completed');
+ assert.equal(history[0]?.pageOrigin,'https://example.org');
+ assert.equal(history[0]?.totalItems,26);
+ assert.equal(history[0]?.processedItems,26);
+ assert.equal(journal.listItems(id).length,26);
+ assert.equal(journal.listItems(id)[25]?.verificationV1,'passed');
+ journal.close();
+ const disk=await readFile(path);
+ for(const secret of ['SECRET-user-script-name','do-not-persist','my-secret.user.js','Private','page-internal','scan-private','a'.repeat(64)])
+  assert.equal(disk.includes(Buffer.from(secret)),false,secret);
+}));
+test('on restart a running scan is marked interrupted, never auto-resumed',async()=>withJournal(async path=>{
+ let journal=openDiagnosisJournal(path);
+ journal.recordPage({scanId,targetId,total:26,offset:0,page:page(0)});
+ journal.close();
+ journal=openDiagnosisJournal(path);
+ const recent=journal.listRecent();
+ assert.equal(recent[0]?.status,'interrupted');
+ assert.equal(recent[0]?.processedItems,25);
+ assert.throws(()=>journal.recordPage({scanId,targetId,total:26,offset:25,page:page(25)}),/new|first|missing|interrupted/i);
+ journal.close();
+}));
+test('out-of-order/duplicate/stale documents are rejected without partial row insertion',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ assert.throws(()=>journal.recordPage({scanId,targetId,total:26,offset:25,page:page(25)}),/first|order|offset/i);
+ journal.recordPage({scanId,targetId,total:26,offset:0,page:page(0)});
+ assert.throws(()=>journal.recordPage({scanId,targetId,total:26,offset:25,page:page(25,26,'b'.repeat(64))}),/document|identity/i);
+ assert.equal(journal.listRecent()[0]?.processedItems,25);
+ assert.equal(journal.listItems(journal.listRecent()[0]!.runId).length,25);
+ assert.throws(()=>journal.recordPage({scanId,targetId,total:26,offset:0,page:{...page(0),remainingItems:100}}),/partial|count|remaining|invalid/i);
+ journal.close();
+}));
+test('cancelling one session is durable and does not affect another scan',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ journal.recordPage({scanId,targetId,total:26,offset:0,page:page(0)});
+ const other=journal.recordPage({scanId:'another',targetId,total:26,offset:0,page:page(0)});
+ journal.cancel({scanId,targetId});
+ const history=journal.listRecent();
+ assert.equal(history.find(x=>x.runId===other.runId)?.status,'running');
+ assert.equal(history.find(x=>x.runId!==other.runId)?.status,'cancelled');
+ assert.throws(()=>journal.recordPage({scanId,targetId,total:26,offset:25,page:page(25)}),/first|cancelled|running|missing/i);
+ journal.close();
+}));
+test('future journal schema version is rejected without destructive downgrade',async()=>withJournal(async path=>{
+ const db=new DatabaseSync(path);
+ db.exec('PRAGMA user_version=9');
+ db.close();
+ assert.throws(()=>openDiagnosisJournal(path),/unsupported|schema|version/i);
+ const check=new DatabaseSync(path);
+ assert.equal((check.prepare('PRAGMA user_version').get() as {user_version:number}).user_version,9);
+ check.close();
+}));
