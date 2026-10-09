@@ -28,6 +28,7 @@ import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {readVerifiedManagedLocator} from '../packages/repair-workflow/src/managed-locator.ts';
+import {guardAppliedManagedRevision} from '../packages/repair-workflow/src/guarded-v1.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
@@ -457,6 +458,37 @@ try{
  assert.equal(managedContract.status,'passed');
  assert.equal(managedContract.V3,'not-configured');
  assert.equal(managedContract.managerVerified,false);
+ // Deliberately approve an incorrect *managed* selector on the disposable
+ // localhost fixture, then enforce automatic V1 rollback. This proves the
+ // failure path against a real Chrome DOM rather than a mocked CDP response.
+ const temporaryProposal=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',
+  oldSelector:'#heal-button',newSelector:'#usshm-absent-guarded'});
+ const temporaryApplied=await flow.apply({proposalId:temporaryProposal.proposalId,approved:true});
+ const autoGuard=await guardAppliedManagedRevision({
+  approved:true,scriptId:'chrome-smoke-fixture',appliedHash:temporaryApplied.hash,
+  previousHash:applied.hash,
+  verify:async()=>{
+   const changed=await readVerifiedManagedLocator({managedRoot:profile,
+    scriptId:'chrome-smoke-fixture',revisionHash:temporaryApplied.hash,selectorIndex:0});
+   assert.equal(changed.expression,'#usshm-absent-guarded');
+   return runReadOnlyDomContract({
+    approved:true,target:selected,caseId:'SYNTHETIC:guarded-failing:V1',
+    locator:{method:changed.method,expression:changed.expression,runtimeRequired:false},
+    expectation:'unique',
+    deps:{confirm:confirmPageIdentity,
+     probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+     summarize:captureDomSummary,
+     wait:()=>delay(125),
+    },
+   });
+  },
+  restore:(hash)=>flow.restore({scriptId:'chrome-smoke-fixture',hash,approved:true,
+   expectedCurrentHash:temporaryApplied.hash}),
+ });
+ assert.equal(autoGuard.status,'rolled-back-v1');
+ assert.equal(autoGuard.functionalVerified,false);
+ const activeAfterGuard=join(profile,'managed','chrome-smoke-fixture','current.user.js');
+ assert.deepEqual(await readFile(activeAfterGuard),await readFile(applied.managedPath));
 
  assert.equal(await readFile(sourcePath,'utf8'),original);
  assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
