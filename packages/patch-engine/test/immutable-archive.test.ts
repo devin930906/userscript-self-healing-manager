@@ -77,3 +77,44 @@ test('read-back hash failure removes a newly created but corrupted archive',asyn
  await persistImmutableSnapshot({archivePath:path,bytes});
  assert.deepEqual(await readFile(path),bytes);
 }));
+
+test('an in-progress write never exposes an incomplete hash-named revision',async()=>fixture(async folder=>{
+ const bytes=Buffer.alloc(180000,0x5a);
+ const path=join(folder,'revision-'+sha(bytes)+'.user.js');
+ let writes=0;
+ await persistImmutableSnapshot({archivePath:path,bytes,
+  writeChunk:async(handle,chunk,position)=>{
+   const result=await handle.write(chunk,0,chunk.length,position);
+   if(++writes===1)await assert.rejects(lstat(path),{code:'ENOENT'});
+   return result.bytesWritten;
+  },
+ });
+ assert.ok(writes>=2,'exercise multiple disk write operations');
+ assert.deepEqual(await readFile(path),bytes);
+ const names=await (await import('node:fs/promises')).readdir(folder);
+ assert.deepEqual(names,[path.split(/[\\/]/).at(-1)]);
+}));
+
+test('two simultaneous producers of the same revision do not treat a partial archive as an immutable conflict',async()=>fixture(async folder=>{
+ const bytes=Buffer.alloc(160000,0x43);
+ const path=join(folder,'revision-'+sha(bytes)+'.user.js');
+ let unblock!:()=>void;
+ const blocker=new Promise<void>(resolve=>{unblock=resolve;});
+ let firstStarted!:()=>void;
+ const started=new Promise<void>(resolve=>{firstStarted=resolve;});
+ let firstWrite=true;
+ const first=persistImmutableSnapshot({archivePath:path,bytes,
+  writeChunk:async(handle,chunk,position)=>{
+   const result=await handle.write(chunk,0,chunk.length,position);
+   if(firstWrite){firstWrite=false;firstStarted();await blocker;}
+   return result.bytesWritten;
+  },
+ });
+ await started;
+ try{await persistImmutableSnapshot({archivePath:path,bytes});}
+ finally{unblock();}
+ await first;
+ assert.deepEqual(await readFile(path),bytes);
+ const names=await (await import('node:fs/promises')).readdir(folder);
+ assert.deepEqual(names,[path.split(/[\\/]/).at(-1)]);
+}));
