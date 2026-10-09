@@ -167,3 +167,17 @@ test('a failed shadow context read cannot be used to certify a missing locator',
  assert.equal(data.items[0]?.status,'needs-review');
  assert.match(data.items[0]?.reason??'',/shadow|unavailable/i);
 });
+
+test('read-only matched DOM is recorded only as V1 evidence, never a V3/V4 pass',async()=>{
+ const tested=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'f',loaderId:'l'}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'found' as const,matchCount:1}))}),
+ }});
+ assert.equal(tested.items[0]?.verification?.V0,'passed');
+ assert.equal(tested.items[0]?.verification?.V1,'passed');
+ assert.equal(tested.items[0]?.verification?.V2,'blocked');
+ assert.equal(tested.items[0]?.verification?.V3,'not-configured');
+ assert.equal(tested.items[0]?.verification?.V4,'not-configured');
+ assert.equal(tested.items[0]?.verification?.functionalVerified,false);
+});
