@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {join,isAbsolute,relative,dirname,basename,sep} from 'node:path';
-import {lstat,realpath,open,link,unlink,type FileHandle} from 'node:fs/promises';
+import {lstat,realpath,open,link,unlink,mkdir,rmdir,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {listManagedRevisions} from './history.ts';
 
@@ -85,8 +85,10 @@ function withinRoot(base:string,candidate:string):boolean{
  * Caller must obtain destinationPath from an OS Save dialog. Never overwrite,
  * never export silently modified scripts, and never mutate managed archives.
  */
-export async function exportManagedCurrent({managedRoot,scriptId,destinationPath}:{
+export async function exportManagedCurrent({managedRoot,scriptId,destinationPath,beforePublish}:{
  managedRoot:string;scriptId:string;destinationPath:string;
+ /** Internal deterministic race hook, never received from renderer IPC. */
+ beforePublish?:()=>Promise<void>;
 }):Promise<ExportManagedReceipt>{
  if(!isAbsolute(managedRoot)||!isAbsolute(destinationPath)||!destinationPath.toLowerCase().endsWith('.user.js'))
   throw new Error('Absolute .user.js export destination required');
@@ -99,27 +101,39 @@ export async function exportManagedCurrent({managedRoot,scriptId,destinationPath
  if(withinRoot(resolvedRoot,resolvedParent))
   throw new Error('Resolved export directory is inside managed data root');
 
- // listManagedRevisions validates the managed path hierarchy and the content hashes.
+ // Resolve and verify the managed hierarchy before obtaining a lease. This
+ // same filesystem lock also serializes archive activation in other app
+ // processes: the exported bytes must be from ONE consistent current revision.
  const archived=await listManagedRevisions({managedRoot,scriptId});
  if(!archived.length)throw new Error('No verified managed revision available for export');
  const currentPath=join(managedRoot,'managed',scriptId,'current.user.js');
- const info=await lstat(currentPath);
- if(!info.isFile()||info.isSymbolicLink()||info.size>512*1024)
-  throw new Error('Unsafe managed current file');
- const content=await readPinnedRegularFile(currentPath,{maxBytes:512*1024,expected:info});
- const hash=createHash('sha256').update(content).digest('hex');
- if(!archived.some(r=>r.hash===hash))
-  throw new Error('Managed current contains unverified external edits; refusing export');
- // Windows can follow a dangling symlink with exclusive-create flags; reject
- // any existing directory entry with lstat before attempting an exclusive write.
- try{
-  await lstat(destinationPath);
-  throw new Error('Export destination already exists; refusing overwrite');
- }catch(error){
-  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+ const lockPath=currentPath+'.write-lock';
+ try{await mkdir(lockPath,{mode:0o700});}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='EEXIST')
+   throw new Error('Another managed current writer holds the filesystem lock; refusing export');
+  throw error;
  }
- // The Save dialog is not a filesystem write transaction. Stage + fsync +
- // pinned hash verify before an atomic no-replace publication in its folder.
- await publishExclusiveExport({destinationPath,bytes:content});
- return {path:destinationPath,hash,bytes:content.length};
+ try{
+  const info=await lstat(currentPath);
+  if(!info.isFile()||info.isSymbolicLink()||info.size>512*1024)
+   throw new Error('Unsafe managed current file');
+  const content=await readPinnedRegularFile(currentPath,{maxBytes:512*1024,expected:info});
+  const hash=createHash('sha256').update(content).digest('hex');
+  if(!archived.some(r=>r.hash===hash))
+   throw new Error('Managed current contains unverified external edits; refusing export');
+  // Native Save dialogs do not reserve the selected name. Fail on an already
+  // present file; the final hard link also handles a late competing publisher.
+  try{
+   await lstat(destinationPath);
+   throw new Error('Export destination already exists; refusing overwrite');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
+  await publishExclusiveExport({destinationPath,bytes:content,...(beforePublish?{beforePublish}:{})});
+  return {path:destinationPath,hash,bytes:content.length};
+ }finally{
+  // Export acquired this lease itself. Never auto-remove a preexisting lock.
+  await rmdir(lockPath);
+ }
 }
