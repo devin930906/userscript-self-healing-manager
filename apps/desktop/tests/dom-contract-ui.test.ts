@@ -27,3 +27,10 @@ test('preload and UI expose only named existence/uniqueness checks and clearly l
  assert.match(ui,/至少一个匹配/);
  assert.match(ui,/V3\/V4.*未配置/);
 });
+
+test('named DOM contracts retrieve author ShadowRoot context without claiming a top-document miss is final',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const handler=main.split("ipcMain.handle('usshm:run-dom-contract'")[1]?.split("ipcMain.handle('usshm:")[0]??'';
+ assert.match(handler,/summarize:captureDomSummary/);
+ assert.match(handler,/confirm:confirmPageIdentity/);
+});
