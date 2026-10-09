@@ -16,6 +16,8 @@ test('guarded managed apply is bound to Main-owned proposal, active scan and app
   /repairs\.restore\(/,/readVerifiedManagedLocator\(/]){
   assert.match(handler,pattern);
  }
+ assert.match(handler,/const expectation='unique' as const/,
+  'guarded save must always require a uniquely fingerprinted DOM node, even for querySelectorAll');
  assert.doesNotMatch(handler,/q\.previousHash|q\.appliedHash|Runtime\.evaluate|Input\.dispatchMouseEvent|executeJavaScript/,
   'renderer may not choose rollback hashes or run arbitrary scripts');
 });
