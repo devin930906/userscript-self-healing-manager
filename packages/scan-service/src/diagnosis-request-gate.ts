@@ -77,6 +77,15 @@ export class DiagnosisRequestGate {
   this.active.delete(identity(scanId,targetId));
  }
  invalidateAll():void{this.active.clear();}
+ /** A transport-only failure can be retried once by the renderer for the
+  * exact same page offset. A late response from the old attempt is never
+  * allowed to commit after this lease has been released. */
+ releaseForRetry(ticket:DiagnosisTicket):boolean{
+  if(!this.isCurrent(ticket))return false;
+  const active=this.active.get(identity(ticket.scanId,ticket.targetId))!;
+  active.inFlight=false;
+  return true;
+ }
  /** True only for the exact still-active lease; stale failures cannot
   * corrupt a later restarted batch or change its persisted journal status. */
  failIfCurrent(ticket:DiagnosisTicket):boolean{
