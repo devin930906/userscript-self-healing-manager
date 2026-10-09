@@ -25,3 +25,11 @@ test('batch DOM flow uses narrow preload IPC and explicit approval; UI never wri
  assert.match(ui,/setBatchProgress\(evidence\.totalItems\)/);
  assert.match(ui,/setBatchResult\(null\);setBatchProgress\(0\)/);
 });
+
+test('batch diagnosis visibly separates DOM-only V1 from unconfigured V3/V4',()=>{
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(ui,/row\.verification/);
+ assert.match(ui,/V0/);
+ assert.match(ui,/V1/);
+ assert.match(ui,/V3\/V4/);
+});
