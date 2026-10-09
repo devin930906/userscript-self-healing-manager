@@ -71,3 +71,28 @@ test('managed export reads current revisions through the pinned descriptor helpe
  assert.match(source,/readPinnedRegularFile\(currentPath,\s*\{maxBytes:512\*1024,expected:info\}\)/);
  assert.doesNotMatch(source,/\bawait readFile\(currentPath\)/);
 });
+
+test('export refuses dot-dot PREFIX directories that actually reside inside the managed data root',async()=>{
+ const q=await setup();
+ try{
+  const tucked=join(q.managedRoot,'..not-parent','new.user.js');
+  await mkdir(join(q.managedRoot,'..not-parent'));
+  await assert.rejects(
+   exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',destinationPath:tucked}),
+   /managed|inside|directory/i,
+  );
+  await assert.rejects(readFile(tucked),{code:'ENOENT'});
+  assert.equal(await readFile(q.sourcePath,'utf8'),q.input);
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+test('export still permits a genuinely outside sibling with a dot-dot-prefixed directory name',async()=>{
+ const q=await setup();
+ try{
+  const sibling=join(q.root,'..valid-destination');
+  await mkdir(sibling);
+  const path=join(sibling,'repaired.user.js');
+  const out=await exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',destinationPath:path});
+  assert.equal(out.path,path);
+  assert.match(await readFile(path,'utf8'),/#new/);
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
