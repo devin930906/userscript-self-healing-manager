@@ -52,6 +52,7 @@ const api={
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>ipcRenderer.invoke('usshm:suggest-repairs-bulk',input),
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>ipcRenderer.invoke('usshm:propose-repair',input),
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair',input),
+ verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>ipcRenderer.invoke('usshm:verify-managed-dom',input),
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>ipcRenderer.invoke('usshm:managed-revisions',input),
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>ipcRenderer.invoke('usshm:rollback-managed',input),
  exportManaged:(input:{scanId:string;itemIndex:number})=>ipcRenderer.invoke('usshm:export-managed',input),
