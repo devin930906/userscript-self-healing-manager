@@ -23,6 +23,8 @@ import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bul
 import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-client/src/preferred-chrome.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
+import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
+import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
@@ -128,6 +130,42 @@ try{
  ]);
  assert.deepEqual(result.checks.map(x=>x.status),['found','found','missing']);
  assert.deepEqual(result.checks.map(x=>x.matchCount),[1,1,0]);
+ // Exercise the SiteAdapter V1 role contract against real external Chrome.
+ // All role assertions remain DOM-only, never userscript/GM_* proof.
+ const siteAdapter=parseSiteAdapter({
+  schemaVersion:1,siteId:'fixture-site',version:'1.0.0',
+  urlPatterns:['http://127.0.0.1/*'],
+  states:{ready:{description:'Synthetic fixture ready'}},
+  roles:{
+   'fixture.healButton':{
+    contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+    strategies:[{kind:'css',selector:'#heal-button',weight:100},{kind:'css',selector:'#missing-backup',weight:40}],
+    cardinality:{min:1,max:1},assertions:['unique'],
+   },
+   'fixture.shadowOnly':{
+    contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+    strategies:[{kind:'css',selector:'#shadow-only',weight:100}],
+    cardinality:{min:1,max:1},assertions:['unique'],
+   },
+  },validationCases:['HEAL_DOM'],
+ });
+ const roleDeps={
+  confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+  wait:()=>delay(120),
+ };
+ const matchedRole=await runSiteAdapterRoleDomCheck({
+  approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.healButton',
+  declaredStateId:'ready',deps:roleDeps,
+ });
+ assert.equal(matchedRole.status,'matched-v1','real Chrome must confirm exactly one semantic fallback');
+ assert.equal(matchedRole.V3,'not-configured');
+ assert.equal(matchedRole.V4,'not-configured');
+ assert.equal(matchedRole.declaredStateVerified,false);
+ const shadowRole=await runSiteAdapterRoleDomCheck({
+  approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.shadowOnly',
+  declaredStateId:'ready',deps:roleDeps,
+ });
+ assert.equal(shadowRole.status,'needs-review','shadow-only role cannot be marked definitively absent');
  // Top-document selectors cannot see author ShadowRoots. Even @noframes does
  // not restrict shadow-root access, so a miss is review-required, not broken.
  const shadowFixture={
