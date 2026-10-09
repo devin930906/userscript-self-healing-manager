@@ -22,3 +22,14 @@ test('CDP status IPC returns only passive display metadata, not debugger bearer 
  assert.match(s,/pages:\s*status\.pages\.map/);
  assert.doesNotMatch(s,/return\s+getChromeStatus\(/);
 });
+
+test('main IPC only trusts its exact packaged Electron renderer document, never another file or localhost prefix',async()=>{
+ const src=await readFile(main,'utf8');
+ const auth=src.slice(src.indexOf('function assertSender('),src.indexOf('function createWindow('));
+ assert.match(src,/pathToFileURL\(/);
+ assert.match(auth,/pathToFileURL\(join\(__dirname,'index\.html'\)\)\.href/);
+ assert.match(auth,/event\.sender\.getURL\(\)/);
+ assert.doesNotMatch(auth,/\.startsWith\('file:\/\/'\)/);
+ assert.doesNotMatch(auth,/\.startsWith\('http:\/\/localhost:5173\/'\)/);
+ assert.match(auth,/senderFrame\.url/);
+});
