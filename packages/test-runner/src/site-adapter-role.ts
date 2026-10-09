@@ -19,6 +19,7 @@ export interface RoleDomResult {
 export interface RoleCheckDeps {
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  probe:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
+ probeOpenShadow?:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
  wait:()=>Promise<void>;
  summarize:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
@@ -82,7 +83,11 @@ export async function runSiteAdapterRoleDomCheck({
  // The state comes from the user, not from a website runtime assertion.
  // Unknown/iframe/ShadowRoot scope blocks BEFORE opening CDP.
  const role=resolveSiteAdapterRole({adapter,pageUrl:target.url,roleId,observedStateId:declaredStateId});
- if(role.status!=='candidate-only')return result(role.status,'Adapter site/state/frame/shadow definition not inspectable by top-document CDP');
+ if(role.status!=='candidate-only')return result(role.status,'Adapter site/state/frame/shadow definition not inspectable by supported read-only CDP');
+ // Shadow evidence is explicit. Never reuse the top-document locator probe
+ // for a role declared inside an open ShadowRoot.
+ if(role.rootScope==='open-shadow'&&typeof deps?.probeOpenShadow!=='function')
+  return result('blocked-context','No trusted open ShadowRoot CDP probe configured');
  if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||
     typeof deps.wait!=='function'||typeof deps.summarize!=='function')
   throw new Error('Invalid SiteAdapter DOM inspection dependencies');
@@ -102,7 +107,7 @@ export async function runSiteAdapterRoleDomCheck({
  const inspect=async():Promise<Counts>=>{
   await guard();
   let observation:LocatorProbeResult|undefined;
-  try{observation=await deps.probe(target,locators);}
+  try{observation=await (role.rootScope==='open-shadow'?deps.probeOpenShadow!:deps.probe)(target,locators);}
   catch{await guard();return null;}
   await guard();
   return counts(observation!,target,locators);
@@ -121,10 +126,12 @@ export async function runSiteAdapterRoleDomCheck({
    return result('needs-review','DOM matches violate role cardinality',null,2);
   // Single and multi-element roles both require complete, stable backend
   // identity sets before this branch is reached.
-  return result('matched-v1','Declared-state top-document selector count and backend node identity matched twice, not a script functional pass',locators[i]!.expression,2);
+  return result('matched-v1','Declared-state scoped DOM selector count and backend node identity matched twice, not a script functional pass',locators[i]!.expression,2);
  }
  // A top-document absence cannot exclude nested browsing contexts or author
  // shadow roots. Context snapshots must be verifiable and within budget.
+ if(role.rootScope==='open-shadow')
+  return result('needs-review','No stable match in the selected open ShadowRoot; complex/nested contexts are not excluded',null,2);
  if(subframes)return result('needs-review','Possible matches inside iframe contexts',null,2);
  try{
   const ctx=await deps.summarize(target);
