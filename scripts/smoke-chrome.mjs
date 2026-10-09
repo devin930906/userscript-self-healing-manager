@@ -45,7 +45,7 @@ if(!executable)throw new Error('Chrome is not installed in the Windows runner; c
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<div class="target-pane"></div><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
+<div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
  const shadowButton=document.createElement('span');
@@ -142,6 +142,11 @@ try{
     strategies:[{kind:'css',selector:'#heal-button',weight:100},{kind:'css',selector:'#missing-backup',weight:40}],
     cardinality:{min:1,max:1},assertions:['unique'],
    },
+   'fixture.batchButtons':{
+    contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+    strategies:[{kind:'css',selector:'.batch-role',weight:100}],
+    cardinality:{min:2,max:2},assertions:['exists'],
+   },
    'fixture.shadowOnly':{
     contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
     strategies:[{kind:'css',selector:'#shadow-only',weight:100}],
@@ -168,6 +173,13 @@ try{
   declaredStateId:'ready',deps:roleDeps,
  });
  assert.equal(shadowRole.status,'needs-review','shadow-only role cannot be marked definitively absent');
+ const multiRole=await runSiteAdapterRoleDomCheck({
+  approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.batchButtons',
+  declaredStateId:'ready',deps:roleDeps,
+ });
+ assert.equal(multiRole.status,'needs-review','real Chrome cannot certify the same two nodes from counts alone');
+ assert.equal(multiRole.evidenceLevel,'none');
+ assert.equal(multiRole.V3,'not-configured');
  // Top-document selectors cannot see author ShadowRoots. Even @noframes does
  // not restrict shadow-root access, so a miss is review-required, not broken.
  const shadowFixture={
