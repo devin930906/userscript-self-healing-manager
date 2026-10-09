@@ -47,6 +47,10 @@ export class DiagnosisRequestGate {
   }
   if(!existing||existing.expectedOffset!==offset)
    throw new Error('Diagnosis page is out of order; start at offset zero');
+  // Every attempt gets a fresh lease, even if it retries the very same
+  // offset after a transport timeout. A delayed old CDP response cannot
+  // become current again when the next attempt begins.
+  existing.epoch=++this.sequence;
   existing.inFlight=true;
   return Object.freeze({scanId,targetId,offset,epoch:existing.epoch});
  }
