@@ -4,8 +4,8 @@ import {runReadOnlyDomContract} from '../src/index.ts';
 
 const target={type:'page',id:'fixture',url:'https://example.org/page',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/fixture'};
 const locator={method:'querySelector',expression:'#action',runtimeRequired:false};
-function sample(status:'found'|'missing'|'ambiguous'|'blocked',count:number|null){
- return {targetId:target.id,url:target.url,validationLevel:'dom-only' as const,checks:[{method:locator.method,expression:locator.expression,status,matchCount:count,
+function sample(status:'found'|'missing'|'ambiguous'|'blocked',count:number|null,method=locator.method){
+ return {targetId:target.id,url:target.url,validationLevel:'dom-only' as const,checks:[{method,expression:locator.expression,status,matchCount:count,
   ...(status==='found'&&count===1?{nodeFingerprint:'a'.repeat(64)}:{})}]};
 }
 function deps(checks:ReturnType<typeof sample>[],loaderIds:string[]=['a','a','a','a','a']){
@@ -17,9 +17,9 @@ function deps(checks:ReturnType<typeof sample>[],loaderIds:string[]=['a','a','a'
   counts:()=>({scans,identities,waits}),
  };
 }
-const request=(expectation:'exists'|'unique'='unique')=>({
+const request=(expectation:'exists'|'unique'='unique',method=locator.method)=>({
  approved:true as const,target,caseId:'SCRIPT_1:LOCATOR_1',
- locator,expectation,
+ locator:{...locator,method},expectation,
 });
 test('unique DOM contract requires two stable one-node observations, and never claims V3/V4',async()=>{
  const tools=deps([sample('found',1),sample('found',1)]);
@@ -36,11 +36,11 @@ test('unique DOM contract requires two stable one-node observations, and never c
  assert.equal(tools.counts().waits,1);
 });
 test('exists contract allows multiple matches; unique contract must reject same evidence',async()=>{
- const many=[sample('found',3),sample('found',3)];
- const exists=await runReadOnlyDomContract({...request('exists'),deps:deps(many)});
+ const many=[sample('ambiguous',3,'querySelectorAll'),sample('ambiguous',3,'querySelectorAll')];
+ const exists=await runReadOnlyDomContract({...request('exists','querySelectorAll'),deps:deps(many)});
  assert.equal(exists.status,'passed');
  assert.equal(exists.matchCount,3);
- const unique=await runReadOnlyDomContract({...request('unique'),deps:deps(many)});
+ const unique=await runReadOnlyDomContract({...request('unique','querySelectorAll'),deps:deps(many)});
  assert.equal(unique.status,'failed');
  assert.match(unique.reason,/unique|multiple|唯一|multiple/i);
 });
