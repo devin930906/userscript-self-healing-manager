@@ -21,6 +21,7 @@ export type AdapterLibraryEntry={
  readonly siteId:string;readonly version:string;readonly stateCount:number;
  readonly roleCount:number;readonly urlPatterns:readonly string[];
  readonly sha256:string;readonly validationLevel:'definition-only';
+ readonly roleIds:readonly string[];readonly stateIds:readonly string[];
 };
 interface Pending{
  readonly sourcePath:string;readonly sourceHash:string;readonly adapter:SiteAdapter;
@@ -57,6 +58,7 @@ function summary(adapter:SiteAdapter,hash:string):AdapterLibraryEntry{
   siteId:adapter.siteId,version:adapter.version,
   stateCount:Object.keys(adapter.states).length,roleCount:Object.keys(adapter.roles).length,
   urlPatterns:[...adapter.urlPatterns],sha256:hash,validationLevel:'definition-only',
+  roleIds:Object.keys(adapter.roles).sort(),stateIds:Object.keys(adapter.states).sort(),
  };
 }
 async function doesExist(file:string):Promise<boolean>{
@@ -139,6 +141,17 @@ export function createSiteAdapterLibrary({dataRoot}:{dataRoot:string}){
     result.push(summary(adapter,sha(bytes)));
    }
    return result;
+  },
+  async getForInspection({siteId}:{siteId:string}):Promise<SiteAdapter>{
+   // Caller may know the site name only; never accept a path or raw selector.
+   if(typeof siteId!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(siteId))
+    throw new Error('Invalid SiteAdapter site ID');
+   await prepareDirectory();
+   const bytes=await regularBounded(pathOf(siteId));
+   const adapter=decodeAdapter(bytes);
+   if(adapter.siteId!==siteId)
+    throw new Error('Stored SiteAdapter site identity mismatch');
+   return adapter;
   },
   discardPreview({previewId}:{previewId:string}):boolean{
    if(typeof previewId!=='string'||!/^[0-9a-f-]{36}$/i.test(previewId))
