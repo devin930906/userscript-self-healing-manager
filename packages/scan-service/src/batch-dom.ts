@@ -5,6 +5,7 @@ import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locat
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {checkUserscriptPageScope} from '../../candidate-engine/src/page-scope.ts';
 import {summarizeLiveLocatorCheck} from './health.ts';
+import {projectVerificationLevels,type VerificationProjection} from './verification-levels.ts';
 
 export type BatchDomStatus='locator-missing'|'dom-present'|'needs-review'|'no-evidence'|'out-of-scope'|'skipped'|'error';
 export interface BatchDomItem {
@@ -17,6 +18,7 @@ export interface BatchDomItem {
  readonly missing:number;
  readonly needsReview:number;
  readonly reason?:string;
+ readonly verification?:VerificationProjection;
 }
 export interface BatchDomResult {
  readonly validationLevel:'dom-only';
@@ -163,6 +165,11 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  // lets the page collector compare batches without exposing raw CDP identities.
  const pageDocumentToken=baselineDocument?.frameId&&baselineDocument.loaderId?
   createHash('sha256').update(baselineDocument.frameId+'\0'+baselineDocument.loaderId).digest('hex'):undefined;
+ const validatedItems=finalItems.map((entry,index)=>({
+  ...entry,verification:projectVerificationLevels({
+   staticStatus:items[index]?.status??'skipped',dom:entry,
+  }),
+ }));
  return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
-  ...(pageDocumentToken?{pageDocumentToken}:{}),totalItems:items.length,items:finalItems};
+  ...(pageDocumentToken?{pageDocumentToken}:{}),totalItems:items.length,items:validatedItems};
 }
