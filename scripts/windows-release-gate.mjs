@@ -78,15 +78,19 @@ export function validateWindowsReleaseLayout({version,artifactNames,zipEntries})
  if(normalized.size!==items.length)throw new Error('Unsafe duplicate ZIP paths');
  // A file and directory cannot share the same extraction destination.
  // Also reject an entry that would have to be both a file and ancestor folder.
- const directories=new Set(zipEntries.filter(e=>e.endsWith('/')||e.endsWith('\\')).map(normalizedZipEntry).map(s=>s.toLowerCase()));
+ const directories=new Set();
+ const files=new Set();
+ for(let i=0;i<items.length;i++){
+  const key=items[i].toLowerCase();
+  if(zipEntries[i].endsWith('/')||zipEntries[i].endsWith('\\'))directories.add(key);
+  else files.add(key);
+ }
  for(const entry of normalized){
-  if(directories.has(entry)&&items.some((name,i)=>name.toLowerCase()===entry&&
-       !zipEntries[i].endsWith('/')&&!zipEntries[i].endsWith('\\')))
+  if(directories.has(entry)&&files.has(entry))
    throw new Error('ZIP file collides with directory path');
   const parts=entry.split('/');
   for(let i=1;i<parts.length;i++){
-   const parent=parts.slice(0,i).join('/');
-   if(normalized.has(parent)&&!directories.has(parent))
+   if(files.has(parts.slice(0,i).join('/')))
     throw new Error('ZIP file collides with nested path');
   }
  }
