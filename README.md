@@ -116,7 +116,7 @@ Userscript-Self-Healing-Manager-0.1.0-alpha.5-win-x64.zip
 SHA256SUMS.txt
 ```
 
-**三种发行目标在历史 CI 中均曾通过打包及启动冒烟验证，但本轮持续开发阶段不会逐提交构建预览安装包。** 只有最终 Release Gate 满足后才开始准备正式交付。
+**三种发行目标在历史 CI 中均曾通过打包及启动冒烟验证，但本轮持续开发阶段不会逐提交构建预览安装包。** 当前构建配置只使用 electron-builder 生成 Setup.exe 与 Portable.exe；完整 ZIP 唯一地从 `release/win-unpacked` 创建，以避免之前 Builder ZIP 与 PowerShell 同名 ZIP 的重复产出。PowerShell 若发现目标 ZIP 已存在会拒绝覆盖，请自行先保存/移动此前的发行目录，而不是让脚本自动删除旧包。此修复由 [Windows Development CI #37957312393](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37957312393) 的 **529/529 配置与程序测试**覆盖，**不等于当前分支已执行三格式真实构建和发行验收**。 只有最终 Release Gate 满足后才开始准备正式交付。
 
 ### Windows 数据目录
 
