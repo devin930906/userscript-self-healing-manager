@@ -47,3 +47,9 @@ test('stable live Frame and Loader across all stages retain read-only candidate 
  assert.deepEqual(candidates.map(c=>c.expression),['[data-testid="action"]']);
  assert.equal(candidates[0]?.approved,false);
 });
+
+test('candidate library must fail closed when caller omits the live Frame/Loader confirmation',async()=>{
+ await assert.rejects(suggestCandidateRepairs({target,locator,deps:{
+  probe:async entries=>matched(entries),capture:async()=>snapshot,
+ }}),/document|identity|frame|loader|confirmation/i);
+});
