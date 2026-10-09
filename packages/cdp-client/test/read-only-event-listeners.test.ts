@@ -117,7 +117,7 @@ test('malformed remote DOM objects never enter event-listener inspection',async(
 });
 
 test('malformed event type metadata cannot be presented as an observed absence of click handlers',async()=>{
- for(const listeners of [[{type:''}],[{type:'click\\u0000hidden'}],[{type:'\\n'}]]){
+ for(const listeners of [[{type:''}],[{type:'click\u0000hidden'}],[{type:'\n'}]]){
   const socket=makeSocket(listeners);
   const result=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
   assert.equal(result.status,'unknown');
