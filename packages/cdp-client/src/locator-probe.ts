@@ -3,11 +3,13 @@ import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
 export interface LiteralLocator {method:string;expression:string;runtimeRequired:boolean}
-export interface LocatorCheck {method:string;expression:string;status:'found'|'missing'|'ambiguous'|'unverified'|'blocked';matchCount:number|null;reason?:string;nodeFingerprint?:string}
+export interface LocatorCheck {method:string;expression:string;status:'found'|'missing'|'ambiguous'|'unverified'|'blocked';matchCount:number|null;reason?:string;nodeFingerprint?:string;nodeFingerprints?:readonly string[]}
 export interface LocatorProbeResult {targetId:string;url:string;validationLevel:'dom-only';checks:LocatorCheck[]}
 /** Bound every untrusted CDP reply before JSON parsing; oversized evidence is inconclusive. */
 const MAX_REPLY_BYTES=1_000_000;
 const MAX_MATCHED_NODES=10_000;
+const MAX_IDENTITIES_PER_LOCATOR=10;
+const MAX_IDENTITIES_PER_PROBE=100;
 // Process-local secret prevents a backendNodeId from being guessed from its digest.
 // It is never stored, logged, or exposed through Electron IPC.
 const NODE_ID_HMAC_KEY=randomBytes(32);
@@ -58,7 +60,9 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
  return await new Promise<LocatorProbeResult>((resolve,reject)=>{
   let finished=false,id=0,rootId=0,documentReceived=false;
   const pending=new Map<number,number>();
-  const fingerprintPending=new Map<number,number>();
+  interface IdentityGroup {readonly total:number;remaining:number;valid:boolean;readonly hashes:Set<string>}
+  const fingerprintPending=new Map<number,{index:number;group:IdentityGroup}>();
+  let identityRequests=0;
   const finishIfReady=()=>{if(pending.size===0&&fingerprintPending.size===0)complete();};
   const complete=(error?:Error)=>{
    if(finished)return;finished=true;clearTimeout(timer);
@@ -93,28 +97,50 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
       const count=validatedNodeCount(nodeIds);check.matchCount=count;
       check.status=count===0?'missing':count===1||['querySelectorAll','getElementsByName','getElementsByClassName'].includes(locators[index]!.method)?'found':'ambiguous';
       check.reason=count===0?'当前 document 无匹配节点':count>1?'匹配多个节点，请确认目标':'当前 document 存在匹配节点';
-      if(options.includeNodeFingerprints===true&&count===1){
-       // Backend IDs are stable across independent DOM CDP sessions for the same
-       // document; frontend node IDs are not. Never return raw backend IDs.
-       check.status='unverified';check.reason='CDP backend node identity not yet confirmed';
-       const identityId=++id;fingerprintPending.set(identityId,index);
-       socket.send(JSON.stringify({id:identityId,method:'DOM.describeNode',params:{nodeId:nodeIds[0],depth:0,pierce:false}}));
+      if(options.includeNodeFingerprints===true&&count>0){
+       // Identity is bounded per role (max 10) and across the entire probe
+       // (max 100 read-only describe calls). Never certify a partial set.
+       if(count>MAX_IDENTITIES_PER_LOCATOR||identityRequests+count>MAX_IDENTITIES_PER_PROBE){
+        check.status='unverified';
+        check.reason='CDP backend node identity budget exceeded';
+       }else{
+        identityRequests+=count;
+        check.status='unverified';
+        check.reason='CDP backend node identities not yet confirmed';
+        const group:IdentityGroup={total:count,remaining:count,valid:true,hashes:new Set()};
+        for(const nodeId of nodeIds as number[]){
+         const identityId=++id;
+         fingerprintPending.set(identityId,{index,group});
+         socket.send(JSON.stringify({id:identityId,method:'DOM.describeNode',params:{nodeId,depth:0,pierce:false}}));
+        }
+       }
       }
      }
      finishIfReady();
     }else if(fingerprintPending.has(message.id)){
-     const index=fingerprintPending.get(message.id)!;
+     const {index,group}=fingerprintPending.get(message.id)!;
      fingerprintPending.delete(message.id);
      const check=checks[index]!;
      const backendId=message.result?.node?.backendNodeId;
      const nodeType=message.result?.node?.nodeType;
      if(!message.error&&Number.isSafeInteger(backendId)&&backendId>0&&nodeType===1){
-      check.nodeFingerprint=createHmac('sha256',NODE_ID_HMAC_KEY).update('usshm-cdp-backend-node-v1:').update(String(backendId)).digest('hex');
-      check.status='found';
-      check.reason='当前 document 存在匹配节点，且已验证 backend 节点身份';
-     }else{
-      check.status='unverified';
-      check.reason='CDP backend 节点身份无效或不可用';
+      const hashed=createHmac('sha256',NODE_ID_HMAC_KEY)
+       .update('usshm-cdp-backend-node-v1:').update(String(backendId)).digest('hex');
+      if(group.hashes.has(hashed))group.valid=false;
+      else group.hashes.add(hashed);
+     }else group.valid=false;
+     group.remaining--;
+     if(group.remaining===0){
+      if(group.valid&&group.hashes.size===group.total){
+       const fingerprints=[...group.hashes].sort();
+       if(group.total===1)check.nodeFingerprint=fingerprints[0];
+       else check.nodeFingerprints=fingerprints;
+       check.status='found';
+       check.reason='已验证全部匹配节点的 CDP backend 身份';
+      }else{
+       check.status='unverified';
+       check.reason='CDP backend 节点身份缺失、重复或无效';
+      }
      }
      finishIfReady();
     }
