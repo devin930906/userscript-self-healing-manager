@@ -66,3 +66,13 @@ test('generation advances after each authenticated page and invalidation, preven
  const third=store.snapshot({scanId,targetId});
  assert.ok(third.revision>second.revision,'reset must not reuse prior receipt number');
 });
+test('failure from an obsolete scan cannot invalidate the new scan evidence',()=>{
+ const store=new BatchEvidenceStore();
+ store.record({scanId,targetId,total:26,offset:0,page:makePage(0)});
+ store.invalidateIfCurrent({scanId:'an-old-scan',targetId});
+ assert.equal(store.snapshot({scanId,targetId}).report.totalItems,25);
+ store.invalidateIfCurrent({scanId,targetId:'other-tab'});
+ assert.equal(store.snapshot({scanId,targetId}).report.totalItems,25);
+ store.invalidateIfCurrent({scanId,targetId});
+ assert.throws(()=>store.snapshot({scanId,targetId}),/stale|unavailable/i);
+});
