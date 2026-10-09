@@ -16,7 +16,7 @@ import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts
 import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-report.ts';
 import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive-report.ts';
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
-import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
+import {getVerifiedChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefaultBrowserProfile,removeBrowserProfile,resolveBrowserProfileForLaunch,inspectBrowserProfileRegistry} from '../../../../packages/cdp-client/src/browser-profiles.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -150,7 +150,7 @@ async function bootstrap():Promise<void>{
    throw new Error('Explicit SiteAdapter site, role, declared state, CDP target and consent required');
   // Importantly, never accept raw strategies or a caller-chosen file path.
   const adapter=await adapters.getForInspection({siteId:q.siteId,expectedSha256:q.expectedSha256});
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected SiteAdapter Chrome target unavailable');
   return runSiteAdapterRoleDomCheck({
@@ -189,7 +189,7 @@ async function bootstrap():Promise<void>{
   if(!record||record.runtimeRequired||record.receiver!=='document')
    throw new Error('SiteAdapter repair candidates support only static document-scoped script locators');
   const adapter=await adapters.getForInspection({siteId:q.siteId,expectedSha256:q.expectedSha256});
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected Chrome page unavailable');
   const pageScope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
@@ -290,14 +290,14 @@ async function bootstrap():Promise<void>{
   await launchSelectedChrome({executablePath:approvedChromePath,port:9223,isolatedProfileDir});
   return {started:true,port:9223,isolated:true};
  });
- ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
+ ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getVerifiedChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
  ipcMain.handle('usshm:probe-locators',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;targetId:string;approved:true}|null;
   if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||typeof q.targetId!=='string'||q.targetId.length>128)throw new Error('Explicit target and consent required');
   const scanSnapshot=scanSessions.require(q.scanId);
   const item=scanSnapshot.items[q.itemIndex];
   if(!item||!item.analysis)throw new Error('No imported script for this scan index');
-  const status=await getChromeStatus({port:9223});const selected=status.pages.find(x=>x.id===q.targetId);
+  const status=await getVerifiedChromeStatus({port:9223});const selected=status.pages.find(x=>x.id===q.targetId);
   if(!selected)throw new Error('Selected CDP page target no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   if(!selected.webSocketDebuggerUrl)throw new Error('CDP page has no debugger endpoint');
@@ -340,7 +340,7 @@ async function bootstrap():Promise<void>{
   const journalRunId=journal.currentRunId({scanId:q.scanId,targetId:q.targetId});
   const ticket=diagnosisRequests.begin({scanId:q.scanId,targetId:q.targetId,offset});
   try{
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
   diagnosisRequests.assertCurrent(ticket);
   const selected=status.pages.find(p=>p.id===q.targetId);
@@ -394,7 +394,7 @@ async function bootstrap():Promise<void>{
   const record=item.analysis.selectorRecords[q.selectorIndex as number];
   if(!record||record.runtimeRequired||record.receiver!=='document')
    throw new Error('Visibility probe requires an authorized static top-document locator');
-  const cdp=await getChromeStatus({port:9223});
+  const cdp=await getVerifiedChromeStatus({port:9223});
   const selected=cdp.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected Chrome target unavailable');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
@@ -434,7 +434,7 @@ async function bootstrap():Promise<void>{
   const record=item.analysis.selectorRecords[q.selectorIndex];
   if(!record||record.runtimeRequired||record.receiver!=='document')
    throw new Error('Supported static document-scoped selector required');
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   const selected=status.pages.find(target=>target.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP target no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
@@ -463,7 +463,7 @@ async function bootstrap():Promise<void>{
   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))throw new Error('Script is not an authorized scanned file');
   const record=item.analysis.selectorRecords[q.selectorIndex];
   if(!record||record.runtimeRequired||record.receiver!=='document')throw new Error('A document-scoped literal selector is required');
-  const status=await getChromeStatus({port:9223});const selected=status.pages.find(p=>p.id===q.targetId);
+  const status=await getVerifiedChromeStatus({port:9223});const selected=status.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
@@ -487,7 +487,7 @@ async function bootstrap():Promise<void>{
   const item=scanSnapshot.items[q.itemIndex];
   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
    throw new Error('Selected script is not authorized for page inspection');
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('CDP target no longer available');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
@@ -521,7 +521,7 @@ async function bootstrap():Promise<void>{
   const record=item.analysis.selectorRecords[Number(q.selectorIndex)];
   if(!record||record.runtimeRequired||record.receiver!=='document')
    throw new Error('Only static literal document selectors can enter automatic preview');
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)
@@ -609,7 +609,7 @@ async function bootstrap():Promise<void>{
   const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo});
   if(createHash('sha256').update(source).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Source script changed; rescan before approved repair');
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Approved Chrome target is unavailable');
@@ -693,7 +693,7 @@ async function bootstrap():Promise<void>{
   if(createHash('sha256').update(originalBytes).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Original source hash changed; do not trust a stale managed V1 test');
   scanSessions.assertCurrent(scanSnapshot);
-  const status=await getChromeStatus({port:9223});
+  const status=await getVerifiedChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
