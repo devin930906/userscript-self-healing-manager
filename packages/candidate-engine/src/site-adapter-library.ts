@@ -140,6 +140,11 @@ export function createSiteAdapterLibrary({dataRoot}:{dataRoot:string}){
    }
    return result;
   },
+  discardPreview({previewId}:{previewId:string}):boolean{
+   if(typeof previewId!=='string'||!/^[0-9a-f-]{36}$/i.test(previewId))
+    throw new Error('Invalid SiteAdapter preview ID');
+   return pending.delete(previewId);
+  },
   invalidatePending():void{pending.clear();},
  };
 }
