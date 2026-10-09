@@ -38,6 +38,13 @@ const api={
  inspectSiteAdapterRole:(input:{siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-role-check',input),
  suggestSiteAdapterRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-suggest-repair',input),
  pickChrome:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-chrome'),
+ listBrowserProfiles:()=>ipcRenderer.invoke('usshm:list-browser-profiles'),
+ createBrowserProfile:(input:{name:string})=>ipcRenderer.invoke('usshm:create-browser-profile',input),
+ renameBrowserProfile:(input:{profileId:string;name:string})=>ipcRenderer.invoke('usshm:rename-browser-profile',input),
+ defaultBrowserProfile:(input:{profileId:string})=>ipcRenderer.invoke('usshm:default-browser-profile',input),
+ removeBrowserProfile:(input:{profileId:string;approved:true})=>ipcRenderer.invoke('usshm:remove-browser-profile',input),
+ launchBrowserProfile:(input:{profileId:string;approved:true})=>ipcRenderer.invoke('usshm:launch-browser-profile',input),
+
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
  launchIsolatedChrome:()=>ipcRenderer.invoke('usshm:launch-isolated-chrome'),
  getCdpStatus:()=>ipcRenderer.invoke('usshm:cdp-status'),
