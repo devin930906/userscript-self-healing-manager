@@ -521,6 +521,7 @@ function App(){
     <b>CSS 可见性：</b>{visibilityEvidence.result.status==='potentially-visible'?'可能可见':visibilityEvidence.result.status==='hidden'?'被隐藏':visibilityEvidence.result.status==='missing'?'顶层 DOM 未匹配':visibilityEvidence.result.status==='ambiguous'?'多个匹配':'证据不足'}
     · 匹配数 {visibilityEvidence.result.matchCount??'未知'}
     · Pointer events {visibilityEvidence.result.pointerBlocked===true?'禁止':visibilityEvidence.result.pointerBlocked===false?'未禁止':'未知'}
+    · 控件属性 {visibilityEvidence.result.controlBlocker==='disabled-attribute'?'存在 disabled（禁用）':visibilityEvidence.result.controlBlocker==='aria-disabled'?'声明 aria-disabled=true':visibilityEvidence.result.controlBlocker==='readonly-attribute'?'存在 readonly（只读）':visibilityEvidence.result.controlBlocker==='none-detected'?'未发现直接禁用属性（不等于可点击）':'无法确认'}
     · V2 未验证；仅供人工判断，不能证明元素可点击或业务功能正常。
    </div>}
    <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
