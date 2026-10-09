@@ -95,6 +95,8 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
        if(attrs.get('id')!=='fixture-safe-click'||attrs.has('disabled')||
           attrs.get('aria-disabled')?.toLowerCase()==='true')
         throw new Error('Synthetic fixture button disabled, blocked or replaced');
+       if(attrs.has('data-usshm-v2-fixture'))
+        throw new Error('Preexisting synthetic success marker cannot establish click causality');
        send('DOM.getBoxModel',{nodeId:node});
       }else finish(undefined,attrs.get('id')==='fixture-safe-click'&&
         !attrs.has('disabled')&&attrs.get('aria-disabled')?.toLowerCase()!=='true'&&
