@@ -54,6 +54,10 @@
 - **Chrome CSS/盒模型只读检查（2026-10-09）**：选定静态定位器后可查看是否可能可见、隐藏、缺失或多重匹配，以及 pointer-events 的只读状态。由可信 Electron main 验证当前脚本来源、站点范围与 Chrome Frame/Loader，再使用 DOM/CSS CDP 指令，不执行网页 JavaScript、不触发点击、滚动或表单。元素“可能可见”**并非 V2 可交互性通过**。
 - **本地诊断历史与站点趋势（2026-10-09）**：新增独立的 `Data/diagnosis-journal.sqlite`，仅保存网站 origin、批次计数、状态和 V0/V1 记录。程序重启自动将未完成任务标记中断，不假装自动继续。历史界面支持同一站点最近两个完整、相同脚本数量的批次对比，显示 DOM 缺失数量变化或“不可比较”，不等于网站变更或自愈成功。
 
+- **CDP 定位器证据防伪造／过载保护（2026-10-09）**：`DOM.querySelectorAll` 读取现在对每条 WebSocket JSON 回复实施字节预算、对每个定位器最多接受 10,000 个有效唯一正整数节点 ID，拒绝负数、浮点数、重复 ID、伪造的节点列表及重复文档根响应。CDP 证据不可信时直接失败，不把假数据升级为 V1。
+- **只读 CSS 检查的嵌套 DOM 防误报（2026-10-09）**：当顶层元素缺失，Electron 主进程额外取得有限 DOMSnapshot 并再次核对 Frame/Loader 身份；若存在 iframe、作者 ShadowRoot，或快照失败/身份不符，就显示 `unknown` 而不是断言 `missing`。无 DOM 修改、无任意 JS 执行、无 V2/V3/V4 声称。真实 Windows Chrome ShadowRoot fixture 已加入自动回归。
+- **最新已验证开发 CI（2026-10-09）**：[Windows Development CI #37904827283](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904827283)：**316/316 tests、TypeScript、Electron build、Windows GUI+SQLite smoke、真实 Chrome CDP + ShadowRoot 测试 PASS**；[Node contracts #37904827267](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904827267) PASS。仍不是最终 Stable，未制作中途安装包。
+
 **尚未实现：** Tampermonkey 真正注入/GM_* 与 V3/V4 功能回归、DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。当前开发分支的候选定位器仅支持当前 document 中的 `document.querySelector`、`document.getElementById`、`document.getElementsByName` 和 `document.getElementsByClassName` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
