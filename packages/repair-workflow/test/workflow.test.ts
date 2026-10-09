@@ -266,3 +266,17 @@ test('successful managed rollback invalidates obsolete proposed repairs',async()
  assert.equal(flow.inspectPending(staged.proposalId),null);
  await assert.rejects(flow.apply({proposalId:staged.proposalId,approved:true}),/not found|already applied/i);
 }));
+
+
+test('scan invalidation clears staged approvals while allowing fresh scan proposals',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const stale=await flow.propose({sourcePath,scriptId:'epoch-invalidation',oldSelector:'#old',newSelector:'#stale'});
+ assert.ok(flow.inspectPending(stale.proposalId));
+ flow.invalidatePending();
+ assert.equal(flow.inspectPending(stale.proposalId),null);
+ await assert.rejects(flow.apply({proposalId:stale.proposalId,approved:true}),/not found|already applied/i);
+ const fresh=await flow.propose({sourcePath,scriptId:'epoch-invalidation',oldSelector:'#old',newSelector:'#fresh'});
+ assert.ok(flow.inspectPending(fresh.proposalId));
+ const applied=await flow.apply({proposalId:fresh.proposalId,approved:true});
+ assert.match(await readFile(applied.managedPath,'utf8'),/#fresh/);
+}));
