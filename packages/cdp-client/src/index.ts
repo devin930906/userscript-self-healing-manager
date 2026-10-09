@@ -300,6 +300,9 @@ export async function launchSelectedChrome({executablePath,port=9223,isolatedPro
  const item=await lstat(executablePath);
  if(!item.isFile()||item.isSymbolicLink())throw new Error('Selected Chrome path must be a regular executable, not a symlink');
  if(!/\.exe$/i.test(executablePath))throw new Error('Selected Chrome must be an EXE executable');
+ // A short file with an .exe suffix is not a valid Windows executable.
+ // Refuse it before opening a CDP port or spawning an arbitrary child.
+ if(item.size<64)throw new Error('Selected Chrome executable is too small to be valid');
  // Do not mistake a pre-existing debugger (or another loopback service) for
  // the newly requested Chrome process.
  await assertChromeDebuggerPortFree(port);
