@@ -343,3 +343,11 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - [Development CI #37892250053](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37892250053) 对代码和 README 提交 `985f84e73ee1f360a4324c3bae72dfe9c36e938b`：**247/247 tests PASS、0 fail、TypeScript PASS、Electron build PASS、真实 Windows GUI+SQLite smoke PASS、真实 Chrome CDP+合成行为 smoke PASS**。
 - [Task 1 contracts #37892250268](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37892250268) 同 SHA PASS。
 - 无中途 Windows 安装/便携构建产物、无真正 Tampermonkey/GM_* V4、未合并 main、无 Stable release。FR-029 的完整任务持久化／失败项重试／跨重启恢复和 Phase7–12 RG-01…09 继续未满足。
+
+## 2026-10-09 · 批量 DOM 报告隐私导出
+
+- Ruling: 先交付可验证的脱敏报告格式和当前扫描身份绑定，再评估 SQLite 跨重启审计持久化；避免在尚无安全迁移/回滚测试的前提下变更已存在的 schema v1 数据库。
+- `packages/reporting/src/dom-report.ts` 新增只读 DOM 诊断 JSON schemaVersion 1 与 Markdown 报告：保留状态/计数/V0-V4/脚本 basename + 网站 origin；不输出页面查询参数、fragment、原始 DOM、脚本源文件、完整绝对路径、CDP `pageDocumentToken`、错误 reason。拒绝非法 URL、伪造 V3/V4 passed、V2 passed、行序/计数不一致以及超过 1000 行。
+- Electron 新增 `usshm:export-dom-report`、预加载白名单和 UI 按钮，仅接受当前 `scanId` 下的连续行，逐项匹配 `scriptId` 与扫描源 `path` 后从可信主进程弹出 OS SaveDialog；写盘前再次确认扫描未被切换。没有 renderer 自定义任意目的路径。
+- CI 前失败测试验证了功能尚不存在；提交 `84e79f4f466e057574c98e4ad400f63240352b63` 对应 [Windows Development CI #37894115064](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37894115064)：**256 tests / 256 pass / 0 fail、TypeScript、Electron build、GUI SQLite + 真实 Chrome CDP 冒烟成功**；[Node contracts CI #37894122129](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37894122129) 成功。
+- 限制：DOM 报告为当前会话数据快照，不是完整的任务持久化、GM manager 验证、功能测试或自动修复证书。Stable Release Gate 保持开放，不合并 main、不生成中途预览安装包。
