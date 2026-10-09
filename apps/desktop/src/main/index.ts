@@ -28,6 +28,7 @@ import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/sr
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
+import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:(ScanBatchResult&{scanId:string})|null=null;
@@ -120,6 +121,26 @@ async function bootstrap():Promise<void>{
   const q=input as {previewId?:unknown}|null;
   if(!q||typeof q.previewId!=='string')throw new Error('Invalid SiteAdapter preview cancellation');
   return {discarded:adapters.discardPreview({previewId:q.previewId})};
+ });
+ ipcMain.handle('usshm:site-adapter-role-check',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {approved?:unknown;siteId?:unknown;roleId?:unknown;declaredStateId?:unknown;targetId?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.siteId!=='string'||typeof q.roleId!=='string'||
+     typeof q.declaredStateId!=='string'||!q.declaredStateId||q.declaredStateId.length>64||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit SiteAdapter site, role, declared state, CDP target and consent required');
+  // Importantly, never accept raw strategies or a caller-chosen file path.
+  const adapter=await adapters.getForInspection({siteId:q.siteId});
+  const status=await getChromeStatus({port:9223});
+  const selected=status.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected SiteAdapter Chrome target unavailable');
+  return runSiteAdapterRoleDomCheck({
+   approved:true,target:selected,adapter,roleId:q.roleId,declaredStateId:q.declaredStateId,
+   deps:{
+    confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+    wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
+   },
+  });
  });
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
