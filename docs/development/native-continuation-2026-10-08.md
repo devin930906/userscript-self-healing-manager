@@ -279,3 +279,26 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 
 - 自动合成 fixture 不等同真实 Tampermonkey/GM_* 执行。未验证用户实际脚本、Window 10 + 用户便携 Chrome 155 组合，仍未具备 iframe/Shadow DOM 内自愈与最终三种安装/便携发行产物的 Stable 签收。
 - 保留开发分支 PR #2 的 Draft 状态，不合并、自动发布或向用户提供中途预览安装包。每一步只以执行证据描述结果，不能因为测试数量增加而错误宣布最终 Stable。
+
+## 2026-10-09 · 并发受管恢复与同 URL 导航完整身份
+
+### 受管修订：补丁批准和历史恢复共用脚本锁
+
+- 问题：旧版本仅对 `createRepairWorkflow.apply()` 持有按 `scriptId` 的同步写锁，而 Electron 的 `usshm:rollback-managed` 直接调用独立的 `activateManagedRevision()`。在同一脚本补丁批准尚未完成归档、激活时，恢复操作可能交错写入 `current.user.js`。
+- 修改：`createRepairWorkflow.restore()` 在首个异步文件操作前获取与 `apply()` 相同的脚本锁，并在 `finally` 释放；桌面恢复 IPC 统一调用 `repairs.restore()`。保留受管文件的原有 SHA-256、符号链接、外部修改拒绝以及明确批准机制，不修改用户源脚本。
+- TDD：新增冲突恢复回归，先观察 Windows CI RED。随后修复桌面 wiring 测试中的旧路径断言。最终 [Windows CI #37888127532](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888127532) 通过测试、TypeScript、Electron、真实 Chrome/Electron 冒烟验证。
+
+### Chrome 页面：网址不变时也必须检查主文档生命周期
+
+- 问题：原 `Page.getFrameTree` 比较 `target.id` 和顶层 URL，同网址重新加载会让旧快照被误认为属于新文档；批量分页只比较 URL/目标 ID，缺少跨页文档生命周期校验。
+- 修改：`confirmPageIdentity()` 读取、限定并验证顶层 `frame.id` 和 `frame.loaderId`；缺少可信 loader 身份则 fail closed。`assertStablePageDocument()` 拒绝同网址重载与导航造成的文档变化。桌面单脚本 DOM 探针、单候选、批量候选均前后确认文档；批量脚本诊断逐次确认。
+- 批量：对本次诊断顶层 Frame ID + Loader ID 生成 SHA-256 文档指纹，不在 GUI/报告暴露原始 CDP token；`collectPagedDomDiagnosis()` 跨 25 项批次检查指纹一致，变更后拒绝继续合并后续证据。测试覆盖空批次同 URL 变更、51 项跨页重载、缺少 Loader ID。
+- RED→GREEN：新增的跨页指纹失败先行测试发现验证器遗漏解构 `pageDocumentToken`，修正后 [Windows CI #37888548480](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888548480) 完成 224/224 测试及真实浏览器冒烟。
+- 强化：添加缺少 Loader ID 时拒绝、真实 Chrome Loader ID 必须存在等回归；修正 Node.js strip-only TypeScript 测试 fixture 写法。最终源代码提交 `b1d3187909bd85f2fbc157f9d7845a6d303452cd` 对应 [Windows Development CI #37888753132](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888753132)：**225 tests / 225 pass / 0 fail；TypeScript、Electron 构建、真实 GUI/SQLite、Chrome CDP 与合成用户脚本行为 smoke 均成功**。Linux 合同验证 [#37888757368](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888757368) 同样成功。
+
+### 未满足的 Stable release gates
+
+- **未进行真实 Tampermonkey/GM_*、V3/V4 执行验证**；合成 fixture 的行为通过，不代表扩展注入、权限 API 或真实用户脚本成功。
+- **未完成跨 iframe/ShadowRoot 的实际修复、AI Provider、安全语义修复、常驻健康守护，以及正式生产三格式 Windows 发行验收**。
+- **未完成用户 Windows 10 x64 + 指定便携 Chrome 155 的组合验收，也未完成 RG-01…RG-09 全部独立安全/迁移/发行门禁**。
+- **状态依旧：PR #2 Draft，未合并 `main`，没有创建中途安装包，没有发布 Stable，所有开发结果只按真实证据标记。**
