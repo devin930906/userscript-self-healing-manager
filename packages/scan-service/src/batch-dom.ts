@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import type {ScanItemResult} from './index.ts';
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
 import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
@@ -21,6 +22,7 @@ export interface BatchDomResult {
  readonly validationLevel:'dom-only';
  readonly pageTargetId:string;
  readonly pageUrl:string;
+ readonly pageDocumentToken?:string;
  readonly totalItems:number;
  readonly items:readonly BatchDomItem[];
 }
@@ -126,5 +128,10 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    needsReview:item.needsReview+Math.max(1,item.missing),
    reason:'iframe browsing context detected; top-document evidence cannot verify nested frames'};
  }):results;
- return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,totalItems:items.length,items:finalItems};
+ // The top frame loader changes on same-URL reload. A bounded SHA-256 token
+ // lets the page collector compare batches without exposing raw CDP identities.
+ const pageDocumentToken=baselineDocument?.frameId&&baselineDocument.loaderId?
+  createHash('sha256').update(baselineDocument.frameId+'\0'+baselineDocument.loaderId).digest('hex'):undefined;
+ return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
+  ...(pageDocumentToken?{pageDocumentToken}:{}),totalItems:items.length,items:finalItems};
 }
