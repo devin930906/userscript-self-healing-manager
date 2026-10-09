@@ -52,7 +52,9 @@ export async function suggestAdapterScopedRepairs({target,locator,adapter,roleId
  deps:CandidateDeps;
 }):Promise<AdapterScopedRepairsResult>{
  const role=resolveSiteAdapterRole({adapter,pageUrl:target.url,roleId,observedStateId});
- if(role.status!=='candidate-only')return {...role,candidates:[]};
+ // Existing candidate capture is top-document-only. Never match selectors
+ // declared inside a ShadowRoot against unrelated top-document nodes.
+ if(role.status!=='candidate-only'||role.rootScope!=='document')return {...role,candidates:[]};
  const allowed=new Map(role.selectors.map((css,index)=>[css,index]));
  const suggestions=await suggestCandidateRepairs({target,locator,deps});
  const permitted=suggestions.filter(candidate=>allowed.has(candidate.cssSelector));
