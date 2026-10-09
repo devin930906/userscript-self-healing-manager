@@ -24,6 +24,7 @@ import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src
 import {suggestMissingCandidatesBulk} from '../../../../packages/candidate-engine/src/bulk.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
+import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
 
 let mainWindow:BrowserWindow;
 let lastScan:(ScanBatchResult&{scanId:string})|null=null;
@@ -153,6 +154,41 @@ async function bootstrap():Promise<void>{
    total:scanSnapshot.items.length,offset,page:authenticatedPage});
   return authenticatedPage;
   }catch(error){batchEvidence.invalidateIfCurrent({scanId:q.scanId,targetId:q.targetId});throw error;}
+ });
+ ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;
+   expectation:'exists'|'unique';approved:boolean}|null;
+  if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
+   !Number.isSafeInteger(q.selectorIndex)||q.selectorIndex<0||
+   typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128||
+   (q.expectation!=='exists'&&q.expectation!=='unique'))
+   throw new Error('Explicit target, selector, expectation and consent required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Selected script is not an authorized static scan');
+  const record=item.analysis.selectorRecords[q.selectorIndex];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('Supported static document-scoped selector required');
+  const status=await getChromeStatus({port:9223});
+  const selected=status.pages.find(target=>target.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP target no longer exists');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Selected target outside approved userscript scope: '+scope.reason);
+  const verdict=await runReadOnlyDomContract({
+   approved:true,target:selected,
+   caseId:'SCRIPT_'+item.scriptId.slice(0,44)+':LOCATOR_'+q.selectorIndex+':'+q.expectation,
+   locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+   expectation:q.expectation,
+   deps:{
+    confirm:confirmPageIdentity,probe:probePageLocators,
+    wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
+   },
+  });
+  scanSessions.assertCurrent(scanSnapshot);
+  return verdict;
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
