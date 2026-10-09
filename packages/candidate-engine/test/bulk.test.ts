@@ -9,7 +9,7 @@ const captured={targetId:target.id,url:target.url,scope:'top-document',nodes:[{t
 const deps=()=>({
  confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'main-frame',loaderId:'main-loader'}),
  probe:async(entries:readonly MissingLocator[])=>({targetId:target.id,url:target.url,
-  checks:entries.map(x=>({method:x.method,expression:x.expression,status:x.expression.startsWith('#old')?'missing':'found',matchCount:x.expression.startsWith('#old')?0:1}))}),
+  checks:entries.map(x=>({method:x.method,expression:x.expression,status:x.expression.startsWith('#old')?'missing':'found',matchCount:x.expression.startsWith('#old')?0:1,...(!x.expression.startsWith('#old')?{nodeFingerprint:'a'.repeat(64)}:{})}))}),
  capture:async()=>captured,
 });
 test('bulk suggestions check all missing static locators without modifying scripts',async()=>{
