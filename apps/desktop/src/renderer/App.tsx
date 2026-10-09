@@ -128,6 +128,7 @@ function App(){
     requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,scanId:result.scanId,approved:true,offset}),
     isCancelled:()=>batchCancel.current||!batchGeneration.current.isCurrent(token),
     pauseGate:gate,
+    retryTransportFailures:1,
     onProgress:evidence=>{
      if(!batchGeneration.current.isCurrent(token))return;
      setBatchResult(evidence);setBatchProgress(evidence.totalItems);
@@ -233,7 +234,7 @@ function App(){
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
     <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{const active=batchPauseGate.current;if(!active)return;if(batchPaused){active.resume();setBatchPaused(false);}else if(active.pause())setBatchPaused(true);}}>{batchPaused?'继续检查':'暂停后续检查'}</button>}{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;batchPauseGate.current?.cancel();setBatchPaused(false);}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。{batchPaused?'已暂停下一批调度；当前请求完成后生效。':''}</span></div>
-    <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。</p>
+    <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。临时 CDP 通信超时最多重试一次，导航、身份变化及安全校验失败绝不重试。</p>
     {batchResult&&<div className="batch-diagnosis">
       <div className="notice">批量诊断结果：已完成 {batchResult.totalItems} 份 · 页面：{batchResult.pageUrl} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份等待处理（自动分批，每批 25 份）`:'本次扫描范围已全部处理'}</div>
       <div className="table-wrapper"><table><thead><tr><th>脚本</th><th>结果（仅 DOM）</th><th>已检查</th><th>匹配</th><th>缺失</th><th>需复核</th><th>验证等级</th></tr></thead><tbody>
