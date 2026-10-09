@@ -28,9 +28,8 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
   invalidatePending():void{invalidationEpoch++;pending.clear();},
   /** Removes only an unpublished preview that lost its CDP/source identity. */
   discard(proposalId:string):boolean{
-   // Invalidate any in-flight preparation that was started before a scan
-   // revoked its approval, even if no pending record exists yet.
-   invalidationEpoch++;
+   // A specific cancellation should not invalidate unrelated in-flight
+   // proposals. The scan-wide invalidatePending() owns global revocation.
    return pending.delete(proposalId);
   },
   /** Main-process-only review identity. Never accept a rollback target supplied
