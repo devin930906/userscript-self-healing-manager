@@ -45,3 +45,22 @@ test('SiteAdapter preview cancellation has a narrow main IPC route and a real UI
  assert.match(ui,/window\.ussm\.discardSiteAdapterPreview\(/);
  assert.match(ui,/取消预览/);
 });
+
+test('user-consented SiteAdapter role inspection is a strictly named read-only CDP route',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ const handler=main.split("ipcMain.handle('usshm:site-adapter-role-check'")[1]?.split("ipcMain.handle('usshm:pick-chrome'")[0]??'';
+ assert.match(handler,/assertSender\(event\)/);
+ assert.match(handler,/approved!==true/);
+ assert.match(handler,/adapters\.getForInspection/);
+ assert.match(handler,/runSiteAdapterRoleDomCheck/);
+ assert.match(handler,/confirmPageIdentity/);
+ assert.match(handler,/probePageLocators/);
+ assert.doesNotMatch(handler,/Runtime\.evaluate|Page\.navigate|writeFile/);
+ assert.match(preload,/inspectSiteAdapterRole:/);
+ assert.match(ui,/检查 SiteAdapter 角色 DOM（只读）/);
+ assert.match(ui,/声明页面状态（未经实际证明）/);
+ assert.match(ui,/window\.ussm\.inspectSiteAdapterRole/);
+ assert.match(ui,/V3\/V4.*未配置/);
+});
