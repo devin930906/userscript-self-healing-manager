@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {createServer} from 'node:http';
-import {access,mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
+import {access,mkdir,mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -21,6 +21,7 @@ import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapsh
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
 import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-client/src/preferred-chrome.ts';
+import {createBrowserProfile,listBrowserProfiles,setDefaultBrowserProfile,resolveBrowserProfileForLaunch} from '../packages/cdp-client/src/browser-profiles.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
 import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
@@ -120,6 +121,52 @@ try{
  // reject a second launch so we never misattribute an existing session.
  const verifiedDebugger=await waitForChromeDebugger({port:9223,timeoutMs:5000});
  assert.ok(verifiedDebugger.browserSocket?.includes('/devtools/browser/'));
+
+ // FR-002 actual browser-profile isolation smoke, not just a record parser:
+ // save two independent named configurations, then launch a REAL Chrome
+ // process under each derived Data/Chrome-Profiles/<UUID> directory. Both
+ // must independently complete a loopback CDP browser-socket handshake.
+ const profilesData=join(profile,'USSHM-App-Data');
+ await mkdir(profilesData);
+ const savedFirst=await createBrowserProfile({
+  dataRoot:profilesData,name:'Chrome 155 Primary',executablePath:executable,
+ });
+ const savedSecond=await createBrowserProfile({
+  dataRoot:profilesData,name:'Chrome 155 Isolated',executablePath:executable,
+ });
+ assert.notEqual(savedFirst.id,savedSecond.id);
+ await setDefaultBrowserProfile({dataRoot:profilesData,profileId:savedSecond.id});
+ assert.deepEqual((await listBrowserProfiles({dataRoot:profilesData})).map(x=>x.isDefault),[false,true]);
+ for(const [saved,port] of [[savedFirst,9231],[savedSecond,9232]]){
+  const {executablePath,isolatedProfileDir}=await resolveBrowserProfileForLaunch({
+   dataRoot:profilesData,profileId:saved.id,
+  });
+  assert.equal(executablePath,executable);
+  assert.ok(isolatedProfileDir.includes('Chrome-Profiles'));
+  assert.ok(isolatedProfileDir.includes(saved.id));
+  await assertChromeDebuggerPortFree(port);
+  let failure=null,exited=false;
+  const instance=spawn(executablePath,[
+   ...buildChromeLaunchArgs(port,{isolatedProfileDir}),
+   '--headless=new','--no-first-run','--no-default-browser-check',
+   '--disable-extensions','--disable-background-networking',
+   '--disable-gpu','about:blank',
+  ],{windowsHide:true,stdio:'ignore'});
+  instance.on('error',error=>{failure=error;});
+  instance.on('exit',()=>{exited=true;});
+  try{
+   const live=port===9231?
+    await waitForChromeDebugger({port:9231,timeoutMs:25000,hasExited:()=>failure!==null||exited}):
+    await waitForChromeDebugger({port:9232,timeoutMs:25000,hasExited:()=>failure!==null||exited});
+   assert.ok(/^Chrome\\/|^HeadlessChrome\\/|^Chromium\\//.test(live.browser));
+   await access(isolatedProfileDir);
+  }finally{
+   if(instance.pid)spawnSync('taskkill',['/PID',String(instance.pid),'/T','/F'],
+    {stdio:'ignore',timeout:15000});
+  }
+ }
+ console.log('PASS real Chrome FR-002: two persisted, independent UUID profile directories and live CDP handshakes.');
+
  // Optional release-compatibility job: assert the PRODUCT reported by the
  // live CDP browser socket, not a downloaded archive filename or a fixture.
  const expectedMajor=process.env.USSHM_SMOKE_EXPECT_CHROME_MAJOR;
