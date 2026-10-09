@@ -104,3 +104,16 @@ test('direct Chrome launch refuses regular non-EXE before probing a debugger',as
   await assert.rejects(launchSelectedChrome({executablePath:fake,port:9239}),/EXE executable/i);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('Chrome direct launch rejects a trivially short EXE before CDP work',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');
+ const {join}=await import('node:path');
+ const {tmpdir}=await import('node:os');
+ const {launchSelectedChrome}=await import('../src/index.ts');
+ const root=await mkdtemp(join(tmpdir(),'usshm-chrome-short-exe-'));
+ try{
+  const executable=join(root,'broken.exe');
+  await writeFile(executable,'not a valid exe');
+  await assert.rejects(launchSelectedChrome({executablePath:executable,port:9239}),/too small/i);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
