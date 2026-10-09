@@ -27,10 +27,19 @@ export async function readVerifiedManagedLocator({managedRoot,scriptId,revisionH
     typeof revisionHash!=='string'||!/^[a-f0-9]{64}$/.test(revisionHash)||
     !Number.isSafeInteger(selectorIndex)||selectorIndex<0||selectorIndex>=50)
   throw new Error('Invalid managed revision, selector index or path');
+ const current=join(managedRoot,'managed',scriptId,'current.user.js');
+ const requireUnlocked=async():Promise<void>=>{
+  try{await lstat(current+'.write-lock');}
+  catch(error){
+   if((error as NodeJS.ErrnoException).code==='ENOENT')return;
+   throw error;
+  }
+  throw new Error('Managed current writer lock is present: cannot certify a revision during active or orphaned write');
+ };
+ await requireUnlocked();
  const archives=await listManagedRevisions({managedRoot,scriptId});
  if(!archives.some(entry=>entry.kind==='revision'&&entry.hash===revisionHash))
   throw new Error('Approved managed revision archive not found or corrupt');
- const current=join(managedRoot,'managed',scriptId,'current.user.js');
  const info=await lstat(current);
  if(!info.isFile()||info.isSymbolicLink())
   throw new Error('Unsafe managed current symlink or nonregular file');
@@ -46,6 +55,10 @@ export async function readVerifiedManagedLocator({managedRoot,scriptId,revisionH
       'getElementsByName','getElementsByClassName'].includes(locator.method)||
     !locator.expression||locator.expression.length>1024)
   throw new Error('Managed selector index is unsupported, dynamic, or missing');
+ // Do not certify a locator if a different manager began writing during
+ // the pinned read/parse. This is a read-only snapshot guard, not a hostile
+ // process transaction; guarded V1 repeats verification after DOM probes.
+ await requireUnlocked();
  return {method:locator.method,expression:locator.expression,
   runtimeRequired:false,revisionHash,validationLevel:'managed-static-only'};
 }
