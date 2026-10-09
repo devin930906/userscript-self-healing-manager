@@ -53,7 +53,7 @@ export interface AdapterImpactReport {
 type AnyObject=Record<string,unknown>;
 const idRe=/^[a-z][a-z0-9-]{0,63}$/;
 const stateRe=/^[a-z][a-z0-9-]{0,40}$/;
-const roleRe=/^[a-z][a-z0-9_-]{0,40}(?:\.[a-z][a-z0-9_-]{0,40})+$/;
+const roleRe=/^[a-z][a-zA-Z0-9_-]{0,40}(?:\.[a-z][a-zA-Z0-9_-]{0,40})+$/;
 const caseRe=/^[A-Z][A-Z0-9_:-]{0,63}$/;
 const versionRe=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const cssRe=/^(?:#[a-zA-Z][\w-]{0,63}|\.[a-zA-Z][\w-]{0,63}|\[(?:id|name|class|data-testid|data-test|data-qa)="[a-zA-Z][\w-]{0,63}"\])$/;
