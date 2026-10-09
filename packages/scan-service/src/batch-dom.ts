@@ -29,6 +29,8 @@ export interface BatchDomResult {
 export interface BatchDomDependencies {
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  probe:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
+ /** Optional until all adapters implement bounded, read-only DOMSnapshot context checks. */
+ summarize?:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
 function assertPageIdentity(target:ChromeTarget,evidence:{targetId:string;confirmedUrl?:string;url?:string}):void {
  if(evidence.targetId!==target.id||(evidence.confirmedUrl??evidence.url)!==target.url)
@@ -115,19 +117,48 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  }
  // An all-skipped batch is still evidence about the selected page; reject navigations.
  await checkIdentity();
- // A script could activate in an iframe whose URL differs from the outer page.
- // A top-document miss or top-page scope mismatch is therefore inconclusive.
- // Do not silently call such scripts broken or out of scope.
- const finalItems=nestedFramesSeen?results.map((item,index)=>{
-  // Tampermonkey @noframes explicitly restricts this userscript to the
-  // outermost document; an embedded frame cannot change its verdict.
+ // A missing top-document locator is inconclusive if an author-created
+ // Shadow Tree exists. A failed/invalid context snapshot is also unknown,
+ // never proof of a missing locator. User-agent-only roots are ignored.
+ let shadowContext:'absent'|'present'|'unknown'='unknown';
+ if(deps.summarize){
+  try{
+   const context=await deps.summarize(target);
+   await checkIdentity();
+   if(context.targetId!==target.id||context.url!==target.url||
+      !Number.isSafeInteger(context.authorShadowTreeNodes)||context.authorShadowTreeNodes<0||
+      context.authorShadowTreeNodes>200_000)
+    throw new Error('Invalid Shadow DOM context evidence');
+   shadowContext=context.authorShadowTreeNodes>0?'present':'absent';
+  }catch{
+   // Even an unsuccessful snapshot must not disguise a page navigation.
+   await checkIdentity();
+   shadowContext='unknown';
+  }
+ }
+ // Unverified iframe and Shadow DOM contexts cannot prove a locator is
+ // broken. @noframes excludes iframe execution but does not exclude a
+ // ShadowRoot within the top-level document.
+ const finalItems=results.map((item,index)=>{
   const metadata=items[index]?.analysis?.metadata;
-  if(metadata?.raw.noframes?.length)return item;
-  if(item.status!=='locator-missing'&&item.status!=='out-of-scope')return item;
+  const frameUnverified=nestedFramesSeen&&!metadata?.raw.noframes?.length;
+  const shadowUnverified=deps.summarize!==undefined&&shadowContext!=='absent';
+  if(item.status==='out-of-scope'&&frameUnverified)
+   return {...item,status:'needs-review' as const,missing:0,
+    needsReview:item.needsReview+Math.max(1,item.missing),
+    reason:'iframe browsing context detected; top-document evidence cannot verify nested frames'};
+  if(item.status!=='locator-missing')return item;
+  if(!frameUnverified&&!shadowUnverified)return item;
+  const reasons=[
+   frameUnverified?'iframe browsing context detected; top-document evidence cannot verify nested frames':null,
+   shadowUnverified?(shadowContext==='present'?
+     'Author Shadow DOM detected; top-document selector miss cannot inspect nested ShadowRoot':
+     'Shadow DOM context evidence unavailable; top-document selector miss is not conclusive'):null,
+  ];
   return {...item,status:'needs-review' as const,missing:0,
    needsReview:item.needsReview+Math.max(1,item.missing),
-   reason:'iframe browsing context detected; top-document evidence cannot verify nested frames'};
- }):results;
+   reason:reasons.filter(Boolean).join('; ')};
+ });
  // The top frame loader changes on same-URL reload. A bounded SHA-256 token
  // lets the page collector compare batches without exposing raw CDP identities.
  const pageDocumentToken=baselineDocument?.frameId&&baselineDocument.loaderId?
