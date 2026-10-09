@@ -116,10 +116,15 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
      }
      case 'DOM.querySelectorAll':{
       const nodes=m.result?.nodeIds;
-      if(!Array.isArray(nodes)||nodes.some((n:unknown)=>!Number.isSafeInteger(n)||Number(n)<1)){
+      // Duplicate CDP node identities are impossible for a real selector
+      // result. Oversized lists also cannot provide bounded completeness.
+      // Never report either as an ordinary "ambiguous" DOM observation.
+      if(!Array.isArray(nodes)||nodes.length>10000||
+         nodes.some((n:unknown)=>!Number.isSafeInteger(n)||Number(n)<1)||
+         new Set(nodes).size!==nodes.length){
        finish(undefined,output('unknown',null));break;
       }
-      matchCount=nodes.length<=10000?nodes.length:null;
+      matchCount=nodes.length;
       if(nodes.length===0){finish(undefined,output('missing',0));break;}
       if(nodes.length>1){finish(undefined,output('ambiguous',matchCount));break;}
       nodeId=nodes[0];
