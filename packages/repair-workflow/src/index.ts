@@ -1,5 +1,6 @@
 import {randomUUID,createHash} from 'node:crypto';
-import {readFile,lstat} from 'node:fs/promises';
+import {lstat} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {isAbsolute,join} from 'node:path';
 import {applyManagedPatch,proposeLiteralPatch,type LiteralPatchDraft,type SelectorLocation} from '../../patch-engine/src/index.ts';
 import {analyzeSource} from '../../source-analyzer/src/index.ts';
@@ -24,7 +25,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    const file=await lstat(sourcePath);
    if(!file.isFile()||file.isSymbolicLink())throw new Error('Source must be an ordinary file');
    if(file.size>512*1024)throw new Error('Script is too large');
-   const originalBytes=await readFile(sourcePath);
+   const originalBytes=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:file});
    const originalHash=sha(originalBytes);
    const revisions=await listManagedRevisions({managedRoot,scriptId});
    const currentPath=join(managedRoot,'managed',scriptId,'current.user.js');
@@ -38,7 +39,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
      throw new Error('Unsafe managed current file');
     const trustedOriginal=revisions.some(r=>r.kind==='original'&&r.hash===originalHash);
     if(!trustedOriginal)throw new Error('Original source hash changed since the first managed revision; rescan before repairing');
-    const currentBytes=await readFile(currentPath),currentHash=sha(currentBytes);
+    const currentBytes=await readPinnedRegularFile(currentPath,{maxBytes:512*1024,expected:currentInfo}),currentHash=sha(currentBytes);
     const archived=revisions.find(r=>r.hash===currentHash);
     if(!archived)throw new Error('Managed current contains unverified external edits; refusing repair');
     workingPath=currentPath;workingBytes=currentBytes;baseRevisionKind=archived.kind;
@@ -96,7 +97,8 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    pending.delete(proposalId);
    try{
    const sourceInfo=await lstat(found.sourcePath);
-   if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink()||sha(await readFile(found.sourcePath))!==found.originalHash)
+   if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink()||
+      sha(await readPinnedRegularFile(found.sourcePath,{maxBytes:512*1024,expected:sourceInfo}))!==found.originalHash)
     throw new Error('Original source hash mismatch after patch proposal; refusing stale repair'); 
    // A preview staged before the first managed revision must never overwrite a
    // different preview that was approved in the meantime. Earlier versions
