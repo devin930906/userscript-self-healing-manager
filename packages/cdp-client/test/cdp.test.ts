@@ -98,6 +98,7 @@ test('Chrome handshake must see a validated browser socket, not only a successfu
   browserSocket:'ws://127.0.0.1:9223/devtools/browser/valid'};
  const got=await waitForChromeDebugger({port:validPort,timeoutMs:1000,pollMs:1,
   inspect:async()=>{attempts++;if(attempts<3)throw Error('CDP not ready');return status;},
+  verifySocket:async()=>status.browser,
   delay:async()=>{},
  });
  assert.equal(got.browser,'Chrome/155');
