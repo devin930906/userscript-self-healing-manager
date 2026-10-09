@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {collectPagedDomDiagnosis} from '../src/paginated-dom.ts';
+import {BatchPauseGate} from '../src/pause-gate.ts';
 import type {BatchDomItem} from '../src/batch-dom.ts';
 
 const targetId='page-verified';
@@ -95,4 +96,24 @@ test('rejects same-URL Chrome reload between consecutive script batches using do
  }),/document|reload|identity|navigation/i);
  assert.deepEqual(requested,[0,25]);
  assert.equal(published,1,'stale second batch must never reach the UI');
+});
+
+test('pausing after a confirmed page prevents dispatch of the next CDP batch until resumed',async()=>{
+ const gate=new BatchPauseGate();
+ const requested:number[]=[];
+ let firstComplete!:()=>void;
+ const first=new Promise<void>(resolve=>{firstComplete=resolve;});
+ const work=collectPagedDomDiagnosis({
+  total:51,targetId,requestPage:async offset=>{requested.push(offset);return page(offset);},
+  isCancelled:()=>gate.isCancelled,isPaused:()=>gate.isPaused,pauseGate:gate,
+  onProgress:outcome=>{if(outcome.totalItems===25){gate.pause();firstComplete();}},
+ });
+ await first;
+ await Promise.resolve();
+ assert.deepEqual(requested,[0],'the second request must not start while paused');
+ gate.resume();
+ const outcome=await work;
+ assert.deepEqual(requested,[0,25,50]);
+ assert.equal(outcome.totalItems,51);
+ assert.equal(outcome.cancelled,false);
 });
