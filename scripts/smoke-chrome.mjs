@@ -357,7 +357,9 @@ try{
   {path:'outside.user.js',scriptId:'outside',status:'parsed',analysis:{metadata:{match:['https://elsewhere.test/*'],include:[],raw:{}},selectorRecords:[]}},
   {path:'dynamic.user.js',scriptId:'dynamic',status:'parsed',analysis:fakeAnalysis('template',true)},
  ],target:selected,consent:true,deps:{confirm:confirmPageIdentity,probe:probePageLocators}});
- assert.deepEqual(bulk.items.map(x=>x.status),['locator-missing','dom-present','out-of-scope','needs-review']);
+ // An iframe is now present: top-document misses and a top-frame
+ // out-of-scope result cannot exclude execution in that nested context.
+ assert.deepEqual(bulk.items.map(x=>x.status),['needs-review','dom-present','needs-review','needs-review']);
 
  // Exercise three real Chrome-backed paginated requests, including all-out-of-scope
  // entries that must still be bounded by current top-frame identity checks.
@@ -381,7 +383,8 @@ try{
  assert.equal(realPaged.items.length,51);
  assert.equal(realPaged.remainingItems,0);
  assert.equal(realPaged.items.filter(x=>x.status==='dom-present').length,3);
- assert.equal(realPaged.items.filter(x=>x.status==='out-of-scope').length,48);
+ assert.equal(realPaged.items.filter(x=>x.status==='needs-review').length,48);
+ assert.equal(realPaged.items.filter(x=>x.status==='out-of-scope').length,0);
 
 
  // End-to-end local revision lifecycle using a synthetic fixture source only.
