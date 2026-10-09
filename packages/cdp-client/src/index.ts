@@ -22,14 +22,45 @@ export async function getChromeStatus({port=9223,host='127.0.0.1'}:{port?:number
  const url=`http://127.0.0.1:${port}`;
  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),3500);
  try {
-  async function getJson(path:string):Promise<unknown>{const r=await fetch(url+path,{signal:controller.signal,cache:'no-store',redirect:'error'});if(!r.ok)throw new Error(`CDP responded ${r.status} for ${path}`);return r.json();}
-  const info=await getJson('/json/version') as Record<string,unknown>;
-  const list=await getJson('/json/list');
-  if(typeof info.Browser!=='string'||!Array.isArray(list))throw new Error('Invalid Chrome CDP version or target response');
+  async function getJson(path:string,maxBytes:number):Promise<unknown>{
+   const r=await fetch(url+path,{signal:controller.signal,cache:'no-store',redirect:'error'});
+   if(!r.ok)throw new Error(`CDP responded ${r.status} for ${path}`);
+   const reported=r.headers.get('content-length');
+   if(reported!==null&&Number(reported)>maxBytes)
+    throw new Error('CDP discovery JSON response size limit exceeded');
+   if(!r.body)throw new Error('CDP discovery response has no body');
+   const reader=r.body.getReader();
+   const decoder=new TextDecoder('utf-8',{fatal:true});
+   const fragments:string[]=[];
+   let size=0;
+   try{
+    while(true){
+     const part=await reader.read();
+     if(part.done)break;
+     size+=part.value.byteLength;
+     if(size>maxBytes)throw new Error('CDP discovery JSON response size limit exceeded');
+     fragments.push(decoder.decode(part.value,{stream:true}));
+    }
+    fragments.push(decoder.decode());
+   }catch(error){
+    try{await reader.cancel();}catch{}
+    throw error;
+   }finally{reader.releaseLock();}
+   try{return JSON.parse(fragments.join(''));}
+   catch{throw new Error('Invalid CDP discovery JSON document');}
+  }
+  // The localhost debugger is still a network peer: never parse an unbounded
+  // /json/list response or let a huge target catalog hang the renderer.
+  const info=await getJson('/json/version',64_000) as Record<string,unknown>;
+  const list=await getJson('/json/list',1_000_000);
+  if(typeof info.Browser!=='string'||info.Browser.length>128||!Array.isArray(list))
+   throw new Error('Invalid Chrome CDP version or target response');
+  if(list.length>256)throw new Error('CDP target list limit exceeded');
   const pages:ChromeTarget[]=[];
   for(const entry of list){if(!entry||typeof entry!=='object')continue;
    const t=entry as Record<string,unknown>;
-   if(t.type==='page'&&typeof t.id==='string'&&typeof t.url==='string'){
+   if(t.type==='page'&&typeof t.id==='string'&&t.id.length>0&&t.id.length<=128&&
+      typeof t.url==='string'&&t.url.length>0&&t.url.length<=8192){
     const ws=typeof t.webSocketDebuggerUrl==='string'?t.webSocketDebuggerUrl:undefined;
     if(ws)validateCdpPageSocket({id:t.id,webSocketDebuggerUrl:ws},port);
     pages.push({type:'page',id:t.id,url:t.url,webSocketDebuggerUrl:ws});
