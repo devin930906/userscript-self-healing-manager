@@ -376,3 +376,22 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - 修复 `packages/scan-service/src/paginated-dom.ts`：只剥离固定 `usshm:batch-diagnose` 的标准 Electron Error envelope，再匹配完整、精确的短暂只读 CDP 错误白名单；不拓宽身份/权限/页面内容错误的可重试范围，且总重试预算仍为 1。
 - [GREEN Windows CI #37895542276](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895542276) 对提交 `51174cd290b552a65e2b46bca6947d2844c34294`：**266 tests / 266 pass / 0 fail，TypeScript、Electron build、真实 GUI/SQLite 和真实 Chrome CDP 合成行为 smoke 通过**。Node contract [#37895546571](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895546571) 也成功。
 - 仍没有真实 Tampermonkey/GM API 交互证明、V3 用户定义功能契约和 V4 manager 验证；本开发切片不代表 Final Stable，禁止自动合并或发行。
+
+## 2026-10-09 · 异步定位器复查与命名 DOM 合约
+
+### 异步定位器只读二次采样
+
+- 对 `diagnoseScriptsOnPage()` 添加注入式 `waitBeforeMissingRecheck`，只对首次顶层文档静态定位器零命中进行一次等待与第二次 CDP DOM 查询。每个动作前后必须核对已确认的 Frame/Loader；同 URL reload 或导航直接抛出并拒绝沿用旧证据。
+- Electron main 的真实批量入口启用 750ms 定时等待；第一次丢失、第二次出现将被修正为 `dom-present`，连续两次丢失保持 `locator-missing`（**仍只是 DOM/V1 状态**）。等待、第二次读取失败或结果形状不可信变成 `needs-review`，不能当作脚本功能缺陷。
+- **TDD RED** [#37896138518](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37896138518) 记录缺少二次采样时的 4 项失败，另 [#37896290407](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37896290407) 记录 main handler 尚未启用的失败；**GREEN** [Windows CI #37896356525](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37896356525) **271/271 tests，TypeScript/Electron、真实 Windows GUI/SQLite 与隔离 Chrome CDP 冒烟成功**。
+
+### 命名、明确授权的双样本 DOM 合约
+
+- 新增 Superpowers [实施切片计划](../superpowers/plans/2026-10-09-read-only-dom-contracts.md)、`packages/test-runner/src/index.ts`，仅允许基于已导入、已静态解析、属于当前授权浏览页面的 document-scoped literal locator，对 `exists`（至少一个）或 `unique`（恰好一个）做两次 read-only CDP 采样。
+- 相同 Frame/Loader、相同 match count 且满足断言才标记该 **V1 命名 DOM 断言** `passed`；两次一致的空结果/多重匹配可标 DOM-only `failed`；数量跳变、CDP 读取失败、结果不可信则 `needs-review`，同 URL 页面重载直接拒绝。所有返回结果固定 `V2=blocked`、`V3/V4=not-configured`、`functionalVerified=false`、`managerVerified=false`。
+- 新 Electron `usshm:run-dom-contract` 只接受当前扫描 script/selector 索引、显式 target、exists/unique 和运行批准，不接收 renderer 自构造选择器或 JavaScript。Preload 添加有限 typed bridge，GUI 增加 `双次 DOM 合约核验（V1，只读）` 及合约结果展示；真实 Chrome 合成 fixture 验证 `#heal-button` 唯一匹配两次通过，但不执行真实用户脚本。
+- **TDD RED** [#37896718268](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37896718268) 确认执行模块缺失；[#37897048977](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37897048977) 确认桌面入口缺失；**GREEN** [Windows CI #37897269119](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37897269119)：**280/280 tests，TypeScript + Electron Build + real Windows GUI/SQLite + real Chrome CDP smoke PASS**。未运行或标称 V2 安全交互、V3 业务合约或 V4 Tampermonkey/GM_*。
+
+### Remaining Stable gaps
+
+- FR-025 仍缺安全的 visibility/interactable/assertion-change/cleanup、站点上下文、授权非破坏性事件测试以及 V3 真正业务契约；管理器 V4 和 Windows10+指定 Chrome155 portable 仍需独立真实验证。没有制作中途 Windows 三包、合并 main 或发布 Stable。
