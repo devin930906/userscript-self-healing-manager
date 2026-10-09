@@ -85,3 +85,54 @@ test('valid userscript headers and modern JavaScript syntax remain patchable',()
  assert.match(draft.proposedSource,/\/\/ @name Smoke/);
  assert.equal(new TextDecoder().decode(original),source);
 });
+
+test('approved managed patch rejects a forged hash-consistent draft that injects code outside the chosen selector',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-forged-draft-'));
+ try{
+  const sourcePath=join(root,'input.user.js'),managedRoot=join(root,'Data');
+  const original=Buffer.from('// ==UserScript==\n// @name Example\n// ==/UserScript==\ndocument.querySelector("#old");\n');
+  await writeFile(sourcePath,original);
+  const good=proposeLiteralPatch({sourceBytes:original,oldSelector:'#old',newSelector:'#new'});
+  for(const forgedSource of [
+   good.proposedSource+'\nwindow.__injected = true;\n',
+   good.proposedSource.replace('// @name Example','// @name Impersonated'),
+   good.proposedSource.replace('document.querySelector("#new")','window.location.assign("https://attacker.invalid"); document.querySelector("#new")'),
+  ]){
+   const forged={...good,proposedSource:forgedSource,proposedHash:sha(Buffer.from(forgedSource))};
+   await assert.rejects(applyManagedPatch({sourcePath,managedRoot,scriptId:'forged',draft:forged,
+    expectedHash:good.baseHash,approved:true}),/draft|minimal|selector|mismatch|tamper|patch/i);
+  }
+  assert.deepEqual(await readFile(sourcePath),original);
+  await assert.rejects(readFile(join(managedRoot,'managed','forged','current.user.js')),{code:'ENOENT'});
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+test('approved managed patch rejects a forged sourceRange even if the new source and SHA are valid',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-forged-location-'));
+ try{
+  const sourcePath=join(root,'input.user.js'),managedRoot=join(root,'Data');
+  const original=Buffer.from('document.querySelector("#old");');
+  await writeFile(sourcePath,original);
+  const good=proposeLiteralPatch({sourceBytes:original,oldSelector:'#old',newSelector:'#new'});
+  for(const sourceRange of [{start:good.sourceRange.start+1,end:good.sourceRange.end},
+    {start:-1,end:good.sourceRange.end},{start:0,end:10_000}]){
+   await assert.rejects(applyManagedPatch({sourcePath,managedRoot,scriptId:'location',
+    draft:{...good,sourceRange},expectedHash:good.baseHash,approved:true}),
+    /draft|range|selector|mismatch|location|patch/i);
+  }
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+test('approved managed patch still supports an explicitly selected duplicate AST call with UTF-8 BOM',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-exact-bom-'));
+ try{
+  const sourcePath=join(root,'original.user.js'),managedRoot=join(root,'Data');
+  const original=Buffer.from('\ufeffdocument.querySelector("#old");\ndocument.querySelector("#old");\n');
+  await writeFile(sourcePath,original);
+  const draft=proposeLiteralPatch({sourceBytes:original,oldSelector:'#old',newSelector:'#new',
+   selectorLocation:{method:'querySelector',line:2,column:1}});
+  const receipt=await applyManagedPatch({sourcePath,managedRoot,scriptId:'exact-bom',draft,
+   expectedHash:draft.baseHash,approved:true});
+  assert.deepEqual(await readFile(sourcePath),original);
+  assert.equal((await readFile(receipt.managedPath,'utf8')),
+   '\ufeffdocument.querySelector("#old");\ndocument.querySelector("#new");\n');
+ }finally{await rm(root,{recursive:true,force:true});}
+});
