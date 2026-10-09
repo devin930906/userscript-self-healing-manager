@@ -6,12 +6,12 @@ import {confirmPageIdentity,assertStablePageDocument} from '../src/page-identity
 class FakeSocket extends EventEmitter {
  readonly sent:Array<{id:number;method:string}>=[];
  private readonly pageUrl:string|null;
- constructor(pageUrl:string|null) {super();this.pageUrl=pageUrl;queueMicrotask(()=>this.emit('open'));}
+ constructor(pageUrl:string|null,private readonly includeLoader=true) {super();this.pageUrl=pageUrl;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,listener:(event:any)=>void){this.on(name,listener);}
  removeEventListener(name:string,listener:(event:any)=>void){this.off(name,listener);}
  send(body:string) {
   const q=JSON.parse(body);this.sent.push(q);
-  queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:q.id,result:this.pageUrl===null?{}:{frameTree:{frame:{url:this.pageUrl,id:'frame1'}}}})}));
+  queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:q.id,result:this.pageUrl===null?{}:{frameTree:{frame:{url:this.pageUrl,id:'frame1',...(this.includeLoader?{loaderId:'stable-loader'}:{})}}}})}));
  }
  close(){this.emit('close');}
 }
@@ -20,7 +20,7 @@ const page={type:'page',id:'alpha',url:'https://example.test/path?x=1',webSocket
 test('checks actual top-frame URL using read-only Page.getFrameTree, not stale /json/list identity',async()=>{
  const socket=new FakeSocket(page.url);
  const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
- assert.deepEqual(result,{targetId:'alpha',confirmedUrl:page.url,frameId:'frame1'});
+ assert.deepEqual(result,{targetId:'alpha',confirmedUrl:page.url,frameId:'frame1',loaderId:'stable-loader'});
  assert.deepEqual(socket.sent.map(x=>x.method),['Page.getFrameTree']);
 });
 
@@ -39,7 +39,7 @@ test('read-only frame identity counts nested browsing contexts without revealing
   removeEventListener(name:string,listener:(e:any)=>void){this.off(name,listener);}
   constructor(){super();queueMicrotask(()=>this.emit('open'));}
   send(data:string){const command=JSON.parse(data);queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
-   id:command.id,result:{frameTree:{frame:{id:'root',url:page.url},childFrames:[
+   id:command.id,result:{frameTree:{frame:{id:'root',loaderId:'root-loader',url:page.url},childFrames:[
     {frame:{id:'a',url:'https://private.test/secret'}},
     {frame:{id:'b',url:'about:srcdoc'},childFrames:[{frame:{id:'c',url:'about:blank'}}]},
    ]}},
@@ -85,4 +85,11 @@ test('reads stable loader identity from Page.getFrameTree without collecting fra
  assert.equal(result.frameId,'root');
  assert.equal(result.loaderId,'loader-current');
  assert.equal(result.confirmedUrl,page.url);
+});
+
+test('a frame with no loader ID is not trustworthy enough for DOM evidence',async()=>{
+ await assert.rejects(
+  confirmPageIdentity(page,{socketFactory:()=>new FakeSocket(page.url,false)}),
+  /loader|document identity/i
+ );
 });
