@@ -15,7 +15,9 @@ test('Electron Main cancels in-flight CDP evidence before persistence, not just 
 });
 test('renderer sends explicit cancel IPC as soon as user clicks cancel, even with one page in flight',async()=>{
  const renderer=await readFile(new URL('../src/renderer/App.tsx',import.meta.url),'utf8');
- const control=renderer.slice(renderer.indexOf('取消剩余检查'),renderer.indexOf('取消剩余检查')+300);
+ const cancelText=renderer.indexOf('取消剩余检查');
+ assert.ok(cancelText>0);
+ const control=renderer.slice(cancelText-340,cancelText+80);
  assert.match(control,/cancelDiagnosis\(\{scanId:result\.scanId,targetId\}\)/,
  'sending only local BatchPauseGate.cancel cannot stop an in-flight Main CDP page from being persisted');
 });
