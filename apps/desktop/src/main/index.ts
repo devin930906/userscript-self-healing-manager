@@ -22,6 +22,7 @@ import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefault
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
+import {inspectReadOnlyEventListeners} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {prepareVerifiedRepairPreview} from '../../../../packages/repair-workflow/src/verified-preview.ts';
@@ -417,6 +418,50 @@ async function bootstrap():Promise<void>{
    context.authorShadowTreeNodes:null;
   return qualifyTopDocumentVisibility(observed,
    Math.max(start.subframeCount??0,end.subframeCount??0),authorRoots);
+ });
+ ipcMain.handle('usshm:read-only-event-listeners',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit direct listener probe approval and authorized target required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex as number];
+  if(!item?.analysis||!withinAuthorized(item.path))
+   throw new Error('No authorized script analysis for direct listener probe');
+  const record=item.analysis.selectorRecords[q.selectorIndex as number];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('A static document locator is required');
+  const cdp=await getVerifiedChromeStatus({port:9223});
+  const selected=cdp.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome CDP page target unavailable');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Script is not authorized on this target URL');
+  const start=await confirmPageIdentity(selected);
+  const observed=await inspectReadOnlyEventListeners(selected,{
+   method:record.method,expression:record.expression,runtimeRequired:false,
+  });
+  const context=observed.status==='missing'?
+   await captureDomSummary(selected).catch(()=>null):null;
+  const end=await confirmPageIdentity(selected);
+  assertStablePageDocument(start,end);
+  scanSessions.assertCurrent(scanSnapshot);
+  // A missing top-document listener is not conclusive inside author Shadow
+  // roots or child frames. Unknown snapshot evidence also fails closed.
+  if(observed.status==='missing'){
+   const roots=context&&context.targetId===selected.id&&context.url===selected.url&&
+    context.validationLevel==='evidence-only'&&
+    Number.isSafeInteger(context.authorShadowTreeNodes)&&
+    context.authorShadowTreeNodes>=0&&context.authorShadowTreeNodes<=200000?
+    context.authorShadowTreeNodes:null;
+   if((start.subframeCount??0)>0||(end.subframeCount??0)>0||roots===null||roots>0)
+    return {...observed,status:'unknown',listenerCount:null};
+  }
+  return observed;
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
