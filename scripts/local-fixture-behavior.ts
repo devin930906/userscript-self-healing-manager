@@ -46,8 +46,10 @@ export async function runIsolatedFixtureBehavior({target,fixtureUrl,source,confi
   throw new Error('Invalid local fixture evaluation timeout');
  const endpoint=validateCdpPageSocket(target);
  const before=await confirm(target);
- if(before.targetId!==target.id||before.confirmedUrl!==fixtureUrl)
-  throw new Error('Fixture page identity changed before evaluation');
+ if(before.targetId!==target.id||before.confirmedUrl!==fixtureUrl||
+    typeof before.frameId!=='string'||!before.frameId||before.frameId.length>256||
+    typeof before.loaderId!=='string'||!before.loaderId||before.loaderId.length>256)
+  throw new Error('Fixture main-frame document identity unverified before evaluation');
 
  // The fixture's two known nodes form a tiny, deterministic observable effect.
  // Reset the markers each time so an old successful run cannot mask a failure.
@@ -98,7 +100,11 @@ export async function runIsolatedFixtureBehavior({target,fixtureUrl,source,confi
   for(const [name,listener] of handlers)socket.addEventListener(name,listener);
  });
  const after=await confirm(target);
- if(after.targetId!==target.id||after.confirmedUrl!==fixtureUrl)
-  throw new Error('Fixture page identity changed during evaluation');
+ // A synthetic script intentionally creates a child iframe; comparing total
+ // subframe counts would reject a legitimate fixture effect. Pin only the
+ // top-frame document + loader identity, which must never change during eval.
+ if(after.targetId!==target.id||after.confirmedUrl!==fixtureUrl||
+    after.frameId!==before.frameId||after.loaderId!==before.loaderId)
+  throw new Error('Fixture main-frame document/loader identity changed during evaluation');
  return worked;
 }
