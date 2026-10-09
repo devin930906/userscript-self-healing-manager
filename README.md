@@ -197,9 +197,9 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 桌面端的 Chrome CDP 区新增「保存浏览器配置」「启动选定配置」「重命名配置」「设为默认」「删除配置记录」功能。可保存最多 **16 个**独立、中文命名的浏览器配置，各配置使用 `Data/Chrome-Profiles/<UUID>/` 作为专属浏览器资料目录。添加新配置时必须先通过本程序的**原生文件选择器**选定 `chrome.exe`，浏览器由主进程在明确按下启动后执行 CDP 握手；网页和用户脚本不会随配置操作自动运行。
 
-记录持久化于 `Data/browser-profiles.json`，通过有界 SHA/文件身份保护读取、原子替换持久化和 `.write-lock` 跨进程串行写入。启动前重新检查真实 EXE，不能从渲染器传入任意可执行路径或资料目录；损坏、危险或被链接的配置会拒绝覆盖。删除前显示系统原生确认对话框，**删除只删除记录，不删除 Chrome、扩展、登录状态、书签或任何资料目录**。如果更换电脑，保存的绝对 Chrome EXE 路径可能失效，必须重新选择。
+记录持久化于 `Data/browser-profiles.json`，通过有界 SHA/文件身份保护读取、原子替换持久化和 `.write-lock` 跨进程串行写入。启动前重新检查真实 EXE，不能从渲染器传入任意可执行路径或资料目录；损坏、危险或被链接的配置会拒绝覆盖。删除前显示系统原生确认对话框，**删除只删除记录，不删除 Chrome、扩展、登录状态、书签或任何资料目录**。如果更换电脑，保存的绝对 Chrome EXE 路径可能失效，必须重新选择。 浏览器配置文件损坏或被符号链接替换时，GUI 会明确告警而不是把列表为空误报为资料丢失；存在写入锁时也会显示可能正在写入或崩溃遗留的信息，**不会擅自清除锁或覆盖原配置文件**。
 
-[Windows Development CI #37967373637](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37967373637) 与 [Node Contracts #37967379479](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37967379479) 已验证 **567/567 自动化测试**。真实 Chrome 155 CI 另外实际启动两份已持久化的独立 UUID 浏览器配置，分别完成 CDP Browser.getVersion 握手，日志为 `PASS real Chrome FR-002: two persisted, independent UUID profile directories and live CDP handshakes.`；测试不会读写用户真实浏览器资料。这只完成 FR-002 的实现，不代表真实 GM API V4、用户指定 Windows 10/便携 Chrome 构建或三个正式发行包已经通过 Stable 发布门槛。
+[Windows Development CI #37967373637](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37967373637) 与 [Node Contracts #37967379479](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37967379479) 已验证 **570/570 自动化测试**。真实 Chrome 155 CI 另外实际启动两份已持久化的独立 UUID 浏览器配置，分别完成 CDP Browser.getVersion 握手，日志为 `PASS real Chrome FR-002: two persisted, independent UUID profile directories and live CDP handshakes.`；测试不会读写用户真实浏览器资料。这只完成 FR-002 的实现，不代表真实 GM API V4、用户指定 Windows 10/便携 Chrome 构建或三个正式发行包已经通过 Stable 发布门槛。
 
 ## 已知开发限制
 
