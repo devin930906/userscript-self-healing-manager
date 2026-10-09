@@ -4,6 +4,24 @@ import {confirmPageIdentity,type ConfirmedPageIdentity} from '../packages/cdp-cl
 import type {SocketLike} from '../packages/cdp-client/src/snapshot.ts';
 
 /**
+ * Exact source allowlist for disposable smoke fixtures ONLY. A familiar
+ * @name header is not an execution authorization: it can be prepended to
+ * arbitrary malicious JavaScript. All permitted variants below are generated
+ * exclusively from the fixed fixture scripts used in this test suite.
+ */
+const FIXTURE_HEADER='// ==UserScript==\n// @name Local CDP Smoke\n// @match http://127.0.0.1/*\n// ==/UserScript==\n';
+const FIXTURE_TAIL='if(actionButton&&targetPane){actionButton.setAttribute("data-usshm-functional","pass");targetPane.setAttribute("data-usshm-functional","pass");}\n'
+ +'if(!document.getElementById("usshm-nested-frame")){const frame=document.createElement("iframe");frame.id="usshm-nested-frame";frame.srcdoc="<button id=iframe-only>Nested DOM</button>";document.body.append(frame);}\n';
+const SYNTHETIC_SOURCE_ALLOWLIST=new Set<string>([
+ FIXTURE_HEADER+'const action=document.querySelector("#old-heal-button");\n'
+  +'if(action)action.setAttribute("data-usshm-functional","pass");\n',
+ ...['#old-heal-button','#heal-button'].flatMap(button=>
+  ['.old-target-pane','.target-pane'].map(pane=>
+   FIXTURE_HEADER+'const actionButton=document.querySelector("'+button
+    +'");const targetPane=document.querySelector("'+pane+'");\n'+FIXTURE_TAIL)),
+]);
+
+/**
  * TEST-ONLY: execute the explicitly named *synthetic* userscript on the
  * disposable localhost fixture. This module must never be imported by the
  * Electron app or accept an arbitrary user-supplied script.
@@ -22,8 +40,8 @@ export async function runIsolatedFixtureBehavior({target,fixtureUrl,source,confi
     url.pathname!=='/fixture'||url.search||url.hash||target.url!==fixtureUrl)
   throw new Error('Refusing non-local or mismatched fixture target');
  if(typeof source!=='string'||source.length>12_000||
-    !source.startsWith('// ==UserScript==\n// @name Local CDP Smoke\n'))
-  throw new Error('Refusing non-synthetic userscript execution');
+    !SYNTHETIC_SOURCE_ALLOWLIST.has(source))
+  throw new Error('Refusing source outside the fixed synthetic fixture allowlist');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10_000)
   throw new Error('Invalid local fixture evaluation timeout');
  const endpoint=validateCdpPageSocket(target);
