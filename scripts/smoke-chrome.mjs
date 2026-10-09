@@ -12,7 +12,7 @@ import {access,mkdir,mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {buildChromeLaunchArgs,getChromeStatus,waitForChromeDebugger,assertChromeDebuggerPortFree,startVerifiedChromeChild,terminateFailedChromeLaunch} from '../packages/cdp-client/src/index.ts';
+import {buildChromeLaunchArgs,getChromeStatus,getVerifiedChromeStatus,waitForChromeDebugger,assertChromeDebuggerPortFree,startVerifiedChromeChild,terminateFailedChromeLaunch} from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
@@ -121,6 +121,8 @@ try{
  // reject a second launch so we never misattribute an existing session.
  const verifiedDebugger=await waitForChromeDebugger({port:9223,timeoutMs:5000});
  assert.ok(verifiedDebugger.browserSocket?.includes('/devtools/browser/'));
+ const liveVerifiedStatus=await getVerifiedChromeStatus({port:9223});
+ assert.equal(liveVerifiedStatus.browser,verifiedDebugger.browser);
 
  // FR-002 actual browser-profile isolation smoke, not just a record parser:
  // save two independent named configurations, then launch a REAL Chrome
