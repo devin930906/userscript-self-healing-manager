@@ -107,3 +107,38 @@ test('context inspection is bounded by Chrome Frame/Loader identity',async()=>{
   summarize:async()=>{loader='reload';return {targetId:target.id,url:target.url,authorShadowTreeNodes:0};}};
  await assert.rejects(runReadOnlyDomContract({...request(),deps:tools}),/document|loader|identity/i);
 });
+
+test('unique V1 contract rejects an element replaced between two stable one-match observations',async()=>{
+ const first={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'a'.repeat(64)}]};
+ const second={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'b'.repeat(64)}]};
+ const result=await runReadOnlyDomContract({...request('unique'),deps:deps([first,second])});
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.matchCount,null);
+ assert.match(result.reason,/node|identity|fingerprint|replaced|节点|身份/i);
+ assert.equal(result.V2,'blocked');
+ assert.equal(result.functionalVerified,false);
+});
+test('unique V1 contract refuses missing, malformed or uppercase backend node fingerprints',async()=>{
+ for(const fingerprint of [undefined,'','bad','A'.repeat(64)]){
+  const observation={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:fingerprint}]};
+  const result=await runReadOnlyDomContract({...request('unique'),deps:deps([observation,observation])});
+  assert.equal(result.status,'needs-review');
+  assert.equal(result.matchCount,null);
+ }
+});
+test('unique contract accepts two stable opaque node fingerprints but never V2/V3/V4',async()=>{
+ const observation={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'a'.repeat(64)}]};
+ const result=await runReadOnlyDomContract({...request('unique'),deps:deps([observation,observation])});
+ assert.equal(result.status,'passed');
+ assert.equal(result.matchCount,1);
+ assert.equal(result.V2,'blocked');
+ assert.equal(result.V3,'not-configured');
+ assert.equal(result.V4,'not-configured');
+ assert.equal(result.managerVerified,false);
+});
+test('exists contract stays count-based and never claims stable target identity',async()=>{
+ const result=await runReadOnlyDomContract({...request('exists'),deps:deps([sample('found',1),sample('found',1)])});
+ assert.equal(result.status,'passed');
+ assert.equal(result.expectation,'exists');
+ assert.equal(result.functionalVerified,false);
+});
