@@ -18,15 +18,17 @@ class FixtureSocket extends EventEmitter{
  readonly unsafeButtonType:boolean;
  readonly invalidAriaDisabled:boolean;
  readonly postInvalidAriaDisabled:boolean;
+ readonly changedNodesAfterClick:readonly number[]|null;
+ private queryCount=0;
  private attrs=0;
- constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false,postInvalidAriaDisabled=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;this.postInvalidAriaDisabled=postInvalidAriaDisabled;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false,postInvalidAriaDisabled=false,changedNodesAfterClick:readonly number[]|null=null){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;this.postInvalidAriaDisabled=postInvalidAriaDisabled;this.changedNodesAfterClick=changedNodesAfterClick;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
   const m=JSON.parse(raw);this.methods.push(m.method);this.params.push(m.params);
   let result:any={};
   if(m.method==='DOM.getDocument')result={root:{nodeId:1}};
-  else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.matchedNodes};
+  else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.queryCount++===0?this.matchedNodes:(this.changedNodesAfterClick??this.matchedNodes)};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
     (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button',...(this.invalidAriaDisabled?['aria-disabled','maybe']:[])])):
     (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes',...(this.postInvalidAriaDisabled?['aria-disabled','maybe']:[])]:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])};
@@ -44,7 +46,7 @@ test('synthetic V2 fixture interacts through bounded DOM and Input CDP commands 
  assert.equal(out.productionEligible,false);
  assert.deepEqual(socket.methods,[
   'DOM.getDocument','DOM.querySelectorAll','DOM.getAttributes','DOM.getBoxModel',
-  'Input.dispatchMouseEvent','Input.dispatchMouseEvent','DOM.getAttributes',
+  'Input.dispatchMouseEvent','Input.dispatchMouseEvent','DOM.querySelectorAll','DOM.getAttributes',
  ]);
  assert.ok(socket.methods.every(m=>!m.startsWith('Runtime.')&&!m.startsWith('Page.')&&!m.startsWith('Network.')));
  assert.equal((socket.params[1] as any).selector,'#fixture-safe-click');
@@ -142,4 +144,13 @@ test('ambiguous aria-disabled after the synthetic click cannot certify the inter
   confirm:async()=>identity,socketFactory:()=>new FixtureSocket(false,true,[42],false,false,false,false,true)});
  assert.equal(out.observed,false);
  assert.equal(out.productionEligible,false);
+});
+
+test('synthetic fixture refuses a changed or ambiguous selector after click',async()=>{
+ for(const ids of [[],[99],[42,43]]){
+  const out=await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+   confirm:async()=>identity,socketFactory:()=>new FixtureSocket(false,true,[42],false,false,false,false,false,ids)}),
+   /fixture|target|button|unique|valid/i);
+  assert.equal(out,undefined);
+ }
 });
