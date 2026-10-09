@@ -1,7 +1,7 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {existsSync} from 'node:fs';
-import {writeFile,lstat} from 'node:fs/promises';
+import {lstat} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinned-file.ts';
 import {createHash} from 'node:crypto';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
@@ -13,6 +13,7 @@ import {DiagnosisRequestGate} from '../../../../packages/scan-service/src/diagno
 import {isTransientCdpReadError} from '../../../../packages/scan-service/src/paginated-dom.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-report.ts';
+import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive-report.ts';
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
@@ -727,12 +728,25 @@ async function bootstrap():Promise<void>{
   const fresh=batchEvidence.snapshot({scanId:q.scanId,targetId:q.targetId});
   if(fresh.revision!==observed.revision)
    throw new Error('DOM evidence changed while save dialog was open; export cancelled');
-  await writeFile(selection.filePath,content,{encoding:'utf8',flag:'w'});
+  await writeExclusiveReport({destinationPath:selection.filePath,content});
   return {canceled:false,path:selection.filePath};
  });
- ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');if(!lastScan)throw new Error('No scan has been performed');
- const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});
- if(result.canceled||!result.filePath)return {canceled:true};await writeFile(result.filePath,serializeStaticReport(lastScan,format),{encoding:'utf8',flag:'w'});return {canceled:false,path:result.filePath};});
+ ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);
+  if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');
+  if(!lastScan)throw new Error('No scan has been performed');
+  const scanSnapshot=lastScan;
+  const content=serializeStaticReport(scanSnapshot,format);
+  const ext=format==='json'?'json':'md';
+  const result=await dialog.showSaveDialog(mainWindow,{
+   defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),
+   filters:[{name:ext.toUpperCase(),extensions:[ext]}],
+  });
+  if(result.canceled||!result.filePath)return {canceled:true};
+  if(lastScan!==scanSnapshot)
+   throw new Error('Static scan changed while save dialog was open; export cancelled');
+  await writeExclusiveReport({destinationPath:result.filePath,content});
+  return {canceled:false,path:result.filePath};
+ });
 }
 // Only one Electron main process may own this application's SQLite database and
 // managed script revisions. A second launch focuses the existing GUI instead
