@@ -48,6 +48,8 @@
 
 - **批量诊断暂停／继续（开发分支新增）**：在每批 25 份脚本的只读检查之间可点击「暂停后续检查」或「继续检查」，暂停不会截断已发出的 CDP 请求。取消会解除等待并终止未来批次；切换网页或重扫立即撤销旧请求令牌。快速「继续→再次暂停」已加入竞争回归，仍按页面 Frame/Loader 与扫描版本保护结果。该功能不代表后台常驻任务队列、跨重启恢复或业务功能修复。
 
+- **批量 DOM 结果脱敏导出（开发分支）**：完成每批诊断结果的 JSON／Markdown 导出，包含逐脚本状态、检查计数和证据分级。主进程以当前扫描 `scanId` 和脚本身份逐项比对，用户主动选择保存路径。报告只保留网页 origin 与文件名，过滤 URL 查询/哈希、私有目录、原始 DOM 文字、异常原文和内部 CDP 文档指纹；不把 V1 DOM 匹配夸大为 V3/V4 功能验证。尚未集成跨重启持久任务历史和站点趋势图。
+
 **尚未实现：** Tampermonkey 真正注入/GM_* 与 V3/V4 功能回归、DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。当前开发分支的候选定位器仅支持当前 document 中的 `document.querySelector`、`document.getElementById`、`document.getElementsByName` 和 `document.getElementsByClassName` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
