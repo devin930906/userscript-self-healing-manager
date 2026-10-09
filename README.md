@@ -152,6 +152,21 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 以上属于受管副本可靠性加固，**尚未达到** 真实 Tampermonkey/GM_* V4、业务 V3、Windows10 + 指定便携 Chrome155 和正式 Setup/Portable/ZIP 全部 Release Gate。
 
+## 受管脚本完整性只读诊断（2026-10-09）
+
+开发分支已在每份已授权扫描的脚本详情加入 **「检查受管资料完整性」** 按钮。检查只访问本软件 Data 下对应脚本的受管文件，不跟随符号链接、不执行脚本、不会清理写入锁或覆盖任何文件。
+
+- `healthy`：当前 `current.user.js` SHA-256 与一份经读取核验的不可变归档一致；**不代表网页功能或 Tampermonkey V4 正常**。
+- `empty`：尚无受管归档；`missing-current`：存在归档但当前激活副本缺失。
+- `unarchived-current`：当前字节无法与任何已校验归档匹配，可能被外部修改。
+- `damaged-archive`：不可变归档损坏或内容 hash 不匹配，不能凭其自动恢复。
+- `write-locked`：写入锁目录存在，可能仍有进程运行或属于异常退出遗留；程序不会自动抢锁或删除。
+- `unsafe`：目录/文件为不安全类型、符号链接或读写身份不能信任，停止相关恢复操作。
+
+这是一个**只读时点诊断**，不持有跨进程持续快照锁。发现异常请首先保留 Data 备份；只有在所有管理器进程完全退出、确认对应写入锁不属于活跃事务，并检查 current 与不可变归档后，才可进行离线人工恢复。不要直接删除 current、归档或随意解除锁。
+
+新增 7 个文件系统完整性检查与 2 个 IPC/UI 安全接线回归；另有独立 Windows Node 子进程真实竞争测试，确认两个 OS 进程不能同时抢占相同的已批准修订。[Windows CI #37956693652](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37956693652) **528/528 tests PASS**，TypeScript、Electron、GUI/SQLite 与真实 Chrome CDP 冒烟测试通过；仍非 Stable。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
