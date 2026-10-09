@@ -74,3 +74,25 @@ test('role check must include the SHA shown with the local SiteAdapter list',asy
  assert.match(preload,/inspectSiteAdapterRole:.*expectedSha256:string/);
  assert.match(ui,/expectedSha256:selectedAdapter.sha256/);
 });
+
+test('SiteAdapter role-scoped repair candidates are a real consented desktop route, never a raw-source or auto-apply route',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ const route=main.split("ipcMain.handle('usshm:site-adapter-suggest-repair'")[1]?.split("ipcMain.handle('usshm:pick-chrome'")[0]??'';
+ assert.match(route,/assertSender\(event\)/);
+ assert.match(route,/approved!==true/);
+ assert.match(route,/getForInspection\(\{siteId:q.siteId,expectedSha256:q.expectedSha256\}\)/);
+ assert.match(route,/scanSessions\.require\(q.scanId\)/);
+ assert.match(route,/withinAuthorized\(item.path\)/);
+ assert.match(route,/checkUserscriptPageScope\(item.analysis.metadata,selected.url\)/);
+ assert.match(route,/suggestAdapterScopedRepairs/);
+ assert.match(route,/confirmPageIdentity/);
+ assert.match(route,/assertStablePageDocument/);
+ assert.match(route,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.doesNotMatch(route,/repairs\.apply|Runtime\.evaluate|Page\.navigate|writeFile/);
+ assert.match(preload,/suggestSiteAdapterRepair:/);
+ assert.match(ui,/window\.ussm\.suggestSiteAdapterRepair\(/);
+ assert.match(ui,/按 SiteAdapter 角色筛选修复候选/);
+ assert.match(ui,/SiteAdapter 候选仅是 DOM 证据/);
+});
