@@ -92,3 +92,13 @@ test('Windows ZIP inventory rejects NTFS alternate streams and reserved DOS devi
    /unsafe|private|device|windows|path|zip|forbidden|portable|installer|stream/i,entry);
  }
 });
+
+test('release ZIP forbids files masquerading as ancestor directories',()=>{
+ for(const zipEntries of [
+  [...good.zipEntries,'resources'],
+  [...good.zipEntries,'locales'],
+  [...good.zipEntries,'resources/sub','resources/sub/file.dll'],
+ ]){
+  assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries}),/collid|duplicate|path|ZIP/i);
+ }
+});
