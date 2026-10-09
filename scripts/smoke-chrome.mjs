@@ -45,7 +45,7 @@ if(!executable)throw new Error('Chrome is not installed in the Windows runner; c
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
+<div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
  const shadowButton=document.createElement('span');
@@ -58,7 +58,8 @@ const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></h
 </script></body></html>`;
 const server=createServer((req,res)=>{
  res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});
- res.end(html);
+ if(req.url==='/child')res.end('<!doctype html><html><body><button id="iframe-only">Child</button></body></html>');
+ else res.end(html);
 });
 let chrome;
 let exportRoot;
@@ -147,6 +148,11 @@ try{
     strategies:[{kind:'css',selector:'.batch-role',weight:100}],
     cardinality:{min:2,max:2},assertions:['exists'],
    },
+   'fixture.iframeButton':{
+    contexts:[{stateId:'ready',frame:'iframe',shadow:'none'}],
+    strategies:[{kind:'css',selector:'#iframe-only',weight:100}],
+    cardinality:{min:1,max:1},assertions:['unique'],
+   },
    'fixture.openShadow':{
     contexts:[{stateId:'ready',frame:'top',shadow:'open'}],
     strategies:[{kind:'css',selector:'#shadow-only',weight:100}],
@@ -163,6 +169,7 @@ try{
   confirm:confirmPageIdentity,
   probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
   probeOpenShadow:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true,rootScope:'open-shadow'}),
+  probeIframe:(page,locators,frameId)=>probePageLocators(page,locators,{includeNodeFingerprints:true,rootScope:'iframe-document',expectedFrameId:frameId}),
   summarize:captureDomSummary,
   wait:()=>delay(120),
  };
@@ -188,6 +195,19 @@ try{
  assert.equal(openShadowRole.functionalVerified,false);
  assert.equal(openShadowRole.V3,'not-configured');
  assert.equal(openShadowRole.V4,'not-configured');
+ const childIdentity=await confirmPageIdentity(selected);
+ assert.equal(childIdentity.subframeCount,1,'fixture has exactly one child frame');
+ assert.ok(childIdentity.soleSameOriginSubframe?.loaderId,'must pin same-origin iframe loader');
+ const iframeRole=await runSiteAdapterRoleDomCheck({
+  approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.iframeButton',
+  declaredStateId:'ready',deps:roleDeps,
+ });
+ assert.equal(iframeRole.status,'matched-v1','real Chrome must attest the sole same-process iframe contentDocument');
+ assert.equal(iframeRole.matchedSelector,'#iframe-only');
+ assert.equal(iframeRole.functionalVerified,false);
+ assert.equal(iframeRole.managerVerified,false);
+ assert.equal(iframeRole.V3,'not-configured');
+ assert.equal(iframeRole.V4,'not-configured');
  const multiRole=await runSiteAdapterRoleDomCheck({
   approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.batchButtons',
   declaredStateId:'ready',deps:roleDeps,
