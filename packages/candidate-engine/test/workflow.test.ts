@@ -96,7 +96,9 @@ test('adapter-scoped candidate search never starts CDP for wrong origin or unres
  const nested=await suggestAdapterScopedRepairs({
   target,locator,adapter,roleId:'chat.sendButton',observedStateId:'ready',deps:blockedDeps,
  });
- assert.equal(nested.status,'blocked-context');
+ assert.equal(nested.status,'candidate-only');
+ assert.equal(nested.rootScope,'iframe-document');
+ assert.deepEqual(nested.candidates,[]);
  assert.equal(calls,0);
 });
 
