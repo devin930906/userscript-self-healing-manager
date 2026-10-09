@@ -95,3 +95,23 @@ test('reject dynamic selectors and external CDP sockets before any listener coll
  await assert.rejects(inspectReadOnlyEventListeners(target,{...locator,expression:''}),/selector|literal|static/i);
  await assert.rejects(inspectReadOnlyEventListeners(target,locator,{timeoutMs:60000}),/timeout|budget/i);
 });
+
+test('malformed remote DOM objects never enter event-listener inspection',async()=>{
+ for(const object of [
+  {type:'string',objectId:'remote-1'},
+  {type:'function',objectId:'remote-1'},
+  {type:'object',objectId:''},
+  {type:'object',objectId:'remote-1',subtype:'null'},
+ ]){
+  const s=new FakeSocket({
+   'DOM.getDocument':()=>({root:{nodeId:3}}),
+   'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+   'DOM.resolveNode':()=>({object}),
+   'DOMDebugger.getEventListeners':()=>{throw new Error('Must not inspect invalid object');},
+  });
+  const got=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>s});
+  assert.equal(got.status,'unknown');
+  assert.equal(got.listenerCount,null);
+  assert.deepEqual(s.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode']);
+ }
+});
