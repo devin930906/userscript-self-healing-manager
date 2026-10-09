@@ -42,7 +42,7 @@ declare global {interface Window{ussm:{
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
  discardSiteAdapterPreview:(input:{previewId:string})=>Promise<{discarded:boolean}>;
- inspectSiteAdapterRole:(input:{siteId:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>Promise<RoleDomResult>;
+ inspectSiteAdapterRole:(input:{siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>Promise<RoleDomResult>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -186,7 +186,7 @@ function App(){
   setAdapterRoleBusy(true);setAdapterRoleCheck(null);setError('');
   try{
    const receipt=await window.ussm.inspectSiteAdapterRole({
-    siteId:selectedAdapter.siteId,roleId:adapterSelectedRoleId,
+    siteId:selectedAdapter.siteId,expectedSha256:selectedAdapter.sha256,roleId:adapterSelectedRoleId,
     declaredStateId:adapterDeclaredStateId,targetId,approved:true,
    });
    adapterRoleGeneration.current.commit(token,()=>setAdapterRoleCheck(receipt));
