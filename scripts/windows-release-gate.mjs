@@ -10,7 +10,7 @@
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {createReadStream} from 'node:fs';
-import {open,readdir,stat,writeFile} from 'node:fs/promises';
+import {open,readdir,readFile,stat,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -113,6 +113,14 @@ export function validateWindowsReleaseLayout({version,artifactNames,zipEntries})
  return Object.freeze({version,artifacts:Object.freeze([...required]),zipEntryCount:items.length});
 }
 
+/** Stable artifacts must match the built application's actual package version. */
+export function assertStablePackageVersion(version,packageVersion){
+ expectedWindowsArtifacts(version);
+ if(typeof packageVersion!=='string'||packageVersion!==version)
+  throw new Error('Stable artifact version differs from package.json or contains a prerelease identifier');
+ return true;
+}
+
 async function digest(path){
  const hash=createHash('sha256');
  for await(const data of createReadStream(path))hash.update(data);
@@ -133,6 +141,8 @@ async function runFinalArtifactInventory(){
  const [version,location,...extra]=process.argv.slice(2);
  if(extra.length||!location)throw new Error('Usage: node scripts/windows-release-gate.mjs VERSION RELEASE_DIRECTORY');
  const names=expectedWindowsArtifacts(version);
+ const packageJson=JSON.parse(await readFile(fileURLToPath(new URL('../package.json',import.meta.url)),'utf8'));
+ assertStablePackageVersion(version,packageJson.version);
  const folder=resolve(location);
  const found=await readdir(folder);
  const zip=join(folder,names[2]);
