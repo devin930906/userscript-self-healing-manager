@@ -16,3 +16,14 @@ test('separate isolated Chrome debug profile requires explicit user action in UI
  assert.match(renderer,/启动隔离调试 Chrome/);
  assert.match(renderer,/不会使用原有 Chrome 的登录状态/);
 });
+
+test('Chrome launch success text requires a completed verified CDP handshake',async()=>{
+ const renderer=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ const start=renderer.split('async function startChrome()')[1]?.split('async function startIsolatedChrome()')[0]??'';
+ const isolated=renderer.split('async function startIsolatedChrome()')[1]?.split('async function checkCdp()')[0]??'';
+ assert.match(start,/await window\.ussm\.launchChrome\(\)/);
+ assert.match(isolated,/await window\.ussm\.launchIsolatedChrome\(\)/);
+ assert.match(start,/握手已验证/);
+ assert.match(isolated,/握手已验证/);
+ assert.doesNotMatch(start,/请点击检查 CDP 连接确认握手成功/);
+});
