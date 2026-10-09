@@ -201,6 +201,12 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 [Windows Development CI #37967373637](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37967373637) 与 [Node Contracts #37967379479](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37967379479) 已验证 **570/570 自动化测试**。真实 Chrome 155 CI 另外实际启动两份已持久化的独立 UUID 浏览器配置，分别完成 CDP Browser.getVersion 握手，日志为 `PASS real Chrome FR-002: two persisted, independent UUID profile directories and live CDP handshakes.`；测试不会读写用户真实浏览器资料。这只完成 FR-002 的实现，不代表真实 GM API V4、用户指定 Windows 10/便携 Chrome 构建或三个正式发行包已经通过 Stable 发布门槛。
 
+## Chrome CDP 启动失败自动回收（2026-10-10）
+
+当用户明确选择 Chrome 并请求启动调试时，程序只有在**新启动的子进程仍存活且 CDP WebSocket `Browser.getVersion` 握手通过**之后才报告成功。若进程已启动，但 Chrome 忽略调试参数、CDP 连接失败或握手超时，程序现在会尝试自动结束**本次新创建的浏览器进程树**；Windows 使用 `taskkill /PID /T /F`，最多等待 12 秒。它**不会为了清理失败启动而搜索或杀死原本运行中的其他 Chrome**。如果清理失败，将同时显示启动和清理失败的错误，而不是虚报成功。
+
+已在 [Windows CI #37969395723](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37969395723) 的真实 Chrome 155 专测中故意模拟“启动后 CDP 验证失败”：实际验证了新进程树和 CDP 9237 端口释放，且已有的 Chrome 9223 实例保持连接。对应 [Node Contracts #37969395629](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37969395629) **576/576 PASS**。这些只是开发阶段测试，尚不是用户 Windows 10 + 指定便携 Chrome 包、真实 Tampermonkey/GM API、三正式发行包的 Stable 验收。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
