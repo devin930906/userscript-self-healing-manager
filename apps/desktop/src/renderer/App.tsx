@@ -16,7 +16,7 @@ import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
-import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/workflow.ts';
+import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 
@@ -43,6 +43,7 @@ declare global {interface Window{ussm:{
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
  discardSiteAdapterPreview:(input:{previewId:string})=>Promise<{discarded:boolean}>;
  inspectSiteAdapterRole:(input:{siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>Promise<RoleDomResult>;
+ suggestSiteAdapterRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;approved:true})=>Promise<AdapterScopedRepairsResult>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -65,6 +66,9 @@ function App(){
  const [adapterRoleCheck,setAdapterRoleCheck]=useState<RoleDomResult|null>(null);
  const [adapterRoleBusy,setAdapterRoleBusy]=useState(false);
  const adapterRoleGeneration=useRef(new LatestRequestGate());
+ const [adapterRepairCandidates,setAdapterRepairCandidates]=useState<AdapterScopedRepairsResult|null>(null);
+ const [adapterRepairBusy,setAdapterRepairBusy]=useState(false);
+ const adapterRepairGeneration=useRef(new LatestRequestGate());
  const [diagnosisHistory,setDiagnosisHistory]=useState<JournalRun[]|null>(null);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
@@ -108,6 +112,7 @@ function App(){
  const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
  const selectedAdapter=adapterLibrary?.find(a=>a.siteId===adapterSelectedSiteId)??null;
  useEffect(()=>{adapterRoleGeneration.current.invalidate();setAdapterRoleCheck(null);setAdapterRoleBusy(false);},[targetId,adapterSelectedSiteId,adapterSelectedRoleId,adapterDeclaredStateId,adapterLibrary]);
+ useEffect(()=>{adapterRepairGeneration.current.invalidate();setAdapterRepairCandidates(null);setAdapterRepairBusy(false);},[targetId,adapterSelectedSiteId,adapterSelectedRoleId,adapterDeclaredStateId,adapterLibrary,focused,repairIndex,result]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
@@ -194,6 +199,25 @@ function App(){
    adapterRoleGeneration.current.commit(token,()=>setError('SiteAdapter 角色只读核验失败：'+String(error)));
   }finally{
    adapterRoleGeneration.current.commit(token,()=>setAdapterRoleBusy(false));
+  }
+ }
+
+ async function suggestSiteAdapterRepair(){
+  if(focused===null||!result||!selectedAdapter||!targetId||
+     !adapterSelectedRoleId||!adapterDeclaredStateId||adapterRepairBusy)return;
+  const token=adapterRepairGeneration.current.begin();
+  setAdapterRepairBusy(true);setAdapterRepairCandidates(null);setError('');setRepairProposal(null);
+  try{
+   const suggested=await window.ussm.suggestSiteAdapterRepair({
+    scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,targetId,
+    siteId:selectedAdapter.siteId,expectedSha256:selectedAdapter.sha256,
+    roleId:adapterSelectedRoleId,declaredStateId:adapterDeclaredStateId,approved:true,
+   });
+   adapterRepairGeneration.current.commit(token,()=>setAdapterRepairCandidates(suggested));
+  }catch(error){
+   adapterRepairGeneration.current.commit(token,()=>setError('SiteAdapter 限定候选检查失败：'+String(error)));
+  }finally{
+   adapterRepairGeneration.current.commit(token,()=>setAdapterRepairBusy(false));
   }
  }
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
@@ -399,14 +423,33 @@ function App(){
       </select></label>
      <button type="button" disabled={!targetId||!cdp||!selectedAdapter||!adapterSelectedRoleId||!adapterDeclaredStateId||adapterRoleBusy} onClick={()=>void inspectSiteAdapterRole()}>
       {adapterRoleBusy?'正在只读检查…':'检查 SiteAdapter 角色 DOM（只读）'}</button>
+     <button type="button" className="secondary" disabled={!result||focused===null||!targetId||!cdp||!selectedAdapter||
+      !adapterSelectedRoleId||!adapterDeclaredStateId||adapterRepairBusy||busy}
+      onClick={()=>void suggestSiteAdapterRepair()}>
+      {adapterRepairBusy?'正在核验候选…':'按 SiteAdapter 角色筛选修复候选'}
+     </button>
     </div>
-    <p className="dim">先在下方连接 Chrome 并明确选定目标网页。状态由用户声明、未经过运行时验证；仅检查顶层非 Shadow DOM 的静态 CSS，不进行点击或页面注入。</p>
+    <p className="dim">先在下方连接 Chrome 并明确选定目标网页。状态由用户声明、未经过运行时验证；可检查明确选择的顶层普通 DOM 或受限单个开放式 ShadowRoot；候选修复仅支持普通 document 作用域，不进行点击或页面注入。</p>
     {adapterRoleCheck&&<div className="notice">
      <b>角色核验结果：</b>{adapterRoleCheck.status==='matched-v1'?'当前 DOM 两次采样匹配':adapterRoleCheck.status==='absent-v1'?'当前主文档两次采样均无匹配':adapterRoleCheck.status==='needs-review'?'证据不足／需复核':'当前角色或页面上下文不支持检查'}
      <p>站点 {adapterRoleCheck.siteId} · 版本 {adapterRoleCheck.version} · 角色 {adapterRoleCheck.roleId} · DOM 证据等级 {adapterRoleCheck.evidenceLevel}</p>
      {adapterRoleCheck.matchedSelector&&<code>{adapterRoleCheck.matchedSelector}</code>}
      <p className="dim">{adapterRoleCheck.reason}；状态未经验证，不表示脚本正在运行。</p>
      <p className="dim">V2：阻断 · V3/V4：未配置 · Tampermonkey 与 GM_* 功能未验证；本操作没有修改脚本或扩展。</p>
+    </div>}
+    {adapterRepairCandidates&&<div className="notice">
+     <p><b>SiteAdapter 候选仅是 DOM 证据</b>，不会自动更新源码、激活适配器或证明业务功能正常。</p>
+     <p>角色规则：{adapterRepairCandidates.status} · 根上下文：{adapterRepairCandidates.rootScope??'未确认'} · 匹配建议 {adapterRepairCandidates.candidates.length} 项</p>
+     {adapterRepairCandidates.candidates.length===0?
+      <p className="dim">没有符合当前已审查规则、脚本定位器和网页 DOM 的候选；请复核或使用现有手动预览流程。</p>:
+      adapterRepairCandidates.candidates.map(candidate=><div className="selector" key={candidate.expression}>
+       <code>{candidate.expression}</code>
+       <small>DOM 唯一匹配 · 排序分 {candidate.confidenceScore} · 未验证 V2/V3/V4 或 Tampermonkey</small>
+       <button type="button" className="secondary" disabled={adapterRepairBusy||busy}
+        onClick={()=>{setRepairNew(candidate.expression);setRepairProposal(null);setMessage('已将 SiteAdapter 候选填入修复工作台；请审核并单独生成预览，尚未修改任何脚本。');}}>
+        采用候选并进入独立修复预览
+       </button>
+      </div>)}
     </div>}
     <p className="dim">所有兼容规则仅为候选定义，未经过真实脚本运行或功能验证。V3／V4 未配置，尚不能认定 Tampermonkey 或 GM_* 功能正常。</p>
    </section>
