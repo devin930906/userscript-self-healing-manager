@@ -94,3 +94,45 @@ test('a frame with no loader ID is not trustworthy enough for DOM evidence',asyn
   /loader|document identity/i
  );
 });
+
+test('single same-origin child document exposes bounded frame/loader identity without child URL',async()=>{
+ const socket=new (class extends EventEmitter{
+  constructor(){super();queueMicrotask(()=>this.emit('open'))}
+  addEventListener(name:string,cb:(x:any)=>void){this.on(name,cb)}
+  removeEventListener(name:string,cb:(x:any)=>void){this.off(name,cb)}
+  send(data:string){const m=JSON.parse(data);queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+   id:m.id,result:{frameTree:{frame:{id:'top',loaderId:'top-load',url:page.url},
+    childFrames:[{frame:{id:'child-a',loaderId:'child-load',url:'https://example.test/child?secret=test-value'}}]}},
+  })}))}
+  close(){this.emit('close')}
+ })();
+ const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
+ assert.equal(result.subframeCount,1);
+ assert.deepEqual(result.soleSameOriginSubframe,{frameId:'child-a',loaderId:'child-load'});
+ assert.doesNotMatch(JSON.stringify(result),/secret|child\?/);
+ assert.doesNotThrow(()=>assertStablePageDocument(result,{...result}));
+ assert.throws(()=>assertStablePageDocument(result,{
+  ...result,soleSameOriginSubframe:{frameId:'child-a',loaderId:'another-loader'},
+ }),/frame|loader|identity|navigation/i);
+});
+test('cross-origin, multiple or missing-loader subframes never receive trusted in-process child identity',async()=>{
+ const variants=[
+  [{id:'foreign',loaderId:'load',url:'https://other.test/' }],
+  [{id:'one',loaderId:'a',url:'https://example.test/a'},{id:'two',loaderId:'b',url:'https://example.test/b'}],
+  [{id:'without-loader',url:'https://example.test/a'}],
+ ];
+ for(const frames of variants){
+  const socket=new (class extends EventEmitter{
+   constructor(){super();queueMicrotask(()=>this.emit('open'))}
+   addEventListener(name:string,cb:(x:any)=>void){this.on(name,cb)}
+   removeEventListener(name:string,cb:(x:any)=>void){this.off(name,cb)}
+   send(data:string){const m=JSON.parse(data);queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+    id:m.id,result:{frameTree:{frame:{id:'top',loaderId:'top-load',url:page.url},
+     childFrames:frames.map(frame=>({frame}))}},
+   })}))}
+   close(){this.emit('close')}
+  })();
+  const got=await confirmPageIdentity(page,{socketFactory:()=>socket});
+  assert.equal(got.soleSameOriginSubframe,undefined);
+ }
+});
