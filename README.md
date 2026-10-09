@@ -46,6 +46,8 @@
 
 - **V0–V4 验证等级防误报（开发分支）**：JSON 静态报告升级为 `schemaVersion: 2`，逐脚本明确 `V0–V4` 状态。仅 AST 解析通过最高为 V0；真实只读 CDP 定位器检查符合强制计数条件时最高为 V1。V2 仍为 `blocked`，V3、V4 在尚无安全功能契约和真实 Tampermonkey 验证前为 `not-configured`；界面批量诊断也会显示对应等级。没有证明脚本已经运行或恢复业务功能。
 
+- **批量诊断暂停／继续（开发分支新增）**：在每批 25 份脚本的只读检查之间可点击「暂停后续检查」或「继续检查」，暂停不会截断已发出的 CDP 请求。取消会解除等待并终止未来批次；切换网页或重扫立即撤销旧请求令牌。快速「继续→再次暂停」已加入竞争回归，仍按页面 Frame/Loader 与扫描版本保护结果。该功能不代表后台常驻任务队列、跨重启恢复或业务功能修复。
+
 **尚未实现：** Tampermonkey 真正注入/GM_* 与 V3/V4 功能回归、DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。当前开发分支的候选定位器仅支持当前 document 中的 `document.querySelector`、`document.getElementById`、`document.getElementsByName` 和 `document.getElementsByClassName` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
