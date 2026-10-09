@@ -22,7 +22,7 @@ const adapter=parseSiteAdapter({
 const identity={targetId:target.id,confirmedUrl:target.url,frameId:'main',loaderId:'load-1',subframeCount:0};
 const status=(entries:Record<string,number>)=>({
  targetId:target.id,url:target.url,validationLevel:'dom-only' as const,
- checks:Object.entries(entries).map(([expression,matchCount])=>({method:'querySelectorAll',expression,matchCount,status:matchCount===0?'missing':'found'})),
+ checks:Object.entries(entries).map(([expression,matchCount])=>({method:'querySelectorAll',expression,matchCount,status:matchCount===0?'missing':'found',...(matchCount===1?{nodeFingerprint:'a'.repeat(64)}:{})})),
 });
 const makeDeps=(first:number[],second=first)=>({
  confirm:async()=>identity,
@@ -87,4 +87,29 @@ test('top-document zero matches cannot claim failure if iframe or ShadowRoot exi
  assert.equal((await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',declaredStateId:'ready',deps:missingContext})).status,'needs-review');
  const plain=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',declaredStateId:'ready',deps:makeDeps([0,0])});
  assert.equal(plain.status,'absent-v1');assert.equal(plain.functionalVerified,false);
+});
+
+test('stable match count with replaced backend node identity must not certify SiteAdapter V1',async()=>{
+ let probeCount=0;
+ const deps={...makeDeps([1,0]),probe:async(_t:ChromeTarget,locators:readonly LiteralLocator[]):Promise<LocatorProbeResult>=>{
+  probeCount++;
+  const reply=status(Object.fromEntries(locators.map((x,i)=>[x.expression,i===0?1:0])));
+  return {...reply,checks:reply.checks.map((item,i)=>i===0?{...item,nodeFingerprint:(probeCount===1?'a':'b').repeat(64)}:item)} as LocatorProbeResult;
+ }};
+ const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',declaredStateId:'ready',deps});
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.evidenceLevel,'none');
+ assert.equal(result.matchedSelector,null);
+ assert.equal(result.functionalVerified,false);
+ assert.equal(probeCount,2);
+});
+test('missing, malformed and unverified backend identity never certify matched V1',async()=>{
+ for(const nodeFingerprint of [undefined,'short','0'.repeat(64).toUpperCase()]){
+  const deps={...makeDeps([1,0]),probe:async(_t:ChromeTarget,locators:readonly LiteralLocator[]):Promise<LocatorProbeResult>=>{
+   const reply=status(Object.fromEntries(locators.map((x,i)=>[x.expression,i===0?1:0])));
+   return {...reply,checks:reply.checks.map((item,i)=>i===0?{...item,nodeFingerprint}:item)} as LocatorProbeResult;
+  }};
+  const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',declaredStateId:'ready',deps});
+  assert.equal(result.status,'needs-review');
+ }
 });
