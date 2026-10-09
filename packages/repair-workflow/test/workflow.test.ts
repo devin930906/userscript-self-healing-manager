@@ -227,3 +227,17 @@ test('guarded apply reads the predecessor identity from Main-owned pending draft
  await flow.apply({proposalId:proposal.proposalId,approved:true});
  assert.equal(flow.inspectPending(proposal.proposalId),null,'applied proposal must no longer grant stale approval metadata');
 }));
+
+test('automatic rollback must not overwrite another already approved managed revision',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const firstProposal=await flow.propose({sourcePath,scriptId:'script01',oldSelector:'#old',newSelector:'#first'});
+ const first=await flow.apply({proposalId:firstProposal.proposalId,approved:true});
+ const secondProposal=await flow.propose({sourcePath,scriptId:'script01',oldSelector:'#first',newSelector:'#second'});
+ const second=await flow.apply({proposalId:secondProposal.proposalId,approved:true});
+ const {createHash}=await import('node:crypto');
+ const before=createHash('sha256').update(await readFile(join(managedRoot,'managed','script01','current.user.js'))).digest('hex');
+ assert.equal(before,second.hash);
+ await assert.rejects(flow.restore({scriptId:'script01',hash:firstProposal.baseHash,
+  approved:true,expectedCurrentHash:first.hash}),/current|concurrent|stale|changed|hash/i);
+ assert.equal(createHash('sha256').update(await readFile(join(managedRoot,'managed','script01','current.user.js'))).digest('hex'),second.hash);
+}));
