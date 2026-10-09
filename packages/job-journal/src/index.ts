@@ -156,6 +156,10 @@ export function openDiagnosisJournal(file:string){
    }catch(error){db.exec('ROLLBACK');throw error;}
    return asRun(getRun.get(runId!));
   },
+  interruptRunning():void{
+   db.prepare("UPDATE journal_runs SET status='interrupted',updated_at=? WHERE status='running'")
+    .run(new Date().toISOString());
+  },
   currentRunId({scanId,targetId}:{scanId:string;targetId:string}):string|null{
    const row=active.get(keyOf(scanId,targetId)) as {runId:string}|undefined;
    return row?.runId??null;
