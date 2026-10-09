@@ -68,3 +68,20 @@ test('managed patch supports literal getElementsByName and getElementsByClassNam
   assert.equal(draft.baseHash,sha(bytes));
  }
 });
+
+test('patch generator refuses a pre-existing JavaScript parse error instead of offering a misleading preview',()=>{
+ const malformed='const broken = ;\ndocument.querySelector("#old");\n';
+ const original=new TextEncoder().encode(malformed);
+ assert.throws(()=>proposeLiteralPatch({sourceBytes:original,oldSelector:'#old',newSelector:'#new'}),
+  /syntax|parse|invalid|malformed/i);
+ assert.equal(new TextDecoder().decode(original),malformed);
+});
+test('valid userscript headers and modern JavaScript syntax remain patchable',()=>{
+ const source='// ==UserScript==\n// @name Smoke\n// ==/UserScript==\n'+
+  'const send=()=>document.querySelector("#old");\n';
+ const original=new TextEncoder().encode(source);
+ const draft=proposeLiteralPatch({sourceBytes:original,oldSelector:'#old',newSelector:'#new'});
+ assert.match(draft.proposedSource,/document\.querySelector\("#new"\)/);
+ assert.match(draft.proposedSource,/\/\/ @name Smoke/);
+ assert.equal(new TextDecoder().decode(original),source);
+});
