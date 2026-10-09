@@ -644,3 +644,15 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **修复：** 在 `applyManagedPatch` 授权检查与 scriptId 检查之后立即校验 `baseRevisionKind==='original'||baseRevisionKind==='revision'`，任何其他运行时值必须抛出错误，不能进入由 `join(managedRoot,'managed',scriptId,...)` 构造的不可变备份路径。该防护和上一轮的完整重新生成补丁内容验证是两条独立 fail-closed 防线。
 - **源码 GREEN：** [Windows Development CI #37930376389](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37930376389) **419 tests / 419 pass / 0 fail**，TypeScript 严格检查、Electron 构建、Windows GUI/SQLite 和真实隔离 Chrome CDP smoke SUCCESS；[Node Contracts #37930376278](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37930376278) SUCCESS。
 - **最终 Stable 未完成：** 本轮未进行真实 Tampermonkey/GM_* V4、真实交互 V2/业务 V3、复杂网页全自动自愈、用户 Windows10 + 便携 Chrome155、Setup EXE/Portable EXE/完整 ZIP 真实打包运行/更新/回滚或完整 RG 证据。版本继续 alpha、PR #2 Draft，不合并 main、不制作中途安装包、不提前发布 Stable。
+
+
+## 2026-10-09 · 已固定文件句柄的分块读取上限及 Chrome 偏好读入防竞态（421 项）
+
+- **失效模型 A（受管用户脚本）：** `readPinnedRegularFile` 在 lstat/fstat 验证文件大小之后使用 `FileHandle.readFile()`。若外部进程在验证后、读取中将文件增长为非常大，`readFile()` 会先分配/读取整份内容，再执行 `bytes.length>maxBytes` 检查，造成批准的最多 512 KiB 数据预算在 I/O 分配阶段失效。此安全边界在归档、修订、导出、回滚等共享读取路径上重复使用。
+- **TDD RED A：** 新建 `packages/runtime-paths/test/pinned-read-budget.test.ts`，强制禁止未限额的句柄 whole-file read，验证合法恰好 64 KiB 可原样读取、超额文件拒绝。旧码 [Node Contracts #37931441770](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37931441770) **420 tests / 419 pass / 1 fail（预期 RED）**。
+- **修复 A：** 使用固定不超过 64 KiB 的 `FileHandle.read` 分块，始终只读取 `maxBytes+1` 字节以内；一旦超限立即拒绝，不再执行无限制的 whole-file read。保留现有 fd 前后 fstat、路径 lstat、Unix `O_NOFOLLOW`、Windows 限制说明、文件 SHA-256 消费者验证和原件不覆盖策略。最终 [Windows Development CI #37931615979](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37931615979) **420/420 PASS**。
+- **失效模型 B（已保存的便携 Chrome 路径）：** `loadPreferredChromePath` 对 `preferred-chrome.json` 先 `lstat` 确认 4 KiB/非符号链接，再直接 `readFile(config,'utf8')`；该路径重新解析、且读取无限制，可能在文件被交换或突然增长时读取意外内容、内存超限或破坏可选配置载入。
+- **TDD RED B：** `packages/cdp-client/test/preferred-chrome.test.ts` 添加调用方必须使用 pinned reader 的保护回归，验证普通路径记忆与 4097 字节损坏配置变为无选择。旧版 [Node Contracts #37931911157](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37931911157) **421 tests / 420 pass / 1 fail（预期 RED）**。
+- **修复 B：** 偏好配置由 `readPinnedRegularFile(config,{maxBytes:4096})` 固定句柄读入；在读取/解析异常时 fail-closed 返回 `null`，不因可选 Chrome 选择损坏而阻止启动，更不会自动运行配置中的程序。
+- **最终 GREEN：** [Windows Development CI #37932022968](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37932022968) **421 tests / 421 pass / 0 fail**；严格 TypeScript、Electron 构建、Windows GUI/SQLite、真实 Chrome CDP smoke 全部 SUCCESS；[Node Contracts #37932022876](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37932022876) SUCCESS。没有运行未知用户脚本、触发破坏性网页动作或生成预览安装包。
+- **发版判断：** 这两项属于受管文件和可选配置的安全读取加固，不等同于真实油猴管理器内 `GM_*` 运行、V2 安全交互、V3 业务契约、用户 Windows 10 + 指定便携 Chrome 155 或最终 Setup/Portable/ZIP 三包逐一验证。维持 Alpha、PR #2 Draft，不合并 main、不打 Stable tag、不制作任何中途安装包。
