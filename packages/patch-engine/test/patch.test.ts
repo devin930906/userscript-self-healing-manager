@@ -136,3 +136,22 @@ test('approved managed patch still supports an explicitly selected duplicate AST
    '\ufeffdocument.querySelector("#old");\ndocument.querySelector("#new");\n');
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('managed patch rejects runtime-forged base revision kind before any backup path escapes managed root',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-unsafe-revision-kind-'));
+ try{
+  const sourcePath=join(root,'input.user.js'),managedRoot=join(root,'Data');
+  const bytes=Buffer.from('document.querySelector("#old");');
+  await writeFile(sourcePath,bytes);
+  const draft=proposeLiteralPatch({sourceBytes:bytes,oldSelector:'#old',newSelector:'#new'});
+  for(const badKind of ['../../../escaped','..\\..\\escaped','original/../../escaped','','ORIGINAL']){
+   await assert.rejects(applyManagedPatch({
+    sourcePath,managedRoot,scriptId:'guarded',draft,expectedHash:draft.baseHash,approved:true,
+    baseRevisionKind:badKind as 'original',
+   }),/revision|kind|invalid|unsafe/i,badKind);
+  }
+  assert.deepEqual(await readFile(sourcePath),bytes);
+  await assert.rejects(readFile(join(root,'escaped-'+draft.baseHash+'.user.js')),{code:'ENOENT'});
+  await assert.rejects(readFile(join(managedRoot,'managed','guarded','current.user.js')),{code:'ENOENT'});
+ }finally{await rm(root,{recursive:true,force:true});}
+});
