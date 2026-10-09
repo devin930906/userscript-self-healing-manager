@@ -33,3 +33,13 @@ test('batch diagnosis visibly separates DOM-only V1 from unconfigured V3/V4',()=
  assert.match(ui,/V1/);
  assert.match(ui,/V3\/V4/);
 });
+
+test('batch UI provides pause, resume and cancellation that releases a paused waiter',()=>{
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(ui,/BatchPauseGate/);
+ assert.match(ui,/暂停后续检查/);
+ assert.match(ui,/继续检查/);
+ assert.match(ui,/pauseGate:gate/);
+ assert.match(ui,/batchPauseGate\.current\?\.cancel\(\)/);
+ assert.match(ui,/setBatchPaused\(false\)/);
+});
