@@ -2,7 +2,14 @@ import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
 
-export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number}
+export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number;frameId?:string;loaderId?:string}
+/** A URL can stay identical across reloads. Retain main-frame + document loader identity
+ * for the duration of one read-only operation; never expose this token in UI reports. */
+export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
+ if(before.targetId!==after.targetId||before.confirmedUrl!==after.confirmedUrl||
+    before.frameId!==after.frameId||before.loaderId!==after.loaderId)
+  throw new Error('CDP main-frame document identity changed during inspection (same-URL navigation or reload)');
+}
 
 /**
  * Validate the live top-level frame rather than trusting a potentially stale
@@ -59,9 +66,14 @@ export async function confirmPageIdentity(
       queue.push(...node.childFrames);
      }
     }
-    complete(undefined,nestedFrames>0?
-     {targetId:target.id,confirmedUrl:url,subframeCount:nestedFrames}:
-     {targetId:target.id,confirmedUrl:url});
+    const topFrame=frameTree.frame as {id:string;loaderId?:unknown};
+    const frameId=topFrame.id;
+    const loaderId=topFrame.loaderId;
+    if(frameId.length>256||(loaderId!==undefined&&(typeof loaderId!=='string'||!loaderId||loaderId.length>256)))
+     throw new Error('Invalid main-frame document identity token');
+    complete(undefined,{targetId:target.id,confirmedUrl:url,frameId,
+     ...(typeof loaderId==='string'?{loaderId}:{}),
+     ...(nestedFrames>0?{subframeCount:nestedFrames}:{})});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP frame tree'));}
   };
   const onError=()=>complete(new Error('CDP page identity socket error'));
