@@ -84,3 +84,20 @@ test('an unbounded selector match list fails closed instead of accepting false c
  });
  await assert.rejects(probePageLocators(page,[{method:'querySelectorAll',expression:'*',runtimeRequired:false}],{socketFactory:()=>socket}),/count|limit/i);
 });
+
+test('duplicate document replies cannot enqueue another locator query or certify evidence',async()=>{
+ class DuplicateRootSocket extends ProtocolSocket {
+  override send(raw:string){
+   super.send(raw);
+   const request=JSON.parse(raw);
+   if(request.method==='DOM.getDocument')
+    queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:request.id,result:{root:{nodeId:8}}})}));
+  }
+ }
+ const socket=new DuplicateRootSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[31]}),
+ });
+ await assert.rejects(probePageLocators(page,[{method:'querySelector',expression:'#save',runtimeRequired:false}],{socketFactory:()=>socket}),/duplicate.*document/i);
+ assert.equal(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').length,1);
+});
