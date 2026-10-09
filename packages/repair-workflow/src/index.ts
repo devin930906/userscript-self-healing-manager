@@ -89,6 +89,18 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
     updatedLocation={method:active.method,line:active.sourceRange.start.line,column:active.sourceRange.start.column};
    }
    const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation:updatedLocation});
+   // A long AST/disk preparation must not publish a preview based on source or
+   // managed bytes that were modified by another process while preparing it.
+   const sourceNow=await lstat(sourcePath);
+   if(!sourceNow.isFile()||sourceNow.isSymbolicLink()||
+      sha(await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:sourceNow}))!==originalHash)
+    throw new Error('Original userscript changed during proposal preparation');
+   if(workingPath!==sourcePath){
+    const activeNow=await lstat(workingPath);
+    if(!activeNow.isFile()||activeNow.isSymbolicLink()||
+       sha(await readPinnedRegularFile(workingPath,{maxBytes:512*1024,expected:activeNow}))!==draft.baseHash)
+     throw new Error('Managed revision changed during proposal preparation');
+   }
    // Proposing awaited disk/AST work; a same-script apply or rollback could
    // have started while this proposal was being computed.
    if(applying.has(scriptId)||invalidationEpoch!==startedInvalidationEpoch||
