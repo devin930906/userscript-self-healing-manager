@@ -63,3 +63,21 @@ test('release contract rejects invalid versions, suspicious archive entry counts
  assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries:[]}),/ZIP|archive|empty|content/i);
  assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries:[...good.zipEntries,'userscript-self-healing-manager-Portable-1.0.0-win-x64.exe']}),/portable|ZIP/i);
 });
+
+test('Windows ZIP inventory rejects NTFS alternate streams and reserved DOS device paths',()=>{
+ for(const entry of [
+  'resources/app.asar:evil',
+  'resources/a.txt:private:$DATA',
+  'CON',
+  'NUL.txt',
+  'resources/AUX.dll',
+  'resources/LPT1.log',
+  'resources/COM9.txt',
+  'folder/trailing.',
+  'folder/trailing ',
+  'Userscript-Self-Healing-Manager-Setup-1.0.0-win-x64.exe',
+ ]){
+  assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries:[...good.zipEntries,entry]}),
+   /unsafe|private|device|windows|path|zip|forbidden|portable|installer|stream/i,entry);
+ }
+});
