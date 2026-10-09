@@ -22,6 +22,8 @@ export interface ReadOnlyDomContractDeps {
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  probe:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
  wait:()=>Promise<void>;
+ /** Read-only snapshot of author Shadow Roots, never DOM text or arbitrary JS. */
+ summarize?:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
 function readCount(evidence:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):number|null{
  if(evidence.targetId!==target.id||evidence.url!==target.url||
@@ -63,9 +65,11 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
  const baseline=await deps.confirm(target);
  if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
   !baseline.frameId||!baseline.loaderId)throw new Error('Unverified CDP document identity');
+ let nestedFramesSeen=(baseline.subframeCount??0)>0;
  const guard=async()=>{
   const confirmed=await deps.confirm(target);
   assertStablePageDocument(baseline,confirmed);
+  if((confirmed.subframeCount??0)>0)nestedFramesSeen=true;
  };
  let first:number|null=null;
  for(let attempt=1;attempt<=2;attempt++){
@@ -88,9 +92,33 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
   }else{
    if(first!==count)return build('needs-review','DOM match count was unstable between samples',null,2);
    const passed=expectation==='exists'?count>0:count===1;
+   if(!passed&&count===0){
+    // A top-document miss is not evidence that a userscript fails when
+    // its target may be inside an iframe or an author ShadowRoot. Missing
+    // context evidence also fails closed rather than certifying absence.
+    let roots:'absent'|'present'|'unknown'='unknown';
+    if(deps.summarize){
+     try{
+      const evidence=await deps.summarize(target);
+      await guard();
+      if(evidence.targetId===target.id&&evidence.url===target.url&&
+         Number.isSafeInteger(evidence.authorShadowTreeNodes)&&
+         evidence.authorShadowTreeNodes>=0&&evidence.authorShadowTreeNodes<=200000)
+       roots=evidence.authorShadowTreeNodes>0?'present':'absent';
+     }catch{await guard();}
+    }
+    if(nestedFramesSeen||roots!=='absent'){
+     const reasons=[
+      nestedFramesSeen?'iframe contexts were not inspected':null,
+      roots==='present'?'Author Shadow DOM may contain the locator':null,
+      roots==='unknown'?'Shadow DOM context cannot be verified':null,
+     ].filter(Boolean);
+     return build('needs-review',reasons.join('; '),null,2);
+    }
+   }
    return build(passed?'passed':'failed',
     passed?'Named read-only DOM assertion matched twice':
-     count===0?'Locator was absent in both DOM observations':'Unique locator matched multiple elements',
+     count===0?'Locator was absent in both confirmed top-document observations':'Unique locator matched multiple elements',
     count,2);
   }
  }
