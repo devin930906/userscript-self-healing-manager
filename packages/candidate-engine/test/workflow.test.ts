@@ -99,3 +99,30 @@ test('adapter-scoped candidate search never starts CDP for wrong origin or unres
  assert.equal(nested.status,'blocked-context');
  assert.equal(calls,0);
 });
+
+test('shadow-scoped SiteAdapter roles never reuse top-document candidate evidence',async()=>{
+ const {parseSiteAdapter}=await import('../src/site-adapter.ts');
+ const {suggestAdapterScopedRepairs}=await import('../src/workflow.ts');
+ const adapter=parseSiteAdapter({
+  schemaVersion:1,siteId:'sample',version:'1.0.0',urlPatterns:['https://example.org/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.shadowButton':{
+   contexts:[{stateId:'ready',frame:'top',shadow:'open'}],
+   strategies:[{kind:'css',selector:'[data-testid="save-button"]',weight:100}],
+   cardinality:{min:1,max:1},assertions:['unique'],
+  }},validationCases:['SAVE_SHADOW'],
+ });
+ let cdpcalls=0;
+ const blockedDeps={
+  probe:async()=>{cdpcalls++;throw Error('No top-document probe for a shadow-scoped role');},
+  capture:async()=>{cdpcalls++;throw Error('No top-document snapshot for a shadow-scoped role');},
+ };
+ const result=await suggestAdapterScopedRepairs({
+  target,locator,adapter,roleId:'chat.shadowButton',observedStateId:'ready',deps:blockedDeps,
+ });
+ assert.equal(result.rootScope,'open-shadow');
+ assert.deepEqual(result.candidates,[]);
+ assert.equal(result.functionalVerified,false);
+ assert.equal(result.managerVerified,false);
+ assert.equal(cdpcalls,0);
+});
