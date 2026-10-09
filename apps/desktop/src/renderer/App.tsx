@@ -20,9 +20,19 @@ import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../pac
 import type {VerifiedPreviewResult} from '../../../../packages/repair-workflow/src/verified-preview.ts';
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
+import type {ManagedIntegrityReport,ManagedHealthStatus} from '../../../../packages/repair-workflow/src/managed-health.ts';
 
 import type {AdapterLibraryEntry} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 type SiteAdapterPreview={previewId:string;siteId:string;version:string;roleCount:number;stateCount:number;urlPatterns:readonly string[];sourceHash:string};
+const managedHealthDescription:Record<ManagedHealthStatus,string>={
+ healthy:'活动修订与经 SHA-256 校验的不可变归档一致',
+ empty:'未找到受管修订记录',
+ 'missing-current':'已有完整归档，但当前受管修订缺失',
+ 'unarchived-current':'当前受管文件不属于任何有效归档，可能遭到外部修改',
+ 'damaged-archive':'不可变修订归档校验失败，不能进行自动恢复',
+ 'write-locked':'受管写入锁存在：可能仍有其他进程正在写入，也可能是崩溃遗留',
+ unsafe:'受管目录或文件安全验证失败，请保留原始资料排查',
+};
 
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
@@ -39,6 +49,7 @@ declare global {interface Window{ussm:{
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string}>;
+ inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
@@ -109,6 +120,7 @@ function App(){
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
+ const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+String(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
@@ -158,7 +170,7 @@ function App(){
   setPaths(old=>[...new Set([...old,...allowed])]);
   setError('');setMessage('已接收 '+allowed.length+' 个系统拖放的脚本文件');
  }),[]);
- async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function stageSiteAdapterImport(){
@@ -410,6 +422,12 @@ function App(){
   }catch(error){setError('受管修订 V1 检查失败：'+String(error));}
   finally{setBusy(false);}
  }
+ async function inspectManagedHealth(){if(focused===null||!result||busy)return;
+  setBusy(true);setError('');setManagedHealth(null);
+  try{setManagedHealth(await window.ussm.inspectManagedIntegrity({scanId:result.scanId,itemIndex:focused}));}
+  catch(error){setError('检查受管资料完整性失败：'+String(error));}
+  finally{setBusy(false);}
+ }
  async function showManagedHistory(){if(focused===null||!result)return;
   setBusy(true);setError('');
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
@@ -545,7 +563,7 @@ function App(){
    </section>
    {(error||message)&&<div role="status" className={'notice '+(error?'error':'')}>{error||message}</div>}
    <section className="panel"><div className="panel-head"><div><h2>静态诊断结果</h2><p>每个脚本独立显示解析状态与需要运行时确认的定位器。</p></div><div className="actions small"><button disabled={!result} className="secondary" onClick={()=>void exportReport('json')}>导出 JSON</button><button disabled={!result} className="secondary" onClick={()=>void exportReport('markdown')}>导出 Markdown</button></div></div>
-   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
+   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
    </section>
    {details&&<section className="panel"><div className="panel-head"><div><h2>{nameOf(details.path)} · Selector 清单</h2><p>先选目标网页，再点击授权核验；不代表油猴脚本功能通过。</p></div><button className="secondary" onClick={()=>{setFocused(null);setPageProbe(null);}}>关闭</button></div>
    {details.analysis?.managerApiCalls?.length ? <div className="notice">
@@ -613,7 +631,9 @@ function App(){
     {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button><button disabled={busy||!targetId||focused===null} onClick={()=>void applyRepairGuarded()}>保存并自动 V1 复核，失败恢复上一修订</button><p className="dim">仅对受管脚本 current.user.js 生效，不部署到油猴或修改原件。V2/V3/V4 未验证。</p></div>}
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p><button type="button" className="secondary" disabled={busy||!targetId||focused!==repairApplied.itemIndex} onClick={()=>void verifyManagedDom()}>只读复核受管修订 V1</button><p className="dim">检查受管 current.user.js 的真实归档哈希与 Chrome DOM 双采样。V2/V3/V4 未验证，不会执行用户脚本、点击网页或自动部署。</p></div>}
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
+     <button className="secondary" type="button" disabled={busy} onClick={()=>void inspectManagedHealth()}>检查受管资料完整性</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
+     {managedHealth&&<p className={managedHealth.status==='healthy'?'dim':'warn'}>完整性检查：{managedHealthDescription[managedHealth.status]} · 归档 {managedHealth.archiveCount} 份{managedHealth.activeHash?' · 已验证当前 SHA256 '+managedHealth.activeHash.slice(0,16)+'…':''}。这是只读检查；不会自动删除锁、覆盖修订或恢复文件。</p>
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
      {managedActive&&<p className="dim">当前受管副本：<code>{managedActive.activePath}</code> · SHA256 {managedActive.hash.slice(0,12)}…</p>}
