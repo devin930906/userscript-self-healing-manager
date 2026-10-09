@@ -33,7 +33,15 @@ function readCount(evidence:LocatorProbeResult,target:ChromeTarget,locator:Liter
  if(!check||check.method!==locator.method||check.expression!==locator.expression)return null;
  if(check.status==='missing'&&check.matchCount===0)return 0;
  if((check.status==='found'||check.status==='ambiguous')&&Number.isSafeInteger(check.matchCount)&&
-    check.matchCount!==null&&check.matchCount>0&&check.matchCount<=5000)return check.matchCount;
+    check.matchCount!==null&&check.matchCount>0&&check.matchCount<=5000){
+  // One-element DOM APIs cannot return multiple nodes. Likewise, an
+  // "ambiguous" status with exactly one node is contradictory evidence;
+  // fail closed instead of certifying V1 from an impossible CDP response.
+  if((locator.method==='querySelector'||locator.method==='getElementById')&&
+     check.matchCount!==1)return null;
+  if(check.status==='ambiguous'&&check.matchCount===1)return null;
+  return check.matchCount;
+ }
  return null;
 }
 /** A unique count does not identify the same element across two CDP sessions.
