@@ -188,3 +188,21 @@ test('an old repair preview cannot be applied after its scan is invalidated',asy
  await assert.rejects(flow.apply({proposalId:old.proposalId,approved:true}),/not found|stale|invalid/i);
  assert.match(await readFile(sourcePath,'utf8'),/#old/);
 }));
+
+
+test('restore cannot race an in-progress repair approval and may proceed after it completes',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const sourceBefore=await readFile(sourcePath);
+ const first=await flow.propose({sourcePath,scriptId:'restore-race',oldSelector:'#old',newSelector:'#fixed'});
+ const applying=flow.apply({proposalId:first.proposalId,approved:true});
+ // apply takes the per-script write lock before its first async filesystem operation.
+ // A rollback racing with it must refuse instead of replacing current.user.js.
+ await assert.rejects(flow.restore({scriptId:'restore-race',hash:first.originalHash,approved:true}),/in progress|another|busy/i);
+ const applied=await applying;
+ assert.match(await readFile(join(managedRoot,'managed','restore-race','current.user.js'),'utf8'),/#fixed/);
+ const restored=await flow.restore({scriptId:'restore-race',hash:first.originalHash,approved:true});
+ assert.equal(restored.hash,first.originalHash);
+ assert.deepEqual(await readFile(restored.activePath),sourceBefore);
+ assert.deepEqual(await readFile(sourcePath),sourceBefore,'the original must never be overwritten');
+ assert.match(await readFile(applied.managedPath,'utf8'),/#fixed/,'the approved archived revision must remain recoverable');
+}));
