@@ -21,8 +21,6 @@ win:
       arch: [x64]
     - target: portable
       arch: [x64]
-    - target: zip
-      arch: [x64]
 nsis:
   oneClick: false
   perMachine: false
