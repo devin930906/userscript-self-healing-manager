@@ -102,6 +102,8 @@ test('malformed remote DOM objects never enter event-listener inspection',async(
   {type:'function',objectId:'remote-1'},
   {type:'object',objectId:''},
   {type:'object',objectId:'remote-1',subtype:'null'},
+  {type:'object',objectId:'remote-1',subtype:'array'},
+  {type:'object',objectId:'remote-1',subtype:'date'},
  ]){
   const s=new FakeSocket({
    'DOM.getDocument':()=>({root:{nodeId:3}}),
