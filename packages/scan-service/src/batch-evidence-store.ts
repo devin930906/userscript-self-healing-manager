@@ -12,6 +12,9 @@ export class BatchEvidenceStore {
   total:number;items:BatchDomItem[];observedAt:string;
  }|null=null;
  clear():void{this.active=null;this.revisionNumber++;}
+ invalidateIfCurrent({scanId,targetId}:{scanId:string;targetId:string}):void{
+  if(this.active?.scanId===scanId&&this.active.targetId===targetId)this.clear();
+ }
  record({scanId,targetId,total,offset,page}:{
   scanId:string;targetId:string;total:number;offset:number;page:PaginatedDomPage;
  }):void{
