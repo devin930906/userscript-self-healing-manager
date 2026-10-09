@@ -32,6 +32,10 @@ function normalizedZipEntry(entry){
  if(typeof entry!=='string'||entry.length===0||entry.length>1024||/[\x00-\x1f\x7f]/.test(entry))
   throw new Error('Unsafe ZIP entry name or length');
  const name=entry.replace(/\\/g,'/').replace(/\/$/,'');
+ // Reject Unicode compatibility spellings that Win32 tooling may normalize
+ // into reserved devices or create colliding extraction destinations.
+ if(name.normalize('NFKC')!==name)
+  throw new Error('Unsafe Unicode-normalized Windows ZIP path');
  if(!name||name.startsWith('/')||/^[a-z]:/i.test(name)||
    name.split('/').some(segment=>!segment||segment==='.'||segment==='..'))
   throw new Error('Unsafe ZIP path traversal or absolute path');
