@@ -453,3 +453,10 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 ### Release decision
 
 两个切片减少了错误 DOM 证据和误报，不构成真实 Tampermonkey 注入/GM_* 兼容性、V3 业务功能合约、V4 插件运行、用户 Windows10 + 便携 Chrome 155 实机或 RG-01…09 已完成的证明。**仍为 Draft，不合并 main、不标 Stable、不生成中途预览安装包。**
+
+## 2026-10-09 · Chrome 远程调试发现入口的流式有界读取（317 项）
+
+- **RED:** [Node contracts #37905313665](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37905313665) 实测旧 `getChromeStatus()` 对 `/json/version`、`/json/list` 的大 JSON 响应及超过 256 个标签页缺乏限制，新测试无法通过。
+- **GREEN:** `packages/cdp-client/src/index.ts` 把原先直接 `response.json()` 改为 `ReadableStream` 增量解码，`/json/version` 最大 64,000 bytes，`/json/list` 最大 1,000,000 bytes；如果超出预算立即取消读取，合法 JSON 才会解析。单次最多接受 256 个 debugger targets；Browser、page ID、URL 字符上限，继续沿用 localhost 及 WebSocket port/path identity 白名单。
+- **验证:** [Windows Development CI #37905377547](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37905377547) 对源码提交 `ba966bcab072097d35e4221ba883ddb67e884904` **317/317 tests PASS，TypeScript PASS，Electron build PASS，真实 Windows GUI/SQLite 与 Chrome CDP smoke PASS**；[Node contracts #37905377522](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37905377522) PASS。
+- **剩余:** 本项仅封闭本地 debugger HTTP JSON 无界读，不提供扩展/GM API 行为证据，用户 Windows10 + Chrome155 portable、V3/V4 与最终发版 RG-01…09 继续未满足。继续 Draft、未合并、无中途预览安装包。
