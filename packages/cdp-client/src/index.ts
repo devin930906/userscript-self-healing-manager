@@ -1,4 +1,4 @@
-import {spawn,type ChildProcess} from 'node:child_process';
+import {spawn,execFile,type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
 import {isAbsolute,win32} from 'node:path';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
@@ -196,6 +196,65 @@ export async function waitForChromeDebugger({
   '. Chrome may ignore debugging with the default profile; use isolated debugging Chrome. Last check: '+lastError);
 }
 
+/**
+ * Prevent a failed CDP startup from leaving a browser process open (and
+ * potentially holding its Data/Chrome-Profiles folder). Only terminate the
+ * exact child created by THIS attempt; a preexisting user's Chrome process
+ * must never be killed to "repair" debugger connectivity.
+ */
+export async function startVerifiedChromeChild({spawnChrome,handshake,terminateChrome}:{
+ spawnChrome:()=>ChildProcess;
+ handshake:(child:ChildProcess,hasExited:()=>boolean)=>Promise<void>;
+ terminateChrome:(child:ChildProcess)=>Promise<void>;
+}):Promise<ChildProcess>{
+ const child=spawnChrome();
+ let spawned=false;
+ let processError:Error|null=null;
+ // Keep this listener after successful readiness: delayed spawn/process errors
+ // must never crash the Electron main process as an unhandled error event.
+ child.on('error',(error:Error)=>{processError=error;});
+ try{
+  await new Promise<void>((resolve,reject)=>{
+   const failed=(error:Error)=>{child.off('spawn',started);reject(error);};
+   const started=()=>{child.off('error',failed);spawned=true;resolve();};
+   child.once('spawn',started);
+   child.once('error',failed);
+  });
+  if(processError)throw processError;
+  await handshake(child,()=>processError!==null||
+   child.exitCode!==null||child.signalCode!==null);
+  if(processError)throw processError;
+  if(child.exitCode!==null||child.signalCode!==null)
+   throw new Error('Selected Chrome exited immediately after CDP handshake');
+  return child;
+ }catch(error){
+  if(spawned){
+   try{await terminateChrome(child);}
+   catch(cleanupError){
+    throw new AggregateError([error,cleanupError],
+     'Chrome startup failed and the newly launched browser could not be cleaned up');
+   }
+  }
+  throw error;
+ }
+}
+async function terminateFailedChromeLaunch(child:ChildProcess):Promise<void>{
+ // Do not accidentally kill a different process after a PID is recycled.
+ if(!child.pid||child.exitCode!==null||child.signalCode!==null)return;
+ if(process.platform==='win32'){
+  // On Windows the Chrome browser process spawns subprocesses. taskkill /T
+  // terminates only this verified child tree, never other existing browsers.
+  await new Promise<void>((resolve,reject)=>{
+   execFile('taskkill',['/PID',String(child.pid),'/T','/F'],
+    {timeout:12000,windowsHide:true},error=>{
+     if(error&&child.exitCode===null&&child.signalCode===null)reject(error);
+     else resolve();
+    });
+  });
+ }else if(!child.kill('SIGTERM')){
+  throw new Error('Cannot terminate newly spawned failed Chrome process');
+ }
+}
 export async function launchSelectedChrome({executablePath,port=9223,isolatedProfileDir}:{executablePath:string;port?:number;isolatedProfileDir?:string|undefined}):Promise<ChildProcess>{
  validPort(port);if(!isAbsolute(executablePath))throw new Error('Chrome executable path must be absolute');
  const item=await lstat(executablePath);if(!item.isFile())throw new Error('Selected Chrome path is not a file');
@@ -203,18 +262,12 @@ export async function launchSelectedChrome({executablePath,port=9223,isolatedPro
  // the newly requested Chrome process.
  await assertChromeDebuggerPortFree(port);
  if(isolatedProfileDir!==undefined)await ensureWritableDataRoot(isolatedProfileDir);
- const child=spawn(executablePath,buildChromeLaunchArgs(port,{isolatedProfileDir}),{detached:false,stdio:'ignore',windowsHide:false});
- // Keep a permanent error listener so a delayed spawn/process error cannot
- // crash Electron; the handshake also checks whether the child has exited.
- let processError:Error|null=null;
- child.on('error',error=>{processError=error;});
- await new Promise<void>((resolve,reject)=>{
-  const failed=(error:Error)=>{child.off('spawn',started);reject(error);};
-  const started=()=>{child.off('error',failed);resolve();};
-  child.once('spawn',started);
-  child.once('error',failed);
+ return startVerifiedChromeChild({
+  spawnChrome:()=>spawn(executablePath,buildChromeLaunchArgs(port,{isolatedProfileDir}),
+   {detached:false,stdio:'ignore',windowsHide:false}),
+  handshake:async(_child,hasExited)=>{
+   await waitForChromeDebugger({port,hasExited});
+  },
+  terminateChrome:terminateFailedChromeLaunch,
  });
- await waitForChromeDebugger({port,hasExited:()=>
-  processError!==null||child.exitCode!==null||child.signalCode!==null});
- return child;
 }
