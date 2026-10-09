@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,writeFile,rm,mkdir,symlink} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,mkdir,symlink,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createRepairWorkflow} from '../src/index.ts';
-import {exportManagedCurrent} from '../src/export.ts';
+import {exportManagedCurrent,publishExclusiveExport} from '../src/export.ts';
 
 async function setup(){
  const root=await mkdtemp(join(tmpdir(),'usshm-export-'));
@@ -94,5 +94,56 @@ test('export still permits a genuinely outside sibling with a dot-dot-prefixed d
   const out=await exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',destinationPath:path});
   assert.equal(out.path,path);
   assert.match(await readFile(path,'utf8'),/#new/);
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+
+test('atomic managed export stages multiple chunks and makes only fully flushed, verified bytes visible',async()=>{
+ const q=await setup();
+ try{
+  const bytes=Buffer.alloc(160_000,0x43);
+  let writes=0;
+  await publishExclusiveExport({
+   destinationPath:join(q.root,'large.user.js'),bytes,
+   writeChunk:async(handle,chunk,position)=>{
+    const {bytesWritten}=await handle.write(chunk,0,chunk.length,position);
+    if(++writes===1)
+     await assert.rejects(readFile(join(q.root,'large.user.js')),{code:'ENOENT'});
+    return bytesWritten;
+   },
+  });
+  assert.ok(writes>1);
+  assert.deepEqual(await readFile(join(q.root,'large.user.js')),bytes);
+  assert.equal((await readdir(q.root)).filter(x=>x.includes('.staging-')).length,0);
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+
+test('disk failure during managed export leaves no partial final output and cleans staging',async()=>{
+ const q=await setup();
+ try{
+  let writes=0;
+  await assert.rejects(publishExclusiveExport({
+   destinationPath:q.destination,bytes:Buffer.alloc(150_000,0x51),
+   writeChunk:async(handle,chunk,position)=>{
+    if(++writes===2)throw Object.assign(new Error('simulated disk full'),{code:'ENOSPC'});
+    return (await handle.write(chunk,0,chunk.length,position)).bytesWritten;
+   },
+  }),/disk full/i);
+  assert.equal(writes,2);
+  await assert.rejects(readFile(q.destination),{code:'ENOENT'});
+  assert.equal((await readdir(q.root)).filter(x=>x.includes('.staging-')).length,0);
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+
+test('competing final output introduced after export staging cannot be overwritten',async()=>{
+ const q=await setup();
+ try{
+  let called=0;
+  await assert.rejects(publishExclusiveExport({
+   destinationPath:q.destination,bytes:Buffer.from('verified export bytes'),
+   beforePublish:async()=>{called++;await writeFile(q.destination,'competing user destination');},
+  }),/exists|overwrite/i);
+  assert.equal(called,1);
+  assert.equal(await readFile(q.destination,'utf8'),'competing user destination');
+  assert.equal((await readdir(q.root)).filter(x=>x.includes('.staging-')).length,0);
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
