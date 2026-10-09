@@ -6,6 +6,7 @@ type DesktopScanResult=ScanBatchResult&{scanId:string};
 import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {collectPagedDomDiagnosis} from '../../../../packages/scan-service/src/paginated-dom.ts';
 import {getRepairInputHint} from './repair-hints.ts';
+import {LatestRequestGate} from './latest-request-gate.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -44,7 +45,8 @@ function App(){
  const [batchRunning,setBatchRunning]=useState(false);
  const [batchProgress,setBatchProgress]=useState(0);
  const batchCancel=useRef(false);
- const batchGeneration=useRef(0);
+ const batchGeneration=useRef(new LatestRequestGate());
+ const batchActive=useRef(false);
  const [pageProbe,setPageProbe]=useState<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}|null>(null);
  const [watchEnabled,setWatchEnabled]=useState(false);
  const [watchStatus,setWatchStatus]=useState<LiveLocatorSummary|null>(null);
@@ -54,7 +56,10 @@ function App(){
  const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
- const bulkGeneration=useRef(0);
+ const bulkGeneration=useRef(new LatestRequestGate());
+ const bulkActive=useRef(false);
+ const probeGeneration=useRef(new LatestRequestGate());
+ const probeActive=useRef(false);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
@@ -63,8 +68,9 @@ function App(){
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
- useEffect(()=>{bulkGeneration.current++;setBulkRepairResults(null);},[focused,targetId,result]);
- useEffect(()=>{batchGeneration.current++;batchCancel.current=true;setBatchResult(null);setBatchProgress(0);},[targetId,result]);
+ useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
+ useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
+ useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -104,57 +110,65 @@ function App(){
  async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${String(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
  async function batchDiagnose(){
   if(!targetId||!result||batchRunning||busy)return;
-  const token=++batchGeneration.current;
+  const token=batchGeneration.current.begin();
   const selectedTarget=targetId;
-  batchCancel.current=false;setBatchRunning(true);setBatchProgress(0);
+  batchCancel.current=false;batchActive.current=true;setBatchRunning(true);setBatchProgress(0);
   setBusy(true);setError('');setBatchResult(null);
   try{
    const outcome=await collectPagedDomDiagnosis({
     total:result.items.length,targetId:selectedTarget,
     expectedItems:result.items.map(item=>({scriptId:item.scriptId,path:item.path})),
     requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,scanId:result.scanId,approved:true,offset}),
-    isCancelled:()=>batchCancel.current||token!==batchGeneration.current,
+    isCancelled:()=>batchCancel.current||!batchGeneration.current.isCurrent(token),
     onProgress:evidence=>{
-     if(token!==batchGeneration.current)return;
+     if(!batchGeneration.current.isCurrent(token))return;
      setBatchResult(evidence);setBatchProgress(evidence.totalItems);
     },
    });
-   if(token===batchGeneration.current)
+   if(batchGeneration.current.isCurrent(token))
     setMessage(outcome.cancelled?'已取消后续检查，保留已完成的只读结果。':'批量网页诊断完成：已检查 '+outcome.totalItems+' 份脚本；结果仅为 DOM 证据。');
   }catch(error){
-   if(token===batchGeneration.current){
+   if(batchGeneration.current.isCurrent(token)){
     // Never display a partial result after inconsistent URL or page evidence.
     setBatchResult(null);setBatchProgress(0);
     setError('批量网页诊断失败，已清除不完整结果：'+String(error));
    }
-  }finally{setBatchRunning(false);setBusy(false);}
+  }finally{if(batchGeneration.current.isCurrent(token)){batchActive.current=false;setBatchRunning(false);setBusy(false);}}
  }
  async function probePage(){if(focused===null||!targetId||!result)return;
-  setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
-  try{const r=await window.ussm.probeLocators({scanId:result.scanId,itemIndex:focused,targetId,approved:true});setPageProbe(r);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');}
-  catch(e){setError('页面定位器核验失败：'+String(e));}finally{setBusy(false);}
+  const token=probeGeneration.current.begin();
+  const selectedIndex=focused,selectedTarget=targetId,selectedScanId=result.scanId;
+  probeActive.current=true;setBusy(true);setError('');setPageProbe(null);setRepairCandidates(null);
+  try{
+   const evidence=await window.ussm.probeLocators({scanId:selectedScanId,itemIndex:selectedIndex,targetId:selectedTarget,approved:true});
+   if(probeGeneration.current.isCurrent(token)){
+    setPageProbe(evidence);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');
+   }
+  }catch(error){
+   if(probeGeneration.current.isCurrent(token))setError('页面定位器核验失败：'+String(error));
+  }finally{if(probeGeneration.current.isCurrent(token)){probeActive.current=false;setBusy(false);}}
  }
  async function suggestBulkRepairs(offset=0){
   if(focused===null||!targetId||!result)return;
-  const token=bulkGeneration.current;
+  const token=bulkGeneration.current.begin();
   const selectedIndex=focused,selectedTarget=targetId;
-  setBusy(true);setError('');
+  bulkActive.current=true;setBusy(true);setError('');
   if(offset===0)setBulkRepairResults(null);
   try{
    const suggestions=await window.ussm.suggestRepairsBulk({scanId:result.scanId,itemIndex:selectedIndex,targetId:selectedTarget,approved:true,offset});
-   if(token!==bulkGeneration.current)return;
+   if(!bulkGeneration.current.isCurrent(token))return;
    if(offset!==0&&(!bulkRepairResults||bulkRepairResults.checkedMissing!==offset||
     bulkRepairResults.pageUrl!==suggestions.pageUrl||
     bulkRepairResults.pageTargetId!==suggestions.pageTargetId||
     bulkRepairResults.totalMissing!==suggestions.totalMissing))
     throw new Error('批量候选页面或结果数量发生变化，请重新检查');
-   setBulkRepairResults(previous=>token===bulkGeneration.current?
+   setBulkRepairResults(previous=>bulkGeneration.current.isCurrent(token)?
     offset>0&&previous?{...suggestions,items:[...previous.items,...suggestions.items]}:suggestions:previous);
    setMessage('批量候选只基于当前 DOM 的唯一匹配结果；不会执行脚本或自动写入补丁。');
   }catch(error){
-   if(token!==bulkGeneration.current)return;
+   if(!bulkGeneration.current.isCurrent(token))return;
    setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));
-  }finally{setBusy(false);}
+  }finally{if(bulkGeneration.current.isCurrent(token)){bulkActive.current=false;setBusy(false);}}
  }
  async function suggestRepair(){if(focused===null||!targetId||!result||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
