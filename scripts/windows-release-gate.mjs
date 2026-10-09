@@ -36,11 +36,17 @@ function normalizedZipEntry(entry){
    name.split('/').some(segment=>!segment||segment==='.'||segment==='..'))
   throw new Error('Unsafe ZIP path traversal or absolute path');
  const segments=name.split('/');
+ // Windows extraction can reinterpret ":" as an NTFS alternate data stream
+ // or reserve device names even when nested and followed by an extension.
+ // Trailing dots/spaces also alias distinct ZIP names on Win32.
+ if(segments.some(segment=>segment.includes(':')||/[. ]$/.test(segment)||
+    /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment)))
+  throw new Error('Unsafe Windows ZIP path, device name or alternate stream');
  if(segments.some(s=>s.toLowerCase()==='data')||
     /\.user\.js$/i.test(name)||/(?:^|\/)\.env(?:\.|$)/i.test(name)||
     /(?:api[-_]?key|credential|secret|private[-_]?key)/i.test(name))
   throw new Error('Private Data, userscript or secret-like path forbidden in release ZIP');
- if(/(?:^|\/)(?:${PREFIX}-)?(?:Setup|Portable)-[^/]+\.exe$/i.test(name)||
+ if(/(?:^|\/)(?:Userscript-Self-Healing-Manager-)?(?:Setup|Portable)-[^/]+\.exe$/i.test(name)||
     /portable-[^/]+\.exe$/i.test(name))
   throw new Error('Portable or installer EXE must not substitute for the unpacked ZIP');
  return name;
