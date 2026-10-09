@@ -492,6 +492,14 @@ function App(){
    {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
    </section>
    {details&&<section className="panel"><div className="panel-head"><div><h2>{nameOf(details.path)} · Selector 清单</h2><p>先选目标网页，再点击授权核验；不代表油猴脚本功能通过。</p></div><button className="secondary" onClick={()=>{setFocused(null);setPageProbe(null);}}>关闭</button></div>
+   {details.analysis?.managerApiCalls?.length ? <div className="notice">
+     <b>GM 权限静态清单 · {details.analysis.managerApiCalls.length} 次 API 调用（V4 未验证）</b>
+     <p className="dim">仅根据本地 JavaScript AST 与 @grant 元数据比对；无法确认 Tampermonkey 注入、沙箱权限或任何 GM_* 实际功能。</p>
+     {details.analysis.managerApiCalls.slice(0,30).map((usage,index)=><div key={index}>
+       <code>{usage.api}</code> · 第 {usage.line} 行 · {usage.grantStatus==='declared'?'@grant 已声明（仅静态）':usage.grantStatus==='missing'?'@grant 可能缺失，需检查':'动态 GM 成员名未知'}
+     </div>)}
+     {details.analysis.managerApiCalls.length>30&&<small>其余 {details.analysis.managerApiCalls.length-30} 项已折叠；完整证据保留在扫描结果中。</small>}
+    </div> : null}
    <div className="toolbar"><button disabled={!cdp||!targetId||busy} onClick={()=>void probePage()}>页面定位器核验（只读）</button><span className="dim">每次最多检查前 50 个定位器；不执行脚本、不自动修改文件。</span></div>
     <div className="toolbar"><button disabled={!cdp||!targetId||busy||(!watchEnabled&&!pageProbe)} onClick={()=>setWatchEnabled(old=>!old)}>{watchEnabled?'停止巡检':'启动每分钟只读巡检'}</button><span className="dim">只有窗口运行、目标页面保持匹配时定期复核；不写入脚本、不自动修复。</span></div>
     <p className="dim">巡检只用于 DOM 检测，不代表 Tampermonkey 功能通过。</p>
