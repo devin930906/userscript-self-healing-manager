@@ -122,7 +122,11 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
      throw new Error('Stale repair proposal: managed revision changed after preview; create a fresh proposal');
    }
    const receipt=await applyManagedPatch({sourcePath:found.workingPath,managedRoot,scriptId:found.scriptId,draft:found.draft,expectedHash:found.draft.baseHash,approved:true,baseRevisionKind:found.baseRevisionKind});
-   await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,approved:true});
+   // The snapshot we approved is the only legal activation predecessor.
+   // Another desktop process may approve a different revision while this
+   // operation writes immutable archives; never overwrite that newer current.
+   await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,
+    approved:true,expectedCurrentHash:found.workingPath===found.sourcePath?null:found.draft.baseHash});
    return receipt;
    }finally{applying.delete(found.scriptId);}
   },
