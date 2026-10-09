@@ -25,6 +25,7 @@ import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candida
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../../../../packages/candidate-engine/src/bulk.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
+import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
 
@@ -71,6 +72,7 @@ async function bootstrap():Promise<void>{
  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
+ const adapters=createSiteAdapterLibrary({dataRoot});
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
@@ -91,6 +93,28 @@ async function bootstrap():Promise<void>{
  lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
  pendingApprovals.clear();repairs.invalidatePending();return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
+ ipcMain.handle('usshm:site-adapters',async event=>{
+  assertSender(event);
+  // Return only bounded, parsed site metadata, never local source paths.
+  return adapters.list();
+ });
+ ipcMain.handle('usshm:site-adapter-import-preview',async event=>{
+  assertSender(event);
+  // The renderer cannot specify an import path or arbitrary JSON object.
+  // Only a fresh native OS file-picker selection is accepted.
+  const pick=await dialog.showOpenDialog(mainWindow,{
+   properties:['openFile'],filters:[{name:'SiteAdapter JSON',extensions:['json']}],
+  });
+  if(pick.canceled||!pick.filePaths[0])return null;
+  return adapters.previewImport({sourcePath:pick.filePaths[0]});
+ });
+ ipcMain.handle('usshm:site-adapter-import-approve',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {previewId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.previewId!=='string')
+   throw new Error('Explicit SiteAdapter import approval required');
+  return adapters.approveImport({previewId:q.previewId,approved:true});
+ });
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
   if(pick.canceled)return approvedChromePath;
