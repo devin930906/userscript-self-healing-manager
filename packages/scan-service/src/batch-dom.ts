@@ -36,6 +36,23 @@ export interface BatchDomDependencies {
  /** Optional until all adapters implement bounded, read-only DOMSnapshot context checks. */
  summarize?:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
+/** Require live frame/loader tokens even when every script is out of scope.
+ * A matching URL alone cannot authenticate a reload or iframe context. */
+function assertVerifiedFrameIdentity(identity:ConfirmedPageIdentity):void {
+ if(!identity||typeof identity.frameId!=='string'||!identity.frameId||
+    identity.frameId.length>256||typeof identity.loaderId!=='string'||
+    !identity.loaderId||identity.loaderId.length>256)
+  throw new Error('Unverified CDP main-frame document identity: frame or loader token missing');
+ const count=identity.subframeCount;
+ if(count!==undefined&&(!Number.isSafeInteger(count)||count<0||count>64))
+  throw new Error('Unverified CDP frame count in document identity');
+ const child=identity.soleSameOriginSubframe;
+ if(child!==undefined&&
+    (count!==1||!child||typeof child.frameId!=='string'||!child.frameId||
+     child.frameId.length>256||child.frameId===identity.frameId||
+     typeof child.loaderId!=='string'||!child.loaderId||child.loaderId.length>256))
+  throw new Error('Unverified CDP child frame identity');
+}
 function assertPageIdentity(target:ChromeTarget,evidence:{targetId:string;confirmedUrl?:string;url?:string}):void {
  if(evidence.targetId!==target.id||(evidence.confirmedUrl??evidence.url)!==target.url)
   throw new Error('CDP page identity or live frame URL changed during batch diagnosis');
@@ -59,6 +76,7 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  let baselineDocument:ConfirmedPageIdentity|undefined;
  const checkIdentity=async()=>{
   const identity=await deps.confirm(target);
+  assertVerifiedFrameIdentity(identity);
   assertPageIdentity(target,identity);
   if(baselineDocument)assertStablePageDocument(baselineDocument,identity);
   else baselineDocument=identity;
