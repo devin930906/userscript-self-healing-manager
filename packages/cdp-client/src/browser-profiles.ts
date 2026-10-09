@@ -121,6 +121,37 @@ async function persist(dataRoot:string,state:SavedState):Promise<void>{
 function present(state:SavedState):BrowserProfile[]{
  return state.profiles.map(item=>({...item,isDefault:item.id===state.defaultId}));
 }
+export interface BrowserProfileRegistryHealth {
+ readonly status:'empty'|'ready'|'write-locked'|'invalid';
+ readonly count:number|null;
+}
+/** Read-only registry health: never conceal a corrupt config as an empty list
+ * and never delete locks possibly belonging to a running application. */
+export async function inspectBrowserProfileRegistry({dataRoot}:{
+ dataRoot:string;
+}):Promise<BrowserProfileRegistryHealth>{
+ const config=rootPath(dataRoot);
+ try{
+  const lock=await lstat(config+'.write-lock');
+  return {status:lock.isDirectory()&&!lock.isSymbolicLink()?'write-locked':'invalid',count:null};
+ }catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT')
+   return {status:'invalid',count:null};
+ }
+ try{
+  const configStat=await lstat(config);
+  if(!configStat.isFile()||configStat.isSymbolicLink())
+   return {status:'invalid',count:null};
+ }catch(error){
+  if((error as NodeJS.ErrnoException).code==='ENOENT')
+   return {status:'empty',count:0};
+  return {status:'invalid',count:null};
+ }
+ try{
+  const profiles=(await readState(dataRoot)).profiles;
+  return {status:profiles.length>0?'ready':'empty',count:profiles.length};
+ }catch{return {status:'invalid',count:null};}
+}
 /** List settings only. A missing Chrome EXE remains visible, but will never be launched. */
 export async function listBrowserProfiles({dataRoot}:{dataRoot:string}):Promise<BrowserProfile[]>{
  try{return present(await readState(dataRoot));}
