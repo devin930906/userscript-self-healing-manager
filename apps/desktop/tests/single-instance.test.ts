@@ -7,7 +7,7 @@ test('main Electron process acquires a single-instance lock before opening SQLit
  assert.match(main,/app\.requestSingleInstanceLock\(\)/);
  assert.match(main,/app\.on\('second-instance'/);
  assert.match(main,/if\(!singleInstanceLock\)app\.quit\(\)/);
- assert.match(main,/else\s*bootstrap\(\)\.catch\(/);
+ assert.match(main,/else\s*\{[\s\S]*bootstrap\(\)\.catch\(/);
  assert.ok(main.indexOf('app.requestSingleInstanceLock()')<main.indexOf('bootstrap().catch'));
 });
 test('Windows real Electron startup smoke actually checks a second instance exits while the first is alive',()=>{
