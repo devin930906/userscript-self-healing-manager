@@ -88,10 +88,11 @@ export function validateWindowsReleaseLayout({version,artifactNames,zipEntries})
  for(const entry of normalized){
   if(directories.has(entry)&&files.has(entry))
    throw new Error('ZIP file collides with directory path');
-  const parts=entry.split('/');
-  for(let i=1;i<parts.length;i++){
-   if(files.has(parts.slice(0,i).join('/')))
+  let parentEnd=entry.indexOf('/');
+  while(parentEnd!==-1){
+   if(files.has(entry.slice(0,parentEnd)))
     throw new Error('ZIP file collides with nested path');
+   parentEnd=entry.indexOf('/',parentEnd+1);
   }
  }
  // electron-builder zip normally uses the win-unpacked root; allow one
