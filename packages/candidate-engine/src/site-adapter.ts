@@ -28,6 +28,8 @@ export interface SiteAdapter {
 export interface AdapterRoleResolution {
  readonly status:'candidate-only'|'out-of-scope'|'blocked-context'|'unknown-role';
  readonly selectors:readonly string[];
+ /** Explicit CDP observation root; never merge selectors from distinct contexts. */
+ readonly rootScope:'document'|'open-shadow'|null;
  readonly validationLevel:'definition-only';
  readonly functionalVerified:false;
  readonly managerVerified:false;
@@ -199,8 +201,8 @@ export function parseSiteAdapter(raw:unknown):SiteAdapter {
 export function resolveSiteAdapterRole({adapter,pageUrl,roleId,observedStateId}:{
  adapter:SiteAdapter;pageUrl:string;roleId:string;observedStateId:string|null;
 }):AdapterRoleResolution {
- const output=(status:AdapterRoleResolution['status'],selectors:readonly string[]=[]):AdapterRoleResolution=>({
-  status,selectors,validationLevel:'definition-only',functionalVerified:false,managerVerified:false,
+ const output=(status:AdapterRoleResolution['status'],selectors:readonly string[]=[],rootScope:AdapterRoleResolution['rootScope']=null):AdapterRoleResolution=>({
+  status,selectors,rootScope,validationLevel:'definition-only',functionalVerified:false,managerVerified:false,
  });
  // Revalidate even if a caller used a TypeScript cast to forge a definition.
  const trusted=parseSiteAdapter(adapter);
@@ -211,9 +213,12 @@ export function resolveSiteAdapterRole({adapter,pageUrl,roleId,observedStateId}:
  const role=Object.hasOwn(trusted.roles,roleId)?trusted.roles[roleId]:undefined;
  if(!role)return output('unknown-role');
  if(!observedStateId||!Object.hasOwn(trusted.states,observedStateId))return output('blocked-context');
- if(!role.contexts.some(c=>c.stateId===observedStateId&&c.frame==='top'&&c.shadow==='none'))
-  return output('blocked-context');
- return output('candidate-only',role.strategies.map(s=>s.selector));
+ const supported=role.contexts.filter(c=>c.stateId===observedStateId&&c.frame==='top'&&
+  (c.shadow==='none'||c.shadow==='open'));
+ // Different roots must never be merged or guessed as one context.
+ if(supported.length!==1)return output('blocked-context');
+ return output('candidate-only',role.strategies.map(s=>s.selector),
+  supported[0]!.shadow==='open'?'open-shadow':'document');
 }
 
 /** Changed shared locators never activate automatically, even with zero dependents. */
