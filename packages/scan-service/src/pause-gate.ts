@@ -26,8 +26,12 @@ export class BatchPauseGate {
   this.waiters.clear();
  }
  async waitUntilReady():Promise<boolean>{
-  if(this.stopped)return false;
-  if(!this.paused)return true;
-  return new Promise<boolean>(resolve=>this.waiters.add(resolve));
+  // Re-check after each wake: resume() followed immediately by pause() must
+  // not permit an extra CDP request from a stale wake signal.
+  while(this.paused&&!this.stopped){
+   const ready=await new Promise<boolean>(resolve=>this.waiters.add(resolve));
+   if(!ready)return false;
+  }
+  return !this.stopped;
  }
 }
