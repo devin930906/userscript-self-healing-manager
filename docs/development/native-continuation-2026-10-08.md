@@ -492,3 +492,15 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **GUI：** 新增「版本化站点兼容规则（SiteAdapter）」区域，显示本地已安装定义，使用两阶段预览/确认/取消。清楚标示“仅定义”“未经过真实脚本运行或功能验证”和 V3/V4 未配置。不会直接修改原始用户脚本、Tampermonkey 存储或 Chrome Profile。
 - **最终 GREEN:** [Windows Development CI #37910328861](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37910328861) **342 tests/342 pass/0 fail，TypeScript/Electron、Windows GUI/SQLite、真实 Chrome CDP synthetic smoke 全通过**；[Node contracts #37910328893](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37910328893) SUCCESS。
 - **发行未满足：** SiteAdapter 的 GUI 版本/依赖回滚、实际站点契约/脚本经理 V4、`GM_*` 真机、Windows10+便携 Chrome155、正式三形式发行和 RG-01…09 仍未完成。保持 PR #2 Draft，不中途打包或宣称 Stable。
+
+## 2026-10-09 · 已安装 SiteAdapter 的只读 V1 语义角色核验（349 项）
+
+- **问题：** SiteAdapter 的规则定义已可保存在 `Data/site-adapters`，但无法使用桌面工具将用户声明的角色、页面状态和真实 DOM 证据对应起来。此前只有通用脚本 selector 的 V1 合约，不检查用户导入的 site/role fallback 定义。
+- **TDD RED：** [Node contracts #37911119660](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37911119660) 验证缺少 `runSiteAdapterRoleDomCheck`；[#37911333463](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37911333463) 验证存储库尚不能仅凭站点 ID 安全检索已保存角色/状态。新增 Electron IPC 合约测试覆盖 main/preload/renderer，真实 Chrome 合成网页验证 read-only V1 路径。
+- **角色检查：** `packages/test-runner/src/site-adapter-role.ts` 仅对 `resolveSiteAdapterRole` 允许的目标发起 CDP，强制手动确认、主文档 frame+loader 身份并在两次 DOM 采样间确认页面未导航。CSS fallback 使用 `DOM.querySelectorAll` 的只读证据；匹配必须稳定，且不允许多条 fallback 同时命中就宣告无歧义。没有命中时若 iframe、ShadowRoot 或上下文证据未知，则 `needs-review`，并不宣告脚本坏掉。
+- **持久规则：** `site-adapter-library.ts` 额外提供固定目录内的 `getForInspection({siteId})`，严格校验站点标识、重读 Schema 和文件名身份。列表只展示受控 roleIds/stateIds，renderer 不可传任意 CSS、原始规则对象或文件路径。
+- **Electron：** `usshm:site-adapter-role-check` 必须具备 `approved:true`、准确 targetId、siteId、roleId 和用户声明 stateId。由主进程加载可信已存定义和当前 CDP target，再执行固定的 read-only `confirmPageIdentity`、`probePageLocators`、`captureDomSummary`。未开放 Runtime.evaluate、点击或对油猴脚本的任意调用。
+- **GUI：** SiteAdapter 工作区新增站点、角色、状态选择器和「检查 SiteAdapter 角色 DOM（只读）」；页面状态明确是用户声明，不能视作真实网页登录/运行状态。切换目标或规则时失效旧异步结果。V1 仅证明此刻受限 DOM 选择器的匹配数量，不证明真实业务功能。
+- **真实 Chrome 验证：** `scripts/smoke-chrome.mjs` 添加真实 Windows Runner 上的本机隔离 Chrome fixture 测试：顶层 role 唯一匹配可得 `matched-v1`，只位于 ShadowRoot 内的定位器必须 `needs-review`；始终 `V3/V4=not-configured`。
+- **GREEN：** [Windows Development CI #37911811189](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37911811189) **349 tests, 349 PASS, 0 FAIL**，TypeScript、Electron 构建、Windows GUI/SQLite smoke、真实 Chrome CDP smoke 全成功；[Node Contracts #37911811075](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37911811075) 成功。
+- **未完成 Stable 门禁：** 用户声明的页面状态并非真实观测/认证、缺少 iframe/Shadow 扩展支持、V2 交互/非破坏性断言、V3 业务层、真正 Tampermonkey/GM_* V4、Win10 便携 Chrome155 真机和 RG-01...09 正式三发行包验收。保持 PR #2 Draft，不合并 main，不发布 Stable，不生成中途包。
