@@ -299,6 +299,7 @@ export async function launchSelectedChrome({executablePath,port=9223,isolatedPro
  validPort(port);if(!isAbsolute(executablePath))throw new Error('Chrome executable path must be absolute');
  const item=await lstat(executablePath);
  if(!item.isFile()||item.isSymbolicLink())throw new Error('Selected Chrome path must be a regular executable, not a symlink');
+ if(!/\.exe$/i.test(executablePath))throw new Error('Selected Chrome must be an EXE executable');
  // Do not mistake a pre-existing debugger (or another loopback service) for
  // the newly requested Chrome process.
  await assertChromeDebuggerPortFree(port);
