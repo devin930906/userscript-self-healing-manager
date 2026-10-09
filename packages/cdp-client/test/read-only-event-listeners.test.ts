@@ -185,3 +185,23 @@ test('invalid listener CDP envelope after resolving a node releases the remote h
  assert.equal(result.listenerCount,null);
  assert.ok(socket.sent.some(command=>command.method==='Runtime.releaseObject'));
 });
+
+test('malformed listener socket payload after resolving node attempts cleanup',async()=>{
+ const socket=new FakeSocket({
+  'DOM.getDocument':()=>({root:{nodeId:3}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+  'DOM.resolveNode':()=>({object:{type:'object',subtype:'node',objectId:'remote-1'}}),
+  'Runtime.releaseObject':()=>({}),
+ });
+ const send=socket.send.bind(socket);
+ socket.send=(raw:string)=>{
+  const command=JSON.parse(raw);
+  if(command.method==='DOMDebugger.getEventListeners'){
+   socket.sent.push(command);
+   queueMicrotask(()=>socket.emit('message',{data:'{malformed'}));
+  }else send(raw);
+ };
+ const got=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
+ assert.equal(got.status,'unknown');
+ assert.ok(socket.sent.some(command=>command.method==='Runtime.releaseObject'));
+});
