@@ -185,7 +185,7 @@ async function bootstrap():Promise<void>{
    adapter,roleId:q.roleId,observedStateId:q.declaredStateId,
    deps:{
     probe:locators=>probePageLocators(selected,locators),
-    capture:()=>captureCandidateNodes(selected),
+    capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected),
    },
   });
   assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
@@ -373,7 +373,7 @@ async function bootstrap():Promise<void>{
   const startingDocument=await confirmPageIdentity(selected);
   const candidates=await suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
    probe:(locators)=>probePageLocators(selected,locators),
-   capture:()=>captureCandidateNodes(selected),
+   capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected),
   }});
   assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
   scanSessions.assertCurrent(scanSnapshot);
@@ -404,7 +404,7 @@ async function bootstrap():Promise<void>{
   const suggestions=await suggestMissingCandidatesBulk({
    target:{id:selected.id,url:selected.url},locators,checks:evidence.checks,
    evidenceIdentity:{targetId:evidence.targetId,url:evidence.url},offset:q.offset,
-   deps:{probe:inputs=>probePageLocators(selected,inputs),capture:()=>captureCandidateNodes(selected)},
+   deps:{probe:inputs=>probePageLocators(selected,inputs),capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected)},
   });
   assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
   scanSessions.assertCurrent(scanSnapshot);
