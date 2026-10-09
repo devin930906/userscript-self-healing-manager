@@ -67,6 +67,11 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
      throw new Error('Oversized or invalid listener CDP response');
     const m=JSON.parse(event.data);
     if(finished||m.id!==expected)return;
+    if(!m.result||typeof m.result!=='object'||Array.isArray(m.result)){
+     if(objectId&&method!=='Runtime.releaseObject')release(result('unknown'));
+     else end(undefined,result('unknown'));
+     return;
+    }
     if(m.error){
      if(objectId&&method!=='Runtime.releaseObject'){
       release(result('unknown'));return;
