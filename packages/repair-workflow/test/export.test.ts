@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createRepairWorkflow} from '../src/index.ts';
 import {exportManagedCurrent,publishExclusiveExport} from '../src/export.ts';
+import {commitManagedCurrent} from '../src/current-activation.ts';
 
 async function setup(){
  const root=await mkdtemp(join(tmpdir(),'usshm-export-'));
@@ -145,5 +146,39 @@ test('competing final output introduced after export staging cannot be overwritt
   assert.equal(called,1);
   assert.equal(await readFile(q.destination,'utf8'),'competing user destination');
   assert.equal((await readdir(q.root)).filter(x=>x.includes('.staging-')).length,0);
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+
+test('an active managed writer lock blocks a new export without creating a destination',async()=>{
+ const q=await setup();
+ try{
+  const current=join(q.managedRoot,'managed','demo','current.user.js');
+  await mkdir(current+'.write-lock');
+  await assert.rejects(exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',
+   destinationPath:q.destination}),/lock|busy|writer|in progress/i);
+  await assert.rejects(readFile(q.destination),{code:'ENOENT'});
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+
+test('export holds the managed current lease through atomic destination publish',async()=>{
+ const q=await setup();
+ try{
+  const current=join(q.managedRoot,'managed','demo','current.user.js');
+  let checked=false;
+  const output=await exportManagedCurrent({managedRoot:q.managedRoot,scriptId:'demo',
+   destinationPath:q.destination,
+   beforePublish:async()=>{
+    checked=true;
+    await assert.rejects(commitManagedCurrent({
+     activePath:current,bytes:Buffer.from('competing newer managed revision'),
+     expectedActiveHash:q.receipt.hash,
+    }),/lock|writer|busy|in progress/i);
+    await assert.rejects(readFile(q.destination),{code:'ENOENT'});
+   },
+  });
+  assert.equal(checked,true);
+  assert.equal(output.hash,q.receipt.hash);
+  assert.deepEqual(await readFile(q.destination),await readFile(current));
+  assert.ok(!(await readdir(join(q.managedRoot,'managed','demo'))).includes('current.user.js.write-lock'));
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
