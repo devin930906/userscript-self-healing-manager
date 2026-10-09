@@ -257,3 +257,8 @@ test('different verified selectors for the same backend node yield only one reco
  assert.equal(ranked.length,1,'two selectors resolving to one CDP backend node are aliases, not separate fixes');
  assert.equal(ranked[0]?.expression,'[data-testid="save-button"]');
 });
+
+test('malformed CDP snapshot nodes cannot enter ranking or return verified candidates',async()=>{
+ const malformed={...deps,capture:async()=>({...await deps.capture(),nodes:null}) as unknown as Awaited<ReturnType<typeof deps.capture>>};
+ await assert.rejects(suggestCandidateRepairs({target,locator,deps:malformed}),/snapshot nodes/i);
+});
