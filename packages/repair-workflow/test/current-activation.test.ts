@@ -105,3 +105,42 @@ test('first activation never overwrites a competing new current arriving immedia
  assert.equal(await readFile(path,'utf8'),'competing process current');
  assert.deepEqual(await readdir(dir),['current.user.js']);
 }));
+
+test('late external edit after staging and before replacement cannot be overwritten',async()=>fixture(async(dir,path)=>{
+ const original=Buffer.from('original approved current');
+ await writeFile(path,original);
+ let called=false;
+ await assert.rejects(commitManagedCurrent({
+  activePath:path,bytes:Buffer.from('replacement approved revision'),expectedActiveHash:hash(original),
+  // This hook runs after staging, precisely at the original vulnerable
+  // pre-publish gap. Even cooperative leases cannot block external editors.
+  beforePublish:async()=>{
+   called=true;
+   await writeFile(path,'last-moment external user edit');
+  },
+ }),/changed|external|hash|stale|current/i);
+ assert.equal(called,true);
+ assert.equal(await readFile(path,'utf8'),'last-moment external user edit');
+ assert.deepEqual(await readdir(dir),['current.user.js']);
+}));
+
+test('late path replacement with symlink during approved restore does not follow or overwrite outside file',async(t)=>fixture(async(dir,path)=>{
+ const original=Buffer.from('prior approved');
+ await writeFile(path,original);
+ const outside=join(dir,'private.user.js');
+ await writeFile(outside,'protected outside data');
+ let linked=false;
+ try{await symlink(outside,join(dir,'symlink-check.user.js'));}
+ catch(e){if(['EPERM','EACCES','ENOTSUP'].includes((e as NodeJS.ErrnoException).code??'')){t.skip('symlinks unavailable');return;}throw e;}
+ await assert.rejects(commitManagedCurrent({
+  activePath:path,bytes:Buffer.from('next approved'),expectedActiveHash:hash(original),
+  beforePublish:async()=>{
+   await rm(path);
+   await symlink(outside,path);
+   linked=true;
+  },
+ }),/unsafe|symlink|current|external|changed/i);
+ assert.equal(linked,true);
+ assert.equal(await readFile(outside,'utf8'),'protected outside data');
+ assert.deepEqual((await readdir(dir)).sort(),['current.user.js','private.user.js','symlink-check.user.js'].sort());
+}));
