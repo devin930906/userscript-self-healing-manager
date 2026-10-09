@@ -21,6 +21,7 @@ import {probePageLocators} from '../../../../packages/cdp-client/src/locator-pro
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
+import {prepareVerifiedRepairPreview} from '../../../../packages/repair-workflow/src/verified-preview.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
@@ -431,6 +432,62 @@ async function bootstrap():Promise<void>{
   assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
   scanSessions.assertCurrent(scanSnapshot);
   return suggestions;
+ });
+ ipcMain.handle('usshm:prepare-verified-preview',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit live CDP target and repair-preview consent required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Source script is not an authorized scanned file');
+  const record=item.analysis.selectorRecords[Number(q.selectorIndex)];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('Only static literal document selectors can enter automatic preview');
+  const status=await getChromeStatus({port:9223});
+  scanSessions.assertCurrent(scanSnapshot);
+  const selected=status.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected CDP target is no longer available');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
+  const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
+  const verifySource=async()=>{
+   const sourceInfo=await lstat(item.path);
+   if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())
+    throw new Error('Source file changed or is an unsafe symlink; rescan required');
+   const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo});
+   if(createHash('sha256').update(bytes).digest('hex')!==item.analysis!.sourceSha256)
+    throw new Error('Source script hash changed since scan; rescan before preview');
+   scanSessions.assertCurrent(scanSnapshot);
+  };
+  const receipt=await prepareVerifiedRepairPreview({
+   approved:true,target:{id:selected.id,url:selected.url},locator,
+   source:{scriptId:item.scriptId,sourcePath:item.path,expectedSha256:item.analysis.sourceSha256,
+    selectorLocation:{method:record.method,line:record.sourceRange.start.line,column:record.sourceRange.start.column}},
+   deps:{
+    confirm:()=>confirmPageIdentity(selected),
+    discover:()=>suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
+     confirm:()=>confirmPageIdentity(selected),
+     probe:locators=>probePageLocators(selected,locators),
+     capture:()=>captureCandidateNodes(selected),
+    }}),
+    verifySource,
+    propose:newSelector=>repairs.propose({
+     sourcePath:item.path,scriptId:item.scriptId,oldSelector:record.expression,newSelector,
+     selectorLocation:{method:record.method,line:record.sourceRange.start.line,column:record.sourceRange.start.column},
+    }),
+    revoke:proposalId=>{repairs.discard(proposalId);},
+   },
+  });
+  scanSessions.assertCurrent(scanSnapshot);
+  if(receipt.proposal)
+   pendingApprovals.register(receipt.proposal.proposalId,scanSnapshot.scanId);
+  return receipt;
  });
  ipcMain.handle('usshm:propose-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;newSelector:string}|null;
