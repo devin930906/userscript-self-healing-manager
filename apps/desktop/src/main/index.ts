@@ -238,6 +238,7 @@ async function bootstrap():Promise<void>{
    expectation:q.expectation,
    deps:{
     confirm:confirmPageIdentity,probe:probePageLocators,
+    summarize:captureDomSummary,
     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
    },
   });
