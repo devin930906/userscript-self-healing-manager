@@ -151,6 +151,35 @@ export async function verifyBrowserCdpHandshake({
  });
 }
 
+/**
+ * Every privileged desktop CDP discovery must repeat the live browser
+ * WebSocket handshake. Reading HTTP /json/version alone is not an identity
+ * check: the owner of localhost port 9223 may have changed since launch.
+ *
+ * This verifies protocol-level identity, NOT OS-process PID ownership.
+ * User approval and page scope are enforced separately by Electron Main.
+ */
+export async function getVerifiedChromeStatus({
+ port=9223,inspect=getChromeStatus,
+ verifySocket=async(endpoint:string,port:number)=>verifyBrowserCdpHandshake({endpoint,port}),
+}:{
+ port?:number;
+ inspect?:(input:{port:number})=>Promise<ChromeStatus>;
+ verifySocket?:(endpoint:string,port:number)=>Promise<string>;
+}={}):Promise<ChromeStatus>{
+ validPort(port);
+ const status=await inspect({port});
+ if(!status||typeof status.browser!=='string'||
+    !/^(?:Chrome|Chromium|HeadlessChrome)\/[0-9]+(?:\.[0-9]+)*$/.test(status.browser)||
+    typeof status.browserSocket!=='string')
+  throw new Error('CDP browser identity cannot be verified from HTTP discovery alone');
+ const trustedEndpoint=validateCdpBrowserSocket(status.browserSocket,port);
+ const liveProduct=await verifySocket(trustedEndpoint,port);
+ if(liveProduct!==status.browser)
+  throw new Error('CDP browser identity mismatch between HTTP and live WebSocket');
+ return status;
+}
+
 /** Only a live, authenticated Chrome debugger proves startup. A child-process
  * "spawn" event alone does not: Chrome 136+ can ignore the remote debugging
  * flags for an existing/default profile.
