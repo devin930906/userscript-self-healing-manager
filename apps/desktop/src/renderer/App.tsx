@@ -14,6 +14,7 @@ import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.t
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
+import type {ReadOnlyEventListenerEvidence} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
@@ -39,6 +40,7 @@ declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
+ inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique';approved:true})=>Promise<ReadOnlyDomContractResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
@@ -125,6 +127,9 @@ function App(){
  const [visibilityEvidence,setVisibilityEvidence]=useState<{selectorIndex:number;result:ReadOnlyVisibilityEvidence}|null>(null);
  const visibilityGeneration=useRef(new LatestRequestGate());
  const visibilityActive=useRef(false);
+ const [listenerEvidence,setListenerEvidence]=useState<{selectorIndex:number;result:ReadOnlyEventListenerEvidence}|null>(null);
+ const listenerGeneration=useRef(new LatestRequestGate());
+ const listenerActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -156,6 +161,7 @@ function App(){
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{visibilityGeneration.current.invalidate();if(visibilityActive.current){visibilityActive.current=false;setBusy(false);}setVisibilityEvidence(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -386,6 +392,25 @@ function App(){
    if(visibilityGeneration.current.isCurrent(token))setError('CSS 可见性检查失败：'+String(error));
   }finally{
    if(visibilityGeneration.current.isCurrent(token)){visibilityActive.current=false;setBusy(false);}
+  }
+ }
+ async function inspectEventListeners(){
+  if(focused===null||!result||!targetId||busy)return;
+  const selector=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!selector||selector.runtimeRequired||selector.receiver!=='document')return;
+  const token=listenerGeneration.current.begin();
+  const itemIndex=focused,selectorIndex=repairIndex,scanId=result.scanId,target=targetId;
+  listenerActive.current=true;setBusy(true);setError('');setListenerEvidence(null);
+  try{
+   const evidence=await window.ussm.inspectEventListeners({scanId,itemIndex,selectorIndex,targetId:target,approved:true});
+   if(listenerGeneration.current.isCurrent(token)){
+    setListenerEvidence({selectorIndex,result:evidence});
+    setMessage('已检查直接 click 监听器；不能证明实际点击或 GM 功能。V2/V3/V4 尚未通过。');
+   }
+  }catch(error){
+   if(listenerGeneration.current.isCurrent(token))setError('事件监听器检查失败：'+String(error));
+  }finally{
+   if(listenerGeneration.current.isCurrent(token)){listenerActive.current=false;setBusy(false);}
   }
  }
  async function runDomContract(){
@@ -704,6 +729,16 @@ function App(){
     · Pointer events {visibilityEvidence.result.pointerBlocked===true?'禁止':visibilityEvidence.result.pointerBlocked===false?'未禁止':'未知'}
     · 控件属性 {visibilityEvidence.result.controlBlocker==='disabled-attribute'?'存在 disabled（禁用）':visibilityEvidence.result.controlBlocker==='aria-disabled'?'声明 aria-disabled=true':visibilityEvidence.result.controlBlocker==='readonly-attribute'?'存在 readonly（只读）':visibilityEvidence.result.controlBlocker==='none-detected'?'未发现直接禁用属性（不等于可点击）':'无法确认'}
     · V2 未验证；仅供人工判断，不能证明元素可点击或业务功能正常。
+   </div>}
+   <div className="toolbar">
+    <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
+     onClick={()=>void inspectEventListeners()}>检查事件监听器（只读）</button>
+    <span className="dim">仅查询直接 click 监听器。无点击、无事件派发、无脚本执行；委托监听和油猴沙箱可能无法观察。</span>
+   </div>
+   {listenerEvidence&&listenerEvidence.selectorIndex===repairIndex&&<div className="notice">
+    <b>直接 click 监听器：</b>{listenerEvidence.result.status==='registered'?'发现直接监听器':listenerEvidence.result.status==='none-observed'?'未观察到直接监听器（不等于没有功能）':listenerEvidence.result.status==='missing'?'顶层 DOM 未匹配':listenerEvidence.result.status==='ambiguous'?'选择器匹配多个元素':'证据不足'}
+    · 数量 {listenerEvidence.result.listenerCount??'未知'}
+    · V2 未验证；不能证明实际点击或 GM 功能，也不能证明业务操作成功。
    </div>}
    <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
