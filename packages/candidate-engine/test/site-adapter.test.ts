@@ -100,3 +100,76 @@ test('upgrades refuse version reuse, downgrade and missing dependent role even w
  assert.equal(impact.status,'blocked-removal');
  assert.deepEqual(impact.affectedScriptIds,['script-one']);
 });
+
+test('scope-only SiteAdapter upgrades flag all pinned dependencies even with unchanged selectors',()=>{
+ const previous=parseSiteAdapter(valid());
+ const nextRaw=valid();
+ nextRaw.version='1.1.0';
+ nextRaw.urlPatterns=['https://example.org/app/*','https://example.org/dashboard/*'];
+ const report=assessSiteAdapterUpgrade({previous,next:parseSiteAdapter(nextRaw),dependencies:[
+  {scriptId:'script-one',siteId:'example-app',pinnedVersion:'1.0.0',roles:['chat.sendButton'],regressionCases:['SEND_FLOW']},
+  {scriptId:'script-two',siteId:'example-app',pinnedVersion:'1.0.0',roles:['chat.frameButton'],regressionCases:['FRAME_FLOW']},
+  {scriptId:'future-version',siteId:'example-app',pinnedVersion:'2.0.0',roles:['chat.sendButton'],regressionCases:['OTHER_VERSION']},
+  {scriptId:'other-site',siteId:'other-site',pinnedVersion:'1.0.0',roles:['chat.sendButton'],regressionCases:['OTHER_SITE']},
+ ]});
+ assert.deepEqual(report.changedRoles,[]);
+ assert.equal(report.changedScope,true);
+ assert.deepEqual(report.addedScopePatterns,['https://example.org/dashboard/*']);
+ assert.deepEqual(report.removedScopePatterns,[]);
+ assert.equal(report.changedValidationCases,false);
+ assert.equal(report.status,'review-required');
+ assert.deepEqual(report.affectedScriptIds,['script-one','script-two']);
+ assert.deepEqual(report.requiredRegressionCases,['APP_READY','FRAME_FLOW','SEND_EXISTS','SEND_FLOW']);
+ assert.equal(report.autoActivateAllowed,false);
+});
+test('removing a scope pattern with active pinned scripts is blocked even if roles do not change',()=>{
+ const oldRaw=valid();
+ oldRaw.urlPatterns=['https://example.org/app/*','https://example.org/legacy/*'];
+ const previous=parseSiteAdapter(oldRaw);
+ const nextRaw=valid();nextRaw.version='2.0.0';
+ const report=assessSiteAdapterUpgrade({previous,next:parseSiteAdapter(nextRaw),dependencies:[
+  {scriptId:'old-usage',siteId:'example-app',pinnedVersion:'1.0.0',roles:['chat.sendButton'],regressionCases:['LEGACY_ROUTE']},
+ ]});
+ assert.equal(report.changedScope,true);
+ assert.deepEqual(report.removedScopePatterns,['https://example.org/legacy/*']);
+ assert.equal(report.status,'blocked-scope');
+ assert.deepEqual(report.affectedScriptIds,['old-usage']);
+ assert.ok(report.requiredRegressionCases.includes('LEGACY_ROUTE'));
+ assert.equal(report.autoActivateAllowed,false);
+});
+test('validation-only changes affect pinned scripts and removals block loss of coverage',()=>{
+ const previous=parseSiteAdapter(valid());
+ const expanded=valid();expanded.version='1.0.1';
+ expanded.validationCases=['APP_READY','SEND_EXISTS','SEND_RETRY'];
+ const deps=[{scriptId:'integration',siteId:'example-app',pinnedVersion:'1.0.0',roles:['chat.frameButton'],regressionCases:['CUSTOM_CHECK']}];
+ const report=assessSiteAdapterUpgrade({previous,next:parseSiteAdapter(expanded),dependencies:deps});
+ assert.deepEqual(report.changedRoles,[]);
+ assert.equal(report.changedScope,false);
+ assert.equal(report.changedValidationCases,true);
+ assert.equal(report.status,'review-required');
+ assert.deepEqual(report.affectedScriptIds,['integration']);
+ assert.deepEqual(report.requiredRegressionCases,['APP_READY','CUSTOM_CHECK','SEND_EXISTS','SEND_RETRY']);
+ const removed=valid();removed.version='1.0.2';removed.validationCases=['APP_READY'];
+ const blocked=assessSiteAdapterUpgrade({previous,next:parseSiteAdapter(removed),dependencies:deps});
+ assert.equal(blocked.status,'blocked-validation');
+ assert.deepEqual(blocked.removedValidationCases,['SEND_EXISTS']);
+ assert.ok(blocked.requiredRegressionCases.includes('SEND_EXISTS'),'do not erase historical regression coverage');
+ assert.equal(blocked.autoActivateAllowed,false);
+});
+test('scope and validation ordering alone cannot create spurious impacts or bypass review for real changes',()=>{
+ const oldRaw=valid();
+ oldRaw.urlPatterns=['https://example.org/app/*','https://example.org/legacy/*'];
+ oldRaw.validationCases=['APP_READY','SEND_EXISTS'];
+ const previous=parseSiteAdapter(oldRaw);
+ const reordered=valid();reordered.version='1.1.0';
+ reordered.urlPatterns=['https://example.org/legacy/*','https://example.org/app/*'];
+ reordered.validationCases=['SEND_EXISTS','APP_READY'];
+ const deps=[{scriptId:'pinned',siteId:'example-app',pinnedVersion:'1.0.0',roles:['chat.sendButton'],regressionCases:['LOCAL']}];
+ const report=assessSiteAdapterUpgrade({previous,next:parseSiteAdapter(reordered),dependencies:deps});
+ assert.equal(report.status,'unchanged');
+ assert.equal(report.changedScope,false);
+ assert.equal(report.changedValidationCases,false);
+ assert.deepEqual(report.affectedScriptIds,[]);
+ assert.deepEqual(report.removedScopePatterns,[]);
+ assert.deepEqual(report.removedValidationCases,[]);
+});
