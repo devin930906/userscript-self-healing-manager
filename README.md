@@ -207,6 +207,12 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 已在 [Windows CI #37969395723](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37969395723) 的真实 Chrome 155 专测中故意模拟“启动后 CDP 验证失败”：实际验证了新进程树和 CDP 9237 端口释放，且已有的 Chrome 9223 实例保持连接。对应 [Node Contracts #37969395629](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37969395629) **576/576 PASS**。这些只是开发阶段测试，尚不是用户 Windows 10 + 指定便携 Chrome 包、真实 Tampermonkey/GM API、三正式发行包的 Stable 验收。
 
+## 生产 CDP 会话持续认证（2026-10-10）
+
+每次读取本机 `127.0.0.1:9223` 的 Chrome 状态、网站 DOM 诊断、定位器检查和受管修订验证时，桌面主进程现在都会验证真实 CDP 浏览器 WebSocket：仅看到 HTTP `/json/version` 和 `/json/list` 不再被认定为可信 Chrome。必须有合法浏览器 WebSocket 端点，实际执行只读 `Browser.getVersion`，且版本与 HTTP 发现完全一致，才允许进入该次用户授权的页面诊断。此变更应用到 **12 个生产 CDP 操作入口**，不会因此执行用户脚本或主动点击网页。
+
+回归同时覆盖**本地伪造 HTTP Chrome 服务但无 WebSocket**时拒绝，以及真实 Windows Chrome for Testing 155.0.8059.39 的正常握手。Windows [Development CI #37970418007](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37970418007) 中官方 Chrome 155 专项和桌面 Electron 验证均 SUCCESS；[Node Contracts #37970417569](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37970417569) **581/581 PASS**。这是 CDP 协议身份校验，不等于已经验证调试端口的 Windows **OS PID/可执行文件归属**；指定便携版 Chrome、真实 Tampermonkey/GM API 与三种 Stable 发行包仍未验收。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
