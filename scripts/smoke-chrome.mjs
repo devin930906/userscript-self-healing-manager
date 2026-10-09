@@ -41,12 +41,16 @@ if(!executable)throw new Error('Chrome is not installed in the Windows runner; c
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<div class="target-pane"></div><div id="shadow-host"></div></main>
+<div class="target-pane"></div><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
  const shadowButton=document.createElement('span');
  shadowButton.id='shadow-only';
  shadowRoot.appendChild(shadowButton);
+ const closedRoot=document.getElementById('closed-shadow-host').attachShadow({mode:'closed'});
+ const closedChild=document.createElement('span');
+ closedChild.id='closed-shadow-only';
+ closedRoot.appendChild(closedChild);
 </script></body></html>`;
 const server=createServer((req,res)=>{
  res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});
@@ -101,7 +105,7 @@ try{
  const summary=await captureDomSummary(selected);
  assert.ok(summary.nodeCount>0,'must capture real DOM nodes');
  assert.ok(summary.documentCount>=1);
- assert.ok(summary.authorShadowTreeNodes>0,'Chrome DOMSnapshot must expose author-created Shadow Tree nodes');
+ assert.ok(summary.authorShadowTreeNodes>=2,'real Chrome must expose both open and closed author Shadow Trees in DOMSnapshot');
  const result=await probePageLocators(selected,[
   {method:'querySelector',expression:'#heal-button',runtimeRequired:false},
   {method:'getElementById',expression:'heal-button',runtimeRequired:false},
