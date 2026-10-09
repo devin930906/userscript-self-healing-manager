@@ -11,6 +11,7 @@ import {LatestRequestGate} from './latest-request-gate.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
+import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
@@ -18,6 +19,7 @@ import type {ManagedRevision} from '../../../../packages/repair-workflow/src/his
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
+ runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique';approved:true})=>Promise<ReadOnlyDomContractResult>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  suggestRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
@@ -58,6 +60,10 @@ function App(){
  const [watchError,setWatchError]=useState('');
  const watchRunning=useRef(false);
  const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
+ const [contractExpectation,setContractExpectation]=useState<'exists'|'unique'>('unique');
+ const [contractEvidence,setContractEvidence]=useState<{selectorIndex:number;result:ReadOnlyDomContractResult}|null>(null);
+ const contractGeneration=useRef(new LatestRequestGate());
+ const contractActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -75,6 +81,7 @@ function App(){
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
  useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;batchPauseGate.current?.cancel();batchPauseGate.current=null;setBatchPaused(false);if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
+ useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -158,6 +165,29 @@ function App(){
   }catch(error){
    if(probeGeneration.current.isCurrent(token))setError('页面定位器核验失败：'+String(error));
   }finally{if(probeGeneration.current.isCurrent(token)){probeActive.current=false;setBusy(false);}}
+ }
+ async function runDomContract(){
+  if(focused===null||!result||!targetId||busy)return;
+  const selector=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!selector||selector.runtimeRequired||selector.receiver!=='document')return;
+  const token=contractGeneration.current.begin();
+  const selectedIndex=focused,selectedLocator=repairIndex,selectedTarget=targetId;
+  const scanId=result.scanId,expectation=contractExpectation;
+  contractActive.current=true;setBusy(true);setError('');setContractEvidence(null);
+  try{
+   const evidence=await window.ussm.runDomContract({
+    scanId,itemIndex:selectedIndex,selectorIndex:selectedLocator,targetId:selectedTarget,
+    expectation,approved:true,
+   });
+   if(contractGeneration.current.isCurrent(token)){
+    setContractEvidence({selectorIndex:selectedLocator,result:evidence});
+    setMessage('双次 DOM 合约核验完成；只证明指定定位器的当前 DOM 状态，不代表脚本业务功能通过。');
+   }
+  }catch(error){
+   if(contractGeneration.current.isCurrent(token))setError('DOM 合约核验失败：'+String(error));
+  }finally{
+   if(contractGeneration.current.isCurrent(token)){contractActive.current=false;setBusy(false);}
+  }
  }
  async function suggestBulkRepairs(offset=0){
   if(focused===null||!targetId||!result)return;
@@ -257,6 +287,19 @@ function App(){
     {watchError&&<div className="notice error">{watchError}</div>}
    {pageProbe&&<div className="notice"><b>DOM 文档节点：</b>{pageProbe.summary.nodeCount} · 文档：{pageProbe.summary.documentCount} · 作者 Shadow Tree 节点：{pageProbe.summary.authorShadowTreeNodes} · 已检查 {pageProbe.checkedLocators}/{pageProbe.totalLocators} 个定位器；仅当前 document 作用域，不代表油猴脚本功能通过。{pageProbe.summary.authorShadowTreeNodes>0&&<strong> Shadow DOM 内的定位器未被顶层 document 检查覆盖，需复核。</strong>}</div>}
    {pageProbe?.probe.checks.map((check,index)=><div className="selector" key={index}><div className="selector-top"><span>{check.method}</span><b>{check.status==='found'?'当前匹配':check.status==='missing'&&pageProbe.summary.authorShadowTreeNodes>0?'需复核（Shadow DOM）':check.status==='missing'?'无匹配':check.status==='ambiguous'?'多重匹配':check.status==='blocked'?'无法核验':'需要运行时确认'}</b></div><code>{check.expression}</code><small>匹配数：{check.matchCount===null?'未知':check.matchCount} · {check.reason}</small></div>)}
+   <div className="toolbar">
+    <label>DOM 合约预期<select aria-label="DOM 合约条件" value={contractExpectation} onChange={e=>{setContractExpectation(e.target.value as 'exists'|'unique');setContractEvidence(null);}}>
+     <option value="unique">唯一匹配</option><option value="exists">至少一个匹配</option>
+    </select></label>
+    <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
+     onClick={()=>void runDomContract()}>双次 DOM 合约核验（V1，只读）</button>
+    <span className="dim">仅当前顶层 document、连续两次 CDP 只读检查；V2 未验证，V3/V4：未配置。不执行脚本，也不触发按钮操作。</span>
+   </div>
+   {contractEvidence&&contractEvidence.selectorIndex===repairIndex&&<div className="notice">
+    <b>命名 DOM 合约：</b>{contractEvidence.result.caseId} · 结果：{contractEvidence.result.status==='passed'?'通过（仅 DOM）':contractEvidence.result.status==='failed'?'未满足 DOM 条件':'需要复核'}
+    · 连续检查 {contractEvidence.result.attempts} 次 · 匹配数量 {contractEvidence.result.matchCount??'不确定'} · 等级 {contractEvidence.result.evidenceLevel} · V3/V4：未配置
+    <small>{contractEvidence.result.reason}；不能据此认定 Tampermonkey 已注入或脚本功能已修复。</small>
+   </div>}
    <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
