@@ -10,7 +10,8 @@ test('rollback IPC binds revisions to authorized scanned script rather than arbi
  assert.match(s,/ipcMain\.handle\('usshm:rollback-managed'/);
  assert.match(s,/scanSnapshot\.items\[q\.itemIndex\]/);
  assert.match(s,/withinAuthorized\(item\.path\)/);
- assert.match(s,/activateManagedRevision\(/);
+ assert.match(s,/repairs\.restore\(\{scriptId:item\.scriptId,hash:q\.hash,approved:true\}\)/);
+ assert.doesNotMatch(s,/return activateManagedRevision\(/,'rollback must be serialized with repair approval, not use the standalone history API');
 });
 test('preload exposes only named revision and approval operations',async()=>{
  const s=await preload();
