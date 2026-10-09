@@ -12,6 +12,7 @@ const sample=(index:number):BatchDomItem=>({
 });
 const page=(offset:number,total=51,url=pageUrl)=>({
  validationLevel:'dom-only' as const,pageTargetId:targetId,pageUrl:url,
+ pageDocumentToken:'a'.repeat(64),
  startIndex:offset,totalItems:Math.min(25,total-offset),
  items:Array.from({length:Math.min(25,total-offset)},(_,i)=>sample(offset+i)),
  remainingItems:total-offset-Math.min(25,total-offset),
