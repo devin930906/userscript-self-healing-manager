@@ -23,6 +23,7 @@ import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {prepareVerifiedRepairPreview} from '../../../../packages/repair-workflow/src/verified-preview.ts';
 import {readVerifiedManagedLocator} from '../../../../packages/repair-workflow/src/managed-locator.ts';
+import {guardAppliedManagedRevision} from '../../../../packages/repair-workflow/src/guarded-v1.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
@@ -513,6 +514,81 @@ async function bootstrap():Promise<void>{
   if(proposal.originalHash!==item.analysis.sourceSha256)throw new Error('Original scan hash mismatch; please rescan');
   pendingApprovals.register(proposal.proposalId,scanSnapshot.scanId);
   return proposal;
+ });
+ ipcMain.handle('usshm:apply-repair-guarded',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;proposalId?:unknown;approved?:unknown;
+   itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     typeof q.proposalId!=='string'||!/^[a-f0-9-]{36}$/i.test(q.proposalId)||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit managed V1 check, target and approval required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  const trusted=repairs.inspectPending(q.proposalId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!trusted||!item?.scriptId||!item.analysis||!withinAuthorized(item.path)||
+     trusted.scriptId!==item.scriptId)
+   throw new Error('Stale or unrelated managed patch approval');
+  const sourceInfo=await lstat(item.path);
+  if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())
+   throw new Error('Unsafe source file; rescan required');
+  const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo});
+  if(createHash('sha256').update(source).digest('hex')!==item.analysis.sourceSha256)
+   throw new Error('Source script changed; rescan before approved repair');
+  const status=await getChromeStatus({port:9223});
+  scanSessions.assertCurrent(scanSnapshot);
+  const selected=status.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Approved Chrome target is unavailable');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Selected Chrome page outside authorized userscript scope: '+scope.reason);
+  const documentBefore=await confirmPageIdentity(selected);
+  scanSessions.assertCurrent(scanSnapshot);
+  // Only Main owns the original/proposed hashes. The renderer supplies neither
+  // rollback target nor replacement selector, even with IPC tampering.
+  let applied:Awaited<ReturnType<typeof repairs.apply>>;
+  try{applied=await repairs.apply({proposalId:q.proposalId,approved:true});}
+  finally{pendingApprovals.consume(q.proposalId);}
+  const index=Number(q.selectorIndex);
+  const safety=await guardAppliedManagedRevision({
+   approved:true,scriptId:item.scriptId,appliedHash:applied.hash,
+   previousHash:trusted.previousHash,
+   verify:async()=>{
+    if(applied.hash!==trusted.proposedHash)
+     throw new Error('The applied bytes no longer match the reviewed patch');
+    scanSessions.assertCurrent(scanSnapshot);
+    const locator=await readVerifiedManagedLocator({
+     managedRoot:dataRoot,scriptId:item.scriptId!,revisionHash:applied.hash,selectorIndex:index,
+    });
+    if(locator.expression!==trusted.newSelector)
+     throw new Error('Managed AST selector differs from approved replacement');
+    const expectation=['querySelectorAll','getElementsByName','getElementsByClassName']
+     .includes(locator.method)?'exists' as const:'unique' as const;
+    const verdict=await runReadOnlyDomContract({
+     approved:true,target:selected,
+     caseId:'MANAGED_GUARD_'+item.scriptId!.slice(0,24)+':IDX_'+index,
+     locator:{method:locator.method,expression:locator.expression,runtimeRequired:false},
+     expectation,
+     deps:{confirm:confirmPageIdentity,
+      probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+      summarize:captureDomSummary,
+      wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
+     },
+    });
+    const after=await readVerifiedManagedLocator({
+     managedRoot:dataRoot,scriptId:item.scriptId!,revisionHash:applied.hash,selectorIndex:index,
+    });
+    if(after.expression!==locator.expression||after.method!==locator.method)
+     throw new Error('Managed active selector changed during post-apply test');
+    assertStablePageDocument(documentBefore,await confirmPageIdentity(selected));
+    scanSessions.assertCurrent(scanSnapshot);
+    return verdict;
+   },
+   restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true}),
+  });
+  return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath};
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;proposalId:string;approved:true}|null;
