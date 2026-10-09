@@ -23,10 +23,10 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
   discard(proposalId:string):boolean{return pending.delete(proposalId);},
   /** Main-process-only review identity. Never accept a rollback target supplied
    * by the renderer; use this immutable draft's verified predecessor hash. */
-  inspectPending(proposalId:string):Readonly<{scriptId:string;previousHash:string;proposedHash:string}>|null{
+  inspectPending(proposalId:string):Readonly<{scriptId:string;previousHash:string;proposedHash:string;newSelector:string}>|null{
    const record=pending.get(proposalId);
    return record?Object.freeze({scriptId:record.scriptId,previousHash:record.draft.baseHash,
-    proposedHash:record.draft.proposedHash}):null;
+    proposedHash:record.draft.proposedHash,newSelector:record.draft.newSelector}):null;
   },
   async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
