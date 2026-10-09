@@ -95,8 +95,12 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
       break;
      }
      case 'DOM.resolveNode':{
-      const remote=m.result?.object?.objectId;
-      if(typeof remote!=='string'||remote.length<1||remote.length>1024){
+      const resolved=m.result?.object;
+      const remote=resolved?.objectId;
+      // CDP must have resolved an actual object. Primitive/function/null
+      // remote values are not trustworthy DOM listener inspection targets.
+      if(resolved?.type!=='object'||resolved?.subtype==='null'||
+         typeof remote!=='string'||remote.length<1||remote.length>1024){
        end(undefined,result('unknown'));break;
       }
       objectId=remote;
