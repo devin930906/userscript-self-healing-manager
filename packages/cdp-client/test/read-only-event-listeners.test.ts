@@ -81,7 +81,7 @@ test('CDP listener errors fail closed and the remote handle is released',async()
  const s=new FakeSocket({
   'DOM.getDocument':()=>({root:{nodeId:3}}),
   'DOM.querySelectorAll':()=>({nodeIds:[17]}),
-  'DOM.resolveNode':()=>({object:{objectId:'remote-1'}}),
+  'DOM.resolveNode':()=>({object:{type:'object',objectId:'remote-1'}}),
   'DOMDebugger.getEventListeners':()=>{throw new Error('not supported');},
   'Runtime.releaseObject':()=>({}),
  });
