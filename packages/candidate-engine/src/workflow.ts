@@ -58,6 +58,14 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  ensureIdentity(target,repeat);
  if(baseline)await confirmStable(baseline);
  if(repeat.checks.length!==ranked.length)throw new Error('CDP returned partial repeated candidate confirmation');
+ // If the original selector recovered during inspection, recommending a
+ // replacement would be misleading. The original failure must still exist.
+ const finalOriginal=await deps.probe([locator]);
+ ensureIdentity(target,finalOriginal);
+ if(baseline)await confirmStable(baseline);
+ const finalCheck=finalOriginal.checks[0];
+ if(finalOriginal.checks.length!==1||finalCheck?.expression!==locator.expression||
+    finalCheck.method!==locator.method||finalCheck.status!=='missing'||finalCheck.matchCount!==0)return [];
  const verified:VerifiedCandidate[]=[];
  for(let i=0;i<ranked.length;i++){
   const a=ranked[i]!,b=confirmation.checks[i]!;
