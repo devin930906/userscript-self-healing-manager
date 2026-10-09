@@ -236,7 +236,7 @@ export function assessSiteAdapterUpgrade({previous,next,dependencies}:{
   for(const r of dep.roles)textField(r,roleRe,'dependency role');
   for(const v of dep.regressionCases)textField(v,caseRe,'dependency regression case');
   if(dep.siteId!==old.siteId||dep.pinnedVersion!==old.version)continue;
-  if(!dep.roles.some(id=>changedRoles.includes(id)))continue;
+  if(!dep.roles.some((id:string)=>changedRoles.includes(id)))continue;
   affected.add(dep.scriptId);
   for(const name of dep.regressionCases)regressions.add(name);
   for(const id of dep.roles)if(removedRoles.includes(id))removedUsed.add(id);
