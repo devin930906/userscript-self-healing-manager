@@ -297,7 +297,8 @@ export async function terminateFailedChromeLaunch(child:ChildProcess):Promise<vo
 }
 export async function launchSelectedChrome({executablePath,port=9223,isolatedProfileDir}:{executablePath:string;port?:number;isolatedProfileDir?:string|undefined}):Promise<ChildProcess>{
  validPort(port);if(!isAbsolute(executablePath))throw new Error('Chrome executable path must be absolute');
- const item=await lstat(executablePath);if(!item.isFile())throw new Error('Selected Chrome path is not a file');
+ const item=await lstat(executablePath);
+ if(!item.isFile()||item.isSymbolicLink())throw new Error('Selected Chrome path must be a regular executable, not a symlink');
  // Do not mistake a pre-existing debugger (or another loopback service) for
  // the newly requested Chrome process.
  await assertChromeDebuggerPortFree(port);
