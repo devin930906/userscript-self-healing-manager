@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {lstat,readFile,writeFile,rename,unlink} from 'node:fs/promises';
+import {lstat,writeFile,rename,unlink} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {isAbsolute,join} from 'node:path';
 
 const PREFERENCE_FILE='preferred-chrome.json';
@@ -49,8 +50,13 @@ export async function loadPreferredChromePath({dataRoot}:{dataRoot:string}):Prom
  try{if(!await checkConfigPath(config))return null;}
  catch{return null;}
  let parsed:unknown;
- try{parsed=JSON.parse(await readFile(config,'utf8'));}
- catch(error){if(error instanceof SyntaxError)return null;throw error;}
+ // The preference is optional. A file that changes or grows after the
+ // preliminary path check must not be reopened via unbounded path read or
+ // break application startup. Treat all pin/parse failures as unselected.
+ try{
+  const bytes=await readPinnedRegularFile(config,{maxBytes:4096});
+  parsed=JSON.parse(bytes.toString('utf8'));
+ }catch{return null;}
  if(!parsed||typeof parsed!=='object')return null;
  const record=parsed as Partial<PreferredChromeState>;
  if(record.schemaVersion!==1||typeof record.executablePath!=='string')return null;
