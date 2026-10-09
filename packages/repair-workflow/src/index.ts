@@ -17,6 +17,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  if(!isAbsolute(managedRoot))throw new Error('Managed root must be absolute');
  const pending=new Map<string,PendingProposal>();
  const applying=new Set<string>();
+ const revisionsEpoch=new Map<string,number>();
  const discardScriptPending=(scriptId:string)=>{
   for(const [id,record] of pending){
    if(record.scriptId===scriptId)pending.delete(id);
@@ -37,6 +38,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
    if(applying.has(scriptId))throw new Error('Cannot propose while a managed revision operation is in progress');
+   const startedEpoch=revisionsEpoch.get(scriptId)??0;
    const file=await lstat(sourcePath);
    if(!file.isFile()||file.isSymbolicLink())throw new Error('Source must be an ordinary file');
    if(file.size>512*1024)throw new Error('Script is too large');
@@ -83,7 +85,8 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation:updatedLocation});
    // Proposing awaited disk/AST work; a same-script apply or rollback could
    // have started while this proposal was being computed.
-   if(applying.has(scriptId))throw new Error('Managed revision operation began during proposal preparation');
+   if(applying.has(scriptId)||(revisionsEpoch.get(scriptId)??0)!==startedEpoch)
+    throw new Error('Managed revision changed during proposal preparation');
    if(pending.size>=100)throw new Error('Too many pending patch proposals');
    const proposalId=randomUUID();
    pending.set(proposalId,{sourcePath,workingPath,originalHash,baseRevisionKind,scriptId,draft});
@@ -101,6 +104,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    applying.add(scriptId);
    try{
     const result=await activateManagedRevision({managedRoot,scriptId,hash,approved:true,...(expectedCurrentHash===undefined?{}:{expectedCurrentHash})});
+    revisionsEpoch.set(scriptId,(revisionsEpoch.get(scriptId)??0)+1);
     discardScriptPending(scriptId);
     return result;
    }finally{applying.delete(scriptId);}
@@ -139,6 +143,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    // operation writes immutable archives; never overwrite that newer current.
    await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,
     approved:true,expectedCurrentHash:found.workingPath===found.sourcePath?null:found.draft.baseHash});
+   revisionsEpoch.set(found.scriptId,(revisionsEpoch.get(found.scriptId)??0)+1);
    discardScriptPending(found.scriptId);
    return receipt;
    }finally{applying.delete(found.scriptId);}
