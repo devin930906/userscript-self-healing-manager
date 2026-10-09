@@ -137,7 +137,7 @@ async function bootstrap():Promise<void>{
   // Bounded first page of scripts; no untrusted JS execution and no source writes.
   const checked=scanSnapshot.items.slice(offset,offset+25);
   const result=await diagnoseScriptsOnPage({items:checked,target:selected,consent:true,deps:{
-   confirm:confirmPageIdentity,probe:probePageLocators,
+   confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
   }});
   scanSessions.assertCurrent(scanSnapshot);
   return {...result,items:result.items.map(entry=>({...entry,index:entry.index+offset})),startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
