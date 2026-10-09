@@ -130,10 +130,10 @@ async function digest(path){
 export function isWindowsX64Pe(buffer){
  if(!Buffer.isBuffer(buffer)||buffer.length<0x40||buffer.readUInt16LE(0)!==0x5a4d)return false;
  const offset=buffer.readUInt32LE(0x3c);
- if(offset<0x40||offset+6>buffer.length)return false;
+ if(offset<0x40||offset+26>buffer.length)return false;
  return buffer.readUInt32LE(offset)===0x00004550&&
   buffer.readUInt16LE(offset+4)===0x8664&&
-  offset+26<=buffer.length&&buffer.readUInt16LE(offset+20)>=2&&
+  buffer.readUInt16LE(offset+20)>=2&&
   buffer.readUInt16LE(offset+24)===0x20b;
 }
 
