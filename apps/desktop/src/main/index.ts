@@ -8,6 +8,8 @@ import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../p
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
+import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-report.ts';
+import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -250,6 +252,35 @@ async function bootstrap():Promise<void>{
   const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return repairs.restore({scriptId:item.scriptId,hash:q.hash,approved:true});
+ });
+ ipcMain.handle('usshm:export-dom-report',async(event,input:unknown)=>{
+  assertSender(event);
+  if(!input||typeof input!=='object')throw new Error('Invalid DOM export request');
+  const q=input as {scanId?:unknown;format?:unknown;report?:unknown};
+  if(typeof q.scanId!=='string'||(q.format!=='json'&&q.format!=='markdown')||
+     !q.report||typeof q.report!=='object')throw new Error('Invalid DOM export parameters');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const report=q.report as BatchDomResult;
+  if(!Array.isArray(report.items)||report.items.length>scanSnapshot.items.length)
+   throw new Error('DOM export contains more rows than the active scan');
+  // Renderer IPC is not a source of filesystem authorization. Every exported
+  // row must correspond to the exact active static-scan identity and ordering.
+  for(let index=0;index<report.items.length;index++){
+   const evidence=report.items[index],source=scanSnapshot.items[index];
+   if(!evidence||!source||evidence.index!==index||evidence.scriptId!==(source.scriptId??null)||
+      evidence.path!==source.path)
+    throw new Error('DOM report is stale or references a different imported script');
+  }
+  const content=serializeDomBatchReport(report,q.format,new Date().toISOString());
+  const extension=q.format==='json'?'json':'md';
+  const selection=await dialog.showSaveDialog(mainWindow,{
+   defaultPath:join(app.getPath('documents'),`usshm-dom-report.${extension}`),
+   filters:[{name:extension.toUpperCase(),extensions:[extension]}],
+  });
+  if(selection.canceled||!selection.filePath)return {canceled:true};
+  scanSessions.assertCurrent(scanSnapshot);
+  await writeFile(selection.filePath,content,{encoding:'utf8',flag:'w'});
+  return {canceled:false,path:selection.filePath};
  });
  ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');if(!lastScan)throw new Error('No scan has been performed');
  const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});
