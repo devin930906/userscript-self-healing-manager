@@ -15,6 +15,7 @@ import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locat
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
+import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
@@ -41,6 +42,7 @@ declare global {interface Window{ussm:{
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
  discardSiteAdapterPreview:(input:{previewId:string})=>Promise<{discarded:boolean}>;
+ inspectSiteAdapterRole:(input:{siteId:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>Promise<RoleDomResult>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -57,6 +59,12 @@ function App(){
  const [adapterLibrary,setAdapterLibrary]=useState<AdapterLibraryEntry[]|null>(null);
  const [adapterPreview,setAdapterPreview]=useState<SiteAdapterPreview|null>(null);
  const [adapterBusy,setAdapterBusy]=useState(false);
+ const [adapterSelectedSiteId,setAdapterSelectedSiteId]=useState('');
+ const [adapterSelectedRoleId,setAdapterSelectedRoleId]=useState('');
+ const [adapterDeclaredStateId,setAdapterDeclaredStateId]=useState('');
+ const [adapterRoleCheck,setAdapterRoleCheck]=useState<RoleDomResult|null>(null);
+ const [adapterRoleBusy,setAdapterRoleBusy]=useState(false);
+ const adapterRoleGeneration=useRef(new LatestRequestGate());
  const [diagnosisHistory,setDiagnosisHistory]=useState<JournalRun[]|null>(null);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
@@ -98,6 +106,8 @@ function App(){
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
+ const selectedAdapter=adapterLibrary?.find(a=>a.siteId===adapterSelectedSiteId)??null;
+ useEffect(()=>{adapterRoleGeneration.current.invalidate();setAdapterRoleCheck(null);setAdapterRoleBusy(false);},[targetId,adapterSelectedSiteId,adapterSelectedRoleId,adapterDeclaredStateId,adapterLibrary]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
@@ -169,6 +179,22 @@ function App(){
   const previewId=adapterPreview.previewId;setAdapterPreview(null);
   try{await window.ussm.discardSiteAdapterPreview({previewId});}
   catch(error){setError('取消 SiteAdapter 预览失败：'+String(error));}
+ }
+ async function inspectSiteAdapterRole(){
+  if(!targetId||!selectedAdapter||!adapterSelectedRoleId||!adapterDeclaredStateId||adapterRoleBusy)return;
+  const token=adapterRoleGeneration.current.begin();
+  setAdapterRoleBusy(true);setAdapterRoleCheck(null);setError('');
+  try{
+   const receipt=await window.ussm.inspectSiteAdapterRole({
+    siteId:selectedAdapter.siteId,roleId:adapterSelectedRoleId,
+    declaredStateId:adapterDeclaredStateId,targetId,approved:true,
+   });
+   adapterRoleGeneration.current.commit(token,()=>setAdapterRoleCheck(receipt));
+  }catch(error){
+   adapterRoleGeneration.current.commit(token,()=>setError('SiteAdapter 角色只读核验失败：'+String(error)));
+  }finally{
+   adapterRoleGeneration.current.commit(token,()=>setAdapterRoleBusy(false));
+  }
  }
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(String(e));}}
@@ -358,6 +384,30 @@ function App(){
     {adapterLibrary&&<div className="table-wrapper"><table><thead><tr><th>站点</th><th>版本</th><th>角色</th><th>页面状态</th><th>定义来源</th></tr></thead><tbody>
      {adapterLibrary.map(adapter=><tr key={adapter.siteId}><td>{adapter.siteId}</td><td>v{adapter.version}</td><td>{adapter.roleCount}</td><td>{adapter.stateCount}</td><td>本机 JSON · 仅定义</td></tr>)}
     </tbody></table>{adapterLibrary.length===0&&<p className="dim">尚无已导入的 SiteAdapter。</p>}</div>}
+    <div className="toolbar" style={{flexWrap:'wrap'}}>
+     <label>选择已保存站点
+      <select aria-label="SiteAdapter 站点" value={adapterSelectedSiteId} onChange={e=>{setAdapterSelectedSiteId(e.target.value);setAdapterSelectedRoleId('');setAdapterDeclaredStateId('');}}>
+       <option value="">— 先选择站点 —</option>{adapterLibrary?.map(a=><option key={a.siteId} value={a.siteId}>{a.siteId} · v{a.version}</option>)}
+      </select></label>
+     <label>语义角色
+      <select aria-label="SiteAdapter 语义角色" value={adapterSelectedRoleId} onChange={e=>setAdapterSelectedRoleId(e.target.value)}>
+       <option value="">— 选择角色 —</option>{selectedAdapter?.roleIds.map(id=><option key={id} value={id}>{id}</option>)}
+      </select></label>
+     <label>声明页面状态（未经实际证明）
+      <select aria-label="SiteAdapter 声明页面状态" value={adapterDeclaredStateId} onChange={e=>setAdapterDeclaredStateId(e.target.value)}>
+       <option value="">— 选择状态 —</option>{selectedAdapter?.stateIds.map(id=><option key={id} value={id}>{id}</option>)}
+      </select></label>
+     <button type="button" disabled={!targetId||!cdp||!selectedAdapter||!adapterSelectedRoleId||!adapterDeclaredStateId||adapterRoleBusy} onClick={()=>void inspectSiteAdapterRole()}>
+      {adapterRoleBusy?'正在只读检查…':'检查 SiteAdapter 角色 DOM（只读）'}</button>
+    </div>
+    <p className="dim">先在下方连接 Chrome 并明确选定目标网页。状态由用户声明、未经过运行时验证；仅检查顶层非 Shadow DOM 的静态 CSS，不进行点击或页面注入。</p>
+    {adapterRoleCheck&&<div className="notice">
+     <b>角色核验结果：</b>{adapterRoleCheck.status==='matched-v1'?'当前 DOM 两次采样匹配':adapterRoleCheck.status==='absent-v1'?'当前主文档两次采样均无匹配':adapterRoleCheck.status==='needs-review'?'证据不足／需复核':'当前角色或页面上下文不支持检查'}
+     <p>站点 {adapterRoleCheck.siteId} · 版本 {adapterRoleCheck.version} · 角色 {adapterRoleCheck.roleId} · DOM 证据等级 {adapterRoleCheck.evidenceLevel}</p>
+     {adapterRoleCheck.matchedSelector&&<code>{adapterRoleCheck.matchedSelector}</code>}
+     <p className="dim">{adapterRoleCheck.reason}；状态未经验证，不表示脚本正在运行。</p>
+     <p className="dim">V2：阻断 · V3/V4：未配置 · Tampermonkey 与 GM_* 功能未验证；本操作没有修改脚本或扩展。</p>
+    </div>}
     <p className="dim">所有兼容规则仅为候选定义，未经过真实脚本运行或功能验证。V3／V4 未配置，尚不能认定 Tampermonkey 或 GM_* 功能正常。</p>
    </section>
    <section className="panel"><div className="panel-head"><div><h2>Chrome CDP 浏览器连接</h2><p>仅连接本机 127.0.0.1:9223；可进行人工授权的只读 DOM 快照和定位器匹配，不执行用户脚本。</p></div><span className="pill">受控连接</span></div>
