@@ -281,7 +281,7 @@ export async function terminateFailedChromeLaunch(child:ChildProcess):Promise<vo
      // taskkill can report "not found" while Node has not processed the
      // child's exit event yet. Wait briefly for that event before treating
      // cleanup as a genuine failure; never claim success for a live child.
-     const onExit=()=>{clearTimeout(timer);resolve();};
+     const onExit=()=>{clearTimeout(timer);child.off('exit',onExit);resolve();};
      const timer=setTimeout(()=>{
       child.off('exit',onExit);
       if(child.exitCode!==null||child.signalCode!==null)resolve();
