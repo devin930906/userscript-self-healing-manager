@@ -31,6 +31,8 @@ export interface BatchDomResult {
 export interface BatchDomDependencies {
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  probe:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
+ /** Optional, trusted bounded delay before re-reading initial misses; does not run page JavaScript. */
+ waitBeforeMissingRecheck?:()=>Promise<void>;
  /** Optional until all adapters implement bounded, read-only DOMSnapshot context checks. */
  summarize?:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
@@ -113,6 +115,37 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
     evidence.checks.length!==locators.length||evidence.checks.some((check,i)=>check.method!==locators[i]!.method||check.expression!==locators[i]!.expression)){
    results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:'CDP evidence identity or shape mismatch'});
    continue;
+  }
+  // Modern SPAs may render asynchronously. A single missing sample is not
+  // enough to distinguish deferred rendering from a missing selector. Allow
+  // one bounded, read-only recheck under the *same* Frame/Loader identity.
+  if(deps.waitBeforeMissingRecheck&&evidence.checks.some(check=>check.status==='missing')){
+   let retry:LocatorProbeResult|undefined;
+   let failure:unknown;
+   try{
+    await deps.waitBeforeMissingRecheck();
+    await checkIdentity();
+    retry=await deps.probe(target,locators);
+   }catch(error){failure=error;}
+   // Never conceal navigation, including when the delay or socket failed.
+   await checkIdentity();
+   if(failure||!retry||retry.targetId!==target.id||retry.url!==target.url||
+      retry.validationLevel!=='dom-only'||retry.checks.length!==locators.length||
+      retry.checks.some((check,i)=>check.method!==locators[i]!.method||
+       check.expression!==locators[i]!.expression)){
+    results.push({...common,status:'needs-review',checked:locators.length,
+     found:0,missing:0,needsReview:locators.length,
+     reason:'DOM recheck unverified; cannot certify a locator failure'});
+    continue;
+   }
+   evidence={...retry,checks:retry.checks.map((check,i)=>{
+    const first=evidence.checks[i]!;
+    // A locator which was present but vanished is unstable, not "broken".
+    if(first.status==='found'&&check.status==='missing')
+     return {...check,status:'unverified' as const,matchCount:null,
+      reason:'Locator changed during bounded DOM recheck'};
+    return check;
+   })};
   }
   const summary=summarizeLiveLocatorCheck(evidence.checks);
   results.push({...common,status:summary.status,checked:summary.total,found:summary.found,missing:summary.missing,needsReview:summary.needsReview});
