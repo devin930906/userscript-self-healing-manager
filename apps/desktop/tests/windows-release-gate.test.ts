@@ -113,3 +113,12 @@ test('Windows release ZIP rejects bidirectional display spoofing and C1 control 
    /unsafe|ZIP|path|name/i);
  }
 });
+
+test('large ZIP inventory remains bounded and detects a deep file-directory collision',()=>{
+ const many=Array.from({length:12000},(_,i)=>'resources/generated/file-'+i+'.bin');
+ const valid=validateWindowsReleaseLayout({...good,zipEntries:[...good.zipEntries,...many]});
+ assert.equal(valid.zipEntryCount,good.zipEntries.length+many.length);
+ assert.throws(()=>validateWindowsReleaseLayout({
+  ...good,zipEntries:[...good.zipEntries,...many,'resources/generated'],
+ }),/collid|path|ZIP/i);
+});
