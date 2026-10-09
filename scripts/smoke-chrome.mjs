@@ -147,6 +147,11 @@ try{
     strategies:[{kind:'css',selector:'.batch-role',weight:100}],
     cardinality:{min:2,max:2},assertions:['exists'],
    },
+   'fixture.openShadow':{
+    contexts:[{stateId:'ready',frame:'top',shadow:'open'}],
+    strategies:[{kind:'css',selector:'#shadow-only',weight:100}],
+    cardinality:{min:1,max:1},assertions:['unique'],
+   },
    'fixture.shadowOnly':{
     contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
     strategies:[{kind:'css',selector:'#shadow-only',weight:100}],
@@ -157,6 +162,7 @@ try{
  const roleDeps={
   confirm:confirmPageIdentity,
   probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+  probeOpenShadow:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true,rootScope:'open-shadow'}),
   summarize:captureDomSummary,
   wait:()=>delay(120),
  };
@@ -173,6 +179,15 @@ try{
   declaredStateId:'ready',deps:roleDeps,
  });
  assert.equal(shadowRole.status,'needs-review','shadow-only role cannot be marked definitively absent');
+ const openShadowRole=await runSiteAdapterRoleDomCheck({
+  approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.openShadow',
+  declaredStateId:'ready',deps:roleDeps,
+ });
+ assert.equal(openShadowRole.status,'matched-v1','real Chrome must attest an explicitly selected open ShadowRoot');
+ assert.equal(openShadowRole.matchedSelector,'#shadow-only');
+ assert.equal(openShadowRole.functionalVerified,false);
+ assert.equal(openShadowRole.V3,'not-configured');
+ assert.equal(openShadowRole.V4,'not-configured');
  const multiRole=await runSiteAdapterRoleDomCheck({
   approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.batchButtons',
   declaredStateId:'ready',deps:roleDeps,
