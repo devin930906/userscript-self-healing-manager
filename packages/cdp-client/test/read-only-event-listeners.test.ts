@@ -162,3 +162,24 @@ test('null CDP response envelope never produces listener evidence',async()=>{
   /invalid|response|CDP/i);
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
 });
+
+test('invalid listener CDP envelope after resolving a node releases the remote handle',async()=>{
+ const socket=new FakeSocket({
+  'DOM.getDocument':()=>({root:{nodeId:3}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+  'DOM.resolveNode':()=>({object:{type:'object',subtype:'node',objectId:'remote-1'}}),
+  'Runtime.releaseObject':()=>({}),
+ });
+ const send=socket.send.bind(socket);
+ socket.send=(raw:string)=>{
+  const command=JSON.parse(raw);
+  if(command.method==='DOMDebugger.getEventListeners'){
+   socket.sent.push(command);
+   queueMicrotask(()=>socket.emit('message',{data:'null'}));
+  }else send(raw);
+ };
+ const result=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
+ assert.equal(result.status,'unknown');
+ assert.equal(result.listenerCount,null);
+ assert.ok(socket.sent.some(command=>command.method==='Runtime.releaseObject'));
+});
