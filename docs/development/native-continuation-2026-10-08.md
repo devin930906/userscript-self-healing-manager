@@ -523,3 +523,14 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **真实桌面与 Chrome 路径：** `apps/desktop/src/main/index.ts` 的 SiteAdapter role check 显式 opt-in；`scripts/smoke-chrome.mjs` 的受控真实 Chrome fixture 使用相同代码路径。其他定位探测仍默认不采集指纹。
 - **GREEN:** [Windows Development CI #37914295063](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37914295063) **357 tests / 357 pass / 0 fail**，严格 TypeScript、Electron 构建、Windows GUI/SQLite smoke、真实 Chrome CDP smoke 全部成功；[Node contracts #37914295046](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37914295046) SUCCESS。
 - **Stable 未完成：** 动态网页 V1 定位证据更严格，但 iframe/Shadow DOM 正式多上下文角色检测、V2 交互、V3 业务验证、真实 Tampermonkey/GM_* V4、指定 Win10+便携 Chrome155 和正式三发行包验收仍未完成。保持 PR Draft，不合并 main，不发布 Stable，不生成中途包。
+
+## 2026-10-09 · 作用域/验证用例升级防漏报与多节点 V1 安全校验（362 项）
+
+- **问题 1：SiteAdapter 影响分析漏报。** 原 `assessSiteAdapterUpgrade` 的 `changedRoles` 只考虑角色定义与其状态。仅修改 `urlPatterns` 或 `validationCases`，即使依赖旧版的脚本会受到影响，旧结果也可能标成 `unchanged` 且 `affectedScriptIds` 为空，回归列表漏掉旧脚本专有用例。
+- **TDD RED：** [Node Contracts #37915124918](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37915124918) 验证单独扩展作用域、移除仍在使用的 URL scope、单独增删验证用例和仅变更数组排序这四组情况。
+- **修复 1：** `packages/candidate-engine/src/site-adapter.ts` 现在按照集合比较作用域和验证用例，报告明确的 `changedScope`、`addedScopePatterns`、`removedScopePatterns`、`changedValidationCases`、`addedValidationCases`、`removedValidationCases`。任何作用域或验证契约变化都影响所有依赖旧版的脚本，而不是只影响直接依赖 changed role 的脚本。删除带依赖的作用域为 `blocked-scope`，删除旧验证用例为 `blocked-validation`；回归集合合并新旧验证用例与受影响脚本测试，避免删除历史覆盖。绝不自动激活新版。
+- **问题 2：V1 多元素误判。** 唯一节点才有受信任的 `DOM.describeNode` backend ID 指纹。此前当角色 cardinality 允许 2～10 个元素时，双采样即使只比较数量也可能返回 `matched-v1`，但无法证明两次观测的是同一组节点。
+- **TDD RED：** [Node Contracts #37915446163](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37915446163) 新增重复出现 2/3 个匹配元素时不应认证 V1 的断言。
+- **修复 2：** `packages/test-runner/src/site-adapter-role.ts` 对缺少逐节点指纹的多元素匹配始终返回 `needs-review`。同样适用于用户定义了 cardinality 2～3 且两个时间点数量稳定的场景。为了验证主流程，`scripts/smoke-chrome.mjs` 的真实 Windows Chrome 隔离页面加入两个 `.batch-role` 按钮和同名 SiteAdapter 角色，要求最终 `needs-review` 且 `V3='not-configured'`。
+- **最终源码 GREEN：** [Windows Development CI #37915553011](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37915553011) **362 tests / 362 pass / 0 fail**；TypeScript、Electron 构建、Windows GUI/SQLite、真正 Chrome CDP synthetic smoke 成功。[Node Contracts #37915553042](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37915553042) SUCCESS。
+- **未解决的 Stable 门禁：** 实际应用仍不允许覆盖站点适配器旧版，因为缺少经授权的完整持久脚本依赖登记和版本回滚；尚未实现多节点全量身份/iframe/Shadow 上下文功能、真实 Tampermonkey/GM_* V4、V3 业务断言、指定 Win10 便携 Chrome155 实机以及三形式正式发行 RG 门禁。PR #2 保持 Draft，不合并、不制作中途安装包。
