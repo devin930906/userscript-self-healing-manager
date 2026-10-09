@@ -83,7 +83,7 @@ test('Chrome launcher refuses an occupied local debugger port instead of claimin
  const root=await mkdtemp(join(tmpdir(),'usshm-port-check-'));
  const fake=join(root,'Fake Chrome.exe');
  try{
-  await writeFile(fake,'an executable-looking file that must never launch');
+  await writeFile(fake,'an executable-looking file that must never launch'.padEnd(128,'x'));
   const addr=server.address();if(!addr||typeof addr==='string')throw Error('port');
   await assert.rejects(launchSelectedChrome({executablePath:fake,port:addr.port}),/port.*(occupied|in use)|already.*used/i);
  }finally{
