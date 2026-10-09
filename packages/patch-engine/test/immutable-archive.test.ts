@@ -60,3 +60,20 @@ test('symlinked archive path is rejected without modifying its target',async(t)=
  await assert.rejects(persistImmutableSnapshot({archivePath:path,bytes}),/symlink|regular|unsafe|conflict/i);
  assert.equal(await readFile(outside,'utf8'),'do not touch');
 }));
+
+test('read-back hash failure removes a newly created but corrupted archive',async()=>fixture(async folder=>{
+ const bytes=Buffer.from('the original approved revision bytes');
+ const path=join(folder,'revision-'+sha(bytes)+'.user.js');
+ await assert.rejects(persistImmutableSnapshot({
+  archivePath:path,bytes,
+  writeChunk:async(handle,chunk,position)=>{
+   const corrupted=Buffer.from(chunk);
+   corrupted[0]^=0x01;
+   const result=await handle.write(corrupted,0,corrupted.length,position);
+   return result.bytesWritten;
+  },
+ }),/conflict|hash|corrupt/i);
+ await assert.rejects(lstat(path),{code:'ENOENT'});
+ await persistImmutableSnapshot({archivePath:path,bytes});
+ assert.deepEqual(await readFile(path),bytes);
+}));
