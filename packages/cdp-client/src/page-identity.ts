@@ -69,10 +69,10 @@ export async function confirmPageIdentity(
     const topFrame=frameTree.frame as {id:string;loaderId?:unknown};
     const frameId=topFrame.id;
     const loaderId=topFrame.loaderId;
-    if(frameId.length>256||(loaderId!==undefined&&(typeof loaderId!=='string'||!loaderId||loaderId.length>256)))
+    if(frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
      throw new Error('Invalid main-frame document identity token');
     complete(undefined,{targetId:target.id,confirmedUrl:url,frameId,
-     ...(typeof loaderId==='string'?{loaderId}:{}),
+     loaderId,
      ...(nestedFrames>0?{subframeCount:nestedFrames}:{})});
    }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP frame tree'));}
   };
