@@ -158,4 +158,6 @@ test('Stable executable gate verifies PE signature and x64 architecture, not jus
  invalidOffset.writeUInt32LE(0xffffffff,0x3c);
  assert.equal(isWindowsX64Pe(invalidOffset),false);
  assert.equal(isWindowsX64Pe(Buffer.from('MZ')),false);
+ assert.equal(isWindowsX64Pe(executable.subarray(0,0x80+25)),false);
+ assert.equal(isWindowsX64Pe(executable.subarray(0,0x80+26)),true);
 });
