@@ -49,10 +49,18 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  ensureIdentity(target,confirmation);
  if(baseline)await confirmStable(baseline);
  if(confirmation.checks.length!==ranked.length)throw new Error('CDP returned partial candidate confirmation');
+ // Dynamic pages can change between capture and verification. Require a
+ // second independent probe before presenting a selector as live-verified.
+ const repeat=await deps.probe(ranked.map(candidate=>({method:locator.method,expression:candidate.expression,runtimeRequired:false})));
+ ensureIdentity(target,repeat);
+ if(baseline)await confirmStable(baseline);
+ if(repeat.checks.length!==ranked.length)throw new Error('CDP returned partial repeated candidate confirmation');
  const verified:VerifiedCandidate[]=[];
  for(let i=0;i<ranked.length;i++){
   const a=ranked[i]!,b=confirmation.checks[i]!;
-  if(b.expression===a.expression&&b.method===locator.method&&b.status==='found'&&b.matchCount===1)
+  const c=repeat.checks[i]!;
+  if(b.expression===a.expression&&b.method===locator.method&&b.status==='found'&&b.matchCount===1&&
+     c.expression===a.expression&&c.method===locator.method&&c.status==='found'&&c.matchCount===1)
    verified.push({...a,validationLevel:'dom-candidate-verified'});
  }
  return verified;
