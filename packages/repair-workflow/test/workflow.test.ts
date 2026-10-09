@@ -206,3 +206,14 @@ test('restore cannot race an in-progress repair approval and may proceed after i
  assert.deepEqual(await readFile(sourcePath),sourceBefore,'the original must never be overwritten');
  assert.match(await readFile(applied.managedPath,'utf8'),/#fixed/,'the approved archived revision must remain recoverable');
 }));
+
+test('a stale CDP preview is revocable without clearing unrelated reviewed proposals',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const old=await flow.propose({sourcePath,scriptId:'script01',oldSelector:'#old',newSelector:'#first'});
+ const newer=await flow.propose({sourcePath,scriptId:'script01',oldSelector:'#old',newSelector:'#second'});
+ assert.equal(flow.discard(old.proposalId),true);
+ assert.equal(flow.discard(old.proposalId),false);
+ await assert.rejects(flow.apply({proposalId:old.proposalId,approved:true}),/not found|stale|applied/i);
+ const applied=await flow.apply({proposalId:newer.proposalId,approved:true});
+ assert.match(await readFile(applied.managedPath,'utf8'),/#second/);
+}));
