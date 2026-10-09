@@ -58,3 +58,17 @@ test('second bounded batch resumes at the ninth missing locator instead of repea
  await assert.rejects(suggestMissingCandidatesBulk({target,locators,checks,deps:deps(),offset:-1}),/offset/i);
  await assert.rejects(suggestMissingCandidatesBulk({target,locators,checks,deps:deps(),offset:7}),/offset/i);
 });
+
+test('bulk suggestions fail closed if a same-URL reload occurs between eligible locators',async()=>{
+ const base=deps();
+ let confirmations=0;
+ const changing={...base,confirm:async()=>{
+  confirmations++;
+  return {targetId:target.id,confirmedUrl:target.url,frameId:'main-frame',
+   loaderId:confirmations>12?'reloaded-document':'main-loader'};
+ }};
+ const locators=[missing('#old-one'),missing('#old-two')];
+ await assert.rejects(suggestMissingCandidatesBulk({target,locators,
+  checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing',matchCount:0})),
+  deps:changing}),/identity|document|reload/i);
+});
