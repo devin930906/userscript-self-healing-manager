@@ -217,3 +217,10 @@ test('validated recommendation list never repeats the same selector expression',
  assert.equal(new Set(suggestions.map(x=>x.expression)).size,suggestions.length);
  assert.ok(suggestions.length>0);
 });
+
+test('candidate inspection fails closed before CDP when required probe or capture is absent',async()=>{
+ const missingProbe={confirm:confirmed,capture:deps.capture} as unknown as typeof deps;
+ const missingCapture={confirm:confirmed,probe:deps.probe} as unknown as typeof deps;
+ await assert.rejects(suggestCandidateRepairs({target,locator,deps:missingProbe}),/probe and snapshot/i);
+ await assert.rejects(suggestCandidateRepairs({target,locator,deps:missingCapture}),/probe and snapshot/i);
+});
