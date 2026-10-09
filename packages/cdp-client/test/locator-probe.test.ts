@@ -201,3 +201,45 @@ test('unbounded identity sets never send read-only describe commands or publish 
  assert.equal(check.nodeFingerprints,undefined);
  assert.equal(socket.sent.filter(x=>x.method==='DOM.describeNode').length,0);
 });
+
+test('explicit open-shadow scope uses one bounded top-page open root, not document root',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'}]}]}}),
+  'DOM.querySelectorAll':({nodeId,selector})=>({nodeIds:nodeId===82&&selector==='#shadow-send'?[101]:[]}),
+  'DOM.describeNode':()=>({node:{backendNodeId:882,nodeType:1}}),
+ });
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+  socketFactory:()=>socket,includeNodeFingerprints:true,rootScope:'open-shadow',
+ });
+ assert.equal(result.checks[0]?.status,'found');
+ assert.match(result.checks[0]?.nodeFingerprint??'',/^[a-f0-9]{64}$/);
+ assert.equal(socket.sent[0]?.method,'DOM.getDocument');
+ assert.deepEqual(socket.sent[0]?.params,{depth:-1,pierce:true});
+ assert.deepEqual(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').map(x=>x.params.nodeId),[82]);
+});
+test('open-shadow scope fails closed on ambiguous, nested, closed or malformed roots without selector commands',async()=>{
+ const trees=[
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'open'}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'closed'}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'closed'}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open',children:[{nodeId:13,shadowRoots:[{nodeId:89,shadowRootType:'open'}]}]}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:'bad',shadowRootType:'open'}]}]},
+ ];
+ for(const root of trees){
+  const socket=new ProtocolSocket({'DOM.getDocument':()=>({root})});
+  const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+   socketFactory:()=>socket,includeNodeFingerprints:true,rootScope:'open-shadow',
+  });
+  assert.equal(result.checks[0]?.status,'unverified');
+  assert.equal(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').length,0);
+ }
+});
+test('unknown shadow scopes and oversized trees must not silently fall back to document root',async()=>{
+ await assert.rejects(probePageLocators(page,[],{rootScope:'pierce-all' as 'open-shadow'}),/scope|root/i);
+ const socket=new ProtocolSocket({'DOM.getDocument':()=>({root:{nodeId:8,children:Array.from({length:1800},(_,i)=>({nodeId:i+50}))}})});
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+  socketFactory:()=>socket,rootScope:'open-shadow',
+ });
+ assert.equal(result.checks[0]?.status,'unverified');
+ assert.equal(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').length,0);
+});
