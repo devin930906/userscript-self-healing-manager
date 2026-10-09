@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,readFile,writeFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,symlink,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRepairWorkflow} from '../src/index.ts';
@@ -72,4 +72,20 @@ test('checked current needs a matching immutable revision archive, not merely us
  await unlink(join(root,'managed','v1-archive','revision-'+saved.hash+'.user.js'));
  await assert.rejects(readVerifiedManagedLocator({managedRoot:root,scriptId:'v1-archive',
   revisionHash:saved.hash,selectorIndex:0}),/archive|revision|missing|not found|hash/i);
+}));
+
+test('V1 managed locator refuses to certify active source during an in-progress or orphaned revision writer lease',async()=>fixture(async(root,source,flow)=>{
+ const proposal=await flow.propose({sourcePath:source,scriptId:'leased-v1',oldSelector:'#old',newSelector:'#new'});
+ const saved=await flow.apply({proposalId:proposal.proposalId,approved:true});
+ const lock=join(root,'managed','leased-v1','current.user.js.write-lock');
+ await mkdir(lock);
+ await assert.rejects(readVerifiedManagedLocator({
+  managedRoot:root,scriptId:'leased-v1',revisionHash:saved.hash,selectorIndex:0,
+ }),/lock|busy|writer|in progress/i);
+ assert.deepEqual(await readFile(source),Buffer.from('// ==UserScript==\n// @name Fixture\n// @match https://example.org/*\n// ==/UserScript==\ndocument.querySelector("#old");\n'));
+ await rm(lock,{recursive:true});
+ const checked=await readVerifiedManagedLocator({
+  managedRoot:root,scriptId:'leased-v1',revisionHash:saved.hash,selectorIndex:0,
+ });
+ assert.equal(checked.expression,'#new');
 }));
