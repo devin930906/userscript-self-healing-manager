@@ -21,6 +21,13 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
   invalidatePending():void{pending.clear();},
   /** Removes only an unpublished preview that lost its CDP/source identity. */
   discard(proposalId:string):boolean{return pending.delete(proposalId);},
+  /** Main-process-only review identity. Never accept a rollback target supplied
+   * by the renderer; use this immutable draft's verified predecessor hash. */
+  inspectPending(proposalId:string):Readonly<{scriptId:string;previousHash:string;proposedHash:string}>|null{
+   const record=pending.get(proposalId);
+   return record?Object.freeze({scriptId:record.scriptId,previousHash:record.draft.baseHash,
+    proposedHash:record.draft.proposedHash}):null;
+  },
   async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
