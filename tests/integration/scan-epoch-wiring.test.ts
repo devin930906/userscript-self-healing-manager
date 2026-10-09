@@ -40,7 +40,7 @@ test('every index-based desktop script action requires a scan epoch, not just an
   const segment=main.split("ipcMain.handle('usshm:"+route+"'")[1]?.split("ipcMain.handle('usshm:")[0]??'';
   assert.match(segment,/scanSessions\.require\(q\.scanId\)/,route+' must reject obsolete scans before using itemIndex');
   assert.match(preload,new RegExp(method+':\\(input:\\{[^}]*scanId:string'),method+' must require an epoch in the safe preload');
-  assert.match(ui,new RegExp('ussm\\.'+method+'\\(\\{[^}]*scanId:result\\.scanId'),method+' must pass the selected scan epoch');
+  assert.match(ui,new RegExp('ussm\\.'+method+'\\(\\{[^}]*scanId:(?:result\\.scanId|selectedScanId)'),method+' must pass the selected scan epoch');
  }
 });
 
