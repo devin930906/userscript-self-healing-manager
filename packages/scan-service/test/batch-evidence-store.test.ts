@@ -53,3 +53,16 @@ test('new scan and changed target cannot obtain an old authenticated DOM diagnos
  store.clear();
  assert.throws(()=>store.snapshot({scanId,targetId}),/missing|stale|unavailable/i);
 });
+test('generation advances after each authenticated page and invalidation, preventing stale exports',()=>{
+ const store=new BatchEvidenceStore();
+ store.record({scanId,targetId,total:26,offset:0,page:makePage(0)});
+ const first=store.snapshot({scanId,targetId});
+ store.record({scanId,targetId,total:26,offset:25,page:makePage(25)});
+ const second=store.snapshot({scanId,targetId});
+ assert.ok(Number.isSafeInteger(first.revision));
+ assert.ok(second.revision>first.revision);
+ store.clear();
+ store.record({scanId,targetId,total:26,offset:0,page:makePage(0)});
+ const third=store.snapshot({scanId,targetId});
+ assert.ok(third.revision>second.revision,'reset must not reuse prior receipt number');
+});
