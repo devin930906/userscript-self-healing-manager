@@ -16,7 +16,7 @@ import {buildChromeLaunchArgs,getChromeStatus} from '../packages/cdp-client/src/
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
-import {inspectReadOnlyElementVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
+import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
@@ -148,6 +148,21 @@ try{
   'a ShadowRoot-only target must not cause a definitive failed top-document contract');
  assert.equal(shadowContract.matchCount,null);
  assert.equal(shadowContract.V3,'not-configured');
+ // Check the actual Chrome ShadowRoot fixture through the same conservative
+ // visibility qualification used by the Electron main process.
+ const rawShadowVisibility=await inspectReadOnlyElementVisibility(selected,{
+  method:'querySelector',expression:'#shadow-only',runtimeRequired:false,
+ });
+ assert.equal(rawShadowVisibility.status,'missing','top document does not pierce ShadowRoot');
+ const authorContext=await captureDomSummary(selected);
+ assert.ok(authorContext.authorShadowTreeNodes>0,'the synthetic page contains author Shadow DOM');
+ const shadowIdentity=await confirmPageIdentity(selected);
+ const qualifiedShadowVisibility=qualifyTopDocumentVisibility(rawShadowVisibility,
+  shadowIdentity.subframeCount??0,authorContext.authorShadowTreeNodes);
+ assert.equal(qualifiedShadowVisibility.status,'unknown',
+  'ShadowRoot-only targets must not appear definitively absent in visibility UI');
+ assert.equal(qualifiedShadowVisibility.V2,'blocked');
+
 
 
  // Use the real Chrome DOM domain to verify a named non-destructive
