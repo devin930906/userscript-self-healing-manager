@@ -405,3 +405,31 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **TDD RED** [#37897725218](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37897725218) 缺少 job journal 源码；[#37898008930](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37898008930) 缺少 Electron/UI 接线；更新旧回归中与可信证据失效捕获代码的过期正则，但保留原始语义断言。
 - **GREEN** [Windows CI #37898342762](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37898342762)，提交 `b34ad49338af1fe2ade8445cfc0c15b419f74373`：**288/288 tests / 0 failures，TypeScript/Electron build、真实 Windows GUI+SQLite/duplicate-instance、真实隔离 Chrome CDP 冒烟 PASS**；Node contract [#37898342771](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37898342771) 成功。
 - **仍不符合 Stable**：历史查看不等于持久 job queue/断点安全重跑，缺少版本化 SiteAdapter、真正 V2/V3/V4 实际功能合约、长期后台监控和完整 Windows 三种最终发行/迁移门禁。PR #2 继续 Draft，无中途安装预览。
+
+## 2026-10-09 · Stable 续接：只读 CSS、站点趋势与嵌套上下文假阴性
+
+- 从已签收的独立 SQLite journal 继续，确认新静态扫描调用 `journal.interruptRunning()`，未完成历史从 `running` 变 `interrupted`，旧行不删。对当前开发 SHA `14e6a26a6ea0dfa8eaac85ddf796ff219532d099` 的 [Windows CI #37899477746](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37899477746) 已确认 **297/297 test PASS**、构建、真实 Windows GUI/SQLite 与隔离 Chrome CDP 冒烟通过。
+
+### CSS/盒模型只读可见性：已有 CDP 实现的真实桌面接口
+
+- **TDD RED：** [Task 1 #37899914175](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37899914175) 确认缺少 `usshm:read-only-visibility` 主进程授权 IPC 与 GUI/preload 接口；旧 identity 静态接线测试随新路由插入产生误判，改为精确截取原 `probe-locators` handler，保留“每个操作前后两次页面身份确认”的核心断言。
+- **实现：** main 只接受已扫描 script/selector 索引、当前用户批准的 target、支持的顶层静态定位器，并对 URL 作用域和 Frame/Loader 进行前后核验；通过安全 CDP DOM/CSS 方法采集盒模型及有限 computedStyle。preload 固定 allowlist，GUI 展示 `potentially-visible/hidden/missing/ambiguous/unknown`、匹配量和 pointer-events，不会升级 V2。真实 localhost Chrome 测试 `#heal-button` 的 CSS/box 可见性。
+- **GREEN：** [Windows CI #37900245565](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37900245565) **299/299 tests / 0 failed**、TypeScript/Electron、真 GUI/SQLite 与隔离 Chrome CDP smoke 成功。`potentially-visible` 只是只读布局迹象，祖先不可见/遮挡/用户脚本状态和事件效果皆未验证。
+
+### 站点诊断趋势：只比较真正可比的历史批次
+
+- **TDD RED：** [Task 1 #37900545748](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37900545748) 缺少站点趋势分析模块。
+- 新增 `packages/job-journal/src/trends.ts`：按 origin 保留最近两次记录。仅当二者 `completed` 且导入数量一致、进度完整时比较 top-document DOM 缺失计数，输出增加/减少/无变化；中断、取消、失败、数量不同或历史不足都只给 `not-comparable/insufficient-history`。不输出 URL 查询、完整路径、用户脚本内容，也不能声称网站实际更新。
+- React 本地历史界面加入「最近站点诊断趋势」表格及可比性说明；不运行新 DOM 请求、不访问外部网站。
+- **GREEN：** [Windows CI #37900730105](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37900730105) **305/305 tests PASS**、TypeScript/Electron、真 Windows GUI/SQLite 和隔离 Chrome CDP smoke 成功。
+
+### 命名只读 DOM 合约的 iframe/ShadowRoot 假阴性修复
+
+- **TDD RED：** [Task 1 #37900977124](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37900977124) 用双采样零匹配证明原合约会忽略作者 Shadow DOM、iframe 与不可读上下文，误标 DOM-only `failed`；[Task 1 #37901093816](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37901093816) 验证 Electron 主进程尚未调用 `captureDomSummary`。
+- 修正 `runReadOnlyDomContract`：即使两个顶层样本都零匹配，也只有实际确认**没有嵌套 iframe 且作者 Shadow DOM 节点为零**时才能返回 V1-only `failed`；有子框架、ShadowRoot 或上下文证据未知则改 `needs-review`，拒绝将局部未命中当作整个用户脚本故障。snapshot 前后 Frame/Loader 始终必须稳定。为 Chrome localhost fixture 增加 ShadowRoot-only 真实集成断言。
+- **GREEN：** [Windows CI #37901208436](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37901208436) **310/310 tests / 0 failed**，TypeScript、Electron build、Windows GUI/SQLite 和真实隔离 Chrome CDP 集成成功。
+
+### Release Gate remains open
+
+- 这些新增检查**最多是 V1/只读 CSS 布局证据**。未实现真实 `GM_*` / Tampermonkey V4 证明、独立 V3 业务断言、完整 V2 安全交互测试、站点语义兼容与自动修复、Win10 便携 Chrome155 组合真机、正式三个包及全部 RG-01…09。
+- 继续保留 PR #2 Draft、源码开发分支 `feat/v01-continuation`，不在中途构建或上传 Setup/Portable/ZIP 预览包，不合并 main，也不创建 Stable Release。
