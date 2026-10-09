@@ -36,7 +36,7 @@ test('rapid resume then pause cannot accidentally release the next batch',async(
  const waiting=gate.waitUntilReady().then(value=>{released=true;return value;});
  gate.resume();
  gate.pause();
- await Promise.resolve();
+ await new Promise<void>(resolve=>setImmediate(resolve));
  assert.equal(released,false,'a new pause must be observed before dispatch');
  gate.resume();
  assert.equal(await waiting,true);
