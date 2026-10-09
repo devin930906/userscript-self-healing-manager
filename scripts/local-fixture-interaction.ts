@@ -78,13 +78,17 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
      case 'DOM.getDocument':
       root=m.result?.root?.nodeId;
       if(!Number.isSafeInteger(root)||root<1)throw new Error('Invalid synthetic document root');
-      send('DOM.querySelector',{nodeId:root,selector:'#fixture-safe-click'});
+      send('DOM.querySelectorAll',{nodeId:root,selector:'#fixture-safe-click'});
       break;
-     case 'DOM.querySelector':
-      node=m.result?.nodeId;
-      if(!Number.isSafeInteger(node)||node<1)throw new Error('Missing synthetic fixture button');
+     case 'DOM.querySelectorAll':{
+      const matches=m.result?.nodeIds;
+      if(!Array.isArray(matches)||matches.length!==1||
+         !Number.isSafeInteger(matches[0])||matches[0]<1)
+       throw new Error('Synthetic fixture button must match exactly one valid node');
+      node=matches[0];
       send('DOM.getAttributes',{nodeId:node});
       break;
+     }
      case 'DOM.getAttributes':{
       const attrs=readAttrs(m.result?.attributes);
       if(attributesRead++===0){
