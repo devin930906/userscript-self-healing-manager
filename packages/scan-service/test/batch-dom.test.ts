@@ -121,3 +121,15 @@ test('@noframes metadata retains definitive top-document verdict even if the pag
  }});
  assert.deepEqual(out.items.map(x=>x.status),['locator-missing','out-of-scope']);
 });
+
+test('same-URL reload invalidates a batch even when no scripts need DOM probes',async()=>{
+ const target={id:'same-url',type:'page',url:'https://example.com/app',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/same-url'};
+ let call=0;
+ await assert.rejects(diagnoseScriptsOnPage({
+  items:[],target,consent:true,
+  deps:{
+   confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'root',loaderId:++call===1?'loader-a':'loader-b'}),
+   probe:async()=>{throw new Error('No probes expected');},
+  },
+ }),/document|loader|navigation|identity/i);
+});
