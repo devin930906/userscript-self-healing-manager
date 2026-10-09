@@ -17,6 +17,7 @@ import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
+import {inspectReadOnlyEventListeners} from '../packages/cdp-client/src/read-only-event-listeners.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
@@ -225,6 +226,27 @@ try{
  assert.ok(summary.nodeCount>0,'must capture real DOM nodes');
  assert.ok(summary.documentCount>=1);
  assert.ok(summary.authorShadowTreeNodes>=2,'real Chrome must expose both open and closed author Shadow Trees in DOMSnapshot');
+ // Read-only direct click-listener introspection on the disposable fixture:
+ // a native JS listener is registered on one node, while the similar
+ // heal button has no direct click listener. Neither observation is V2 proof
+ // (delegated and userscript listeners are not exhaustively inspected).
+ const listenerBaseline=await confirmPageIdentity(selected);
+ const presentListener=await inspectReadOnlyEventListeners(selected,{
+  method:'querySelector',expression:'#fixture-safe-click',runtimeRequired:false,
+ });
+ assert.equal(presentListener.status,'registered');
+ assert.equal(presentListener.listenerCount,1);
+ assert.equal(presentListener.V2,'blocked');
+ const noDirectListener=await inspectReadOnlyEventListeners(selected,{
+  method:'querySelector',expression:'#heal-button',runtimeRequired:false,
+ });
+ assert.equal(noDirectListener.status,'none-observed');
+ assert.equal(noDirectListener.listenerCount,0);
+ assert.equal(noDirectListener.V2,'blocked');
+ const listenerAfter=await confirmPageIdentity(selected);
+ assertStablePageDocument(listenerBaseline,listenerAfter);
+ console.log('PASS real Chrome direct listener inspection: registered vs none-observed, read-only V2 blocked.');
+
  // This isolated fixture is the ONLY CDP Input target in our suite. Verify a
  // real browser click and observable local side effect without running scripts
  // from users, without arbitrary JS injection, and without elevating app V2/V3/V4.
