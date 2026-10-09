@@ -18,7 +18,7 @@ import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
-import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefaultBrowserProfile,removeBrowserProfile,resolveBrowserProfileForLaunch} from '../../../../packages/cdp-client/src/browser-profiles.ts';
+import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefaultBrowserProfile,removeBrowserProfile,resolveBrowserProfileForLaunch,inspectBrowserProfileRegistry} from '../../../../packages/cdp-client/src/browser-profiles.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
@@ -215,6 +215,10 @@ async function bootstrap():Promise<void>{
   const picked=pick.filePaths[0];
   if(picked){await savePreferredChromePath({dataRoot,executablePath:picked});approvedChromePath=picked;}
   return approvedChromePath;
+ });
+ ipcMain.handle('usshm:browser-profile-health',async event=>{
+  assertSender(event);
+  return inspectBrowserProfileRegistry({dataRoot});
  });
  ipcMain.handle('usshm:list-browser-profiles',async event=>{
   assertSender(event);
