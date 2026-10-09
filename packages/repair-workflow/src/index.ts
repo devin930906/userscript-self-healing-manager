@@ -81,6 +81,9 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
     updatedLocation={method:active.method,line:active.sourceRange.start.line,column:active.sourceRange.start.column};
    }
    const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation:updatedLocation});
+   // Proposing awaited disk/AST work; a same-script apply or rollback could
+   // have started while this proposal was being computed.
+   if(applying.has(scriptId))throw new Error('Managed revision operation began during proposal preparation');
    if(pending.size>=100)throw new Error('Too many pending patch proposals');
    const proposalId=randomUUID();
    pending.set(proposalId,{sourcePath,workingPath,originalHash,baseRevisionKind,scriptId,draft});
