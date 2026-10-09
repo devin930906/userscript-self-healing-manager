@@ -6,7 +6,8 @@ import {verifyBrowserCdpHandshake,waitForChromeDebugger} from '../src/index.ts';
 const endpoint='ws://127.0.0.1:9223/devtools/browser/test-token';
 class FakeBrowserSocket extends EventEmitter {
  sent:string[]=[];
- constructor(private readonly response:unknown){super();queueMicrotask(()=>this.emit('open'));}
+ private readonly response:unknown;
+ constructor(response:unknown){super();this.response=response;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,callback:(event:any)=>void){this.on(name,callback);}
  removeEventListener(name:string,callback:(event:any)=>void){this.off(name,callback);}
  send(message:string){
