@@ -1,5 +1,5 @@
 import {constants} from 'node:fs';
-import type {Stats} from 'node:fs';
+import type {Stats,BigIntStats} from 'node:fs';
 import {lstat,open} from 'node:fs/promises';
 
 /**
@@ -12,7 +12,7 @@ import {lstat,open} from 'node:fs/promises';
  */
 export async function readPinnedRegularFile(path:string,{
  maxBytes,expected,
-}:{maxBytes:number;expected?:Stats|undefined}):Promise<Buffer>{
+}:{maxBytes:number;expected?:Stats|BigIntStats|undefined}):Promise<Buffer>{
  if(typeof path!=='string'||!path||!Number.isSafeInteger(maxBytes)||
     maxBytes<1||maxBytes>1024*1024)
   throw new Error('Invalid pinned read size limit or path');
@@ -31,8 +31,14 @@ export async function readPinnedRegularFile(path:string,{
   left.size===right.size&&left.mtimeMs===right.mtimeMs&&
   left.ctimeMs===right.ctimeMs;
  validateFile(before);
- if(expected&&(!expected.isFile()||!same(before,expected)))
-  throw new Error('Pinned file was replaced since its approved snapshot');
+ if(expected){
+  // Node overloads may type a caller lstat result as Stats|BigIntStats.
+  // Reject BigInt snapshots rather than silently comparing incompatible units.
+  if(typeof expected.ino!=='number'||typeof expected.size!=='number')
+   throw new Error('Unsupported BigInt pinned-file snapshot');
+  if(!expected.isFile()||!same(before,expected as Stats))
+   throw new Error('Pinned file was replaced since its approved snapshot');
+ }
  const noFollow=typeof constants.O_NOFOLLOW==='number'?constants.O_NOFOLLOW:0;
  const handle=await open(path,constants.O_RDONLY|noFollow);
  try{
