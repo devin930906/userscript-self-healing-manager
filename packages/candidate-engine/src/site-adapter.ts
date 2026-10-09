@@ -45,9 +45,18 @@ export interface AdapterImpactReport {
  readonly toVersion:string;
  readonly changedRoles:readonly string[];
  readonly removedRoles:readonly string[];
+ /** A scope change affects every consumer pinned to the previous version,
+  * including scripts whose individual roles did not change. */
+ readonly changedScope:boolean;
+ readonly addedScopePatterns:readonly string[];
+ readonly removedScopePatterns:readonly string[];
+ /** Validation-contract changes also require every pinned consumer to be reviewed. */
+ readonly changedValidationCases:boolean;
+ readonly addedValidationCases:readonly string[];
+ readonly removedValidationCases:readonly string[];
  readonly affectedScriptIds:readonly string[];
  readonly requiredRegressionCases:readonly string[];
- readonly status:'unchanged'|'no-affected-scripts'|'review-required'|'blocked-removal';
+ readonly status:'unchanged'|'no-affected-scripts'|'review-required'|'blocked-removal'|'blocked-scope'|'blocked-validation';
  readonly autoActivateAllowed:false;
 }
 type AnyObject=Record<string,unknown>;
@@ -226,7 +235,22 @@ export function assessSiteAdapterUpgrade({previous,next,dependencies}:{
   if(a&&!b)removedRoles.push(roleId);
  }
  changedRoles.sort();removedRoles.sort();
- const affected=new Set<string>(),regressions=new Set(incoming.validationCases),removedUsed=new Set<string>();
+ // Compare semantic sets, not serialized array order. A changed origin/path
+ // scope can affect EVERY consumer even when their role CSS is unchanged.
+ const oldScopes=new Set(old.urlPatterns),newScopes=new Set(incoming.urlPatterns);
+ const addedScopePatterns=[...newScopes].filter(p=>!oldScopes.has(p)).sort();
+ const removedScopePatterns=[...oldScopes].filter(p=>!newScopes.has(p)).sort();
+ const changedScope=addedScopePatterns.length>0||removedScopePatterns.length>0;
+ const oldCases=new Set(old.validationCases),newCases=new Set(incoming.validationCases);
+ const addedValidationCases=[...newCases].filter(c=>!oldCases.has(c)).sort();
+ const removedValidationCases=[...oldCases].filter(c=>!newCases.has(c)).sort();
+ const changedValidationCases=addedValidationCases.length>0||removedValidationCases.length>0;
+ // Retain removed tests for rollback/regression review; new definition must
+ // never erase a previously required check just by removing its name.
+ const affected=new Set<string>();
+ const regressions=new Set([...old.validationCases,...incoming.validationCases]);
+ const removedUsed=new Set<string>();
+ let pinnedConsumers=0;
  for(const dep of dependencies){
   if(!dep||typeof dep!=='object'||!idRe.test(dep.scriptId)||!idRe.test(dep.siteId)||
      !versionRe.test(dep.pinnedVersion)||
@@ -236,17 +260,26 @@ export function assessSiteAdapterUpgrade({previous,next,dependencies}:{
   for(const r of dep.roles)textField(r,roleRe,'dependency role');
   for(const v of dep.regressionCases)textField(v,caseRe,'dependency regression case');
   if(dep.siteId!==old.siteId||dep.pinnedVersion!==old.version)continue;
-  if(!dep.roles.some((id:string)=>changedRoles.includes(id)))continue;
+  pinnedConsumers++;
+  if(!changedScope&&!changedValidationCases&&
+     !dep.roles.some((id:string)=>changedRoles.includes(id)))continue;
   affected.add(dep.scriptId);
   for(const name of dep.regressionCases)regressions.add(name);
   for(const id of dep.roles)if(removedRoles.includes(id))removedUsed.add(id);
  }
  const status:AdapterImpactReport['status']=
-  removedUsed.size?'blocked-removal':changedRoles.length===0?'unchanged':
+  removedUsed.size?'blocked-removal':
+  removedScopePatterns.length>0&&pinnedConsumers>0?'blocked-scope':
+  removedValidationCases.length>0&&pinnedConsumers>0?'blocked-validation':
+  !changedScope&&!changedValidationCases&&changedRoles.length===0?'unchanged':
   affected.size?'review-required':'no-affected-scripts';
  return Object.freeze({
   siteId:old.siteId,fromVersion:old.version,toVersion:incoming.version,
   changedRoles:Object.freeze(changedRoles),removedRoles:Object.freeze(removedRoles),
+  changedScope,addedScopePatterns:Object.freeze(addedScopePatterns),
+  removedScopePatterns:Object.freeze(removedScopePatterns),
+  changedValidationCases,addedValidationCases:Object.freeze(addedValidationCases),
+  removedValidationCases:Object.freeze(removedValidationCases),
   affectedScriptIds:Object.freeze([...affected].sort()),
   requiredRegressionCases:Object.freeze([...regressions].sort()),
   status,autoActivateAllowed:false,
