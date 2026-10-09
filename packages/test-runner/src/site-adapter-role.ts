@@ -36,10 +36,21 @@ function counts(evidence:LocatorProbeResult,target:ChromeTarget,locators:readonl
     c.matchCount<0||c.matchCount>10000)return null;
   if(c.matchCount===0&&c.status!=='missing')return null;
   if(c.matchCount>0&&c.status!=='found'&&c.status!=='ambiguous')return null;
-  // Count one without a stable backend-node identity is insufficient to
-  // establish that the same element survived two distinct CDP connections.
-  if(c.matchCount===1&&(!c.nodeFingerprint||!/^[0-9a-f]{64}$/.test(c.nodeFingerprint)))return null;
-  result.push({count:c.matchCount,fingerprint:c.matchCount===1?c.nodeFingerprint!:null});
+  // Every matched element needs an independently confirmed backend-node
+  // identity. Compare canonical sets because DOM order can change without
+  // element replacement. Missing/duplicated/over-budget sets fail closed.
+  let fingerprint:string|null=null;
+  if(c.matchCount===1){
+   if(typeof c.nodeFingerprint!=='string'||!/^[0-9a-f]{64}$/.test(c.nodeFingerprint))return null;
+   fingerprint=c.nodeFingerprint;
+  }else if(c.matchCount>1){
+   const values=c.nodeFingerprints;
+   if(c.matchCount>10||!Array.isArray(values)||values.length!==c.matchCount||
+      values.some(v=>typeof v!=='string'||!/^[0-9a-f]{64}$/.test(v))||
+      new Set(values).size!==values.length)return null;
+   fingerprint=[...values].sort().join(':');
+  }
+  result.push({count:c.matchCount,fingerprint});
  }
  return result;
 }
@@ -108,11 +119,8 @@ export async function runSiteAdapterRoleDomCheck({
   const {n,i}=matching[0]!,cardinality=adapter.roles[roleId]!.cardinality;
   if(n<cardinality.min||n>cardinality.max)
    return result('needs-review','DOM matches violate role cardinality',null,2);
-  // The opt-in DOM.describeNode fingerprint protocol currently certifies
-  // identity only for exactly one matched element. Stable counts of 2+ do
-  // not certify that the same set of elements survived both samples.
-  if(n!==1)
-   return result('needs-review','Multiple DOM nodes matched but per-node identities were not verified',null,2);
+  // Single and multi-element roles both require complete, stable backend
+  // identity sets before this branch is reached.
   return result('matched-v1','Declared-state top-document selector count and backend node identity matched twice, not a script functional pass',locators[i]!.expression,2);
  }
  // A top-document absence cannot exclude nested browsing contexts or author
