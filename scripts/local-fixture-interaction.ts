@@ -96,7 +96,9 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
           attrs.get('aria-disabled')?.toLowerCase()==='true')
         throw new Error('Synthetic fixture button disabled, blocked or replaced');
        send('DOM.getBoxModel',{nodeId:node});
-      }else finish(undefined,attrs.get('data-usshm-v2-fixture')==='yes');
+      }else finish(undefined,attrs.get('id')==='fixture-safe-click'&&
+        !attrs.has('disabled')&&attrs.get('aria-disabled')?.toLowerCase()!=='true'&&
+        attrs.get('data-usshm-v2-fixture')==='yes');
       break;
      }
      case 'DOM.getBoxModel':{
