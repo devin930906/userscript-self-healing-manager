@@ -478,7 +478,7 @@ async function bootstrap():Promise<void>{
     }}),
     verifySource,
     propose:newSelector=>repairs.propose({
-     sourcePath:item.path,scriptId:item.scriptId,oldSelector:record.expression,newSelector,
+     sourcePath:item.path,scriptId:item.scriptId!,oldSelector:record.expression,newSelector,
      selectorLocation:{method:record.method,line:record.sourceRange.start.line,column:record.sourceRange.start.column},
     }),
     revoke:proposalId=>{repairs.discard(proposalId);},
