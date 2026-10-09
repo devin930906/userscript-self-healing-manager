@@ -296,7 +296,8 @@ try{
   approved:true,target:selected,caseId:'SYNTHETIC:heal-button:unique',
   locator:{method:'querySelector',expression:'#heal-button',runtimeRequired:false},
   expectation:'unique',deps:{
-   confirm:confirmPageIdentity,probe:probePageLocators,
+   confirm:confirmPageIdentity,
+   probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
    wait:()=>delay(125),
   },
  });
