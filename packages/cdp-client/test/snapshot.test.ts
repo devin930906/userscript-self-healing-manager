@@ -37,3 +37,19 @@ test('DOM summary rejects excessive frame and node counts before returning misle
  const huge={documents:[{nodes:{nodeName:Array.from({length:200001},()=>0)}}]};
  await assert.rejects(captureDomSummary(target,{socketFactory:()=>new FakeSocket(huge) as any}),/limit|count/i);
 });
+test('author Shadow DOM detection distinguishes open/closed roots from browser user-agent nodes',async()=>{
+ const socket=new FakeSocket({
+  strings:['open','closed','user-agent','private shadow text'],
+  documents:[{nodes:{nodeName:[0,0,0,0],shadowRootType:{index:[0,1,2],value:[0,1,2]}}}],
+ });
+ const result=await captureDomSummary(target,{socketFactory:()=>socket as any});
+ assert.equal(result.authorShadowTreeNodes,2);
+ assert.doesNotMatch(JSON.stringify(result),/private shadow text|closed|user-agent/);
+});
+test('malformed Shadow DOM rare-string indexes fail closed',async()=>{
+ const socket=new FakeSocket({
+  strings:['open'],
+  documents:[{nodes:{nodeName:[0],shadowRootType:{index:[99],value:[0]}}}],
+ });
+ await assert.rejects(captureDomSummary(target,{socketFactory:()=>socket as any}),/shadow|invalid|range/i);
+});
