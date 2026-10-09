@@ -85,6 +85,7 @@ async function bootstrap():Promise<void>{
  if(!Array.isArray(q.paths)||q.paths.length>1000||q.paths.some(x=>typeof x!=='string'||!withinAuthorized(x)))throw new Error('Paths not authorized by file picker');
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
  const scanPaths=q.paths as string[],recursive=q.recursive as boolean;
+ journal.interruptRunning();
  batchEvidence.clear(); // A new scan revokes any previously collected DOM evidence immediately.
  lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
  pendingApprovals.clear();repairs.invalidatePending();return lastScan;});
