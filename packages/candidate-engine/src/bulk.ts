@@ -1,3 +1,4 @@
+import {assertStablePageDocument} from '../../cdp-client/src/page-identity.ts';
 import {suggestCandidateRepairs,type CandidateDeps,type DomProbeCheck,type MissingLocator,type VerifiedCandidate} from './workflow.ts';
 
 export interface BulkCandidateItem {
@@ -33,11 +34,23 @@ export async function suggestMissingCandidatesBulk({target,locators,checks,deps,
     SUPPORTED.has(locator.method)&&locator.expression.length<=1024&&locator.expression)
    eligible.push(i);
  }
+ // Individual locator checks pin their own loader, but a batch must not
+ // combine suggestions from two successive documents under the same URL.
+ const baseline=await deps.confirm();
+ if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
+    !baseline.frameId||!baseline.loaderId)
+  throw new Error('Unverified batch CDP document identity');
+ const assertBatchDocument=async()=>{
+  const current=await deps.confirm();
+  assertStablePageDocument(baseline,current);
+ };
  const results:BulkCandidateItem[]=[];
  const usedExpressions=new Set<string>();
  for(const i of eligible.slice(offset,offset+8)){
   const locator=locators[i]!;
+  await assertBatchDocument();
   const suggestions=await suggestCandidateRepairs({target,locator,deps});
+  await assertBatchDocument();
   const candidates=suggestions.filter(candidate=>{
    if(usedExpressions.has(locator.method+'|'+candidate.expression))return false;
    usedExpressions.add(locator.method+'|'+candidate.expression);
@@ -45,6 +58,7 @@ export async function suggestMissingCandidatesBulk({target,locators,checks,deps,
   });
   results.push({selectorIndex:i,method:locator.method,oldSelector:locator.expression,candidates});
  }
+ await assertBatchDocument();
  return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
   totalMissing:eligible.length,checkedMissing:Math.min(eligible.length,offset+results.length),remainingMissing:Math.max(0,eligible.length-offset-results.length),candidateOffset:offset,
   items:results};
