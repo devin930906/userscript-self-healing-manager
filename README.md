@@ -186,6 +186,13 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 [最新 Windows Development CI #37961511923](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37961511923) 在 `dc3a79a` 上 **548/548 tests PASS**，严格 TypeScript、Electron build、Windows GUI/SQLite、真实 Chrome CDP 冒烟均成功；详见 [Native 开发账本](docs/development/native-continuation-2026-10-08.md)。**这是开发版安全测试，非真实 Tampermonkey/GM_*、Win10+Chrome155 portable 或正式三种安装包的 Stable 验收。**
 
+## Chrome 155 官方版本实测与灾难恢复诊断（2026-10-10）
+
+- **新增真实 Chrome 155 回归**：开发 CI 增加单独的 Windows 测试任务，从 Google 官方 Chrome for Testing 下载 **155.0.8059.39（Win64）**，保留 Windows Chrome 沙箱，使用独立 Chrome profile 和本地虚构 fixture，强制验证 CDP 报告的浏览器主版本为 155，并运行真实的两阶段定位器修复、模拟业务行为、合成点击、恢复及导出测试。并非下载或构建本程序的预览安装包。[Windows CI #37964735296](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37964735296) 的 **Real Chrome 155 CDP compatibility** 作业已实际通过。
+- **恢复前的安全诊断更严格**：受管修订最终替换前再次核对外部文件修改，降低跨进程意外覆盖；诊断识别尚未发布的修订/归档临时文件，显示 **staging-leftover**，且已遭外部改写的活动文件优先显示 **unarchived-current**。发现写入锁时，V1 修订认证也会拒绝继续。程序**不会擅自删除崩溃遗留的锁或文件**。
+- **重要边界**：上述 Chrome 为 Google 测试版 **155.0.8059.39**，并不是用户给出的便携包 **155.0.8059.40 x64**。测试在 GitHub Windows Runner 上运行，且没有安装 Tampermonkey 扩展，因此**不证明真实 Windows 10、Tampermonkey/GM_* V4、真实用户网站 V2/V3 或最终三个发行包**。这些仍为正式 Stable 阻断项。
+- 自动测试：[Windows Development CI #37964743711](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37964743711) 与 [Node Contracts #37964743721](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37964743721)，**558/558 tests PASS**。详细 RED/GREEN 故障注入与浏览器沙箱修复记录见 [Native 开发账本](docs/development/native-continuation-2026-10-08.md)。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
