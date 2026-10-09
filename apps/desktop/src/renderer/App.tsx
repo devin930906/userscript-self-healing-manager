@@ -38,6 +38,7 @@ declare global {interface Window{ussm:{
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
+ applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string}>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
@@ -372,6 +373,30 @@ function App(){
   try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.managedPath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
  }
+ async function applyRepairGuarded(){
+  if(!repairProposal||!result||focused===null||!targetId||busy)return;
+  setWatchEnabled(false);setBusy(true);setError('');
+  try{
+   const guarded=await window.ussm.applyRepairGuarded({
+    scanId:result.scanId,proposalId:repairProposal.proposalId,
+    itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true,
+   });
+   setRepairProposal(null);setManagedRevisions(null);
+   if(guarded.status==='retained-v1'){
+    setRepairApplied({backupPath:guarded.backupPath,managedPath:guarded.managedPath,
+     hash:guarded.appliedHash,itemIndex:focused,selectorIndex:repairIndex});
+    setManagedActive(null);
+    setMessage('修订在真实 Chrome V1 双采样中成立，已保留受管副本。V2/V3/V4 未验证；尚不能判定油猴脚本功能成功。');
+   }else if(guarded.status==='rolled-back-v1'){
+    setRepairApplied(null);setManagedActive(null);
+    setMessage('新修订的 V1 证据不成立或无法确认，已自动恢复上一受管修订。V2/V3/V4 未验证，原始脚本未覆盖。');
+   }else{
+    setRepairApplied(null);setManagedActive(null);
+    setError('自动复核后回滚受阻（rollback-blocked）：未确认当前受管版本；请先检查修订历史和外部编辑，原始脚本保持不变。');
+   }
+  }catch(error){setError('受管补丁安全保存和 V1 自动复核失败：'+String(error));}
+  finally{setBusy(false);}
+ }
  async function verifyManagedDom(){
   if(!result||!repairApplied||!targetId||focused!==repairApplied.itemIndex||busy)return;
   setBusy(true);setError('');
@@ -585,7 +610,7 @@ function App(){
      {bulkRepairResults.remainingMissing>0&&<button type="button" className="secondary" disabled={busy} onClick={()=>void suggestBulkRepairs(bulkRepairResults.checkedMissing)}>继续下一组修复候选</button>}
     </div>}
     {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setWatchEnabled(false);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
-    {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button></div>}
+    {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button><button disabled={busy||!targetId||focused===null} onClick={()=>void applyRepairGuarded()}>保存并自动 V1 复核，失败恢复上一修订</button><p className="dim">仅对受管脚本 current.user.js 生效，不部署到油猴或修改原件。V2/V3/V4 未验证。</p></div>}
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p><button type="button" className="secondary" disabled={busy||!targetId||focused!==repairApplied.itemIndex} onClick={()=>void verifyManagedDom()}>只读复核受管修订 V1</button><p className="dim">检查受管 current.user.js 的真实归档哈希与 Chrome DOM 双采样。V2/V3/V4 未验证，不会执行用户脚本、点击网页或自动部署。</p></div>}
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
