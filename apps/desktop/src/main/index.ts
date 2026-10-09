@@ -1,5 +1,6 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
 import {lstat} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinned-file.ts';
@@ -57,8 +58,14 @@ function withinAuthorized(path:string):boolean{
  return false;
 }
 function assertSender(event:Electron.IpcMainInvokeEvent):void{
- if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error('Untrusted IPC sender');
- const u=event.sender.getURL();if(!u.startsWith('file://')&&!u.startsWith('http://localhost:5173/'))throw new Error('Untrusted frame URL');
+ if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)
+  throw new Error('Untrusted IPC sender');
+ // A generic file:// prefix would also authorize some OTHER local HTML file.
+ // Bind every privileged IPC operation to the exact app document which
+ // createWindow() loads; refuse dev servers and arbitrary same-scheme pages.
+ const trustedUrl=pathToFileURL(join(__dirname,'index.html')).href;
+ if(event.sender.getURL()!==trustedUrl||event.senderFrame.url!==trustedUrl)
+  throw new Error('Untrusted renderer document URL');
 }
 function createWindow():BrowserWindow{
  const window=new BrowserWindow({width:1320,height:860,minWidth:960,minHeight:650,
