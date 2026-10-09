@@ -3,8 +3,10 @@ import {test} from 'node:test';
 import {suggestCandidateRepairs} from '../src/workflow.ts';
 const locator={method:'querySelector',expression:'#save-old',runtimeRequired:false};
 const target={id:'alpha',url:'https://example.org'};
+const confirmed=async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'main-frame',loaderId:'main-loader'});
 const safeNodes=[{tagName:'BUTTON',attributes:{'data-testid':'save-button'}}];
 const deps={
+ confirm:confirmed,
  probe:async(inputs:readonly {method:string;expression:string;runtimeRequired:boolean}[])=>({targetId:'alpha',url:'https://example.org',checks:inputs.map(input=>({method:input.method,expression:input.expression,status:input.expression==='#save-old'?'missing':'found',matchCount:input.expression==='#save-old'?0:1}))}),
  capture:async()=>({targetId:'alpha',url:'https://example.org',scope:'top-document',nodes:safeNodes})
 };
@@ -15,7 +17,7 @@ test('confirmed missing CSS locator produces uniquely live-verified read-only su
 });
 test('present or runtime-bound original locator never triggers snapshot candidate generation',async()=>{
  let snapshots=0;
- const custom={probe:async(inputs:readonly typeof locator[])=>({...await deps.probe(inputs),checks:inputs.map(x=>({method:x.method,expression:x.expression,status:'found',matchCount:1}))}),capture:async()=>{snapshots++;return deps.capture();}};
+ const custom={confirm:confirmed,probe:async(inputs:readonly typeof locator[])=>({...await deps.probe(inputs),checks:inputs.map(x=>({method:x.method,expression:x.expression,status:'found',matchCount:1}))}),capture:async()=>{snapshots++;return deps.capture();}};
  assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:custom}),[]);
  assert.equal(snapshots,0);
  assert.deepEqual(await suggestCandidateRepairs({target,locator:{...locator,runtimeRequired:true},deps}),[]);
@@ -35,6 +37,7 @@ test('name and class collection repairs require unique live CDP confirmation',as
   const nodes=[{tagName:'INPUT',attributes:method==='getElementsByName'?{name:value}:{class:value}}];
   const locator={method,expression:'old-value',runtimeRequired:false};
   const proposed=await suggestCandidateRepairs({target,locator,deps:{
+   confirm:confirmed,
    probe:async inputs=>({targetId:target.id,url:target.url,checks:inputs.map(x=>({
     method:x.method,expression:x.expression,status:x.expression==='old-value'?'missing':'found',
     matchCount:x.expression==='old-value'?0:1,
@@ -85,6 +88,7 @@ test('adapter-scoped candidate search never starts CDP for wrong origin or unres
  });
  let calls=0;
  const blockedDeps={
+  confirm:confirmed,
   probe:async()=>{calls++;throw Error('CDP must not be invoked for blocked role');},
   capture:async()=>{calls++;throw Error('DOM snapshot must not be invoked for blocked role');},
  };
@@ -116,6 +120,7 @@ test('shadow-scoped SiteAdapter roles never reuse top-document candidate evidenc
  });
  let cdpcalls=0;
  const blockedDeps={
+  confirm:confirmed,
   probe:async()=>{cdpcalls++;throw Error('No top-document probe for a shadow-scoped role');},
   capture:async()=>{cdpcalls++;throw Error('No top-document snapshot for a shadow-scoped role');},
  };
@@ -138,7 +143,7 @@ test('iframe-scoped SiteAdapter repair suggestions never use the top-document ca
    strategies:[{kind:'css',selector:'#heal-button',weight:100}],cardinality:{min:1,max:1},assertions:['unique']}},
   validationCases:['IFRAME_EXISTS']});
  const ret=await suggestAdapterScopedRepairs({target,locator,adapter:iframe,roleId:'chat.iframeButton',
-  observedStateId:'ready',deps:{probe:async()=>{throw Error('Must not probe document')},
+  observedStateId:'ready',deps:{confirm:confirmed,probe:async()=>{throw Error('Must not probe document')},
   capture:async()=>{throw Error('Must not capture document')}}});
  assert.equal(ret.rootScope,'iframe-document');
  assert.deepEqual(ret.candidates,[]);
