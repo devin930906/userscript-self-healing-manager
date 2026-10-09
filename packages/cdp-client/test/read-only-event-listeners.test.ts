@@ -127,3 +127,17 @@ test('malformed event type metadata cannot be presented as an observed absence o
   assert.ok(socket.sent.some(x=>x.method==='Runtime.releaseObject'));
  }
 });
+
+test('CDP response with missing command result cannot be treated as a successful no-listener inspection',async()=>{
+ const socket=new FakeSocket({
+  'DOM.getDocument':()=>({root:{nodeId:3}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+  'DOM.resolveNode':()=>({object:{type:'object',subtype:'node',objectId:'remote-1'}}),
+  'DOMDebugger.getEventListeners':()=>({listeners:undefined}),
+  'Runtime.releaseObject':()=>({}),
+ });
+ const got=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
+ assert.equal(got.status,'unknown');
+ assert.equal(got.listenerCount,null);
+ assert.ok(socket.sent.some(x=>x.method==='Runtime.releaseObject'));
+});
