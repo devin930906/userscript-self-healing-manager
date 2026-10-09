@@ -85,5 +85,5 @@ test('static getElementById is converted to a safe CSS selector, not executed JS
  const s=socket();
  const out=await inspectReadOnlyElementVisibility(target,{method:'getElementById',expression:'9 action',runtimeRequired:false},{socketFactory:()=>s});
  assert.equal(out.status,'potentially-visible');
- assert.equal(s.sent[1]?.params.selector,'#\\39  action');
+ assert.equal(s.sent[1]?.params.selector,'#\\39 \\ action');
 });
