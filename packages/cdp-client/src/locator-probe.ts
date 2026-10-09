@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {createHmac,randomBytes} from 'node:crypto';
 import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
@@ -8,6 +8,9 @@ export interface LocatorProbeResult {targetId:string;url:string;validationLevel:
 /** Bound every untrusted CDP reply before JSON parsing; oversized evidence is inconclusive. */
 const MAX_REPLY_BYTES=1_000_000;
 const MAX_MATCHED_NODES=10_000;
+// Process-local secret prevents a backendNodeId from being guessed from its digest.
+// It is never stored, logged, or exposed through Electron IPC.
+const NODE_ID_HMAC_KEY=randomBytes(32);
 function validatedNodeCount(nodeIds:unknown):number{
  if(!Array.isArray(nodeIds))throw new Error('Invalid CDP selector node list');
  if(nodeIds.length>MAX_MATCHED_NODES)throw new Error('CDP selector match count limit exceeded');
@@ -106,7 +109,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      const backendId=message.result?.node?.backendNodeId;
      const nodeType=message.result?.node?.nodeType;
      if(!message.error&&Number.isSafeInteger(backendId)&&backendId>0&&nodeType===1){
-      check.nodeFingerprint=createHash('sha256').update('usshm-cdp-backend-node-v1:').update(String(backendId)).digest('hex');
+      check.nodeFingerprint=createHmac('sha256',NODE_ID_HMAC_KEY).update('usshm-cdp-backend-node-v1:').update(String(backendId)).digest('hex');
       check.status='found';
       check.reason='当前 document 存在匹配节点，且已验证 backend 节点身份';
      }else{
