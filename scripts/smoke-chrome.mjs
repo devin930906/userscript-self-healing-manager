@@ -21,6 +21,7 @@ import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
 import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-client/src/preferred-chrome.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
+import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
@@ -133,6 +134,21 @@ try{
  });
  assert.equal(shadowBatch.items[0]?.status,'needs-review','ShadowRoot-only target must not be marked broken');
  assert.match(shadowBatch.items[0]?.reason??'',/Shadow DOM/i);
+
+ // Use the real Chrome DOM domain to verify a named non-destructive
+ // locator contract with two observations and no Runtime.evaluate.
+ const uniqueContract=await runReadOnlyDomContract({
+  approved:true,target:selected,caseId:'SYNTHETIC:heal-button:unique',
+  locator:{method:'querySelector',expression:'#heal-button',runtimeRequired:false},
+  expectation:'unique',deps:{
+   confirm:confirmPageIdentity,probe:probePageLocators,
+   wait:()=>delay(125),
+  },
+ });
+ assert.equal(uniqueContract.status,'passed');
+ assert.equal(uniqueContract.evidenceLevel,'V1');
+ assert.equal(uniqueContract.V3,'not-configured');
+ assert.equal(uniqueContract.V4,'not-configured');
 
  const bulkCandidatesInputs=[
   {method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
