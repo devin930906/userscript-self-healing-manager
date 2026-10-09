@@ -1,4 +1,5 @@
 import {spawn,type ChildProcess} from 'node:child_process';
+import {createServer} from 'node:net';
 import {isAbsolute,win32} from 'node:path';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 import {lstat} from 'node:fs/promises';
@@ -71,17 +72,91 @@ export async function getChromeStatus({port=9223,host='127.0.0.1'}:{port?:number
   return {browser:info.Browser,protocolVersion:typeof info['Protocol-Version']==='string'?info['Protocol-Version']:null,pages,browserSocket};
  }finally{clearTimeout(timeout);}
 }
+/**
+ * Fail before spawning when an existing process owns the requested loopback
+ * debugger port. A successful bind is a best-effort preflight, not proof of
+ * Chrome ownership; the post-spawn CDP handshake is mandatory as well.
+ */
+export async function assertChromeDebuggerPortFree(port:number):Promise<void>{
+ validPort(port);
+ const server=createServer();
+ let bound=false;
+ try{
+  await new Promise<void>((resolve,reject)=>{
+   server.once('error',reject);
+   server.listen({port,host:'127.0.0.1',exclusive:true},()=>{
+    server.removeAllListeners('error');
+    bound=true;
+    resolve();
+   });
+  });
+ }catch{
+  throw new Error('Chrome CDP port '+port+' already in use or unavailable on 127.0.0.1');
+ }finally{
+  if(bound)await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));
+ }
+}
+
+/** Only a live, authenticated Chrome debugger proves startup. A child-process
+ * "spawn" event alone does not: Chrome 136+ can ignore the remote debugging
+ * flags for an existing/default profile.
+ */
+export async function waitForChromeDebugger({
+ port,timeoutMs=15000,pollMs=350,inspect=getChromeStatus,
+ delay=async(ms:number)=>{await new Promise<void>(resolve=>setTimeout(resolve,ms));},
+ hasExited=()=>false,
+}:{
+ port:number;timeoutMs?:number;pollMs?:number;
+ inspect?:(input:{port:number})=>Promise<ChromeStatus>;
+ delay?:(ms:number)=>Promise<void>;
+ hasExited?:()=>boolean;
+}):Promise<ChromeStatus>{
+ validPort(port);
+ if(!Number.isSafeInteger(timeoutMs)||timeoutMs<25||timeoutMs>30000||
+    !Number.isSafeInteger(pollMs)||pollMs<1||pollMs>5000)
+  throw new Error('Invalid Chrome CDP handshake timeout');
+ const deadline=Date.now()+timeoutMs;
+ let lastError='CDP debugger not ready';
+ while(true){
+  if(hasExited())throw new Error('Selected Chrome exited before a verified CDP handshake');
+  try{
+   const status=await inspect({port});
+   if(status&&/^(?:Chrome|Chromium|HeadlessChrome)\//.test(status.browser)&&
+      typeof status.browserSocket==='string'&&
+      validateCdpBrowserSocket(status.browserSocket,port)===status.browserSocket)
+    return status;
+   lastError='Invalid Chrome browser identity or browser debugger socket';
+  }catch(error){
+   lastError=error instanceof Error?error.message.slice(0,180):'CDP debugger probe failed';
+  }
+  if(hasExited())throw new Error('Selected Chrome exited before a verified CDP handshake');
+  const remaining=deadline-Date.now();
+  if(remaining<=0)break;
+  await delay(Math.min(remaining,pollMs));
+ }
+ throw new Error('Chrome CDP handshake not verified on localhost port '+port+
+  '. Chrome may ignore debugging with the default profile; use isolated debugging Chrome. Last check: '+lastError);
+}
+
 export async function launchSelectedChrome({executablePath,port=9223,isolatedProfileDir}:{executablePath:string;port?:number;isolatedProfileDir?:string|undefined}):Promise<ChildProcess>{
  validPort(port);if(!isAbsolute(executablePath))throw new Error('Chrome executable path must be absolute');
  const item=await lstat(executablePath);if(!item.isFile())throw new Error('Selected Chrome path is not a file');
- // Chrome >=136 may ignore debugging switches for its default profile: verify getChromeStatus after launch.
+ // Do not mistake a pre-existing debugger (or another loopback service) for
+ // the newly requested Chrome process.
+ await assertChromeDebuggerPortFree(port);
  if(isolatedProfileDir!==undefined)await ensureWritableDataRoot(isolatedProfileDir);
  const child=spawn(executablePath,buildChromeLaunchArgs(port,{isolatedProfileDir}),{detached:false,stdio:'ignore',windowsHide:false});
- // Node reports spawn failures asynchronously on ChildProcess 'error'. Without a
- // handler the entire Electron main process may crash while showing "started".
+ // Keep a permanent error listener so a delayed spawn/process error cannot
+ // crash Electron; the handshake also checks whether the child has exited.
+ let processError:Error|null=null;
+ child.on('error',error=>{processError=error;});
  await new Promise<void>((resolve,reject)=>{
-  child.once('spawn',()=>resolve());
-  child.once('error',error=>reject(error));
+  const failed=(error:Error)=>{child.off('spawn',started);reject(error);};
+  const started=()=>{child.off('error',failed);resolve();};
+  child.once('spawn',started);
+  child.once('error',failed);
  });
+ await waitForChromeDebugger({port,hasExited:()=>
+  processError!==null||child.exitCode!==null||child.signalCode!==null});
  return child;
 }
