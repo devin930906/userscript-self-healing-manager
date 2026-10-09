@@ -42,3 +42,12 @@ test('renderer pins CDP paginated results to a static script identity snapshot',
  const source=readFileSync(join(process.cwd(),'apps','desktop','src','renderer','App.tsx'),'utf8');
  assert.match(source,/expectedItems:result\.items\.map\(item=>\(\{scriptId:item\.scriptId,path:item\.path\}\)\)/);
 });
+
+test('Windows Chrome smoke verifies real browser child teardown after an injected CDP readiness rejection',()=>{
+ const source=readFileSync(join(process.cwd(),'scripts','smoke-chrome.mjs'),'utf8');
+ assert.match(source,/startVerifiedChromeChild/);
+ assert.match(source,/terminateFailedChromeLaunch/);
+ assert.match(source,/synthetic-forced-handshake-rejection/);
+ assert.match(source,/assertChromeDebuggerPortFree\(9237\)/);
+ assert.match(source,/PASS real Chrome CDP failed-start cleanup/);
+});
