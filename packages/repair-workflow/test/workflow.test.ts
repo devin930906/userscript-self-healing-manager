@@ -217,3 +217,13 @@ test('a stale CDP preview is revocable without clearing unrelated reviewed propo
  const applied=await flow.apply({proposalId:newer.proposalId,approved:true});
  assert.match(await readFile(applied.managedPath,'utf8'),/#second/);
 }));
+
+test('guarded apply reads the predecessor identity from Main-owned pending draft, not renderer-provided SHA',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const proposal=await flow.propose({sourcePath,scriptId:'script01',oldSelector:'#old',newSelector:'#guarded'});
+ const trusted=flow.inspectPending(proposal.proposalId);
+ assert.deepEqual(trusted,{scriptId:'script01',previousHash:proposal.baseHash,proposedHash:proposal.proposedHash});
+ assert.equal(flow.inspectPending('non-existent'),null);
+ await flow.apply({proposalId:proposal.proposalId,approved:true});
+ assert.equal(flow.inspectPending(proposal.proposalId),null,'applied proposal must no longer grant stale approval metadata');
+}));
