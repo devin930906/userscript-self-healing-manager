@@ -28,3 +28,16 @@ test('resume before waiter attaches cannot leave a job stuck',async()=>{
  gate.pause();gate.resume();
  assert.equal(await gate.waitUntilReady(),true);
 });
+
+test('rapid resume then pause cannot accidentally release the next batch',async()=>{
+ const gate=new BatchPauseGate();
+ gate.pause();
+ let released=false;
+ const waiting=gate.waitUntilReady().then(value=>{released=true;return value;});
+ gate.resume();
+ gate.pause();
+ await Promise.resolve();
+ assert.equal(released,false,'a new pause must be observed before dispatch');
+ gate.resume();
+ assert.equal(await waiting,true);
+});
