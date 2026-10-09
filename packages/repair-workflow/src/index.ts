@@ -17,6 +17,11 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  if(!isAbsolute(managedRoot))throw new Error('Managed root must be absolute');
  const pending=new Map<string,PendingProposal>();
  const applying=new Set<string>();
+ const discardScriptPending=(scriptId:string)=>{
+  for(const [id,record] of pending){
+   if(record.scriptId===scriptId)pending.delete(id);
+  }
+ };
  return {
   invalidatePending():void{pending.clear();},
   /** Removes only an unpublished preview that lost its CDP/source identity. */
@@ -90,8 +95,11 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    // Use the same synchronous per-script lock as apply(): restoration must not
    // interleave the immutable archive write and activation of an approved patch.
    applying.add(scriptId);
-   try{return await activateManagedRevision({managedRoot,scriptId,hash,approved:true,...(expectedCurrentHash===undefined?{}:{expectedCurrentHash})});}
-   finally{applying.delete(scriptId);}
+   try{
+    const result=await activateManagedRevision({managedRoot,scriptId,hash,approved:true,...(expectedCurrentHash===undefined?{}:{expectedCurrentHash})});
+    discardScriptPending(scriptId);
+    return result;
+   }finally{applying.delete(scriptId);}
   },
   async apply({proposalId,approved}:{proposalId:string;approved:boolean}):Promise<AppliedReceipt>{
    if(approved!==true)throw new Error('Explicit approval required');
@@ -127,6 +135,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    // operation writes immutable archives; never overwrite that newer current.
    await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,
     approved:true,expectedCurrentHash:found.workingPath===found.sourcePath?null:found.draft.baseHash});
+   discardScriptPending(found.scriptId);
    return receipt;
    }finally{applying.delete(found.scriptId);}
   },
