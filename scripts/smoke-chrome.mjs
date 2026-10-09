@@ -331,7 +331,7 @@ try{
   target:{id:selected.id,url:selected.url},locators:bulkCandidatesInputs,
   checks:bulkEvidence.checks,
   evidenceIdentity:{targetId:bulkEvidence.targetId,url:bulkEvidence.url},
-  deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+  deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected)},
  });
  assert.equal(bulkSuggestions.checkedMissing,4);
  assert.ok(bulkSuggestions.items.every(item=>item.candidates.length>0),'all four DOM methods must offer real confirmed candidates');
@@ -342,7 +342,7 @@ try{
  const candidates=await suggestCandidateRepairs({
   target:{id:selected.id,url:selected.url},
   locator:{method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
-  deps:{probe:(locators)=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+  deps:{probe:(locators)=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected)},
  });
  assert.ok(candidates.some(x=>x.expression==='#heal-button'&&x.validationLevel==='dom-candidate-verified'),
   'a missing selector should yield a uniquely matched, DOM-confirmed candidate');
@@ -353,7 +353,7 @@ try{
   target:{id:selected.id,url:selected.url},
   locator:{method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
   adapter:siteAdapter,roleId:'fixture.healButton',observedStateId:'ready',
-  deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+  deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected)},
  });
  assert.equal(adapterSuggestions.status,'candidate-only');
  assert.deepEqual(adapterSuggestions.candidates.map(c=>c.expression),['#heal-button'],
@@ -378,7 +378,7 @@ try{
   const repair=await suggestCandidateRepairs({
    target:{id:selected.id,url:selected.url},
    locator:{method,expression:oldSelector,runtimeRequired:false},
-   deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+   deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected)},
   });
   assert.ok(repair.some(x=>x.expression===expected&&x.validationLevel==='dom-candidate-verified'),
    'real CDP must verify raw name/class candidate for '+method);
