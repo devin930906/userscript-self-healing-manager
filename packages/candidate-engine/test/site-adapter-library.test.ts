@@ -107,11 +107,36 @@ test('persisted adapter detail can be loaded by validated siteId for consented r
  const entry=(await lib.list())[0]!;
  assert.deepEqual(entry.roleIds,['chat.sendButton']);
  assert.deepEqual(entry.stateIds,['ready']);
- const adapter=await lib.getForInspection({siteId:entry.siteId});
+ const adapter=await lib.getForInspection({siteId:entry.siteId,expectedSha256:entry.sha256});
  assert.equal(adapter.roles['chat.sendButton']?.strategies[0]?.selector,'[data-testid="send-button"]');
  for(const siteId of ['../secret','__proto__','nonexistent','Example.App'])
-  await assert.rejects(lib.getForInspection({siteId}),/invalid|not found|ENOENT/i);
+  await assert.rejects(lib.getForInspection({siteId,expectedSha256:entry.sha256}),/invalid|not found|ENOENT/i);
  const stored=join(dataRoot,'site-adapters','example-app.json');
  await writeFile(stored,JSON.stringify({...valid(),siteId:'other-site'}));
- await assert.rejects(lib.getForInspection({siteId:'example-app'}),/mismatch|identity|site/i);
+ await assert.rejects(lib.getForInspection({siteId:'example-app',expectedSha256:entry.sha256}),/mismatch|identity|site/i);
+}));
+
+test('SiteAdapter role inspection pins reviewed SHA and rejects valid edited rules',async()=>fixture(async(dataRoot,source)=>{
+ const lib=createSiteAdapterLibrary({dataRoot});
+ const preview=await lib.previewImport({sourcePath:source});
+ await lib.approveImport({previewId:preview.previewId,approved:true});
+ const displayed=(await lib.list())[0]!;
+ const altered=valid();
+ altered.roles['chat.sendButton'].strategies[0].selector='[data-testid="changed-button"]';
+ const stored=join(dataRoot,'site-adapters','example-app.json');
+ await writeFile(stored,JSON.stringify(altered));
+ await assert.rejects(lib.getForInspection({siteId:'example-app',expectedSha256:displayed.sha256}),/changed|hash|stale|mismatch/i);
+ const updated=(await lib.list())[0]!;
+ assert.notEqual(updated.sha256,displayed.sha256);
+ const refreshed=await lib.getForInspection({siteId:'example-app',expectedSha256:updated.sha256});
+ assert.equal(refreshed.roles['chat.sendButton'].strategies[0].selector,'[data-testid="changed-button"]');
+}));
+test('SiteAdapter inspection rejects missing or unreviewed digest',async()=>fixture(async(dataRoot,source)=>{
+ const lib=createSiteAdapterLibrary({dataRoot});
+ const preview=await lib.previewImport({sourcePath:source});
+ await lib.approveImport({previewId:preview.previewId,approved:true});
+ const entry=(await lib.list())[0]!;
+ for(const digest of ['',entry.sha256.slice(0,16),entry.sha256.toUpperCase(),'0'.repeat(64)]){
+  await assert.rejects(lib.getForInspection({siteId:entry.siteId,expectedSha256:digest}),/digest|hash|changed|invalid|stale|mismatch/i);
+ }
 }));
