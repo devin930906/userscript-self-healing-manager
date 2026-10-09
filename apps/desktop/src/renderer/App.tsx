@@ -5,6 +5,7 @@ import type {ScanBatchResult} from '../../../../packages/scan-service/src/index.
 type DesktopScanResult=ScanBatchResult&{scanId:string};
 import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {collectPagedDomDiagnosis} from '../../../../packages/scan-service/src/paginated-dom.ts';
+import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.ts';
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
@@ -43,6 +44,8 @@ function App(){
  const [targetId,setTargetId]=useState('');
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
+ const [batchPaused,setBatchPaused]=useState(false);
+ const batchPauseGate=useRef<BatchPauseGate|null>(null);
  const [batchProgress,setBatchProgress]=useState(0);
  const batchCancel=useRef(false);
  const batchGeneration=useRef(new LatestRequestGate());
@@ -69,7 +72,7 @@ function App(){
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
- useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
+ useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;batchPauseGate.current?.cancel();batchPauseGate.current=null;setBatchPaused(false);if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
@@ -115,6 +118,7 @@ function App(){
   if(!targetId||!result||batchRunning||busy)return;
   const token=batchGeneration.current.begin();
   const selectedTarget=targetId;
+  const gate=new BatchPauseGate();batchPauseGate.current=gate;setBatchPaused(false);
   batchCancel.current=false;batchActive.current=true;setBatchRunning(true);setBatchProgress(0);
   setBusy(true);setError('');setBatchResult(null);
   try{
@@ -123,6 +127,7 @@ function App(){
     expectedItems:result.items.map(item=>({scriptId:item.scriptId,path:item.path})),
     requestPage:offset=>window.ussm.batchDiagnose({targetId:selectedTarget,scanId:result.scanId,approved:true,offset}),
     isCancelled:()=>batchCancel.current||!batchGeneration.current.isCurrent(token),
+    pauseGate:gate,
     onProgress:evidence=>{
      if(!batchGeneration.current.isCurrent(token))return;
      setBatchResult(evidence);setBatchProgress(evidence.totalItems);
@@ -136,7 +141,7 @@ function App(){
     setBatchResult(null);setBatchProgress(0);
     setError('批量网页诊断失败，已清除不完整结果：'+String(error));
    }
-  }finally{if(batchGeneration.current.isCurrent(token)){batchActive.current=false;setBatchRunning(false);setBusy(false);}}
+  }finally{gate.cancel();if(batchPauseGate.current===gate)batchPauseGate.current=null;if(batchGeneration.current.isCurrent(token)){batchActive.current=false;setBatchPaused(false);setBatchRunning(false);setBusy(false);}}
  }
  async function probePage(){if(focused===null||!targetId||!result)return;
   const token=probeGeneration.current.begin();
@@ -227,7 +232,7 @@ function App(){
      <p className="dim">如 Chrome 136+ 的现有资料目录禁用远程调试，可主动使用隔离模式；资料保存在本软件 Data/Chrome-CDP-Profile。不会使用原有 Chrome 的登录状态或扩展，需要自行安装 Tampermonkey 与测试脚本。</p>
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
-    <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。</span></div>
+    <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{const active=batchPauseGate.current;if(!active)return;if(batchPaused){active.resume();setBatchPaused(false);}else if(active.pause())setBatchPaused(true);}}>{batchPaused?'继续检查':'暂停后续检查'}</button>}{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;batchPauseGate.current?.cancel();setBatchPaused(false);}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。{batchPaused?'已暂停下一批调度；当前请求完成后生效。':''}</span></div>
     <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。</p>
     {batchResult&&<div className="batch-diagnosis">
       <div className="notice">批量诊断结果：已完成 {batchResult.totalItems} 份 · 页面：{batchResult.pageUrl} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份等待处理（自动分批，每批 25 份）`:'本次扫描范围已全部处理'}</div>
