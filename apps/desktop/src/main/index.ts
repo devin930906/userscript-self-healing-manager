@@ -586,7 +586,7 @@ async function bootstrap():Promise<void>{
     scanSessions.assertCurrent(scanSnapshot);
     return verdict;
    },
-   restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true}),
+   restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
   return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath};
  });
