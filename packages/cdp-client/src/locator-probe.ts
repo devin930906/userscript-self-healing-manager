@@ -60,6 +60,41 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
  return openRoot;
 }
 
+
+/** Resolve one same-process iframe contentDocument by its CDP frame ID.
+ * The caller MUST pin its same-origin loader through Page.getFrameTree.
+ * Never inspect OOPIF/remote frame targets or crawl ShadowRoot children here. */
+function selectSingleIframeDocument(root:unknown,expectedFrameId:string):number|null{
+ if(!root||typeof root!=='object'||Array.isArray(root))return null;
+ const queue:unknown[]=[root];
+ const seen=new Set<number>();
+ let found:number|null=null;
+ for(let i=0;i<queue.length;i++){
+  if(i>=1500)return null;
+  const current=queue[i];
+  if(!current||typeof current!=='object'||Array.isArray(current))return null;
+  const node=current as {nodeId?:unknown;nodeName?:unknown;frameId?:unknown;children?:unknown;contentDocument?:unknown};
+  if(!Number.isSafeInteger(node.nodeId)||typeof node.nodeId!=='number'||
+     node.nodeId<1||seen.has(node.nodeId))return null;
+  seen.add(node.nodeId);
+  if(node.frameId===expectedFrameId){
+   if(node.nodeName!=='IFRAME'||found!==null||
+      !node.contentDocument||typeof node.contentDocument!=='object'||
+      Array.isArray(node.contentDocument))return null;
+   const doc=node.contentDocument as {nodeId?:unknown};
+   if(!Number.isSafeInteger(doc.nodeId)||typeof doc.nodeId!=='number'||doc.nodeId<1||
+      seen.has(doc.nodeId))return null;
+   found=doc.nodeId;
+  }
+  if(node.children!==undefined){
+   if(!Array.isArray(node.children))return null;
+   queue.push(...node.children);
+  }
+  if(queue.length>1500)return null;
+ }
+ return found;
+}
+
 function escapeIdentifier(value:string):string {
  return [...value].map((char,index)=>{
   if(/[a-zA-Z_-]/.test(char)||(/[0-9]/.test(char)&&index!==0))return char;
@@ -84,12 +119,17 @@ export function asCss(input:LiteralLocator):string|null{
  return null;
 }
 /** Read-only DOM domain queries; no JS eval and no userscript execution. */
-export async function probePageLocators(target:ChromeTarget,locators:readonly LiteralLocator[],options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number;includeNodeFingerprints?:boolean;rootScope?:'document'|'open-shadow'}={}):Promise<LocatorProbeResult>{
+export async function probePageLocators(target:ChromeTarget,locators:readonly LiteralLocator[],options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number;includeNodeFingerprints?:boolean;rootScope?:'document'|'open-shadow'|'iframe-document';expectedFrameId?:string}={}):Promise<LocatorProbeResult>{
  if(locators.length>50)throw new Error('Too many locators: maximum 50');
  if(options.includeNodeFingerprints!==undefined&&typeof options.includeNodeFingerprints!=='boolean')
   throw new Error('Invalid identity sampling configuration');
- if(options.rootScope!==undefined&&options.rootScope!=='document'&&options.rootScope!=='open-shadow')
+ if(options.rootScope!==undefined&&options.rootScope!=='document'&&
+    options.rootScope!=='open-shadow'&&options.rootScope!=='iframe-document')
   throw new Error('Invalid CDP locator root scope');
+ if(options.rootScope==='iframe-document'){
+  if(typeof options.expectedFrameId!=='string'||!(/^[a-zA-Z0-9_-]{1,256}$/).test(options.expectedFrameId))
+   throw new Error('Trusted same-origin iframe frame ID required');
+ }else if(options.expectedFrameId!==undefined)throw new Error('Unexpected iframe frame ID for document scope');
  const endpoint=validateCdpPageSocket(target);
  const timeout=options.timeoutMs??8000;if(!Number.isInteger(timeout)||timeout<100||timeout>30000)throw new Error('Invalid CDP probe timeout');
  const checks:LocatorCheck[]=locators.map(x=>({method:x.method,expression:x.expression,status:'unverified',matchCount:null,reason:'仅支持 document 作用域的静态 CSS 定位器'}));
@@ -109,7 +149,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
    if(error)reject(error);else resolve({targetId:target.id,url:target.url,validationLevel:'dom-only',checks});
   };
   const onOpen=()=>{try{
-   const shadow=options.rootScope==='open-shadow';
+   const shadow=options.rootScope==='open-shadow'||options.rootScope==='iframe-document';
    socket.send(JSON.stringify({id:++id,method:'DOM.getDocument',
     params:{depth:shadow?-1:0,pierce:shadow}}));
   }catch(error){complete(error as Error);}};
@@ -126,11 +166,15 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      const documentRoot=message.result?.root;
      if(!Number.isSafeInteger(documentRoot?.nodeId)||documentRoot.nodeId<1)
       throw new Error('Invalid CDP document root');
-     if(options.rootScope==='open-shadow'){
-      const selected=selectSingleOpenShadowRoot(documentRoot);
+     if(options.rootScope==='open-shadow'||options.rootScope==='iframe-document'){
+      const selected=options.rootScope==='open-shadow'?
+       selectSingleOpenShadowRoot(documentRoot):
+       selectSingleIframeDocument(documentRoot,options.expectedFrameId!);
       if(selected===null){
        // No guessing, no accidental fallback to top document.
-       for(const check of checks)check.reason='One bounded unambiguous author open ShadowRoot is required';
+       for(const check of checks)check.reason=options.rootScope==='open-shadow'?
+        'One bounded unambiguous author open ShadowRoot is required':
+        'One bounded same-process iframe contentDocument must match the pinned frame ID';
        complete();
        return;
       }
