@@ -22,6 +22,7 @@ import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {prepareVerifiedRepairPreview} from '../../../../packages/repair-workflow/src/verified-preview.ts';
+import {readVerifiedManagedLocator} from '../../../../packages/repair-workflow/src/managed-locator.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
@@ -521,6 +522,59 @@ async function bootstrap():Promise<void>{
   const applied=await repairs.apply({proposalId:q.proposalId,approved:true});
   pendingApprovals.consume(q.proposalId);
   return applied;
+ });
+ ipcMain.handle('usshm:verify-managed-dom',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
+   targetId?:unknown;revisionHash?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128||
+     typeof q.revisionHash!=='string'||!/^[a-f0-9]{64}$/.test(q.revisionHash))
+   throw new Error('Explicit approved managed revision, selector and CDP page are required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Untrusted managed source scan; rescan required');
+  const originalInfo=await lstat(item.path);
+  if(!originalInfo.isFile()||originalInfo.isSymbolicLink())
+   throw new Error('Original source changed into an unsafe file; rescan required');
+  const originalBytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:originalInfo});
+  if(createHash('sha256').update(originalBytes).digest('hex')!==item.analysis.sourceSha256)
+   throw new Error('Original source hash changed; do not trust a stale managed V1 test');
+  scanSessions.assertCurrent(scanSnapshot);
+  const status=await getChromeStatus({port:9223});
+  scanSessions.assertCurrent(scanSnapshot);
+  const selected=status.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Selected CDP page is outside the userscript matching scope: '+scope.reason);
+  const index=Number(q.selectorIndex);
+  const locator=await readVerifiedManagedLocator({managedRoot:dataRoot,scriptId:item.scriptId,
+   revisionHash:q.revisionHash,selectorIndex:index});
+  scanSessions.assertCurrent(scanSnapshot);
+  const expectation=['querySelectorAll','getElementsByName','getElementsByClassName']
+   .includes(locator.method)?'exists' as const:'unique' as const;
+  const verdict=await runReadOnlyDomContract({
+   approved:true,target:selected,
+   caseId:'MANAGED_'+item.scriptId.slice(0,32)+':IDX_'+index+':'+expectation,
+   locator:{method:locator.method,expression:locator.expression,runtimeRequired:false},
+   expectation,
+   deps:{confirm:confirmPageIdentity,
+    probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+    summarize:captureDomSummary,
+    wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
+   },
+  });
+  // Re-read after all CDP awaits: a rollback or an external edit while
+  // Chrome was observing must not attach stale V1 evidence to a revision.
+  const ending=await readVerifiedManagedLocator({managedRoot:dataRoot,scriptId:item.scriptId,
+   revisionHash:q.revisionHash,selectorIndex:index});
+  if(ending.method!==locator.method||ending.expression!==locator.expression)
+   throw new Error('Managed current changed during DOM verification');
+  scanSessions.assertCurrent(scanSnapshot);
+  return {...verdict,revisionHash:locator.revisionHash,validationLevel:'V1-managed-read-only' as const};
  });
  ipcMain.handle('usshm:managed-revisions',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number}|null;
