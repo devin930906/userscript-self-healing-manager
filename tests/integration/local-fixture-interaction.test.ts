@@ -11,8 +11,9 @@ class FixtureSocket extends EventEmitter{
  readonly methods:string[]=[];
  readonly params:unknown[]=[];
  readonly disabled:boolean;
+ readonly mark:boolean;
  private attrs=0;
- constructor(disabled=false){super();this.disabled=disabled;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true){super();this.disabled=disabled;this.mark=mark;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
@@ -22,7 +23,7 @@ class FixtureSocket extends EventEmitter{
   else if(m.method==='DOM.querySelector')result={nodeId:42};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
     (this.disabled?['disabled','']:['id','fixture-safe-click']):
-    ['id','fixture-safe-click','data-usshm-v2-fixture','yes']};
+    (this.mark?['id','fixture-safe-click','data-usshm-v2-fixture','yes']:['id','fixture-safe-click'])};
   else if(m.method==='DOM.getBoxModel')result={model:{content:[20,20,120,20,120,70,20,70]}};
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:m.id,result})}));
  }
@@ -67,4 +68,23 @@ test('same-URL loader reload never certifies synthetic interaction',async()=>{
  await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
   confirm:async()=>({...identity,loaderId:++calls===1?'l':'reload'}),
   socketFactory:()=>new FixtureSocket()}),/document|identity|loader|navigation|reload/i);
+});
+
+test('a delivered input event without the required fixture side effect cannot be called a pass',async()=>{
+ const result=await runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+  confirm:async()=>identity,socketFactory:()=>new FixtureSocket(false,false)});
+ assert.equal(result.observed,false);
+ assert.equal(result.productionEligible,false);
+});
+test('synthetic interaction must remain outside every Electron production entrypoint',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ for(const path of [
+  '../../apps/desktop/src/main/index.ts',
+  '../../apps/desktop/src/preload/index.ts',
+  '../../apps/desktop/src/renderer/App.tsx',
+ ]){
+  const source=await readFile(new URL(path,import.meta.url),'utf8');
+  assert.doesNotMatch(source,/local-fixture-interaction|runIsolatedFixtureInteraction/,
+   'Synthetic Input.dispatchMouseEvent must not be exposed to the app');
+ }
 });
