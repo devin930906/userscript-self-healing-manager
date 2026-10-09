@@ -9,7 +9,7 @@ import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-serv
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-report.ts';
-import type {BatchDomResult} from '../../../../packages/scan-service/src/batch-dom.ts';
+import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -28,6 +28,7 @@ import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch
 let mainWindow:BrowserWindow;
 let lastScan:(ScanBatchResult&{scanId:string})|null=null;
 const scanSessions=new ScanSessionCoordinator<ScanBatchResult>();
+const batchEvidence=new BatchEvidenceStore();
 const pendingApprovals=new ProposalApprovalGate();
 const authorizedRoots=new Set<string>();
 let approvedChromePath:string|null=null;
@@ -81,6 +82,7 @@ async function bootstrap():Promise<void>{
  if(!Array.isArray(q.paths)||q.paths.length>1000||q.paths.some(x=>typeof x!=='string'||!withinAuthorized(x)))throw new Error('Paths not authorized by file picker');
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
  const scanPaths=q.paths as string[],recursive=q.recursive as boolean;
+ batchEvidence.clear(); // A new scan revokes any previously collected DOM evidence immediately.
  lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
  pendingApprovals.clear();repairs.invalidatePending();return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
@@ -142,7 +144,12 @@ async function bootstrap():Promise<void>{
    confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
   }});
   scanSessions.assertCurrent(scanSnapshot);
-  return {...result,items:result.items.map(entry=>({...entry,index:entry.index+offset})),startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
+  const authenticatedPage={...result,
+   items:result.items.map(entry=>({...entry,index:entry.index+offset})),
+   startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
+  batchEvidence.record({scanId:q.scanId,targetId:q.targetId,
+   total:scanSnapshot.items.length,offset,page:authenticatedPage});
+  return authenticatedPage;
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
@@ -256,22 +263,24 @@ async function bootstrap():Promise<void>{
  ipcMain.handle('usshm:export-dom-report',async(event,input:unknown)=>{
   assertSender(event);
   if(!input||typeof input!=='object')throw new Error('Invalid DOM export request');
-  const q=input as {scanId?:unknown;format?:unknown;report?:unknown};
-  if(typeof q.scanId!=='string'||(q.format!=='json'&&q.format!=='markdown')||
-     !q.report||typeof q.report!=='object')throw new Error('Invalid DOM export parameters');
+  const q=input as {scanId?:unknown;targetId?:unknown;format?:unknown};
+  if(typeof q.scanId!=='string'||typeof q.targetId!=='string'||
+     !q.targetId||q.targetId.length>128||(q.format!=='json'&&q.format!=='markdown'))
+   throw new Error('Invalid DOM export parameters');
   const scanSnapshot=scanSessions.require(q.scanId);
-  const report=q.report as BatchDomResult;
-  if(!Array.isArray(report.items)||report.items.length>scanSnapshot.items.length)
-   throw new Error('DOM export contains more rows than the active scan');
-  // Renderer IPC is not a source of filesystem authorization. Every exported
-  // row must correspond to the exact active static-scan identity and ordering.
+  // Export trusted main-process evidence, not caller-provided flags, scores,
+  // paths, statuses or arbitrary raw DOM strings from renderer IPC.
+  const observed=batchEvidence.snapshot({scanId:q.scanId,targetId:q.targetId});
+  const report=observed.report;
+  if(report.items.length>scanSnapshot.items.length)
+   throw new Error('Trusted DOM export exceeds scanned items');
   for(let index=0;index<report.items.length;index++){
    const evidence=report.items[index],source=scanSnapshot.items[index];
    if(!evidence||!source||evidence.index!==index||evidence.scriptId!==(source.scriptId??null)||
       evidence.path!==source.path)
-    throw new Error('DOM report is stale or references a different imported script');
+    throw new Error('Trusted DOM report no longer matches its imported script');
   }
-  const content=serializeDomBatchReport(report,q.format,new Date().toISOString());
+  const content=serializeDomBatchReport(report,q.format,observed.lastObservedAt);
   const extension=q.format==='json'?'json':'md';
   const selection=await dialog.showSaveDialog(mainWindow,{
    defaultPath:join(app.getPath('documents'),`usshm-dom-report.${extension}`),
@@ -279,6 +288,8 @@ async function bootstrap():Promise<void>{
   });
   if(selection.canceled||!selection.filePath)return {canceled:true};
   scanSessions.assertCurrent(scanSnapshot);
+  // The scan or target may have changed while the save dialog was visible.
+  batchEvidence.snapshot({scanId:q.scanId,targetId:q.targetId});
   await writeFile(selection.filePath,content,{encoding:'utf8',flag:'w'});
   return {canceled:false,path:selection.filePath};
  });
