@@ -133,7 +133,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      if(group.remaining===0){
       if(group.valid&&group.hashes.size===group.total){
        const fingerprints=[...group.hashes].sort();
-       if(group.total===1)check.nodeFingerprint=fingerprints[0];
+       if(group.total===1)check.nodeFingerprint=fingerprints[0]!;
        else check.nodeFingerprints=fingerprints;
        check.status='found';
        check.reason='已验证全部匹配节点的 CDP backend 身份';
