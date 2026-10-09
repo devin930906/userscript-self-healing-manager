@@ -66,6 +66,7 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
  const timeoutMs=options.timeoutMs??6500;
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000)
   throw new Error('Invalid read-only visibility timeout');
+ let controlBlocker:ReadOnlyControlBlocker='unknown';
  const output=(status:ReadOnlyVisibility,matchCount:number|null,pointerBlocked:boolean|null=null):ReadOnlyVisibilityEvidence=>({
   targetId:target.id,url:target.url,validationLevel:'css-box-read-only',
   status,matchCount,pointerBlocked,controlBlocker,interactionVerified:false,
@@ -76,7 +77,7 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
   let ended=false,nextId=0,expectedId=0,expectedMethod='';
   let nodeId=0,matchCount:number|null=null;
   let styles:Map<string,string>|null=null;
-  let controlBlocker:ReadOnlyControlBlocker='unknown';
+
   const send=(method:string,params:Record<string,unknown>={})=>{
    expectedId=++nextId;expectedMethod=method;
    socket.send(JSON.stringify({id:expectedId,method,params}));
