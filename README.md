@@ -39,6 +39,7 @@
 - **自动化合成脚本行为回归（仅 CI）**：Windows GitHub Actions 会启动隔离 Chrome 和本地 `127.0.0.1` 测试网页，实际执行本项目自带的合成测试脚本，核验修复前失败、仅修复一处仍失败、连续修复两处后生效、恢复原版再次失败的完整效果闭环。该执行模块只在 `scripts/` 测试工具中使用，**不会运行用户脚本，也没有向 Electron 正式界面暴露 JavaScript/CDP Runtime.evaluate 执行入口**。此回归不是 Tampermonkey 插件、GM_* 或用户真实网站的功能认证。
 - **DOM 候选修复（Alpha.5 新增）**：用户先选择 Chrome 页面与已扫描脚本，执行只读核验；仅在旧静态定位器零匹配时点击“生成候选定位器”，程序通过受限 DOMSnapshot 的安全属性推选候选，随后再次确认候选在当前网页仅匹配一个元素。用户点击采用候选，再生成预览、明确批准，才会创建受管副本和原件备份。**仅候选和 DOM 匹配，不等于已证明脚本功能正确。**
 
+- **可选受管修订 V1 安全保存／自动回滚（2026-10-09）**：用户单独批准后，可选择「保存并自动 V1 复核，失败恢复上一修订」；由可信 Electron 主进程读取暂存补丁的真实前一版 SHA-256 和改动选择器，保存到受管 Data 后对 Chrome 当前页面进行两次只读 DOM 采样。只有 V1 证据严格成立才保留活动修订；失败、证据不明或 Chrome 断开时自动尝试恢复上一个 SHA-256 归档。自动恢复前还须检查活动文件仍是本次修订，另一份合法新修订或外部编辑存在时返回 `rollback-blocked`，绝不覆盖。原始 `.user.js` 不会修改，**V1 通过并不证明油猴脚本真实执行、业务功能 V3 或 Tampermonkey GM_* V4**。
 - **受管修订与恢复统一互斥（2026-10-09）**：同一脚本的补丁批准与受管历史恢复共享单一脚本级写锁。恢复不能插入补丁归档与激活过程；操作冲突时明确拒绝，不覆盖原 `.user.js`，受管历史 SHA-256 继续保留。
 - **Chrome 页面重载证据失效保护（2026-10-09）**：通过只读 `Page.getFrameTree` 校验顶层 Frame ID 与 Loader ID。无法确认 Loader ID 时拒绝使用 DOM 证据；即使网址未变化，页面重新加载后也会拒绝过期候选。25 份/批分页诊断携带哈希化的文档身份指纹，跨批次不混合不同生命周期的 DOM 结果。
 - **本轮自动验证（2026-10-09）**：Windows Development CI [#37888753132](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888753132) 完成 **225/225 tests PASS、TypeScript、Electron build、真实 GUI/SQLite smoke、Chrome CDP + 合成行为冒烟测试 PASS**。**这仍然不等于真实 Tampermonkey GM_* / V3 / V4 功能通过，也不构成最终 Stable 的发行验收。**
