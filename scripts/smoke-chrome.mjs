@@ -136,6 +136,20 @@ try{
  assert.equal(shadowBatch.items[0]?.status,'needs-review','ShadowRoot-only target must not be marked broken');
  assert.match(shadowBatch.items[0]?.reason??'',/Shadow DOM/i);
 
+ const shadowContract=await runReadOnlyDomContract({
+  approved:true,target:selected,caseId:'SYNTHETIC:shadow-only:exists',
+  locator:{method:'querySelector',expression:'#shadow-only',runtimeRequired:false},
+  expectation:'exists',deps:{
+   confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+   wait:()=>delay(125),
+  },
+ });
+ assert.equal(shadowContract.status,'needs-review',
+  'a ShadowRoot-only target must not cause a definitive failed top-document contract');
+ assert.equal(shadowContract.matchCount,null);
+ assert.equal(shadowContract.V3,'not-configured');
+
+
  // Use the real Chrome DOM domain to verify a named non-destructive
  // locator contract with two observations and no Runtime.evaluate.
  const visibility=await inspectReadOnlyElementVisibility(selected,{
