@@ -9,6 +9,7 @@ import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.t
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
+import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
@@ -21,6 +22,8 @@ declare global {interface Window{ussm:{
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique';approved:true})=>Promise<ReadOnlyDomContractResult>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
+ listDiagnosisHistory:()=>Promise<JournalRun[]>;
+ cancelDiagnosis:(input:{scanId:string;targetId:string})=>Promise<{cancelled:boolean}>;
  suggestRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
@@ -41,6 +44,7 @@ function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
  const [paths,setPaths]=useState<string[]>([]);const [result,setResult]=useState<DesktopScanResult|null>(null);
  const [history,setHistory]=useState<ScriptRecord[]>([]);const [busy,setBusy]=useState(false);
+ const [diagnosisHistory,setDiagnosisHistory]=useState<JournalRun[]|null>(null);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
  const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
@@ -123,6 +127,10 @@ function App(){
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('已请求启动选定 Chrome；请点击检查 CDP 连接确认握手成功。');}catch(e){setError(String(e));}}
  async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 已启动；这是新的独立资料目录，不包含原有登录信息和扩展。请检查 CDP 握手。');}catch(e){setError(String(e));}}
  async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${String(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
+ async function loadDiagnosisHistory(){
+  try{setDiagnosisHistory(await window.ussm.listDiagnosisHistory());}
+  catch(error){setError('读取本地诊断历史失败：'+String(error));}
+ }
  async function batchDiagnose(){
   if(!targetId||!result||batchRunning||busy)return;
   const token=batchGeneration.current.begin();
@@ -143,8 +151,12 @@ function App(){
      setBatchResult(evidence);setBatchProgress(evidence.totalItems);
     },
    });
-   if(batchGeneration.current.isCurrent(token))
-    setMessage(outcome.cancelled?'已取消后续检查，保留已完成的只读结果。':'批量网页诊断完成：已检查 '+outcome.totalItems+' 份脚本；结果仅为 DOM 证据。');
+   if(outcome.cancelled&&batchGeneration.current.isCurrent(token)){
+    await window.ussm.cancelDiagnosis({scanId:result.scanId,targetId:selectedTarget}).catch(()=>{});
+   }
+   if(batchGeneration.current.isCurrent(token)){
+    setMessage(outcome.cancelled?'已取消后续检查，已保存可用的只读诊断进度。':'批量网页诊断完成：已检查 '+outcome.totalItems+' 份脚本；结果仅为 DOM 证据。');
+   }
   }catch(error){
    if(batchGeneration.current.isCurrent(token)){
     // Never display a partial result after inconsistent URL or page evidence.
@@ -267,6 +279,13 @@ function App(){
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
     <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{const active=batchPauseGate.current;if(!active)return;if(batchPaused){active.resume();setBatchPaused(false);}else if(active.pause())setBatchPaused(true);}}>{batchPaused?'继续检查':'暂停后续检查'}</button>}{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;batchPauseGate.current?.cancel();setBatchPaused(false);}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。{batchPaused?'已暂停下一批调度；当前请求完成后生效。':''}</span></div>
     <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。临时 CDP 通信超时最多重试一次，导航、身份变化及安全校验失败绝不重试。</p>
+    <div className="toolbar"><button className="secondary" onClick={()=>void loadDiagnosisHistory()}>最近批量诊断历史</button><span className="dim">保存在本机独立 SQLite，重启可查看历史进度；不会自动重连旧网页或恢复旧任务。</span></div>
+    {diagnosisHistory&&<div className="table-wrapper"><table><thead><tr><th>时间</th><th>站点</th><th>状态</th><th>进度</th><th>匹配</th><th>缺失</th><th>需复核</th><th>错误</th></tr></thead><tbody>
+     {diagnosisHistory.map(run=><tr key={run.runId}><td>{run.startedAt}</td><td>{run.pageOrigin}</td>
+      <td>{run.status==='completed'?'完成':run.status==='interrupted'?'中断':run.status==='cancelled'?'取消':run.status==='failed'?'失败':'运行中'}</td>
+      <td>{run.processedItems}/{run.totalItems}</td><td>{run.domPresent}</td><td>{run.locatorMissing}</td><td>{run.needsReview}</td><td>{run.errors}</td>
+     </tr>)}</tbody></table>{diagnosisHistory.length===0&&<div className="dim">暂无本地批量诊断历史。</div>}</div>}
+
     {batchResult&&<div className="toolbar"><button className="secondary" disabled={batchRunning||batchResult.totalItems<1} onClick={()=>void exportDomReport('json')}>导出 DOM JSON</button><button className="secondary" disabled={batchRunning||batchResult.totalItems<1} onClick={()=>void exportDomReport('markdown')}>导出 DOM Markdown</button><span className="dim">仅导出脱敏统计及 V0–V4 状态，不包含原始 DOM、完整本地路径或页面查询参数。</span></div>}
     {batchResult&&<div className="batch-diagnosis">
       <div className="notice">批量诊断结果：已完成 {batchResult.totalItems} 份 · 页面：{batchResult.pageUrl} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份等待处理（自动分批，每批 25 份）`:'本次扫描范围已全部处理'}</div>
