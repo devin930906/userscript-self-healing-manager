@@ -72,6 +72,17 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    const preview=draft.proposedSource.slice(Math.max(0,focus-90),Math.min(draft.proposedSource.length,focus+150));
    return {proposalId,scriptId,oldSelector,newSelector,originalHash,baseHash:draft.baseHash,proposedHash:draft.proposedHash,preview};
   },
+  async restore({scriptId,hash,approved}:{scriptId:string;hash:string;approved:boolean}):Promise<{hash:string;activePath:string}>{
+   if(approved!==true)throw new Error('Explicit rollback approval required');
+   if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
+   if(applying.has(scriptId))
+    throw new Error('Another managed revision operation for this script is already in progress');
+   // Use the same synchronous per-script lock as apply(): restoration must not
+   // interleave the immutable archive write and activation of an approved patch.
+   applying.add(scriptId);
+   try{return await activateManagedRevision({managedRoot,scriptId,hash,approved:true});}
+   finally{applying.delete(scriptId);}
+  },
   async apply({proposalId,approved}:{proposalId:string;approved:boolean}):Promise<AppliedReceipt>{
    if(approved!==true)throw new Error('Explicit approval required');
    const found=pending.get(proposalId);
