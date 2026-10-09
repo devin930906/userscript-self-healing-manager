@@ -348,7 +348,8 @@ async function bootstrap():Promise<void>{
    locator:{method:record.method,expression:record.expression,runtimeRequired:false},
    expectation:q.expectation,
    deps:{
-    confirm:confirmPageIdentity,probe:probePageLocators,
+    confirm:confirmPageIdentity,
+    probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
     summarize:captureDomSummary,
     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
    },
