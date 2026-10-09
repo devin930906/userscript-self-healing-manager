@@ -351,3 +351,12 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - Electron 新增 `usshm:export-dom-report`、预加载白名单和 UI 按钮，仅接受当前 `scanId` 下的连续行，逐项匹配 `scriptId` 与扫描源 `path` 后从可信主进程弹出 OS SaveDialog；写盘前再次确认扫描未被切换。没有 renderer 自定义任意目的路径。
 - CI 前失败测试验证了功能尚不存在；提交 `84e79f4f466e057574c98e4ad400f63240352b63` 对应 [Windows Development CI #37894115064](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37894115064)：**256 tests / 256 pass / 0 fail、TypeScript、Electron build、GUI SQLite + 真实 Chrome CDP 冒烟成功**；[Node contracts CI #37894122129](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37894122129) 成功。
 - 限制：DOM 报告为当前会话数据快照，不是完整的任务持久化、GM manager 验证、功能测试或自动修复证书。Stable Release Gate 保持开放，不合并 main、不生成中途预览安装包。
+
+## 2026-10-09 · 批量报告可信主进程边界
+
+- 进一步安全审查发现：初版 DOM 报告导出虽然会脱敏并验证脚本行路径，IPC 仍接受 renderer 传入的 `verification` 状态。renderer 若受污染，就可能伪造 V1 `passed` 并输出未经真实诊断的报告。此问题触发修复，不视为 Stable 合格。
+- 新增 `packages/scan-service/src/batch-evidence-store.ts`：只有 Electron main 内由 `diagnoseScriptsOnPage` 实际返回的 CDP 结果才能记入；绑定当前 scanId、targetId、URL、SHA-256 Frame/Loader 指纹、严格每页 25 脚本的顺序和已检查行数。不同 URL、同 URL 页面重载、跨扫描或分页错序都会拒绝并使既有证据失效。新的静态扫描立即清除旧证据。
+- 改造 `usshm:export-dom-report`：renderer/preload 只提交当前 scanId、targetId 和 JSON/Markdown 格式，不能提供 `report`、`path` 或 V0–V4 状态。主进程只导出自己缓存的、与当前脚本 identity 一一匹配的可信记录；显示保存对话框后再次验证扫描仍然有效。
+- 新增自动测试验证分页累积、同 URL reload 后旧证据失效、跨 scanId/targetId 拒绝和不允许 renderer 提交自称 V1 通过的数据。
+- [Windows CI #37894568687](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37894568687) 对提交 `290a92068b49537597458d5ccabe965d8e65da56` 验证 **261/261 tests PASS、TypeScript、Electron Build、真实 Windows GUI+SQLite 启动、Chrome CDP+合成业务 smoke PASS**。
+- 本轮没有运行正式 Windows 三包构建；尚无 V2/V3/V4 真环境用户脚本经理验证，也未合并 main 或标记 Stable。
