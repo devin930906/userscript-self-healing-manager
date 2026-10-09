@@ -22,7 +22,7 @@ import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/pro
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
-import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
+import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../../../../packages/candidate-engine/src/bulk.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
@@ -145,6 +145,50 @@ async function bootstrap():Promise<void>{
     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
    },
   });
+ });
+
+ ipcMain.handle('usshm:site-adapter-suggest-repair',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {approved?:unknown;scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
+   targetId?:unknown;siteId?:unknown;expectedSha256?:unknown;roleId?:unknown;declaredStateId?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+    !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+    !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+    typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128||
+    typeof q.siteId!=='string'||typeof q.expectedSha256!=='string'||
+    !/^[0-9a-f]{64}$/.test(q.expectedSha256)||
+    typeof q.roleId!=='string'||!q.roleId||q.roleId.length>128||
+    typeof q.declaredStateId!=='string'||!q.declaredStateId||q.declaredStateId.length>64)
+   throw new Error('Explicit scanned script, SiteAdapter SHA, role, state, Chrome target and consent required');
+  // The main process resolves the scan/selector, reviewed JSON, and actual
+  // target. Renderer-supplied CSS or arbitrary filesystem paths are forbidden.
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('SiteAdapter repair candidate requires an authorized scanned script');
+  const record=item.analysis.selectorRecords[Number(q.selectorIndex)];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('SiteAdapter repair candidates support only static document-scoped script locators');
+  const adapter=await adapters.getForInspection({siteId:q.siteId,expectedSha256:q.expectedSha256});
+  const status=await getChromeStatus({port:9223});
+  const selected=status.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected Chrome page unavailable');
+  const pageScope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(pageScope.status!=='allowed')
+   throw new Error('Selected webpage is outside userscript scope: '+pageScope.reason);
+  const startingDocument=await confirmPageIdentity(selected);
+  const candidateResult=await suggestAdapterScopedRepairs({
+   target:{id:selected.id,url:selected.url},
+   locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+   adapter,roleId:q.roleId,observedStateId:q.declaredStateId,
+   deps:{
+    probe:locators=>probePageLocators(selected,locators),
+    capture:()=>captureCandidateNodes(selected),
+   },
+  });
+  assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
+  scanSessions.assertCurrent(scanSnapshot);
+  return candidateResult;
  });
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
