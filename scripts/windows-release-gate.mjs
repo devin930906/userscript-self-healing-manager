@@ -10,7 +10,7 @@
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {createReadStream} from 'node:fs';
-import {open,readdir,readFile,stat,writeFile} from 'node:fs/promises';
+import {open,readdir,readFile,lstat,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -178,8 +178,8 @@ async function runFinalArtifactInventory(){
  const verified=validateWindowsReleaseLayout({version,artifactNames:found,zipEntries:entries});
  const checksums=[];
  for(const [i,name] of names.entries()){
-  const full=join(folder,name),info=await stat(full);
-  if(!info.isFile()||info.size<64*1024)throw new Error('Missing, empty or invalid release artifact: '+name);
+  const full=join(folder,name),info=await lstat(full);
+  if(info.isSymbolicLink()||!info.isFile()||info.size<64*1024)throw new Error('Missing, linked or invalid release artifact: '+name);
   if(i===2?!(await magic(full,Buffer.from([0x50,0x4b,0x03,0x04]))):!(await validateX64Pe(full)))
    throw new Error('Invalid Windows x64 PE executable or ZIP signature: '+name);
   checksums.push(`${await digest(full)}  ${name}`);
