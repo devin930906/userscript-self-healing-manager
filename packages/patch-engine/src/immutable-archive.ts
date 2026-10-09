@@ -60,17 +60,21 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
  }catch(error){failure=error;}
  try{await handle.close();}
  catch(error){failure??=error;}
- if(failure!==undefined){
-  // Only this operation created the archive. Do not remove an unrelated
-  // preexisting destination when exclusive create returned EEXIST.
+ const cleanupCreated=async(error:unknown):Promise<never>=>{
+  // Only this operation created the archive; never unlink on EEXIST.
+  // The pathname is local-only and the application holds its script write
+  // lock; another process replacing it remains an unsupported race.
   try{await unlink(archivePath);}
   catch(cleanupError){
    if((cleanupError as NodeJS.ErrnoException).code!=='ENOENT')
-    throw new AggregateError([failure,cleanupError],'Immutable archive write and cleanup both failed');
+    throw new AggregateError([error,cleanupError],'Immutable archive write and cleanup both failed');
   }
-  throw failure;
- }
+  throw error;
+ };
+ if(failure!==undefined)await cleanupCreated(failure);
  // Trust neither successful I/O nor a content-addressed filename alone.
- // Read back through the pinned reader before exposing this archive to restore.
- await verifyExisting();
+ // A corrupted read-back is another failed write, not a published archive.
+ try{await verifyExisting();}
+ catch(error){await cleanupCreated(error);}
+
 }
