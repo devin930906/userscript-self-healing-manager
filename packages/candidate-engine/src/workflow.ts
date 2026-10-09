@@ -45,6 +45,9 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  const snapshot=await deps.capture();ensureIdentity(target,snapshot);
  if(baseline)await confirmStable(baseline);
  if(snapshot.scope!=='top-document')throw new Error('Only top-document DOM evidence is supported');
+ // Snapshot evidence must be a bounded actual array, not an arbitrary value
+ // supplied by an untrusted CDP adapter.
+ if(!Array.isArray(snapshot.nodes))throw new Error('Invalid DOM candidate snapshot nodes');
  const ranked=rankSelectorCandidates({method:locator.method,oldSelector:locator.expression,nodes:snapshot.nodes});
  if(!ranked.length)return [];
  // A single-node fingerprint is scoped to the CDP process; page identity must
