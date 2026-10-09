@@ -33,7 +33,8 @@ test('main revokes cached evidence on a failed diagnosis and checks revision aft
  const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
  const diagnostic=main.split("ipcMain.handle('usshm:batch-diagnose'")[1]?.split("ipcMain.handle('usshm:suggest-repair'")[0]??'';
  const exportHandler=main.split("ipcMain.handle('usshm:export-dom-report'")[1]?.split("ipcMain.handle('usshm:export'")[0]??'';
- assert.match(diagnostic,/catch\(error\)\s*\{\s*batchEvidence\.invalidateIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId\}\);\s*throw error;/);
+ assert.match(diagnostic,/catch\(error\)\s*\{\s*batchEvidence\.invalidateIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId\}\);/);
+ assert.match(diagnostic,/journal\.failIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId,runId:journalRunId\}\);\s*throw error;/);
  assert.match(exportHandler,/observed\.revision/);
  assert.match(exportHandler,/fresh\.revision/);
 });
