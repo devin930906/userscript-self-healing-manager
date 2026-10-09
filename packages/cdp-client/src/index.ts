@@ -303,7 +303,7 @@ export async function launchSelectedChrome({executablePath,port=9223,isolatedPro
  // A short file with an .exe suffix is not a valid Windows executable.
  // Refuse it before opening a CDP port or spawning an arbitrary child.
  if(item.size<64)throw new Error('Selected Chrome executable is too small to be valid');
- if(item.size>1024*1024*1024)throw new Error('Selected Chrome executable exceeds safety size limit');
+
  // Do not mistake a pre-existing debugger (or another loopback service) for
  // the newly requested Chrome process.
  await assertChromeDebuggerPortFree(port);
