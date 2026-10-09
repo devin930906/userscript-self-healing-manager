@@ -48,3 +48,11 @@ test('UI allows only one automatic retry for transient read-only CDP transport e
  assert.match(ui,/retryTransportFailures:1/);
  assert.match(ui,/临时.*重试一次/);
 });
+
+test('Electron main enables a bounded read-only DOM recheck for delayed SPA elements',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const handler=main.split("ipcMain.handle('usshm:batch-diagnose'")[1]?.split("ipcMain.handle('usshm:suggest-repair'")[0]??'';
+ assert.match(handler,/waitBeforeMissingRecheck:/);
+ assert.match(handler,/setTimeout\(resolve,\s*\d+\)/);
+ assert.match(handler,/confirm:confirmPageIdentity/);
+});
