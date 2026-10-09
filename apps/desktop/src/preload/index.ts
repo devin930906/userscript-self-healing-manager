@@ -45,6 +45,6 @@ const api={
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>ipcRenderer.invoke('usshm:rollback-managed',input),
  exportManaged:(input:{scanId:string;itemIndex:number})=>ipcRenderer.invoke('usshm:export-managed',input),
  exportReport:(format:'json'|'markdown')=>ipcRenderer.invoke('usshm:export',format),
- exportDomReport:(input:{scanId:string;format:'json'|'markdown';report:unknown})=>ipcRenderer.invoke('usshm:export-dom-report',input),
+ exportDomReport:(input:{scanId:string;targetId:string;format:'json'|'markdown'})=>ipcRenderer.invoke('usshm:export-dom-report',input),
 };
 contextBridge.exposeInMainWorld('ussm',api);
