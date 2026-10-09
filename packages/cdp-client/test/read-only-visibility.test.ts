@@ -191,3 +191,15 @@ test('CDP attribute read rejection keeps visibility observation but refuses enab
  assert.equal(got.controlBlocker,'unknown');
  assert.equal(got.V2,'blocked');
 });
+
+test('duplicate CDP node IDs and over-budget match lists cannot be displayed as real ambiguous elements',async()=>{
+ for(const nodeIds of [[32,32],Array.from({length:10001},(_,i)=>i+1)]){
+  const fake=socket(styles(),{width:50,height:20},nodeIds);
+  const result=await inspectReadOnlyElementVisibility(target,locator,{socketFactory:()=>fake});
+  assert.equal(result.status,'unknown','contradictory or over-budget CDP ids must fail closed');
+  assert.equal(result.matchCount,null);
+  assert.equal(result.V2,'blocked');
+  assert.equal(result.interactionVerified,false);
+  assert.deepEqual(fake.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll']);
+ }
+});
