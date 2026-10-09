@@ -112,7 +112,7 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
       if(!Array.isArray(entries)||entries.length>512||
          entries.some((entry:unknown)=>!entry||typeof entry!=='object'||
           typeof (entry as Record<string,unknown>).type!=='string'||
-          !/^[^\\x00-\\x1f\\x7f]{1,128}$/.test((entry as {type:string}).type))){
+          !/^[^\x00-\x1f\x7f]{1,128}$/.test((entry as {type:string}).type))){
        release(result('unknown'));break;
       }
       const clickCount=entries.filter((entry:{type:string})=>entry.type==='click').length;
