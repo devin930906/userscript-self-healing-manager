@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {lstat,readdir,readFile,realpath} from 'node:fs/promises';
+import {lstat,readdir,realpath} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {extname,basename,resolve} from 'node:path';
 import {analyzeSource,type SourceAnalysis} from '../../source-analyzer/src/index.ts';
 import type {ScriptRepository} from '../../persistence/src/index.ts';
@@ -54,7 +55,15 @@ export async function importPaths({paths,recursive,repository,maxFiles=Number.MA
   if(!path.toLowerCase().endsWith('.user.js')){output.push({path,status:'invalid-extension'});continue;}
   if(seen.has(path)){output.push({path,status:'duplicate-path'});continue;}seen.add(path);
   let data:Uint8Array;
-  try{const info=await lstat(path);if(info.size>512*1024){output.push({path,status:'too-large'});continue;}data=await readFile(path);}catch(error){output.push({path,status:'unreadable',message:String(error)});continue;}
+  try{
+   const info=await lstat(path);
+   if(info.isSymbolicLink()){output.push({path,status:'symlink-skipped'});continue;}
+   if(!info.isFile()){output.push({path,status:'unreadable',message:'Not a regular userscript file'});continue;}
+   if(info.size>512*1024){output.push({path,status:'too-large'});continue;}
+   // A selected file may change between enumeration and read. Pin the open
+   // descriptor and enforce the size budget during I/O, not only at lstat.
+   data=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
+  }catch(error){output.push({path,status:'unreadable',message:String(error)});continue;}
   const id=repository.findIdByPath(path)??randomUUID();
   const analysis=analyzeSource({scriptId:id,sourceBytes:data});
   const status=analysis.parseDiagnostics.length?'parse-error':'imported';
