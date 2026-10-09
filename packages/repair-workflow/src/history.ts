@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {join,isAbsolute} from 'node:path';
-import {readdir,readFile,lstat,writeFile,rename,unlink} from 'node:fs/promises';
+import {readdir,lstat,writeFile,rename,unlink} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 export interface ManagedRevision {readonly hash:string;readonly kind:'original'|'revision';readonly fileName:string;readonly verified:true}
 const hashBytes=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
@@ -22,7 +23,7 @@ async function verifiedArchive(folder:string,fileName:string,hash:string):Promis
  const path=join(folder,fileName),info=await lstat(path);
  if(info.isSymbolicLink()||!info.isFile())throw new Error('Unsafe archive: symlink or non-regular file');
  if(info.size>512*1024)throw new Error('Archived revision is too large');
- const bytes=await readFile(path);
+ const bytes=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
  if(hashBytes(bytes)!==hash)throw new Error('Archived revision hash mismatch or corruption');
  return bytes;
 }
@@ -57,7 +58,7 @@ export async function activateManagedRevision({managedRoot,scriptId,hash,approve
  if(existingInfo){
   if(!existingInfo.isFile()||existingInfo.isSymbolicLink())throw new Error('Unsafe managed current file: symlink or non-regular file');
   if(existingInfo.size>512*1024)throw new Error('Managed current file is too large');
-  const currentHash=hashBytes(await readFile(activePath));
+  const currentHash=hashBytes(await readPinnedRegularFile(activePath,{maxBytes:512*1024,expected:existingInfo}));
   let isArchived=false;
   for(const kind of ['revision','original'] as const){
    try{await verifiedArchive(folder,kind+'-'+currentHash+'.user.js',currentHash);isArchived=true;break;}
