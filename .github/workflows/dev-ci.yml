@@ -53,8 +53,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $archive = Join-Path $env:RUNNER_TEMP 'chrome155-win64.zip'
           Invoke-WebRequest -Uri 'https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-win64.zip' -OutFile $archive
-          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
-          $exe = Join-Path $env:RUNNER_TEMP 'chrome-win64\chrome.exe'
+          # The Chrome Windows sandbox cannot load low-integrity helpers from
+          # the hosted runner's D:\a\_temp ACLs. Place the verified browser
+          # under Program Files, inheriting normal Windows RX permissions.
+          # Never bypass this failure with --no-sandbox.
+          $installRoot = Join-Path $env:ProgramFiles 'USSHM-ChromeForTesting-155'
+          New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $installRoot -Force
+          $exe = Join-Path $installRoot 'chrome-win64\chrome.exe'
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
             throw 'Pinned Chrome for Testing executable missing after extraction'
           }
