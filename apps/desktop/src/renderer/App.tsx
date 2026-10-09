@@ -60,7 +60,13 @@ declare global {interface Window{ussm:{
  discardSiteAdapterPreview:(input:{previewId:string})=>Promise<{discarded:boolean}>;
  inspectSiteAdapterRole:(input:{siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>Promise<RoleDomResult>;
  suggestSiteAdapterRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;approved:true})=>Promise<AdapterScopedRepairsResult>;
- pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
+ listBrowserProfiles:()=>Promise<BrowserProfile[]>;
+ createBrowserProfile:(input:{name:string})=>Promise<BrowserProfile>;
+ renameBrowserProfile:(input:{profileId:string;name:string})=>Promise<BrowserProfile>;
+ defaultBrowserProfile:(input:{profileId:string})=>Promise<BrowserProfile>;
+ removeBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{deleted:boolean}>;
+ launchBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{started:boolean;port:number;isolated:true}>;
+  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
  scan:(request:{paths:string[];recursive:boolean})=>Promise<DesktopScanResult>;
@@ -68,9 +74,14 @@ declare global {interface Window{ussm:{
  exportReport:(format:'json'|'markdown')=>Promise<{canceled:boolean;path?:string}>;
  exportDomReport:(input:{scanId:string;targetId:string;format:'json'|'markdown'})=>Promise<{canceled:boolean;path?:string}>;
 }}}
+interface BrowserProfile {id:string;name:string;executablePath:string;isDefault:boolean}
 const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
+ const [browserProfiles,setBrowserProfiles]=useState<BrowserProfile[]>([]);
+ const [selectedBrowserProfileId,setSelectedBrowserProfileId]=useState('');
+ const [browserProfileName,setBrowserProfileName]=useState('');
+
  const [paths,setPaths]=useState<string[]>([]);const [result,setResult]=useState<DesktopScanResult|null>(null);
  const [history,setHistory]=useState<ScriptRecord[]>([]);const [busy,setBusy]=useState(false);
  const [adapterLibrary,setAdapterLibrary]=useState<AdapterLibraryEntry[]|null>(null);
@@ -125,6 +136,10 @@ function App(){
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+String(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
+ useEffect(()=>{void window.ussm.listBrowserProfiles().then(items=>{
+  setBrowserProfiles(items);
+  setSelectedBrowserProfileId(items.find(item=>item.isDefault)?.id??items[0]?.id??'');
+ }).catch(e=>setError('无法读取浏览器配置：'+String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
  const selectedAdapter=adapterLibrary?.find(a=>a.siteId===adapterSelectedSiteId)??null;
@@ -236,6 +251,61 @@ function App(){
   }finally{
    adapterRepairGeneration.current.commit(token,()=>setAdapterRepairBusy(false));
   }
+ }
+ async function refreshBrowserProfiles(preferredId?:string){
+  const items=await window.ussm.listBrowserProfiles();
+  setBrowserProfiles(items);
+  setSelectedBrowserProfileId(current=>{
+   const wanted=preferredId??current;
+   return items.some(item=>item.id===wanted)?wanted:
+    items.find(item=>item.isDefault)?.id??items[0]?.id??'';
+  });
+ }
+ async function saveBrowserProfile(){
+  try{
+   const added=await window.ussm.createBrowserProfile({name:browserProfileName});
+   await refreshBrowserProfiles(added.id);
+   setBrowserProfileName('');
+   setMessage('浏览器配置已保存；未启动浏览器，也未复制或修改已有资料目录。');
+   setError('');
+  }catch(error){setError('保存浏览器配置失败：'+String(error));}
+ }
+ async function renameSelectedBrowserProfile(){
+  if(!selectedBrowserProfileId)return;
+  try{
+   await window.ussm.renameBrowserProfile({profileId:selectedBrowserProfileId,name:browserProfileName});
+   await refreshBrowserProfiles(selectedBrowserProfileId);
+   setBrowserProfileName('');
+   setMessage('浏览器配置名称已更新。');setError('');
+  }catch(error){setError('重命名配置失败：'+String(error));}
+ }
+ async function setSelectedBrowserProfileDefault(){
+  if(!selectedBrowserProfileId)return;
+  try{
+   await window.ussm.defaultBrowserProfile({profileId:selectedBrowserProfileId});
+   await refreshBrowserProfiles(selectedBrowserProfileId);
+   setMessage('默认浏览器配置已保存；不会自动启动 Chrome。');setError('');
+  }catch(error){setError('设置默认配置失败：'+String(error));}
+ }
+ async function deleteSelectedBrowserProfile(){
+  if(!selectedBrowserProfileId)return;
+  try{
+   const result=await window.ussm.removeBrowserProfile({profileId:selectedBrowserProfileId,approved:true});
+   if(result.deleted){
+    await refreshBrowserProfiles();
+    setMessage('仅删除了浏览器配置记录；保留原有浏览器、扩展及配置资料目录。');
+   }
+   setError('');
+  }catch(error){setError('删除配置记录失败：'+String(error));}
+ }
+ async function launchSelectedBrowserProfile(){
+  if(!selectedBrowserProfileId)return;
+  try{
+   await window.ussm.launchBrowserProfile({profileId:selectedBrowserProfileId,approved:true});
+   setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);
+   setMessage('指定的独立 Chrome 配置已通过 CDP 握手；请检查当前网页列表。');
+   setError('');
+  }catch(error){setError('启动浏览器配置失败：'+String(error));}
  }
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(String(e));}}
@@ -531,6 +601,25 @@ function App(){
    <section className="panel"><div className="panel-head"><div><h2>Chrome CDP 浏览器连接</h2><p>仅连接本机 127.0.0.1:9223；可进行人工授权的只读 DOM 快照和定位器匹配，不执行用户脚本。</p></div><span className="pill">受控连接</span></div>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}><button className="secondary" onClick={()=>void pickChrome()}>选择 Chrome</button><button className="secondary" disabled={!chromePath} onClick={()=>void startChrome()}>启动浏览器调试</button><button className="secondary" disabled={!chromePath} onClick={()=>void startIsolatedChrome()}>启动隔离调试 Chrome</button><button onClick={()=>void checkCdp()}>检查 CDP 连接</button></div>
     <p className="dim" style={{overflowWrap:'anywhere',marginTop:12}}>{chromePath||'尚未选择浏览器 EXE（可选择便携版 Chrome）'}</p>
+    <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap',marginTop:12}}>
+     <input aria-label="浏览器配置名称" maxLength={40} value={browserProfileName}
+      onChange={event=>setBrowserProfileName(event.target.value)}
+      placeholder="新配置名称／重命名" style={{maxWidth:220}}/>
+     <button className="secondary" disabled={!chromePath||!browserProfileName.trim()} onClick={()=>void saveBrowserProfile()}>保存浏览器配置</button>
+     <select aria-label="已保存的浏览器配置" value={selectedBrowserProfileId}
+      onChange={event=>{setSelectedBrowserProfileId(event.target.value);setBrowserProfileName('');}}>
+      <option value="">选择已保存的配置</option>
+      {browserProfiles.map(item=><option key={item.id} value={item.id}>{item.name}{item.isDefault?'（默认）':''}</option>)}
+     </select>
+     <button className="secondary" disabled={!selectedBrowserProfileId} onClick={()=>void launchSelectedBrowserProfile()}>启动选定配置</button>
+     <button className="secondary" disabled={!selectedBrowserProfileId||!browserProfileName.trim()} onClick={()=>void renameSelectedBrowserProfile()}>重命名配置</button>
+     <button className="secondary" disabled={!selectedBrowserProfileId} onClick={()=>void setSelectedBrowserProfileDefault()}>设为默认</button>
+     <button className="secondary" disabled={!selectedBrowserProfileId} onClick={()=>void deleteSelectedBrowserProfile()}>删除配置记录</button>
+    </div>
+    <p className="dim">已保存 {browserProfiles.length}/16 个独立配置；每个配置使用 Data/Chrome-Profiles/ 下独立资料目录。删除配置只删除记录，不删除浏览器或资料。启动前重新核实浏览器 EXE 与 CDP 握手。</p>
+    {browserProfiles.find(item=>item.id===selectedBrowserProfileId)&&
+     <p className="dim" style={{overflowWrap:'anywhere'}}>已选浏览器：{browserProfiles.find(item=>item.id===selectedBrowserProfileId)?.executablePath}</p>}
+
      <p className="dim">如 Chrome 136+ 的现有资料目录禁用远程调试，可主动使用隔离模式；资料保存在本软件 Data/Chrome-CDP-Profile。不会使用原有 Chrome 的登录状态或扩展，需要自行安装 Tampermonkey 与测试脚本。</p>
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
