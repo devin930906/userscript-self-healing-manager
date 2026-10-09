@@ -45,6 +45,14 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  if(snapshot.scope!=='top-document')throw new Error('Only top-document DOM evidence is supported');
  const ranked=rankSelectorCandidates({method:locator.method,oldSelector:locator.expression,nodes:snapshot.nodes});
  if(!ranked.length)return [];
+ // The snapshot and candidate probing are separate CDP round trips. Confirm
+ // the broken selector has not transiently recovered before we probe fixes.
+ const preCandidateOriginal=await deps.probe([locator]);
+ ensureIdentity(target,preCandidateOriginal);
+ if(baseline)await confirmStable(baseline);
+ const preCheck=preCandidateOriginal.checks[0];
+ if(preCandidateOriginal.checks.length!==1||preCheck?.method!==locator.method||
+    preCheck.expression!==locator.expression||preCheck.status!=='missing'||preCheck.matchCount!==0)return [];
  // Untrusted ranking inputs must never amplify a single DOM snapshot into an
  // unbounded sequence of browser probes.
  if(ranked.length>10)throw new Error('Candidate verification exceeds ranking limit');
