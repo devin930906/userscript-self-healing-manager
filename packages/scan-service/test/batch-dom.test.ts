@@ -181,3 +181,51 @@ test('read-only matched DOM is recorded only as V1 evidence, never a V3/V4 pass'
  assert.equal(tested.items[0]?.verification?.V4,'not-configured');
  assert.equal(tested.items[0]?.verification?.functionalVerified,false);
 });
+
+test('delayed read-only recheck recovers a locator which appears after initial DOM inspection',async()=>{
+ let probes=0,waits=0;
+ const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  waitBeforeMissingRecheck:async()=>{waits++;},
+  probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:probes===1?'missing' as const:'found' as const,matchCount:probes===1?0:1}))};},
+ }});
+ assert.equal(probes,2);assert.equal(waits,1);
+ assert.equal(result.items[0]?.status,'dom-present');
+ assert.equal(result.items[0]?.verification?.V1,'passed');
+});
+test('two independent missing samples remain DOM-only missing, never a V3 business failure',async()=>{
+ let probes=0;
+ const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  waitBeforeMissingRecheck:async()=>{},
+  probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))};},
+ }});
+ assert.equal(probes,2);
+ assert.equal(result.items[0]?.status,'locator-missing');
+ assert.equal(result.items[0]?.verification?.V3,'not-configured');
+});
+test('navigation during bounded recheck rejects all outdated DOM evidence',async()=>{
+ let loader='before',probes=0;
+ await assert.rejects(diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:loader}),
+  waitBeforeMissingRecheck:async()=>{loader='after';},
+  probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))};},
+ }}),/document|loader|navigation|identity/i);
+ assert.equal(probes,1,'do not run second probe on another Chrome document');
+});
+test('recheck transport failure cannot certify a missing locator',async()=>{
+ let probes=0;
+ const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  waitBeforeMissingRecheck:async()=>{},
+  probe:async(_target,locators)=>{probes++;if(probes===2)throw new Error('CDP disconnected');
+   return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))};},
+ }});
+ assert.equal(result.items[0]?.status,'needs-review');
+ assert.equal(result.items[0]?.missing,0);
+ assert.match(result.items[0]?.reason??'',/recheck|retry|unverified/i);
+});
