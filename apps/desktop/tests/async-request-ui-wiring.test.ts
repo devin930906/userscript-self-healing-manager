@@ -7,7 +7,8 @@ test('batch request finalizer cannot clear the busy state of a newer batch',()=>
  const batch=ui.split('async function batchDiagnose()')[1]?.split('async function probePage()')[0]??'';
  assert.match(batch,/batchGeneration\.current\.begin\(\)/);
  assert.match(batch,/batchGeneration\.current\.isCurrent\(token\)/);
- assert.match(batch,/finally\s*\{\s*if\s*\(batchGeneration\.current\.isCurrent\(token\)\)/);
+ assert.match(batch,/finally\s*\{gate\.cancel\(\);if\(batchPauseGate\.current===gate\)batchPauseGate\.current=null;if\(batchGeneration\.current\.isCurrent\(token\)\)/,
+  'clean up the owned pause gate, but never clear a newer batch busy state');
  assert.doesNotMatch(batch,/finally\s*\{\s*setBatchRunning\(false\);setBusy\(false\)/);
 });
 test('changing scan or selected target revokes batch response and allows an immediate new batch',()=>{
