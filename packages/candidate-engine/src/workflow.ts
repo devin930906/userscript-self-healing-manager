@@ -80,6 +80,9 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
     finalCheck.method!==locator.method||finalCheck.status!=='missing'||finalCheck.matchCount!==0)return [];
  const verified:VerifiedCandidate[]=[];
  const seen=new Set<string>();
+ // Multiple attribute selectors can point at the same backend node. Do not
+ // present those aliases as independent repair targets.
+ const seenNodeFingerprints=new Set<string>();
  for(let i=0;i<ranked.length;i++){
   const a=ranked[i]!,b=confirmation.checks[i]!;
   const c=repeat.checks[i]!;
@@ -87,8 +90,9 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
      c.expression===a.expression&&c.method===locator.method&&c.status==='found'&&c.matchCount===1&&
      typeof b.nodeFingerprint==='string'&&/^[0-9a-f]{64}$/.test(b.nodeFingerprint)&&
      c.nodeFingerprint===b.nodeFingerprint&&
-     !seen.has(a.expression)){
+     !seen.has(a.expression)&&!seenNodeFingerprints.has(b.nodeFingerprint)){
    seen.add(a.expression);
+   seenNodeFingerprints.add(b.nodeFingerprint);
    verified.push({...a,validationLevel:'dom-candidate-verified'});
   }
  }
