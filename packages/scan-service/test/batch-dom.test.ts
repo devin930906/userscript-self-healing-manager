@@ -17,7 +17,7 @@ const page={type:'page',id:'p1',url:'https://example.org/page',webSocketDebugger
 test('batch uses metadata page scope and never probes out-of-scope or invalid scripts',async()=>{
  const called:string[]=[];let identities=0;
  const result=await diagnoseScriptsOnPage({items,target:page,consent:true,deps:{
-  confirm:async()=>{identities++;return {targetId:page.id,confirmedUrl:page.url};},
+  confirm:async()=>{identities++;return {targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'};},
   probe:async(_target,locators)=>{called.push(locators[0]?.expression??'');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing',matchCount:0}))};},
  }});
  assert.equal(result.validationLevel,'dom-only');
@@ -34,7 +34,7 @@ test('batch isolates a failed script probe but refuses to treat navigation as su
  const cases:any[]=[{path:'a',scriptId:'a',analysis:analysis()},{path:'b',scriptId:'b',analysis:analysis()}];
  let number=0;
  const result=await diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
-  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
   probe:async()=>{if(number++===0)throw new Error('one script failed');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:[{method:'querySelector',expression:'#missing',status:'missing',matchCount:0}]};}
  }});
  assert.deepEqual(result.items.map(x=>x.status),['error','locator-missing']);
@@ -46,7 +46,7 @@ test('batch isolates a failed script probe but refuses to treat navigation as su
 });
 
 test('strict consent, bounded batch size, bounded selectors and identity reject unsafe evidence',async()=>{
- const deps:any={confirm:async()=>({targetId:'p1',confirmedUrl:page.url}),probe:async()=>({targetId:'wrong-page',url:page.url,checks:[]})};
+ const deps:any={confirm:async()=>({targetId:'p1',confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),probe:async()=>({targetId:'wrong-page',url:page.url,checks:[]})};
  await assert.rejects(diagnoseScriptsOnPage({items,target:page,consent:false,deps}),/consent|approval/i);
  await assert.rejects(diagnoseScriptsOnPage({items:Array.from({length:26},()=>items[0]),target:page,consent:true,deps}),/limit/i);
  const tooMany=Array.from({length:51},(_,i)=>({method:'querySelector',expression:'#'+i,runtimeRequired:false,receiver:'document'}));
@@ -73,7 +73,7 @@ test('read-only batch performs final identity recheck when all scripts have no s
  let checks=0;
  await assert.rejects(diagnoseScriptsOnPage({
   items:[items[2]],target:page,consent:true,deps:{
-   confirm:async()=>{checks++;return {targetId:page.id,confirmedUrl:checks===1?page.url:'https://other.example'};},
+   confirm:async()=>{checks++;return {targetId:page.id,confirmedUrl:checks===1?page.url:'https://other.example',frameId:'main',loaderId:'stable'};},
    probe:async()=>{throw new Error('no static locators');},
   },
  }),/identity/i);
@@ -90,7 +90,7 @@ test('unsupported scope metadata remains needs-review, never falsely out-of-scop
  ];
  let probes=0;
  const result=await diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
-  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
   probe:async()=>{probes++;throw new Error('must not inspect unsupported scopes');},
  }});
  assert.deepEqual(result.items.map(row=>row.status),['needs-review','needs-review','needs-review']);
@@ -100,7 +100,7 @@ test('unsupported scope metadata remains needs-review, never falsely out-of-scop
 
 test('unverified iframe contexts prevent a false missing or out-of-scope verdict for the whole userscript',async()=>{
  const result=await diagnoseScriptsOnPage({items:[items[0],items[1]],target:page,consent:true,deps:{
-  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,subframeCount:2}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:2}),
   probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
  }});
@@ -115,7 +115,7 @@ test('@noframes metadata retains definitive top-document verdict even if the pag
  const nested=[{path:'top-only.user.js',scriptId:'top-only',status:'parsed',analysis:analysis(withNoFrames)},
   {path:'top-only-other.user.js',scriptId:'other',status:'parsed',analysis:analysis({...withNoFrames,match:['https://other.example/*']})}] as any[];
  const out=await diagnoseScriptsOnPage({items:nested,target:page,consent:true,deps:{
-  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,subframeCount:1}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:1}),
   probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
  }});
@@ -150,7 +150,7 @@ test('an author Shadow Tree makes a top-document locator miss inconclusive even 
 });
 test('confirmed absence of author Shadow DOM preserves the top-document verdict',async()=>{
  const data=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
-  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
   probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
   summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
@@ -159,7 +159,7 @@ test('confirmed absence of author Shadow DOM preserves the top-document verdict'
 });
 test('a failed shadow context read cannot be used to certify a missing locator',async()=>{
  const data=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
-  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
   probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
   summarize:async()=>{throw new Error('Shadow DOM evidence unavailable');},
