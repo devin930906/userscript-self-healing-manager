@@ -133,3 +133,37 @@ test('same-URL reload invalidates a batch even when no scripts need DOM probes',
   },
  }),/document|loader|navigation|identity/i);
 });
+
+test('an author Shadow Tree makes a top-document locator miss inconclusive even with @noframes',async()=>{
+ const frameRestricted={match:['https://example.org/*'],include:[],raw:{noframes:['']}};
+ const targetScript={path:'shadow.user.js',scriptId:'shadow',status:'parsed',analysis:analysis(frameRestricted)};
+ const result=await diagnoseScriptsOnPage({items:[targetScript] as any,target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:2}),
+ }});
+ assert.equal(result.items[0]?.status,'needs-review');
+ assert.equal(result.items[0]?.missing,0);
+ assert.ok(result.items[0]?.needsReview>=1);
+ assert.match(result.items[0]?.reason??'',/shadow/i);
+});
+test('confirmed absence of author Shadow DOM preserves the top-document verdict',async()=>{
+ const data=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+ }});
+ assert.equal(data.items[0]?.status,'locator-missing');
+});
+test('a failed shadow context read cannot be used to certify a missing locator',async()=>{
+ const data=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  summarize:async()=>{throw new Error('Shadow DOM evidence unavailable');},
+ }});
+ assert.equal(data.items[0]?.status,'needs-review');
+ assert.match(data.items[0]?.reason??'',/shadow|unavailable/i);
+});
