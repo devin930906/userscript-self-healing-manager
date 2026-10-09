@@ -14,10 +14,14 @@ files:
   - '!**/test/**'
 win:
   executableName: Userscript-Self-Healing-Manager
+  # ZIP is the complete unpacked Electron app, not a wrapper around Portable.exe.
+  artifactName: Userscript-Self-Healing-Manager-${version}-win-${arch}.${ext}
   target:
     - target: nsis
       arch: [x64]
     - target: portable
+      arch: [x64]
+    - target: zip
       arch: [x64]
 nsis:
   oneClick: false
