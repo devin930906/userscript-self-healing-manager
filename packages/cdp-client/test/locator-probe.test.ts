@@ -221,7 +221,6 @@ test('open-shadow scope fails closed on ambiguous, nested, closed or malformed r
  const trees=[
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'open'}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'closed'}]}]},
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'closed'}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open',children:[{nodeId:13,shadowRoots:[{nodeId:89,shadowRootType:'open'}]}]}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:'bad',shadowRootType:'open'}]}]},
  ];
@@ -242,4 +241,18 @@ test('unknown shadow scopes and oversized trees must not silently fall back to d
  });
  assert.equal(result.checks[0]?.status,'unverified');
  assert.equal(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').length,0);
+});
+
+test('an unrelated closed shadow root does not become an open-root locator or invalidate a positive open-root check',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[
+   {nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'closed'}]}]}}),
+  'DOM.querySelectorAll':({nodeId})=>({nodeIds:nodeId===82?[101]:[]}),
+  'DOM.describeNode':()=>({node:{nodeType:1,backendNodeId:9001}}),
+ });
+ const got=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+  socketFactory:()=>socket,rootScope:'open-shadow',includeNodeFingerprints:true,
+ });
+ assert.equal(got.checks[0]?.status,'found');
+ assert.deepEqual(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').map(x=>x.params.nodeId),[82]);
 });
