@@ -56,6 +56,8 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
 export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,expectedHash,approved,baseRevisionKind='original'}:{sourcePath:string;managedRoot:string;scriptId:string;draft:LiteralPatchDraft;expectedHash:string;approved:boolean;baseRevisionKind?:'original'|'revision'}):Promise<{backupPath:string;managedPath:string;hash:string}>{
  if(!approved)throw new Error('Explicit user approval required');
  if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
+ if(baseRevisionKind!=='original'&&baseRevisionKind!=='revision')
+  throw new Error('Invalid base revision kind for immutable archive path');
  if(!isAbsolute(sourcePath)||!isAbsolute(managedRoot))throw new Error('Absolute source and managed paths required');
  const sourceInfo=await lstat(sourcePath);if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())throw new Error('Source must be a regular file');
  const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:sourceInfo});
