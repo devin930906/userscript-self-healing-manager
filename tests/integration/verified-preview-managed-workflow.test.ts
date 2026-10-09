@@ -41,6 +41,13 @@ test('verified single DOM candidate goes through preview to a separate explicitl
   assert.equal(sha(await readFile(saved.managedPath)),saved.hash);
   assert.match(await readFile(current,'utf8'),/querySelector\("#uniqueButton"\)/);
   assert.deepEqual(await readFile(sourcePath),original);
+  // A managed revision is recoverable to the exact archived original while
+  // the unmodified external .user.js retains its initial bytes.
+  const restored=await flow.restore({scriptId:'fixture-safe',hash:sha(original),approved:true});
+  assert.equal(restored.hash,sha(original));
+  assert.deepEqual(await readFile(current),original);
+  assert.deepEqual(await readFile(sourcePath),original);
+  assert.match(await readFile(saved.managedPath,'utf8'),/querySelector\("#uniqueButton"\)/);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 test('same-URL Chrome reload after creating proposal revokes its approval and leaves no managed current',async()=>{
