@@ -192,7 +192,14 @@ try{
    throw new Error('synthetic-forced-handshake-rejection');
   },
   terminateChrome:terminateFailedChromeLaunch,
- }),/synthetic-forced-handshake-rejection/);
+ }),error=>{
+  // A hosted Windows runner can fail taskkill after Chrome has already exited.
+  // Preserve the original handshake rejection even when production cleanup
+  // correctly reports a separate error; the port-release check below remains
+  // mandatory and will catch a genuinely orphaned process.
+  const causes=error instanceof AggregateError?error.errors:[error];
+  return causes.some(cause=>String(cause).includes('synthetic-forced-handshake-rejection'));
+ });
  let freed=false;
  for(let attempt=0;attempt<50;attempt++){
   try{await assertChromeDebuggerPortFree(9237);freed=true;break;}
