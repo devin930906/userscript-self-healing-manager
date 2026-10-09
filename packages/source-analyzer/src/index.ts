@@ -118,6 +118,24 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
        functionName:scope.name,scope:scope.scope,alternateSelectors:getAlternates(node),receiver:node.expression.expression.getText(source),
        dynamicKind:selector.dynamicKind,runtimeRequired:selector.dynamicKind!=='literal'});
    }
+   if(ts.isCallExpression(node)&&ts.isElementAccessExpression(node.expression)&&node.arguments[0]){
+     const accessor=node.expression;
+     const key=accessor.argumentExpression;
+     const resolvedMethod=key&&ts.isStringLiteralLike(key)&&METHODS.has(key.text)?key.text:null;
+     // Unknown computed keys on *document* may be DOM calls. For arbitrary
+     // receivers, do not invent a selector from an unrelated dynamic method.
+     const isDocumentKey=ts.isIdentifier(accessor.expression)&&accessor.expression.text==='document';
+     if(resolvedMethod||isDocumentKey){
+       const selector=selectorOf(node.arguments[0]);
+       const start=source.getLineAndCharacterOfPosition(node.getStart(source));
+       const end=source.getLineAndCharacterOfPosition(node.getEnd());
+       const scope=functionScope(node);
+       selectorRecords.push({scriptId,expression:selector.expression,method:resolvedMethod??'<computed>',
+        sourceRange:{start:{line:start.line+1,column:start.character+1},end:{line:end.line+1,column:end.character+1}},
+        functionName:scope.name,scope:scope.scope,alternateSelectors:[],
+        receiver:accessor.expression.getText(source),dynamicKind:'wrapper-unknown',runtimeRequired:true});
+     }
+   }
    ts.forEachChild(node,walk);
  }
  walk(source);
