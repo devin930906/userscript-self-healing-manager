@@ -141,6 +141,7 @@ async function bootstrap():Promise<void>{
     confirm:confirmPageIdentity,
     probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
     probeOpenShadow:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true,rootScope:'open-shadow'}),
+    probeIframe:(page,locators,frameId)=>probePageLocators(page,locators,{includeNodeFingerprints:true,rootScope:'iframe-document',expectedFrameId:frameId}),
     summarize:captureDomSummary,
     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
    },
