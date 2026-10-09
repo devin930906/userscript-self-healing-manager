@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {EventEmitter} from 'node:events';
-import {inspectReadOnlyElementVisibility} from '../src/read-only-visibility.ts';
+import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../src/read-only-visibility.ts';
 class FakeSocket extends EventEmitter{
  sent:Array<{id:number;method:string;params:any}>=[];
  private readonly steps:Record<string,(params:any)=>any>;
@@ -90,4 +90,25 @@ test('static getElementById is converted to a safe CSS selector, not executed JS
  const out=await inspectReadOnlyElementVisibility(target,{method:'getElementById',expression:'9 action',runtimeRequired:false},{socketFactory:()=>s});
  assert.equal(out.status,'potentially-visible');
  assert.equal(s.sent[1]?.params.selector,'#\\39 \\ action');
+});
+
+test('top-document misses are inconclusive around iframes and author Shadow DOM',()=>{
+ const missing={targetId:'a',url:'https://example.org/page',validationLevel:'css-box-read-only' as const,
+  status:'missing' as const,matchCount:0,pointerBlocked:null,interactionVerified:false as const,
+  V2:'blocked' as const,V3:'not-configured' as const,V4:'not-configured' as const};
+ assert.equal(qualifyTopDocumentVisibility(missing,0,0).status,'missing');
+ for(const [frames,roots] of [[1,0],[0,1],[2,5],[0,null],[0,-1],[-1,0]] as const){
+  const qualified=qualifyTopDocumentVisibility(missing,frames,roots);
+  assert.equal(qualified.status,'unknown');
+  assert.equal(qualified.matchCount,null);
+  assert.equal(qualified.V2,'blocked');
+  assert.equal(qualified.V4,'not-configured');
+ }
+ assert.deepEqual(missing.matchCount,0,'The raw top-document observation stays unmodified');
+});
+test('context uncertainty does not hide an observed element or fabricate interactivity',()=>{
+ const observed={targetId:'a',url:'https://example.org/page',validationLevel:'css-box-read-only' as const,
+  status:'potentially-visible' as const,matchCount:1,pointerBlocked:true,interactionVerified:false as const,
+  V2:'blocked' as const,V3:'not-configured' as const,V4:'not-configured' as const};
+ assert.deepEqual(qualifyTopDocumentVisibility(observed,2,null),observed);
 });
