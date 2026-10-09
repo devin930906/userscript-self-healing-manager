@@ -6,7 +6,9 @@ export interface LiveLocatorSummary {
  readonly validationLevel:'dom-only';
 }
 export function summarizeLiveLocatorCheck(checks:readonly LiveLocatorCheck[]):LiveLocatorSummary{
- const found=checks.filter(c=>c.status==='found'&&c.matchCount!==null&&c.matchCount>0).length;
+ // CDP probe reports "found" only when exactly one element matches.
+ // A contradictory count is unverified evidence, never a V1 success.
+ const found=checks.filter(c=>c.status==='found'&&c.matchCount===1).length;
  const missing=checks.filter(c=>c.status==='missing'&&c.matchCount===0).length;
  const needsReview=checks.length-found-missing;
  const status=checks.length===0?'no-evidence':missing>0?'locator-missing':needsReview>0?'needs-review':'dom-present';
