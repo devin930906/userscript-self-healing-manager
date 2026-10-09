@@ -329,6 +329,29 @@ function App(){
    <div className="queue"><div className="queue-title">待检测路径 <span>{paths.length} 项</span></div>{paths.length?<div className="chips">{paths.map(path=><span key={path} title={path}>{nameOf(path)} <button aria-label={`移除 ${nameOf(path)}`} onClick={()=>setPaths(old=>old.filter(x=>x!==path))}>×</button></span>)}</div>:<div className="dim">尚未选择任何脚本。</div>}</div>
    <div className="toolbar"><button disabled={!paths.length||busy} className="primary" onClick={()=>void scan()}>{busy?'分析进行中…':'开始静态诊断'} →</button><div className="dim">本版本尚未验证网页功能</div></div>
    </section>
+   <section className="panel">
+    <div className="panel-head"><div><h2>版本化站点兼容规则（SiteAdapter）</h2>
+     <p>仅管理本地、静态的语义定位规则。导入前预览并单独批准；不会执行规则文件中的代码，不会自动修复油猴脚本。</p>
+    </div><span className="pill">定义级 · 只读</span></div>
+    <div className="toolbar">
+     <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>void stageSiteAdapterImport()}>预览 SiteAdapter JSON</button>
+     <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError(String(error)))}>刷新本地规则</button>
+     <span className="dim">同站点已存在版本禁止直接覆盖；升级仍需要完整依赖影响审查。</span>
+    </div>
+    {adapterPreview&&<div className="notice">
+     <p><b>待批准规则：</b>{adapterPreview.siteId} · v{adapterPreview.version} · {adapterPreview.stateCount} 种状态 · {adapterPreview.roleCount} 个角色</p>
+     <p>许可站点：{adapterPreview.urlPatterns.join('、')}</p>
+     <p className="dim">SHA-256：<code>{adapterPreview.sourceHash.slice(0,20)}…</code>。确认后仅保存规则定义，不会自动绑定、加载脚本或执行兼容性升级。</p>
+     <div className="toolbar">
+      <button type="button" disabled={adapterBusy} onClick={()=>void approveSiteAdapterImport()}>确认导入此规则</button>
+      <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>setAdapterPreview(null)}>取消预览</button>
+     </div>
+    </div>}
+    {adapterLibrary&&<div className="table-wrapper"><table><thead><tr><th>站点</th><th>版本</th><th>角色</th><th>页面状态</th><th>定义来源</th></tr></thead><tbody>
+     {adapterLibrary.map(adapter=><tr key={adapter.siteId}><td>{adapter.siteId}</td><td>v{adapter.version}</td><td>{adapter.roleCount}</td><td>{adapter.stateCount}</td><td>本机 JSON · 仅定义</td></tr>)}
+    </tbody></table>{adapterLibrary.length===0&&<p className="dim">尚无已导入的 SiteAdapter。</p>}</div>}
+    <p className="dim">所有兼容规则仅为候选定义，未经过真实脚本运行或功能验证。V3／V4 未配置，尚不能认定 Tampermonkey 或 GM_* 功能正常。</p>
+   </section>
    <section className="panel"><div className="panel-head"><div><h2>Chrome CDP 浏览器连接</h2><p>仅连接本机 127.0.0.1:9223；可进行人工授权的只读 DOM 快照和定位器匹配，不执行用户脚本。</p></div><span className="pill">受控连接</span></div>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}><button className="secondary" onClick={()=>void pickChrome()}>选择 Chrome</button><button className="secondary" disabled={!chromePath} onClick={()=>void startChrome()}>启动浏览器调试</button><button className="secondary" disabled={!chromePath} onClick={()=>void startIsolatedChrome()}>启动隔离调试 Chrome</button><button onClick={()=>void checkCdp()}>检查 CDP 连接</button></div>
     <p className="dim" style={{overflowWrap:'anywhere',marginTop:12}}>{chromePath||'尚未选择浏览器 EXE（可选择便携版 Chrome）'}</p>
