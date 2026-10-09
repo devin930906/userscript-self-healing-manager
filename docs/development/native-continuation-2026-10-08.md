@@ -433,3 +433,23 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 
 - 这些新增检查**最多是 V1/只读 CSS 布局证据**。未实现真实 `GM_*` / Tampermonkey V4 证明、独立 V3 业务断言、完整 V2 安全交互测试、站点语义兼容与自动修复、Win10 便携 Chrome155 组合真机、正式三个包及全部 RG-01…09。
 - 继续保留 PR #2 Draft、源码开发分支 `feat/v01-continuation`，不在中途构建或上传 Setup/Portable/ZIP 预览包，不合并 main，也不创建 Stable Release。
+
+## 2026-10-09 · CDP 不可信 selector 结果与 CSS 嵌套上下文修复（316 项）
+
+### Slice A — CDP DOM.querySelectorAll 证据强校验
+
+- **RED：** [Node contracts #37904276929](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904276929) 在新加的三组测试中确实记录 **313 tests / 3 failures**：旧实现允许重复/非法 nodeId、超过 1.2 MiB 的单条响应和超过 10,000 个 selector 节点被当作可信证据。
+- **GREEN：** `packages/cdp-client/src/locator-probe.ts` 限制单条响应最多 1,000,000 字符；只接受唯一、合法的正安全整数 nodeId，每个选择器最多 10,000 项；拒绝重复 `DOM.getDocument` 根回复、防止重复调度。保留错误 CSS 可标记 blocked，不执行任何网页 JavaScript。
+- 添加重复根回复回归后，[Windows CI #37904463501](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904463501) SUCCESS；Node contracts [#37904463506](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904463506) SUCCESS。
+
+### Slice B — 只读 CSS 可见性失配时的真实嵌套 DOM 守门
+
+- **RED：** [Node contracts #37904619936](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904619936) 在 `qualifyTopDocumentVisibility` 尚未实现、桌面主进程尚未采集 DOMSnapshot 上下文时，新增针对 iframe/ShadowRoot 的测试无法通过。
+- **GREEN：** `qualifyTopDocumentVisibility` 只允许在零子 Frame 且明确检出零作者 ShadowRoot 的上下文中保留 `missing`；iframe/ShadowRoot/快照不可用时降级为 `unknown`，matchCount 为 null。其他 DOM 可见性检查不被误改，`V2=blocked`、`V3/V4=not-configured` 不变。
+- Electron `usshm:read-only-visibility` 在 DOM 只读结果为 missing 时额外采集有界 `DOMSnapshot`，随后检查当前 Frame/Loader 文档身份与 scanId。失败的上下文采样不会使顶层未命中被认定为确定缺失。
+- Windows Chrome 真实 `#shadow-only` 合成 ShadowRoot fixture：顶层只读 CSS 查询返回 missing，识别作者 ShadowRoot 后，面向 UI 的资格化结果变成 unknown。没有在 Shadow DOM 中擅自运行用户脚本。
+- **最终源码/测试 GREEN：** [Windows Development CI #37904827283](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904827283) **316/316 tests PASS、0 failures、TypeScript PASS、Electron bundle PASS、Windows GUI+SQLite smoke PASS、真实 Chrome CDP + ShadowRoot smoke PASS**；[Node contracts #37904827267](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904827267) SUCCESS。
+
+### Release decision
+
+两个切片减少了错误 DOM 证据和误报，不构成真实 Tampermonkey 注入/GM_* 兼容性、V3 业务功能合约、V4 插件运行、用户 Windows10 + 便携 Chrome 155 实机或 RG-01…09 已完成的证明。**仍为 Draft，不合并 main、不标 Stable、不生成中途预览安装包。**
