@@ -89,6 +89,14 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
     updatedLocation={method:active.method,line:active.sourceRange.start.line,column:active.sourceRange.start.column};
    }
    const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation:updatedLocation});
+   // Some original scans contain multiple identical selectors. Without an
+   // AST location, refuse an ambiguous edit rather than changing the wrong call.
+   if(!selectorLocation){
+    const activeCalls=analyzeSource({scriptId,sourceBytes:workingBytes}).selectorRecords
+     .filter(record=>record.expression===oldSelector&&record.dynamicKind==='literal');
+    if(activeCalls.length!==1)
+     throw new Error('Ambiguous selector location: choose one exact AST call before repair');
+   }
    // A long AST/disk preparation must not publish a preview based on source or
    // managed bytes that were modified by another process while preparing it.
    const sourceNow=await lstat(sourcePath);
