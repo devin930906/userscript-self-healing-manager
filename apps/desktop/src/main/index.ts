@@ -143,6 +143,7 @@ async function bootstrap():Promise<void>{
   const checked=scanSnapshot.items.slice(offset,offset+25);
   const result=await diagnoseScriptsOnPage({items:checked,target:selected,consent:true,deps:{
    confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+   waitBeforeMissingRecheck:()=>new Promise<void>(resolve=>setTimeout(resolve,750)),
   }});
   scanSessions.assertCurrent(scanSnapshot);
   const authenticatedPage={...result,
