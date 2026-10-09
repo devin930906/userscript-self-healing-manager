@@ -79,15 +79,15 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
     if(response.error)throw new Error('Fixture CDP command rejected: '+waiting);
     if(!response.result||typeof response.result!=='object'||Array.isArray(response.result))
      throw new Error('Invalid synthetic fixture CDP result');
-    const m=response as {result:any};
+    const payload=response as {result:any};
     switch(waiting){
      case 'DOM.getDocument':
-      root=m.result?.root?.nodeId;
+      root=payload.result?.root?.nodeId;
       if(!Number.isSafeInteger(root)||root<1)throw new Error('Invalid synthetic document root');
       send('DOM.querySelectorAll',{nodeId:root,selector:'#fixture-safe-click'});
       break;
      case 'DOM.querySelectorAll':{
-      const matches=m.result?.nodeIds;
+      const matches=payload.result?.nodeIds;
       if(!Array.isArray(matches)||matches.length!==1||
          !Number.isSafeInteger(matches[0])||matches[0]<1)
        throw new Error('Synthetic fixture button must match exactly one valid node');
@@ -98,7 +98,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
       break;
      }
      case 'DOM.getAttributes':{
-      const attrs=readAttrs(m.result?.attributes);
+      const attrs=readAttrs(payload.result?.attributes);
       if(attributesRead++===0){
        if(attrs.get('id')!=='fixture-safe-click'||attrs.get('type')!=='button'||attrs.has('disabled')||attrs.has('inert')||!['', 'false'].includes(attrs.get('aria-hidden')?.toLowerCase()??'')||
           !['', 'false'].includes(attrs.get('aria-disabled')?.toLowerCase()??''))
@@ -112,7 +112,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
       break;
      }
      case 'DOM.getBoxModel':{
-      const quad=m.result?.model?.content;
+      const quad=payload.result?.model?.content;
       if(!Array.isArray(quad)||quad.length!==8||
          quad.some((value:unknown)=>typeof value!=='number'||!Number.isFinite(value)||value<0||value>5000))
        throw new Error('Invalid synthetic fixture button bounds');
