@@ -64,13 +64,12 @@ export async function inspectManagedIntegrity({managedRoot,scriptId}:{
  let names:string[];
  try{names=await readdir(folder);}catch{return outcome('unsafe',archives.length);}
  if(names.length>10000)return outcome('unsafe',archives.length);
- if(names.some(name=>orphanStage.test(name)))
-  return outcome('staging-leftover',archives.length);
+ const stageLeftover=names.some(name=>orphanStage.test(name));
  let info:Awaited<ReturnType<typeof lstat>>;
  try{info=await lstat(current);}
  catch(error){
   if((error as NodeJS.ErrnoException).code==='ENOENT')
-   return outcome(archives.length===0?'empty':'missing-current',archives.length);
+   return outcome(stageLeftover?'staging-leftover':archives.length===0?'empty':'missing-current',archives.length);
   throw error;
  }
  if(info.isSymbolicLink()||!info.isFile()||info.size>512*1024)return outcome('unsafe',archives.length);
@@ -79,5 +78,6 @@ export async function inspectManagedIntegrity({managedRoot,scriptId}:{
  catch{return outcome('unsafe',archives.length);}
  const hash=SHA(bytes);
  if(!archives.some(x=>x.hash===hash))return outcome('unarchived-current',archives.length);
+ if(stageLeftover)return outcome('staging-leftover',archives.length);
  return outcome('healthy',archives.length,hash);
 }
