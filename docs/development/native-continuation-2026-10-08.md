@@ -360,3 +360,11 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - 新增自动测试验证分页累积、同 URL reload 后旧证据失效、跨 scanId/targetId 拒绝和不允许 renderer 提交自称 V1 通过的数据。
 - [Windows CI #37894568687](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37894568687) 对提交 `290a92068b49537597458d5ccabe965d8e65da56` 验证 **261/261 tests PASS、TypeScript、Electron Build、真实 Windows GUI+SQLite 启动、Chrome CDP+合成业务 smoke PASS**。
 - 本轮没有运行正式 Windows 三包构建；尚无 V2/V3/V4 真环境用户脚本经理验证，也未合并 main 或标记 Stable。
+
+## 2026-10-09 · DOM 报告并发安全与旧扫描失效
+
+- 新增导出证据单调 revision：每次记录新的真实 CDP 批次与显式 invalidation 都递增。打开系统保存对话框前后两次校验同一 `scanId`、`targetId` 与 revision；若其间产生新诊断或取消过期，拒绝写出旧的 report bytes。
+- 对主进程批量诊断加入 fail-closed 证据失效：任何 CDP 身份问题、脚本 batch 诊断异常或扫描状态过期都不能保留本次任务的旧报告。
+- 排错发现极端竞争：旧扫描的异步失败会在新扫描已经产生有效证据后触发 `catch`。因此不能无条件 `clear()`，改为 `invalidateIfCurrent({scanId,targetId})`，仅清除失败操作自己仍拥有的批次。新增旧 scan、不同 target、不连续页、同 URL reload、重入保存对话框和版本递增测试。
+- [Windows Development CI #37895015454](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895015454) 对源码提交 `c67d322b93731252dba84b1d0f7cfcb3f6f52141`：**264/264 tests PASS、TypeScript PASS、Electron build PASS、真实 Windows GUI/SQLite smoke PASS、真实 Chrome CDP 合成行为测试 PASS**。Task 1 contracts #37895020261 亦已通过。
+- 此模块仅存当前运行的最近一次已授权扫描证据，尚无跨重启完整任务审计/站点历史。FR-029、FR-040/041 和 Phase7–12 仍未全部完成；严格保持 PR #2 为 Draft，不制作预览安装包、不提前 Stable 发布。
