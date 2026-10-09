@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {join,isAbsolute} from 'node:path';
-import {lstat,writeFile} from 'node:fs/promises';
+import {lstat} from 'node:fs/promises';
+import {persistImmutableSnapshot} from './immutable-archive.ts';
 import ts from 'typescript';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
@@ -89,11 +90,10 @@ export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,e
   throw new Error('Reconstructed approved patch hash mismatch');
  const folder=join(managedRoot,'managed',scriptId);await ensureWritableDataRoot(folder);
  const backupPath=join(folder,`${baseRevisionKind}-${expectedHash}.user.js`),managedPath=join(folder,`revision-${draft.proposedHash}.user.js`);
- async function writeImmutable(path:string,content:Uint8Array){
-  try{await writeFile(path,content,{flag:'wx',mode:0o600});}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
-   const info=await lstat(path);if(!info.isFile()||info.isSymbolicLink())throw new Error('Immutable revision path is not a regular file');
-   const existing=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});if(sha(existing)!==sha(content))throw new Error('Immutable revision hash conflict');}
- }
- await writeImmutable(backupPath,current);await writeImmutable(managedPath,proposedBytes);
+ // Both the original and the patched revision must be flushed and
+ // read-back verified before current.user.js is activated. Failed writes
+ // cannot leave a partial, hash-named archive blocking future retries.
+ await persistImmutableSnapshot({archivePath:backupPath,bytes:current});
+ await persistImmutableSnapshot({archivePath:managedPath,bytes:proposedBytes});
  return {backupPath,managedPath,hash:draft.proposedHash};
 }
