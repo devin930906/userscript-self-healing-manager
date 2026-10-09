@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {basename,dirname,isAbsolute,join} from 'node:path';
-import {open,lstat,rename,link,unlink,type FileHandle} from 'node:fs/promises';
+import {open,lstat,rename,link,unlink,mkdir,rmdir,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 const MAX_BYTES=512*1024;
@@ -13,8 +13,9 @@ type ChunkWriter=(handle:FileHandle,chunk:Uint8Array,position:number)=>Promise<n
  *
  * Stage, flush and hash-check BEFORE atomic rename. Immediately before rename,
  * repeat the external-edit check for the previous current to avoid replacing
- * edits made while staging. This reduces the race window, but Node's rename is
- * not a cross-process compare-and-swap or a full power-loss transaction.
+ * edits made while staging. A per-current exclusive directory lease serializes
+ * cooperating application processes; the pinned expected hash rejects stale
+ * transactions. This is not a hostile-process lock or a power-loss transaction.
  */
 export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,writeChunk,beforePublish}:{
  activePath:string;bytes:Uint8Array;expectedActiveHash:string|null;
@@ -29,6 +30,18 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
      (typeof expectedActiveHash!=='string'||!/^[a-f0-9]{64}$/.test(expectedActiveHash))))
   throw new Error('Invalid managed current path, byte budget or expected hash');
 
+ // Filesystem-owned cooperative writer lease. mkdir is an atomic exclusive
+ // operation on the target volume, unlike a JS Set or a pre-rename lstat.
+ // Never guess that an existing lock is stale: a paused writer may be alive.
+ // A crash requires explicit offline lock recovery after all app instances stop.
+ const lockPath=activePath+'.write-lock';
+ try{await mkdir(lockPath,{mode:0o700});}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='EEXIST')
+   throw new Error('Another managed current writer holds the filesystem lock; refusing activation');
+  throw error;
+ }
+ try{
  const validateCurrent=async()=>{
   let info:Awaited<ReturnType<typeof lstat>>;
   try{info=await lstat(activePath);}
@@ -85,8 +98,8 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
     throw error;
    }
   }else{
-   // Replacing an existing current still has a cross-process compare/rename
-   // window. Native compare-and-swap or OS process lock is a remaining gate.
+   // Cooperating application writers hold the exclusive filesystem lease
+   // through the hash preflight, rename, and activated-byte verification.
    await rename(stage,activePath);
   }
   const activatedInfo=await lstat(activePath);
@@ -105,4 +118,9 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   }
  }
  if(failure!==undefined)throw failure;
+ }finally{
+  // A failed publish must release only the lease acquired in this call.
+  // If the lock path was externally replaced, do not hide the cleanup error.
+  await rmdir(lockPath);
+ }
 }
