@@ -56,3 +56,16 @@ test('wrong order, total, invalid boundaries and page count fail before recordin
  assert.throws(()=>gate.begin({scanId:'bad',targetId:'',offset:0}),/identity|target/i);
  gate.complete(fresh,{pageItems:1,totalItems:1});
 });
+
+test('transient transport retry preserves the last completed batch page and resumes the same offset',()=>{
+ const gate=new DiagnosisRequestGate();
+ const first=gate.begin({...key,offset:0});
+ gate.complete(first,{pageItems:25,totalItems:50});
+ const attempt=gate.begin({...key,offset:25});
+ assert.equal(gate.releaseForRetry(attempt),true);
+ assert.equal(gate.isCurrent(attempt),false);
+ const retry=gate.begin({...key,offset:25});
+ assert.equal(gate.isCurrent(retry),true);
+ gate.complete(retry,{pageItems:25,totalItems:50});
+ assert.equal(gate.releaseForRetry(attempt),false);
+});
