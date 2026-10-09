@@ -11,7 +11,7 @@ $zip = Join-Path $releaseDir "Userscript-Self-Healing-Manager-$version-win-x64.z
 foreach ($path in @($exeSetup, $exePortable)) { if (-not (Test-Path $path)) { throw "Missing binary: $path" } }
 Set-Content -NoNewline -Path (Join-Path $unpacked '.usshm-portable') -Value 'zip-portable-v1'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-if (Test-Path $zip) { Remove-Item $zip -Force }
+if (Test-Path $zip) { throw 'Release ZIP already exists; preserve it and use a clean release directory' }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($unpacked,$zip)
 if (-not (Test-Path $zip)) { throw 'ZIP did not materialize' }
 @($exeSetup,$exePortable,$zip) | ForEach-Object {
