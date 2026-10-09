@@ -92,3 +92,15 @@ test('future journal schema version is rejected without destructive downgrade',a
  assert.equal((check.prepare('PRAGMA user_version').get() as {user_version:number}).user_version,9);
  check.close();
 }));
+
+test('starting a fresh static scan can mark every abandoned live history entry interrupted without data loss',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ const old=journal.recordPage({scanId,targetId,total:26,offset:0,page:page(0)});
+ const other=journal.recordPage({scanId:'other',targetId,total:26,offset:0,page:page(0)});
+ journal.interruptRunning();
+ const rows=journal.listRecent();
+ assert.equal(rows.find(x=>x.runId===old.runId)?.status,'interrupted');
+ assert.equal(rows.find(x=>x.runId===other.runId)?.status,'interrupted');
+ assert.equal(journal.listItems(old.runId).length,25);
+ journal.close();
+}));
