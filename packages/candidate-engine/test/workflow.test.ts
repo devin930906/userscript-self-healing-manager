@@ -149,3 +149,18 @@ test('iframe-scoped SiteAdapter repair suggestions never use the top-document ca
  assert.deepEqual(ret.candidates,[]);
  assert.equal(ret.functionalVerified,false);
 });
+
+
+test('candidate that stops being unique on repeated live probe is not recommended',async()=>{
+ let candidateProbes=0;
+ const unstable={...deps,probe:async(inputs:readonly typeof locator[])=>{
+  const answer=await deps.probe(inputs);
+  if(inputs[0]?.expression!==locator.expression){
+   candidateProbes++;
+   if(candidateProbes>=2)return {...answer,checks:answer.checks.map(check=>({...check,matchCount:2}))};
+  }
+  return answer;
+ }};
+ assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:unstable}),[]);
+ assert.equal(candidateProbes,2);
+});
