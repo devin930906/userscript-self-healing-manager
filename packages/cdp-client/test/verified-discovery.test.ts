@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {createServer} from 'node:http';
 import {getVerifiedChromeStatus,type ChromeStatus} from '../src/index.ts';
 
 const valid:ChromeStatus={browser:'Chrome/155.0.8059.39',protocolVersion:'1.3',
@@ -40,4 +41,29 @@ test('verified discovery returns the exact bounded status only after matching li
  });
  assert.equal(output,valid);
  assert.deepEqual(checked,['http:9223','ws:'+valid.browserSocket+':9223']);
+});
+
+test('a localhost HTTP service spoofing Chrome JSON without WebSocket cannot become a trusted browser',async()=>{
+ const paths:string[]=[];
+ const server=createServer((req,res)=>{
+  paths.push(req.url??'');
+  const endpoint=server.address();
+  if(!endpoint||typeof endpoint==='string')throw new Error('Missing local port');
+  res.setHeader('Content-Type','application/json');
+  res.end(req.url==='/json/version'?
+   JSON.stringify({Browser:'Chrome/155.0.8059.39','Protocol-Version':'1.3',
+    webSocketDebuggerUrl:'ws://127.0.0.1:'+endpoint.port+'/devtools/browser/spoofed'}):
+   JSON.stringify([]));
+ });
+ server.on('upgrade',(_request,socket)=>socket.destroy());
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const addr=server.address();
+  if(!addr||typeof addr==='string')throw new Error('Server port unavailable');
+  await assert.rejects(getVerifiedChromeStatus({port:addr.port}),
+   /CDP|socket|WebSocket|browser|handshake/i);
+  assert.deepEqual(paths,['/json/version','/json/list']);
+ }finally{
+  await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()));
+ }
 });
