@@ -75,12 +75,16 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  if(finalOriginal.checks.length!==1||finalCheck?.expression!==locator.expression||
     finalCheck.method!==locator.method||finalCheck.status!=='missing'||finalCheck.matchCount!==0)return [];
  const verified:VerifiedCandidate[]=[];
+ const seen=new Set<string>();
  for(let i=0;i<ranked.length;i++){
   const a=ranked[i]!,b=confirmation.checks[i]!;
   const c=repeat.checks[i]!;
   if(b.expression===a.expression&&b.method===locator.method&&b.status==='found'&&b.matchCount===1&&
-     c.expression===a.expression&&c.method===locator.method&&c.status==='found'&&c.matchCount===1)
+     c.expression===a.expression&&c.method===locator.method&&c.status==='found'&&c.matchCount===1&&
+     !seen.has(a.expression)){
+   seen.add(a.expression);
    verified.push({...a,validationLevel:'dom-candidate-verified'});
+  }
  }
  return verified;
 }
