@@ -63,3 +63,24 @@ test('unsafe control characters in getElementsByName remain unverified',async()=
  const result=await probePageLocators(page,[{method:'getElementsByName',expression:'x\u0000y',runtimeRequired:false}]);
  assert.equal(result.checks[0]?.status,'unverified');
 });
+
+test('malformed or duplicated CDP node IDs must never certify V1 locator evidence',async()=>{
+ for(const nodeIds of [[0],[1,1],[12,'13'],[-2],[1.25]]) {
+  const socket=new ProtocolSocket({'DOM.getDocument':()=>({root:{nodeId:8}}),'DOM.querySelectorAll':()=>({nodeIds})});
+  await assert.rejects(probePageLocators(page,[{method:'querySelector',expression:'#save',runtimeRequired:false}],{socketFactory:()=>socket}),/invalid|duplicate|node/i);
+ }
+});
+test('a huge CDP selector reply is rejected before it can be used as evidence',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[31],untrustedPadding:'x'.repeat(1_200_000)}),
+ });
+ await assert.rejects(probePageLocators(page,[{method:'querySelector',expression:'#save',runtimeRequired:false}],{socketFactory:()=>socket}),/size|limit/i);
+});
+test('an unbounded selector match list fails closed instead of accepting false confidence',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':()=>({nodeIds:Array.from({length:10001},(_,i)=>i+1)}),
+ });
+ await assert.rejects(probePageLocators(page,[{method:'querySelectorAll',expression:'*',runtimeRequired:false}],{socketFactory:()=>socket}),/count|limit/i);
+});
