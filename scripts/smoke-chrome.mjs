@@ -18,7 +18,7 @@ import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
-import {suggestCandidateRepairs} from '../packages/candidate-engine/src/workflow.ts';
+import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
 import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-client/src/preferred-chrome.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
@@ -291,6 +291,30 @@ try{
  });
  assert.ok(candidates.some(x=>x.expression==='#heal-button'&&x.validationLevel==='dom-candidate-verified'),
   'a missing selector should yield a uniquely matched, DOM-confirmed candidate');
+ 
+ // Real CDP-backed adapter-filtered suggestions must stay pinned to approved
+ // role definition and script locator, with no automatic patch or manager claim.
+ const adapterSuggestions=await suggestAdapterScopedRepairs({
+  target:{id:selected.id,url:selected.url},
+  locator:{method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
+  adapter:siteAdapter,roleId:'fixture.healButton',observedStateId:'ready',
+  deps:{probe:locators=>probePageLocators(selected,locators),capture:()=>captureCandidateNodes(selected)},
+ });
+ assert.equal(adapterSuggestions.status,'candidate-only');
+ assert.deepEqual(adapterSuggestions.candidates.map(c=>c.expression),['#heal-button'],
+  'only the exact confirmed adapter strategy survives candidate filtering');
+ assert.equal(adapterSuggestions.candidates[0]?.approved,false);
+ assert.equal(adapterSuggestions.functionalVerified,false);
+ const shadowSuggestions=await suggestAdapterScopedRepairs({
+  target:{id:selected.id,url:selected.url},
+  locator:{method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
+  adapter:siteAdapter,roleId:'fixture.openShadow',observedStateId:'ready',
+  deps:{probe:()=>{throw new Error('No top-document probe for open-shadow roles');},
+   capture:()=>{throw new Error('No top-document capture for open-shadow roles');}},
+ });
+ assert.deepEqual(shadowSuggestions.candidates,[]);
+ assert.equal(shadowSuggestions.rootScope,'open-shadow');
+
 
  for(const [method,oldSelector,expected] of [
   ['getElementsByName','legacy-action','heal-action'],
