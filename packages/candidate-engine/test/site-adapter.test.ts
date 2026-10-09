@@ -42,8 +42,9 @@ test('unsupported nested context and unknown state are never guessed into top-do
   assert.deepEqual(outcome.selectors,[]);
  }
  const nested=resolveSiteAdapterRole({adapter,pageUrl:'https://example.org/app/inbox',roleId:'chat.frameButton',observedStateId:'ready'});
- assert.equal(nested.status,'blocked-context');
- assert.deepEqual(nested.selectors,[]);
+ assert.equal(nested.status,'candidate-only');
+ assert.equal(nested.rootScope,'iframe-document');
+ assert.deepEqual(nested.selectors,['#send-inside-frame']);
 });
 test('site adapter scope never leaks across domains, excluded paths, or unsupported URL schemes',()=>{
  const adapter=parseSiteAdapter(valid());
