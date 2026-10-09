@@ -177,8 +177,11 @@ try{
   approved:true,target:selected,adapter:siteAdapter,roleId:'fixture.batchButtons',
   declaredStateId:'ready',deps:roleDeps,
  });
- assert.equal(multiRole.status,'needs-review','real Chrome cannot certify the same two nodes from counts alone');
- assert.equal(multiRole.evidenceLevel,'none');
+ assert.equal(multiRole.status,'matched-v1','real Chrome must fingerprint both batch-role nodes');
+ assert.equal(multiRole.matchedSelector,'.batch-role');
+ assert.equal(multiRole.evidenceLevel,'V1');
+ assert.equal(multiRole.functionalVerified,false);
+ assert.equal(multiRole.managerVerified,false);
  assert.equal(multiRole.V3,'not-configured');
  // Top-document selectors cannot see author ShadowRoots. Even @noframes does
  // not restrict shadow-root access, so a miss is review-required, not broken.
