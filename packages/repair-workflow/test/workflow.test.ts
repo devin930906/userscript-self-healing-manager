@@ -304,3 +304,16 @@ test('discarding one approval preserves unrelated scripts pending approvals',asy
  const result=await flow.apply({proposalId:b.proposalId,approved:true});
  assert.match(await readFile(result.managedPath,'utf8'),/#b/);
 }));
+
+
+test('repair preview remains a read-only proposal until explicit approval',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const baseline=await readFile(sourcePath);
+ const first=await flow.propose({sourcePath,scriptId:'review-only',oldSelector:'#old',newSelector:'#candidate'});
+ assert.ok(flow.inspectPending(first.proposalId));
+ assert.deepEqual(await readFile(sourcePath),baseline);
+ const {stat}=await import('node:fs/promises');
+ await assert.rejects(stat(join(managedRoot,'managed','review-only','current.user.js')),{code:'ENOENT'});
+ flow.discard(first.proposalId);
+ assert.equal(flow.inspectPending(first.proposalId),null);
+}));
