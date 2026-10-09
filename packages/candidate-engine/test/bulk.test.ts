@@ -7,6 +7,7 @@ const target={id:'one',url:'https://example.test/page'};
 const missing=(expression:string):MissingLocator=>({method:'querySelector',expression,runtimeRequired:false});
 const captured={targetId:target.id,url:target.url,scope:'top-document',nodes:[{tagName:'BUTTON',attributes:{id:'heal-button'}}]};
 const deps=()=>({
+ confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'main-frame',loaderId:'main-loader'}),
  probe:async(entries:readonly MissingLocator[])=>({targetId:target.id,url:target.url,
   checks:entries.map(x=>({method:x.method,expression:x.expression,status:x.expression.startsWith('#old')?'missing':'found',matchCount:x.expression.startsWith('#old')?0:1}))}),
  capture:async()=>captured,
