@@ -24,6 +24,41 @@ function validatedNodeCount(nodeIds:unknown):number{
  }
  return nodeIds.length;
 }
+
+/** Top document only: never use iframe contentDocument or Runtime.evaluate.
+ * A bounded, complete CDP pierce tree may expose one author OPEN shadow root.
+ * User-agent/closed roots and multiple open roots remain unsupported. */
+function selectSingleOpenShadowRoot(root:unknown):number|null{
+ if(!root||typeof root!=='object')return null;
+ const queue:unknown[]=[root];
+ const seen=new Set<number>();
+ let openRoot:number|null=null;
+ for(let i=0;i<queue.length;i++){
+  if(i>=1500)return null;
+  const node=queue[i];
+  if(!node||typeof node!=='object'||Array.isArray(node))return null;
+  const data=node as {nodeId?:unknown;children?:unknown;shadowRoots?:unknown;shadowRootType?:unknown};
+  const id=data.nodeId;
+  if(!Number.isSafeInteger(id)||typeof id!=='number'||id<1||seen.has(id))return null;
+  seen.add(id);
+  if(data.shadowRootType!==undefined){
+   if(data.shadowRootType!=='open')return null;
+   if(openRoot!==null)return null;
+   openRoot=id;
+  }
+  if(data.children!==undefined){
+   if(!Array.isArray(data.children))return null;
+   queue.push(...data.children);
+  }
+  if(data.shadowRoots!==undefined){
+   if(!Array.isArray(data.shadowRoots))return null;
+   queue.push(...data.shadowRoots);
+  }
+  if(queue.length>1500)return null;
+ }
+ return openRoot;
+}
+
 function escapeIdentifier(value:string):string {
  return [...value].map((char,index)=>{
   if(/[a-zA-Z_-]/.test(char)||(/[0-9]/.test(char)&&index!==0))return char;
@@ -48,10 +83,12 @@ export function asCss(input:LiteralLocator):string|null{
  return null;
 }
 /** Read-only DOM domain queries; no JS eval and no userscript execution. */
-export async function probePageLocators(target:ChromeTarget,locators:readonly LiteralLocator[],options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number;includeNodeFingerprints?:boolean}={}):Promise<LocatorProbeResult>{
+export async function probePageLocators(target:ChromeTarget,locators:readonly LiteralLocator[],options:{socketFactory?:(url:string)=>SocketLike;timeoutMs?:number;includeNodeFingerprints?:boolean;rootScope?:'document'|'open-shadow'}={}):Promise<LocatorProbeResult>{
  if(locators.length>50)throw new Error('Too many locators: maximum 50');
  if(options.includeNodeFingerprints!==undefined&&typeof options.includeNodeFingerprints!=='boolean')
   throw new Error('Invalid identity sampling configuration');
+ if(options.rootScope!==undefined&&options.rootScope!=='document'&&options.rootScope!=='open-shadow')
+  throw new Error('Invalid CDP locator root scope');
  const endpoint=validateCdpPageSocket(target);
  const timeout=options.timeoutMs??8000;if(!Number.isInteger(timeout)||timeout<100||timeout>30000)throw new Error('Invalid CDP probe timeout');
  const checks:LocatorCheck[]=locators.map(x=>({method:x.method,expression:x.expression,status:'unverified',matchCount:null,reason:'仅支持 document 作用域的静态 CSS 定位器'}));
@@ -70,7 +107,11 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
    try{socket.close();}catch{}
    if(error)reject(error);else resolve({targetId:target.id,url:target.url,validationLevel:'dom-only',checks});
   };
-  const onOpen=()=>{try{socket.send(JSON.stringify({id:++id,method:'DOM.getDocument',params:{depth:0,pierce:false}}));}catch(error){complete(error as Error);}};
+  const onOpen=()=>{try{
+   const shadow=options.rootScope==='open-shadow';
+   socket.send(JSON.stringify({id:++id,method:'DOM.getDocument',
+    params:{depth:shadow?-1:0,pierce:shadow}}));
+  }catch(error){complete(error as Error);}};
   const onMessage=(event:{data:unknown})=>{
    try{
     if(typeof event.data!=='string'||event.data.length>MAX_REPLY_BYTES)
@@ -81,8 +122,19 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      if(documentReceived)throw new Error('Duplicate CDP document root reply');
      documentReceived=true;
      if(message.error)throw new Error('CDP document root request rejected');
-     rootId=message.result?.root?.nodeId;
-     if(!Number.isSafeInteger(rootId)||rootId<1)throw new Error('Invalid CDP document root');
+     const documentRoot=message.result?.root;
+     if(!Number.isSafeInteger(documentRoot?.nodeId)||documentRoot.nodeId<1)
+      throw new Error('Invalid CDP document root');
+     if(options.rootScope==='open-shadow'){
+      const selected=selectSingleOpenShadowRoot(documentRoot);
+      if(selected===null){
+       // No guessing, no accidental fallback to top document.
+       for(const check of checks)check.reason='One bounded unambiguous author open ShadowRoot is required';
+       complete();
+       return;
+      }
+      rootId=selected;
+     }else rootId=documentRoot.nodeId;
      for(let i=0;i<locators.length;i++){
       const css=asCss(locators[i]!);if(css===null)continue;
       const commandId=++id;pending.set(commandId,i);
