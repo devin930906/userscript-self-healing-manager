@@ -64,3 +64,13 @@ test('user-consented SiteAdapter role inspection is a strictly named read-only C
  assert.match(ui,/window\.ussm\.inspectSiteAdapterRole/);
  assert.match(ui,/V3\/V4.*未配置/);
 });
+
+test('role check must include the SHA shown with the local SiteAdapter list',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ const handler=main.split("ipcMain.handle('usshm:site-adapter-role-check'")[1]?.split("ipcMain.handle('usshm:pick-chrome'")[0]??'';
+ assert.match(handler,/getForInspection\(\{siteId:q.siteId,expectedSha256:q.expectedSha256\}\)/);
+ assert.match(preload,/inspectSiteAdapterRole:.*expectedSha256:string/);
+ assert.match(ui,/expectedSha256:selectedAdapter.sha256/);
+});
