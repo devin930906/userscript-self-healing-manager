@@ -104,7 +104,7 @@ test('stable match count with replaced backend node identity must not certify Si
  assert.equal(probeCount,2);
 });
 test('missing, malformed and unverified backend identity never certify matched V1',async()=>{
- for(const nodeFingerprint of [undefined,'short','0'.repeat(64).toUpperCase()]){
+ for(const nodeFingerprint of [undefined,'short','a'.repeat(64).toUpperCase()]){
   const deps={...makeDeps([1,0]),probe:async(_t:ChromeTarget,locators:readonly LiteralLocator[]):Promise<LocatorProbeResult>=>{
    const reply=status(Object.fromEntries(locators.map((x,i)=>[x.expression,i===0?1:0])));
    return {...reply,checks:reply.checks.map((item,i)=>i===0?{...item,nodeFingerprint}:item)} as LocatorProbeResult;
