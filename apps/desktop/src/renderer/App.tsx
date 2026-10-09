@@ -83,7 +83,10 @@ function App(){
     if(cancelled)return;
     setPageProbe(evidence);
     setRepairCandidates(null);
-    setWatchStatus(summarizeLiveLocatorCheck(evidence.probe.checks));
+    const watchSummary=summarizeLiveLocatorCheck(evidence.probe.checks);
+    setWatchStatus(watchSummary.status==='locator-missing'&&evidence.summary.authorShadowTreeNodes>0?
+     {...watchSummary,status:'needs-review',missing:0,needsReview:watchSummary.needsReview+watchSummary.missing}:
+     watchSummary);
     setWatchCheckedAt(new Date().toLocaleString());
     setWatchError('');
    }catch(error){
