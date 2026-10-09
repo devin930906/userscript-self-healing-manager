@@ -39,6 +39,7 @@ const api={
  suggestSiteAdapterRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-suggest-repair',input),
  pickChrome:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-chrome'),
  listBrowserProfiles:()=>ipcRenderer.invoke('usshm:list-browser-profiles'),
+ browserProfileHealth:()=>ipcRenderer.invoke('usshm:browser-profile-health'),
  createBrowserProfile:(input:{name:string})=>ipcRenderer.invoke('usshm:create-browser-profile',input),
  renameBrowserProfile:(input:{profileId:string;name:string})=>ipcRenderer.invoke('usshm:rename-browser-profile',input),
  defaultBrowserProfile:(input:{profileId:string})=>ipcRenderer.invoke('usshm:default-browser-profile',input),
