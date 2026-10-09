@@ -91,3 +91,17 @@ test('caller must supply valid expected hash and cannot replace symlinked curren
  }),/changed|external|unsafe|stale|appeared/i);
  assert.equal(await readFile(outside,'utf8'),'preserve external');
 }));
+
+test('first activation never overwrites a competing new current arriving immediately before publish',async()=>fixture(async(dir,path)=>{
+ const newRevision=Buffer.from('known verified target revision');
+ let hookCalled=false;
+ await assert.rejects(commitManagedCurrent({
+  activePath:path,bytes:newRevision,expectedActiveHash:null,
+  // Reproduce another process creating current after the final preflight check,
+  // exactly at the otherwise unsafe rename-to-current boundary.
+  beforePublish:async()=>{hookCalled=true;await writeFile(path,'competing process current');},
+ }),/exists|already|appeared|external|conflict|changed/i);
+ assert.equal(hookCalled,true);
+ assert.equal(await readFile(path,'utf8'),'competing process current');
+ assert.deepEqual(await readdir(dir),['current.user.js']);
+}));
