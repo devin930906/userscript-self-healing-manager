@@ -324,3 +324,22 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - 已添加状态矩阵、静态导出和批量 DOM 凭证的自动回归，作为 FR-024 的初始闭环。**尚未**提供安全 V2 交互/可见性实验、命名 V3 功能契约或真实 V4 Tampermonkey manager bridge，因此 FR-024 全面验收仍未通过。
 - `scripts/smoke-chrome.mjs` 对 GitHub Windows runner 的随机冷启动耗时延长 CDP 握手预算，并在失败时报告子进程异常、页面数量、握手失败原因，不降低任何真实 Frame/Loader 验证门槛。一次 Windows CI [#37891196969](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37891196969) 证明 **241/241 单测、TypeScript、Electron 构建与 GUI smoke 通过**，但隔离 Chrome 首次未暴露目标（启动超时），故该运行整体标为 FAILURE；不能伪装为 Chrome 验证已通过。修复后的最终状态须以下一份 green run 为准。
 - 仍然不触发 `windows-build.yml` 三包中途安装器，不自动合并 PR，不创建 Stable Release。
+
+## 2026-10-09 · 证据等级与可暂停的批量 DOM 任务
+
+### P0 验证等级投影（FR-024 部分）
+
+- 新增 `packages/scan-service/src/verification-levels.ts`：不让 V0 静态解析或 V1 只读 DOM 匹配自动晋升 V2/V3/V4，保留 `passed/failed/skipped/blocked/not-configured` 语义。V1 pass 需要 V0 parsed、完整的有界匹配计数；V1 missing 只能说明 DOM 依赖缺失，不能当作业务功能 V3 失败。
+- `packages/reporting/src/index.ts` JSON schemaVersion 2 与 Markdown 增加逐脚本 V0–V4 元数据；`packages/scan-service/src/batch-dom.ts` 及 React 表格展示只读诊断等级。真正可交互测试、业务级命名用例和实际 Tampermonkey manager V4 仍未实现。
+
+### P0 批量暂停、恢复和取消（FR-029 部分）
+
+- `packages/scan-service/src/pause-gate.ts` 使用一次性批次私有的 `BatchPauseGate`，不忙等；`collectPagedDomDiagnosis` 在新 CDP request 前等待恢复或取消，已经进行中的 25 脚本读请求不假装可以被立即中断。
+- React 增加「暂停后续检查／继续检查」按钮，取消时唤醒所有等待项。target/scan 更换时撤销旧 gate 和旧结果，旧 `finally` 不得清掉新批次 Busy。
+- TDD RED #37891646689（缺少 gate 模块）、#37891739200（暂停后仍请求下一页）、#37891885709（缺少 UI）、#37892011577（快速 resume→pause 竞争确认为失败；同时发现旧 UI wiring 正则）。同步修复 `waitUntilReady` 重醒后必须重新确认 `paused` 和旧测试中过时的 `finally` 约束。
+
+### 真实 Windows 验证
+
+- [Development CI #37892250053](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37892250053) 对代码和 README 提交 `985f84e73ee1f360a4324c3bae72dfe9c36e938b`：**247/247 tests PASS、0 fail、TypeScript PASS、Electron build PASS、真实 Windows GUI+SQLite smoke PASS、真实 Chrome CDP+合成行为 smoke PASS**。
+- [Task 1 contracts #37892250268](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37892250268) 同 SHA PASS。
+- 无中途 Windows 安装/便携构建产物、无真正 Tampermonkey/GM_* V4、未合并 main、无 Stable release。FR-029 的完整任务持久化／失败项重试／跨重启恢复和 Phase7–12 RG-01…09 继续未满足。
