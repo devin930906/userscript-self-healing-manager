@@ -12,7 +12,7 @@ import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-cli
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
-import {confirmPageIdentity} from '../../../../packages/cdp-client/src/page-identity.ts';
+import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
@@ -113,13 +113,13 @@ async function bootstrap():Promise<void>{
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   if(!selected.webSocketDebuggerUrl)throw new Error('CDP page has no debugger endpoint');
   // Check the live main-frame URL: /json/list can become stale after navigation.
-  await confirmPageIdentity(selected);
+  const startingDocument=await confirmPageIdentity(selected);
   // Read-only evidence. No userscript execution, no page text transmitted to renderer.
   const summary=await captureDomSummary(selected);
   const records=item.analysis.selectorRecords.slice(0,50).map(x=>({method:x.method,expression:x.expression,runtimeRequired:x.runtimeRequired||x.receiver!=='document'}));
   const probe=await probePageLocators(selected,records);
   // Fail closed if the selected page navigated while snapshots were being collected.
-  await confirmPageIdentity(selected);
+  assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
   scanSessions.assertCurrent(scanSnapshot);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
@@ -154,12 +154,12 @@ async function bootstrap():Promise<void>{
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page no longer exists');
   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);if(scope.status!=='allowed')throw new Error('Selected webpage is outside userscript scope: '+scope.reason);
   const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
-  await confirmPageIdentity(selected);
+  const startingDocument=await confirmPageIdentity(selected);
   const candidates=await suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
    probe:(locators)=>probePageLocators(selected,locators),
    capture:()=>captureCandidateNodes(selected),
   }});
-  await confirmPageIdentity(selected);
+  assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
   scanSessions.assertCurrent(scanSnapshot);
   return candidates;
  });
@@ -183,14 +183,14 @@ async function bootstrap():Promise<void>{
    method:record.method,expression:record.expression,
    runtimeRequired:record.runtimeRequired||record.receiver!=='document',
   }));
-  await confirmPageIdentity(selected);
+  const startingDocument=await confirmPageIdentity(selected);
   const evidence=await probePageLocators(selected,locators);
   const suggestions=await suggestMissingCandidatesBulk({
    target:{id:selected.id,url:selected.url},locators,checks:evidence.checks,
    evidenceIdentity:{targetId:evidence.targetId,url:evidence.url},offset:q.offset,
    deps:{probe:inputs=>probePageLocators(selected,inputs),capture:()=>captureCandidateNodes(selected)},
   });
-  await confirmPageIdentity(selected);
+  assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
   scanSessions.assertCurrent(scanSnapshot);
   return suggestions;
  });
