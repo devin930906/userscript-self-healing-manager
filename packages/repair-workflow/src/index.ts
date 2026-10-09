@@ -90,7 +90,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    // Use the same synchronous per-script lock as apply(): restoration must not
    // interleave the immutable archive write and activation of an approved patch.
    applying.add(scriptId);
-   try{return await activateManagedRevision({managedRoot,scriptId,hash,approved:true,expectedCurrentHash});}
+   try{return await activateManagedRevision({managedRoot,scriptId,hash,approved:true,...(expectedCurrentHash===undefined?{}:{expectedCurrentHash})});}
    finally{applying.delete(scriptId);}
   },
   async apply({proposalId,approved}:{proposalId:string;approved:boolean}):Promise<AppliedReceipt>{
