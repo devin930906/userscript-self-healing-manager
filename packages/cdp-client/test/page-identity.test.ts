@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {EventEmitter} from 'node:events';
-import {confirmPageIdentity} from '../src/page-identity.ts';
+import {confirmPageIdentity,assertStablePageDocument} from '../src/page-identity.ts';
 
 class FakeSocket extends EventEmitter {
  readonly sent:Array<{id:number;method:string}>=[];
@@ -63,4 +63,26 @@ test('frame identity fails closed if nested frame tree exceeds the inspection bu
   close(){this.emit('close');}
  })();
  await assert.rejects(confirmPageIdentity(page,{socketFactory:()=>socket}),/frame.*limit|too many/i);
+});
+
+test('rejects a same-URL navigation when the main-frame document loader changes',()=>{
+ const previous={targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'loader-before'};
+ assert.throws(()=>assertStablePageDocument(previous,{...previous,loaderId:'loader-after'}),/document|loader|navigation|identity/i);
+ assert.throws(()=>assertStablePageDocument(previous,{...previous,frameId:'different-root'}),/document|frame|identity/i);
+ assert.doesNotThrow(()=>assertStablePageDocument(previous,{...previous}));
+});
+test('reads stable loader identity from Page.getFrameTree without collecting frame contents',async()=>{
+ const socket=new (class extends EventEmitter{
+  constructor(){super();queueMicrotask(()=>this.emit('open'));}
+  addEventListener(name:string,listener:(e:any)=>void){this.on(name,listener);}
+  removeEventListener(name:string,listener:(e:any)=>void){this.off(name,listener);}
+  send(message:string){const q=JSON.parse(message);queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+   id:q.id,result:{frameTree:{frame:{id:'root',loaderId:'loader-current',url:page.url}}},
+  })}));}
+  close(){this.emit('close');}
+ })();
+ const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
+ assert.equal(result.frameId,'root');
+ assert.equal(result.loaderId,'loader-current');
+ assert.equal(result.confirmedUrl,page.url);
 });
