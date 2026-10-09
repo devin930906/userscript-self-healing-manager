@@ -41,11 +41,11 @@ export async function listManagedRevisions({managedRoot,scriptId}:{managedRoot:s
  }
  return revisions.sort((a,b)=>a.kind.localeCompare(b.kind)||a.hash.localeCompare(b.hash));
 }
-export async function activateManagedRevision({managedRoot,scriptId,hash,approved,expectedCurrentHash}:{managedRoot:string;scriptId:string;hash:string;approved:boolean;expectedCurrentHash?:string}):Promise<{hash:string;activePath:string}>{
+export async function activateManagedRevision({managedRoot,scriptId,hash,approved,expectedCurrentHash}:{managedRoot:string;scriptId:string;hash:string;approved:boolean;expectedCurrentHash?:string|null}):Promise<{hash:string;activePath:string}>{
  if(approved!==true)throw new Error('Explicit rollback approval required');
  const folder=validateInput(managedRoot,scriptId);
  if(!/^[0-9a-f]{64}$/.test(hash))throw new Error('Invalid SHA-256 hash');
- if(expectedCurrentHash!==undefined&&!/^[a-f0-9]{64}$/.test(expectedCurrentHash))
+ if(expectedCurrentHash!==undefined&&expectedCurrentHash!==null&&!/^[a-f0-9]{64}$/.test(expectedCurrentHash))
   throw new Error('Invalid expected active managed revision hash');
  await assertHierarchy(managedRoot,folder);
  let bytes:Uint8Array|undefined;
@@ -59,9 +59,11 @@ export async function activateManagedRevision({managedRoot,scriptId,hash,approve
  let expectedActiveHash:string|null=null;
  let existingInfo:Awaited<ReturnType<typeof lstat>>|undefined;
  try{existingInfo=await lstat(activePath);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
- if(!existingInfo&&expectedCurrentHash!==undefined)
+ if(!existingInfo&&expectedCurrentHash!==undefined&&expectedCurrentHash!==null)
   throw new Error('Managed current disappeared since guarded apply; refusing automatic rollback');
  if(existingInfo){
+  if(expectedCurrentHash===null)
+   throw new Error('Managed current appeared since proposal; refusing stale activation');
   if(!existingInfo.isFile()||existingInfo.isSymbolicLink())throw new Error('Unsafe managed current file: symlink or non-regular file');
   if(existingInfo.size>512*1024)throw new Error('Managed current file is too large');
   const currentHash=hashBytes(await readPinnedRegularFile(activePath,{maxBytes:512*1024,expected:existingInfo}));
