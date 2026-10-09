@@ -633,7 +633,7 @@ function App(){
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void inspectManagedHealth()}>检查受管资料完整性</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
-     {managedHealth&&<p className={managedHealth.status==='healthy'?'dim':'warn'}>完整性检查：{managedHealthDescription[managedHealth.status]} · 归档 {managedHealth.archiveCount} 份{managedHealth.activeHash?' · 已验证当前 SHA256 '+managedHealth.activeHash.slice(0,16)+'…':''}。这是只读检查；不会自动删除锁、覆盖修订或恢复文件。</p>
+     {managedHealth&&<p className={managedHealth.status==='healthy'?'dim':'warn'}>完整性检查：{managedHealthDescription[managedHealth.status]} · 归档 {managedHealth.archiveCount} 份{managedHealth.activeHash?' · 已验证当前 SHA256 '+managedHealth.activeHash.slice(0,16)+'…':''}。这是只读检查；不会自动删除锁、覆盖修订或恢复文件。</p>}
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
      {managedActive&&<p className="dim">当前受管副本：<code>{managedActive.activePath}</code> · SHA256 {managedActive.hash.slice(0,12)}…</p>}
