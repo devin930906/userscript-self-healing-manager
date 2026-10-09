@@ -82,3 +82,17 @@ test('paged DOM collection rejects identity substitution even within its first p
   isCancelled:()=>false,onProgress:()=>{throw new Error('must not publish substituted evidence');},
  }),/script.*identity|script.*changed|stale.*scan/i);
 });
+
+test('rejects same-URL Chrome reload between consecutive script batches using document fingerprint',async()=>{
+ const requested:number[]=[];let published=0;
+ await assert.rejects(collectPagedDomDiagnosis({
+  total:51,targetId,
+  requestPage:async offset=>{
+   requested.push(offset);
+   return {...page(offset),pageDocumentToken:offset===0?'a'.repeat(64):'b'.repeat(64)};
+  },
+  isCancelled:()=>false,onProgress:()=>{published++;},
+ }),/document|reload|identity|navigation/i);
+ assert.deepEqual(requested,[0,25]);
+ assert.equal(published,1,'stale second batch must never reach the UI');
+});
