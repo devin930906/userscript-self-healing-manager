@@ -19,6 +19,8 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  const applying=new Set<string>();
  return {
   invalidatePending():void{pending.clear();},
+  /** Removes only an unpublished preview that lost its CDP/source identity. */
+  discard(proposalId:string):boolean{return pending.delete(proposalId);},
   async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
