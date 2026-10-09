@@ -131,7 +131,7 @@ export function isWindowsX64Pe(buffer){
  if(!Buffer.isBuffer(buffer)||buffer.length<0x40||buffer.readUInt16LE(0)!==0x5a4d)return false;
  const offset=buffer.readUInt32LE(0x3c);
  if(offset<0x40||offset+6>buffer.length)return false;
- return buffer.toString('ascii',offset,offset+4)==='PE\\0\\0'&&
+ return buffer.readUInt32LE(offset)===0x00004550&&
   buffer.readUInt16LE(offset+4)===0x8664;
 }
 
@@ -145,7 +145,7 @@ async function validateX64Pe(path){
   if(offset<0x40||offset>1024*1024)return false;
   const coff=Buffer.alloc(6);
   if((await handle.read(coff,0,coff.length,offset)).bytesRead!==coff.length)return false;
-  return coff.toString('ascii',0,4)==='PE\\0\\0'&&coff.readUInt16LE(4)===0x8664;
+  return coff.readUInt32LE(0)===0x00004550&&coff.readUInt16LE(4)===0x8664;
  }finally{await handle.close();}
 }
 
