@@ -255,4 +255,18 @@ async function bootstrap():Promise<void>{
  const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});
  if(result.canceled||!result.filePath)return {canceled:true};await writeFile(result.filePath,serializeStaticReport(lastScan,format),{encoding:'utf8',flag:'w'});return {canceled:false,path:result.filePath};});
 }
-bootstrap().catch(error=>{dialog.showErrorBox('Userscript Self-Healing Manager 启动失败',String(error));app.exit(1);});
+// Only one Electron main process may own this application's SQLite database and
+// managed script revisions. A second launch focuses the existing GUI instead
+// of creating a competing file writer or stale repair history.
+const singleInstanceLock=app.requestSingleInstanceLock();
+if(!singleInstanceLock)app.quit();
+else {
+ app.on('second-instance',()=>{
+  if(mainWindow&&!mainWindow.isDestroyed()){
+   if(mainWindow.isMinimized())mainWindow.restore();
+   mainWindow.show();
+   mainWindow.focus();
+  }
+ });
+ bootstrap().catch(error=>{dialog.showErrorBox('Userscript Self-Healing Manager 启动失败',String(error));app.exit(1);});
+}
