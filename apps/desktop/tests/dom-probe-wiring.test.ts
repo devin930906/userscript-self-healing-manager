@@ -28,3 +28,8 @@ test('UI warns that author ShadowRoot can hide selectors from top-document probe
  assert.match(source,/authorShadowTreeNodes/);
  assert.match(source,/Shadow DOM.*需复核|ShadowRoot.*需复核/);
 });
+test('single-page DOM miss is marked review-only when an author ShadowRoot exists',async()=>{
+ const source=await ui();
+ assert.match(source,/check\.status==='missing'&&pageProbe\.summary\.authorShadowTreeNodes>0/);
+ assert.match(source,/需复核（Shadow DOM）/);
+});
