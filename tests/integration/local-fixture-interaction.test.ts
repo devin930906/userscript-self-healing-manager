@@ -12,15 +12,16 @@ class FixtureSocket extends EventEmitter{
  readonly params:unknown[]=[];
  readonly disabled:boolean;
  readonly mark:boolean;
+ readonly matchedNodes:readonly number[];
  private attrs=0;
- constructor(disabled=false,mark=true){super();this.disabled=disabled;this.mark=mark;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42]){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
   const m=JSON.parse(raw);this.methods.push(m.method);this.params.push(m.params);
   let result:any={};
   if(m.method==='DOM.getDocument')result={root:{nodeId:1}};
-  else if(m.method==='DOM.querySelector')result={nodeId:42};
+  else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.matchedNodes};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
     (this.disabled?['disabled','']:['id','fixture-safe-click']):
     (this.mark?['id','fixture-safe-click','data-usshm-v2-fixture','yes']:['id','fixture-safe-click'])};
@@ -37,7 +38,7 @@ test('synthetic V2 fixture interacts through bounded DOM and Input CDP commands 
  assert.equal(out.observed,true);
  assert.equal(out.productionEligible,false);
  assert.deepEqual(socket.methods,[
-  'DOM.getDocument','DOM.querySelector','DOM.getAttributes','DOM.getBoxModel',
+  'DOM.getDocument','DOM.querySelectorAll','DOM.getAttributes','DOM.getBoxModel',
   'Input.dispatchMouseEvent','Input.dispatchMouseEvent','DOM.getAttributes',
  ]);
  assert.ok(socket.methods.every(m=>!m.startsWith('Runtime.')&&!m.startsWith('Page.')&&!m.startsWith('Network.')));
@@ -86,5 +87,16 @@ test('synthetic interaction must remain outside every Electron production entryp
   const source=await readFile(new URL(path,import.meta.url),'utf8');
   assert.doesNotMatch(source,/local-fixture-interaction|runIsolatedFixtureInteraction/,
    'Synthetic Input.dispatchMouseEvent must not be exposed to the app');
+ }
+});
+
+test('fixture refuses ambiguous, missing or malformed button matches before any Input event',async()=>{
+ for(const ids of [[],[42,43],[42,42],[0],[42,-1]]){
+  let socket!:FixtureSocket;
+  await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+   confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,ids);return socket;}}),
+   /fixture|button|unique|ambiguous|invalid|missing/i);
+  assert.deepEqual(socket.methods,['DOM.getDocument','DOM.querySelectorAll']);
+  assert.ok(!socket.methods.some(m=>m.startsWith('Input.')));
  }
 });
