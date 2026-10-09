@@ -9,6 +9,8 @@ import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../p
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
+import {DiagnosisRequestGate} from '../../../../packages/scan-service/src/diagnosis-request-gate.ts';
+import {isTransientCdpReadError} from '../../../../packages/scan-service/src/paginated-dom.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-report.ts';
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
@@ -35,6 +37,7 @@ let mainWindow:BrowserWindow;
 let lastScan:(ScanBatchResult&{scanId:string})|null=null;
 const scanSessions=new ScanSessionCoordinator<ScanBatchResult>();
 const batchEvidence=new BatchEvidenceStore();
+const diagnosisRequests=new DiagnosisRequestGate();
 const pendingApprovals=new ProposalApprovalGate();
 const authorizedRoots=new Set<string>();
 let approvedChromePath:string|null=null;
@@ -90,6 +93,7 @@ async function bootstrap():Promise<void>{
  if(!Array.isArray(q.paths)||q.paths.length>1000||q.paths.some(x=>typeof x!=='string'||!withinAuthorized(x)))throw new Error('Paths not authorized by file picker');
  if(typeof q.recursive!=='boolean')throw new Error('Invalid recursive flag');
  const scanPaths=q.paths as string[],recursive=q.recursive as boolean;
+ diagnosisRequests.invalidateAll();
  journal.interruptRunning();
  batchEvidence.clear(); // A new scan revokes any previously collected DOM evidence immediately.
  lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
@@ -245,6 +249,9 @@ async function bootstrap():Promise<void>{
   if(!q||typeof q.scanId!=='string'||typeof q.targetId!=='string'||
      !q.targetId||q.targetId.length>128)throw new Error('Invalid diagnosis cancellation');
   scanSessions.require(q.scanId);
+  // Main revokes already dispatched CDP page leases synchronously. A late
+  // response from Chrome can no longer write into the trusted evidence store.
+  diagnosisRequests.cancel({scanId:q.scanId,targetId:q.targetId});
   journal.cancel({scanId:q.scanId,targetId:q.targetId});
   return {cancelled:true};
  });
@@ -256,9 +263,11 @@ async function bootstrap():Promise<void>{
   if(!Number.isSafeInteger(offset)||offset<0||offset>1000||offset%25!==0)throw new Error('Invalid batch offset');
   const scanSnapshot=scanSessions.require(q.scanId);
   const journalRunId=journal.currentRunId({scanId:q.scanId,targetId:q.targetId});
+  const ticket=diagnosisRequests.begin({scanId:q.scanId,targetId:q.targetId,offset});
   try{
   const status=await getChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
+  diagnosisRequests.assertCurrent(ticket);
   const selected=status.pages.find(p=>p.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected CDP page is no longer available');
   // Bounded first page of scripts; no untrusted JS execution and no source writes.
@@ -268,6 +277,7 @@ async function bootstrap():Promise<void>{
    waitBeforeMissingRecheck:()=>new Promise<void>(resolve=>setTimeout(resolve,750)),
   }});
   scanSessions.assertCurrent(scanSnapshot);
+  diagnosisRequests.assertCurrent(ticket);
   const authenticatedPage={...result,
    items:result.items.map(entry=>({...entry,index:entry.index+offset})),
    startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
@@ -275,10 +285,22 @@ async function bootstrap():Promise<void>{
    total:scanSnapshot.items.length,offset,page:authenticatedPage});
   journal.recordPage({scanId:q.scanId,targetId:q.targetId,
    total:scanSnapshot.items.length,offset,page:authenticatedPage});
+  diagnosisRequests.complete(ticket,{pageItems:checked.length,totalItems:scanSnapshot.items.length});
   return authenticatedPage;
   }catch(error){
-   batchEvidence.invalidateIfCurrent({scanId:q.scanId,targetId:q.targetId});
-   journal.failIfCurrent({scanId:q.scanId,targetId:q.targetId,runId:journalRunId});
+   // Old, cancelled and superseded requests may reject after a new batch
+   // starts. They must NOT wipe that newer batch's evidence or journal.
+   if(diagnosisRequests.isCurrent(ticket)){
+    if(isTransientCdpReadError(error)){
+     // Preserve completed pages so the renderer's one transport retry can
+     // repeat this same offset without duplicating committed rows.
+     diagnosisRequests.releaseForRetry(ticket);
+    }else{
+     diagnosisRequests.failIfCurrent(ticket);
+     batchEvidence.invalidateIfCurrent({scanId:q.scanId,targetId:q.targetId});
+     journal.failIfCurrent({scanId:q.scanId,targetId:q.targetId,runId:journalRunId});
+    }
+   }
    throw error;
   }
  });
