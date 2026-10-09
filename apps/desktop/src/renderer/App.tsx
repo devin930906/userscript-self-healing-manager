@@ -231,8 +231,8 @@ function App(){
     <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。</p>
     {batchResult&&<div className="batch-diagnosis">
       <div className="notice">批量诊断结果：已完成 {batchResult.totalItems} 份 · 页面：{batchResult.pageUrl} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份等待处理（自动分批，每批 25 份）`:'本次扫描范围已全部处理'}</div>
-      <div className="table-wrapper"><table><thead><tr><th>脚本</th><th>结果（仅 DOM）</th><th>已检查</th><th>匹配</th><th>缺失</th><th>需复核</th></tr></thead><tbody>
-       {batchResult.items.map(row=><tr key={row.index}><td title={row.path}>{nameOf(row.path)}</td><td>{row.status==='locator-missing'?'有选择器缺失':row.status==='dom-present'?'DOM 有匹配':row.status==='out-of-scope'?'不在脚本匹配范围':row.status==='needs-review'?'需要运行时复核':row.status==='skipped'?'跳过':row.status==='error'?'检查失败':'无定位器证据'}{row.reason&&<small>{row.reason}</small>}</td><td>{row.checked}</td><td>{row.found}</td><td>{row.missing}</td><td>{row.needsReview}</td></tr>)}
+      <div className="table-wrapper"><table><thead><tr><th>脚本</th><th>结果（仅 DOM）</th><th>已检查</th><th>匹配</th><th>缺失</th><th>需复核</th><th>验证等级</th></tr></thead><tbody>
+       {batchResult.items.map(row=><tr key={row.index}><td title={row.path}>{nameOf(row.path)}</td><td>{row.status==='locator-missing'?'有选择器缺失':row.status==='dom-present'?'DOM 有匹配':row.status==='out-of-scope'?'不在脚本匹配范围':row.status==='needs-review'?'需要运行时复核':row.status==='skipped'?'跳过':row.status==='error'?'检查失败':'无定位器证据'}{row.reason&&<small>{row.reason}</small>}</td><td>{row.checked}</td><td>{row.found}</td><td>{row.missing}</td><td>{row.needsReview}</td><td><small>V0：{row.verification?.V0??'blocked'} · V1：{row.verification?.V1??'blocked'} · V2：{row.verification?.V2??'blocked'} · V3/V4：{row.verification?.V3??'not-configured'} / {row.verification?.V4??'not-configured'}</small></td></tr>)}
       </tbody></table></div>
     </div>}
    </section>
