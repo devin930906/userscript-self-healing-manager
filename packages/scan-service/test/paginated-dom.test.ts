@@ -117,3 +117,52 @@ test('pausing after a confirmed page prevents dispatch of the next CDP batch unt
  assert.equal(outcome.totalItems,51);
  assert.equal(outcome.cancelled,false);
 });
+
+test('one transient read-only CDP timeout retries the same page once with bounded attempts',async()=>{
+ const requests:number[]=[];
+ const output=await collectPagedDomDiagnosis({
+  total:26,targetId,retryTransportFailures:1,
+  requestPage:async offset=>{
+   requests.push(offset);
+   if(offset===0&&requests.length===1)throw new Error('CDP page identity timeout');
+   return page(offset,26);
+  },
+  isCancelled:()=>false,onProgress:()=>{},
+ });
+ assert.deepEqual(requests,[0,0,25]);
+ assert.equal(output.totalItems,26);
+ assert.equal(output.cancelled,false);
+});
+test('permanent read errors do not retry forever and do not publish partial page results',async()=>{
+ const attempts:number[]=[];let published=0;
+ await assert.rejects(collectPagedDomDiagnosis({
+  total:25,targetId,retryTransportFailures:1,
+  requestPage:async offset=>{attempts.push(offset);throw new Error('CDP locator probe timeout');},
+  isCancelled:()=>false,onProgress:()=>{published++;},
+ }),/timeout/i);
+ assert.deepEqual(attempts,[0,0]);
+ assert.equal(published,0);
+});
+test('identity mismatch and untrusted failures never retry despite requested transport retry budget',async()=>{
+ for(const reason of ['CDP page identity changed during inspection','Invalid CDP snapshot payload limit exceeded','Another error']){
+  const attempts:number[]=[];
+  await assert.rejects(collectPagedDomDiagnosis({
+   total:25,targetId,retryTransportFailures:1,
+   requestPage:async offset=>{attempts.push(offset);throw new Error(reason);},
+   isCancelled:()=>false,onProgress:()=>{},
+  }),()=>true);
+  assert.deepEqual(attempts,[0],reason);
+ }
+});
+test('cancellation while waiting to retry prevents the next CDP read',async()=>{
+ const gate=new BatchPauseGate();
+ let attempts=0;
+ const outcome=await collectPagedDomDiagnosis({
+  total:25,targetId,retryTransportFailures:1,pauseGate:gate,
+  requestPage:async offset=>{attempts++;gate.cancel();throw new Error('CDP page identity timeout');},
+  isCancelled:()=>gate.isCancelled,onProgress:()=>{},
+ });
+ assert.equal(attempts,1);
+ assert.equal(outcome.cancelled,true);
+ assert.equal(outcome.totalItems,0);
+});
