@@ -88,3 +88,14 @@ test('library refuses untrusted ids, paths, and incorrect approval objects',asyn
  await assert.rejects(lib.approveImport({previewId:'../foo',approved:true}),/invalid|expired|not found/i);
  assert.deepEqual(await lib.list(),[]);
 }));
+
+test('cancelled SiteAdapter previews release their limited staging slots without enabling any rule',async()=>fixture(async(dataRoot,source)=>{
+ const lib=createSiteAdapterLibrary({dataRoot});
+ for(let i=0;i<24;i++){
+  const preview=await lib.previewImport({sourcePath:source});
+  assert.equal(lib.discardPreview({previewId:preview.previewId}),true);
+  assert.equal(lib.discardPreview({previewId:preview.previewId}),false);
+  await assert.rejects(lib.approveImport({previewId:preview.previewId,approved:true}),/expired|not found/i);
+ }
+ assert.deepEqual(await lib.list(),[]);
+}));
