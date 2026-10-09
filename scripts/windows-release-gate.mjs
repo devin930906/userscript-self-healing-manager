@@ -29,7 +29,7 @@ export function expectedWindowsArtifacts(version){
 }
 
 function normalizedZipEntry(entry){
- if(typeof entry!=='string'||entry.length===0||entry.length>1024||/[\x00-\x1f\x7f]/.test(entry))
+ if(typeof entry!=='string'||entry.length===0||entry.length>1024||/[\x00-\x1f\x7f\u0080-\u009f\u202a-\u202e\u2066-\u2069]/.test(entry))
   throw new Error('Unsafe ZIP entry name or length');
  const name=entry.replace(/\\/g,'/').replace(/\/$/,'');
  // Reject Unicode compatibility spellings that Win32 tooling may normalize
