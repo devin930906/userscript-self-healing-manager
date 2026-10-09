@@ -141,3 +141,24 @@ test('CDP response with missing command result cannot be treated as a successful
  assert.equal(got.listenerCount,null);
  assert.ok(socket.sent.some(x=>x.method==='Runtime.releaseObject'));
 });
+
+test('null CDP response envelope never produces listener evidence',async()=>{
+ const socket=new FakeSocket({
+  'DOM.getDocument':()=>({root:{nodeId:3}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+  'DOM.resolveNode':()=>({object:{type:'object',subtype:'node',objectId:'remote-1'}}),
+  'DOMDebugger.getEventListeners':()=>({listeners:[{type:'click'}]}),
+  'Runtime.releaseObject':()=>({}),
+ });
+ const originalSend=socket.send.bind(socket);
+ socket.send=(raw:string)=>{
+  const command=JSON.parse(raw);
+  if(command.method==='DOM.getDocument'){
+   socket.sent.push(command);
+   queueMicrotask(()=>socket.emit('message',{data:'null'}));
+  }else originalSend(raw);
+ };
+ await assert.rejects(inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket}),
+  /invalid|response|CDP/i);
+ assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
+});
