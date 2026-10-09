@@ -126,3 +126,19 @@ test('shadow-scoped SiteAdapter roles never reuse top-document candidate evidenc
  assert.equal(result.managerVerified,false);
  assert.equal(cdpcalls,0);
 });
+
+test('iframe-scoped SiteAdapter repair suggestions never use the top-document candidate workflow',async()=>{
+ const {parseSiteAdapter}=await import('../src/site-adapter.ts');
+ const {suggestAdapterScopedRepairs}=await import('../src/workflow.ts');
+ const iframe=parseSiteAdapter({schemaVersion:1,siteId:'sample',version:'1.0.0',urlPatterns:['https://example.org/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.iframeButton':{contexts:[{stateId:'ready',frame:'iframe',shadow:'none'}],
+   strategies:[{kind:'css',selector:'#heal-button',weight:100}],cardinality:{min:1,max:1},assertions:['unique']}},
+  validationCases:['IFRAME_EXISTS']});
+ const ret=await suggestAdapterScopedRepairs({target,locator,adapter:iframe,roleId:'chat.iframeButton',
+  observedStateId:'ready',deps:{probe:async()=>{throw Error('Must not probe document')},
+  capture:async()=>{throw Error('Must not capture document')}}});
+ assert.equal(ret.rootScope,'iframe-document');
+ assert.deepEqual(ret.candidates,[]);
+ assert.equal(ret.functionalVerified,false);
+});
