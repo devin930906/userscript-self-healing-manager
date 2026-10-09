@@ -19,10 +19,10 @@ class FixtureSocket extends EventEmitter{
  readonly invalidAriaDisabled:boolean;
  readonly postInvalidAriaDisabled:boolean;
  readonly changedNodesAfterClick:readonly number[]|null;
- readonly blockedAttr:'inert'|'aria-hidden'|null;
+ readonly blockedAttr:'inert'|'aria-hidden'|'aria-hidden-unknown'|null;
  private queryCount=0;
  private attrs=0;
- constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false,postInvalidAriaDisabled=false,changedNodesAfterClick:readonly number[]|null=null,blockedAttr:'inert'|'aria-hidden'|null=null){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;this.postInvalidAriaDisabled=postInvalidAriaDisabled;this.changedNodesAfterClick=changedNodesAfterClick;this.blockedAttr=blockedAttr;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false,postInvalidAriaDisabled=false,changedNodesAfterClick:readonly number[]|null=null,blockedAttr:'inert'|'aria-hidden'|'aria-hidden-unknown'|null=null){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;this.postInvalidAriaDisabled=postInvalidAriaDisabled;this.changedNodesAfterClick=changedNodesAfterClick;this.blockedAttr=blockedAttr;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
@@ -31,7 +31,7 @@ class FixtureSocket extends EventEmitter{
   if(m.method==='DOM.getDocument')result={root:{nodeId:1}};
   else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.queryCount++===0?this.matchedNodes:(this.changedNodesAfterClick??this.matchedNodes)};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
-    (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button',...(this.invalidAriaDisabled?['aria-disabled','maybe']:[]),...(this.blockedAttr?[this.blockedAttr,this.blockedAttr==='inert'?'':'true']:[])])):
+    (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button',...(this.invalidAriaDisabled?['aria-disabled','maybe']:[]),...(this.blockedAttr?[this.blockedAttr==='aria-hidden-unknown'?'aria-hidden':this.blockedAttr,this.blockedAttr==='inert'?'':this.blockedAttr==='aria-hidden-unknown'?'maybe':'true']:[])])):
     (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes',...(this.postInvalidAriaDisabled?['aria-disabled','maybe']:[])]:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])};
   else if(m.method==='DOM.getBoxModel')result={model:{content:[20,20,120,20,120,70,20,70]}};
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:m.id,result})}));
@@ -164,4 +164,12 @@ test('synthetic fixture refuses inert or aria-hidden buttons without dispatching
    /button|blocked|disabled/i);
   assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
  }
+});
+
+test('unknown aria-hidden state fails closed before clicking the fixture',async()=>{
+ let socket!:FixtureSocket;
+ await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+  confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,[42],false,false,false,false,false,null,'aria-hidden-unknown');return socket;}}),
+  /button|blocked|disabled/i);
+ assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
 });
