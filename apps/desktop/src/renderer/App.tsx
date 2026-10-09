@@ -10,6 +10,7 @@ import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
+import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
@@ -85,6 +86,7 @@ function App(){
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
+ const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
@@ -310,6 +312,17 @@ function App(){
       <td>{run.status==='completed'?'完成':run.status==='interrupted'?'中断':run.status==='cancelled'?'取消':run.status==='failed'?'失败':'运行中'}</td>
       <td>{run.processedItems}/{run.totalItems}</td><td>{run.domPresent}</td><td>{run.locatorMissing}</td><td>{run.needsReview}</td><td>{run.errors}</td>
      </tr>)}</tbody></table>{diagnosisHistory.length===0&&<div className="dim">暂无本地批量诊断历史。</div>}</div>}
+    {diagnosisHistory&&siteTrends.length>0&&<div className="batch-diagnosis">
+     <h3>最近站点诊断趋势（仅 DOM）</h3>
+     <p className="dim">只比较同一站点最近两次完整诊断、且扫描脚本数量一致的批次。缺失计数变化不能证明网站更新、脚本损坏、修复成功或 V3/V4 功能状态。</p>
+     <div className="table-wrapper"><table><thead><tr><th>站点</th><th>趋势</th><th>最近缺失</th><th>上次缺失</th><th>对比条件</th></tr></thead><tbody>
+     {siteTrends.map(trend=><tr key={trend.pageOrigin}><td>{trend.pageOrigin}</td>
+      <td>{trend.kind==='more-missing'?'缺失记录增加':trend.kind==='fewer-missing'?'缺失记录减少':trend.kind==='unchanged'?'缺失数量无变化':trend.kind==='not-comparable'?'批次不可比较':'证据不足'}</td>
+      <td>{trend.currentMissing}</td><td>{trend.previousMissing??'—'}</td>
+      <td>{trend.comparable?'两次完整批次，数量一致':'不可得出 DOM 趋势结论'}</td>
+     </tr>)}</tbody></table></div>
+    </div>}
+
 
     {batchResult&&<div className="toolbar"><button className="secondary" disabled={batchRunning||batchResult.totalItems<1} onClick={()=>void exportDomReport('json')}>导出 DOM JSON</button><button className="secondary" disabled={batchRunning||batchResult.totalItems<1} onClick={()=>void exportDomReport('markdown')}>导出 DOM Markdown</button><span className="dim">仅导出脱敏统计及 V0–V4 状态，不包含原始 DOM、完整本地路径或页面查询参数。</span></div>}
     {batchResult&&<div className="batch-diagnosis">
