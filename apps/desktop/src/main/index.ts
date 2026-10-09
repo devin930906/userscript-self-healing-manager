@@ -5,6 +5,7 @@ import {writeFile,lstat,readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../packages/persistence/src/index.ts';
+import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
@@ -66,9 +67,10 @@ async function bootstrap():Promise<void>{
  await app.whenReady();
  approvedChromePath=await loadPreferredChromePath({dataRoot});
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
+ const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
- app.on('before-quit',()=>db.close());
+ app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
@@ -128,6 +130,21 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   return {summary,probe,totalLocators:item.analysis.selectorRecords.length,checkedLocators:records.length};
  });
+ ipcMain.handle('usshm:diagnosis-history',event=>{
+  assertSender(event);
+  // No script source, complete file path, page query, DOM or CDP tokens are
+  // present in this limited local journal summary.
+  return journal.listRecent(40);
+ });
+ ipcMain.handle('usshm:diagnosis-cancel',(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;targetId?:unknown}|null;
+  if(!q||typeof q.scanId!=='string'||typeof q.targetId!=='string'||
+     !q.targetId||q.targetId.length>128)throw new Error('Invalid diagnosis cancellation');
+  scanSessions.require(q.scanId);
+  journal.cancel({scanId:q.scanId,targetId:q.targetId});
+  return {cancelled:true};
+ });
  ipcMain.handle('usshm:batch-diagnose',async(event,input:unknown)=>{assertSender(event);
   const q=input as {targetId:string;scanId:string;approved:true;offset?:number}|null;
   if(!q||q.approved!==true||typeof q.targetId!=='string'||q.targetId.length<1||q.targetId.length>128||typeof q.scanId!=='string')
@@ -135,6 +152,7 @@ async function bootstrap():Promise<void>{
   const offset=q.offset??0;
   if(!Number.isSafeInteger(offset)||offset<0||offset>1000||offset%25!==0)throw new Error('Invalid batch offset');
   const scanSnapshot=scanSessions.require(q.scanId);
+  const journalRunId=journal.currentRunId({scanId:q.scanId,targetId:q.targetId});
   try{
   const status=await getChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
@@ -152,8 +170,14 @@ async function bootstrap():Promise<void>{
    startIndex:offset,remainingItems:Math.max(0,scanSnapshot.items.length-offset-checked.length)};
   batchEvidence.record({scanId:q.scanId,targetId:q.targetId,
    total:scanSnapshot.items.length,offset,page:authenticatedPage});
+  journal.recordPage({scanId:q.scanId,targetId:q.targetId,
+   total:scanSnapshot.items.length,offset,page:authenticatedPage});
   return authenticatedPage;
-  }catch(error){batchEvidence.invalidateIfCurrent({scanId:q.scanId,targetId:q.targetId});throw error;}
+  }catch(error){
+   batchEvidence.invalidateIfCurrent({scanId:q.scanId,targetId:q.targetId});
+   journal.failIfCurrent({scanId:q.scanId,targetId:q.targetId,runId:journalRunId});
+   throw error;
+  }
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
