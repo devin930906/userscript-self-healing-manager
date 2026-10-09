@@ -38,6 +38,10 @@
 - **自动化合成脚本行为回归（仅 CI）**：Windows GitHub Actions 会启动隔离 Chrome 和本地 `127.0.0.1` 测试网页，实际执行本项目自带的合成测试脚本，核验修复前失败、仅修复一处仍失败、连续修复两处后生效、恢复原版再次失败的完整效果闭环。该执行模块只在 `scripts/` 测试工具中使用，**不会运行用户脚本，也没有向 Electron 正式界面暴露 JavaScript/CDP Runtime.evaluate 执行入口**。此回归不是 Tampermonkey 插件、GM_* 或用户真实网站的功能认证。
 - **DOM 候选修复（Alpha.5 新增）**：用户先选择 Chrome 页面与已扫描脚本，执行只读核验；仅在旧静态定位器零匹配时点击“生成候选定位器”，程序通过受限 DOMSnapshot 的安全属性推选候选，随后再次确认候选在当前网页仅匹配一个元素。用户点击采用候选，再生成预览、明确批准，才会创建受管副本和原件备份。**仅候选和 DOM 匹配，不等于已证明脚本功能正确。**
 
+- **受管修订与恢复统一互斥（2026-10-09）**：同一脚本的补丁批准与受管历史恢复共享单一脚本级写锁。恢复不能插入补丁归档与激活过程；操作冲突时明确拒绝，不覆盖原 `.user.js`，受管历史 SHA-256 继续保留。
+- **Chrome 页面重载证据失效保护（2026-10-09）**：通过只读 `Page.getFrameTree` 校验顶层 Frame ID 与 Loader ID。无法确认 Loader ID 时拒绝使用 DOM 证据；即使网址未变化，页面重新加载后也会拒绝过期候选。25 份/批分页诊断携带哈希化的文档身份指纹，跨批次不混合不同生命周期的 DOM 结果。
+- **本轮自动验证（2026-10-09）**：Windows Development CI [#37888753132](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888753132) 完成 **225/225 tests PASS、TypeScript、Electron build、真实 GUI/SQLite smoke、Chrome CDP + 合成行为冒烟测试 PASS**。**这仍然不等于真实 Tampermonkey GM_* / V3 / V4 功能通过，也不构成最终 Stable 的发行验收。**
+
 **尚未实现：** Tampermonkey 真正注入/GM_* 与 V3/V4 功能回归、DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。当前开发分支的候选定位器仅支持当前 document 中的 `document.querySelector`、`document.getElementById`、`document.getElementsByName` 和 `document.getElementsByClassName` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
