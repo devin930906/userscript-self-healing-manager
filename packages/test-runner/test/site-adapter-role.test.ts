@@ -237,3 +237,40 @@ test('no shadow probe dependency cannot promote an open-shadow role to V1',async
  assert.equal(got.status,'blocked-context');
  assert.equal(got.evidenceLevel,'none');
 });
+
+test('same-origin single iframe role certifies two samples of the same child loader and nodes as V1 only',async()=>{
+ const sub={frameId:'child-1',loaderId:'child-loader-a'};
+ let checked=0;
+ const deps={...makeDeps([0]),confirm:async()=>({...identity,subframeCount:1,soleSameOriginSubframe:sub}),
+  probeIframe:async(_target:ChromeTarget,locators:readonly LiteralLocator[],frameId:string)=>{
+   checked++;assert.equal(frameId,sub.frameId);
+   return status(Object.fromEntries(locators.map(l=>[l.expression,1]))) as LocatorProbeResult;
+  },probe:async()=>{throw Error('Do not inspect top document for iframe role');}};
+ const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.frameButton',declaredStateId:'ready',deps});
+ assert.equal(result.status,'matched-v1');
+ assert.equal(result.evidenceLevel,'V1');
+ assert.equal(result.functionalVerified,false);
+ assert.equal(result.V3,'not-configured');
+ assert.equal(checked,2);
+});
+test('iframe roles remain blocked without a stable same-origin child frame or dedicated probe',async()=>{
+ for(const override of [
+  {subframeCount:1},
+  {subframeCount:2,soleSameOriginSubframe:{frameId:'child-1',loaderId:'child-loader-a'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'child-1',loaderId:'child-loader-a'}},
+ ]){
+  const deps={...makeDeps([0]),confirm:async()=>({...identity,...override})};
+  const got=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.frameButton',declaredStateId:'ready',deps});
+  assert.equal(got.status,'blocked-context');
+  assert.equal(got.evidenceLevel,'none');
+ }
+});
+test('iframe child loader replacing while top URL and loader stay stable cannot produce V1 evidence',async()=>{
+ let times=0;
+ const deps={...makeDeps([0]),confirm:async()=>{
+  times++;
+  return {...identity,subframeCount:1,soleSameOriginSubframe:{frameId:'child-1',loaderId:times<4?'child-loader-a':'child-loader-b'}};
+ },probeIframe:async()=>status({'#frame-send':1}) as LocatorProbeResult};
+ await assert.rejects(runSiteAdapterRoleDomCheck({approved:true,target,adapter,
+  roleId:'chat.frameButton',declaredStateId:'ready',deps}),/frame|loader|identity|navigation/i);
+});
