@@ -31,3 +31,10 @@ test('users can explicitly cancel their current diagnostic history without clear
  assert.match(preload,/cancelDiagnosis:/);
  assert.match(preload,/ipcRenderer\.invoke\('usshm:diagnosis-cancel'/);
 });
+
+test('new scan invalidates unfinished journal entries instead of retaining permanently running state',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const scan=main.split("ipcMain.handle('usshm:scan'")[1]?.split("ipcMain.handle('usshm:list-scripts'")[0]??'';
+ assert.match(scan,/journal\.interruptRunning\(\)/);
+ assert.match(scan,/scanSessions\.replace\(/);
+});
