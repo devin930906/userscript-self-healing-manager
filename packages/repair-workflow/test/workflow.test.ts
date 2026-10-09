@@ -292,3 +292,15 @@ test('explicit discarded approval cannot be applied, while a new proposal remain
  const applied=await flow.apply({proposalId:fresh.proposalId,approved:true});
  assert.match(await readFile(applied.managedPath,'utf8'),/#fresh/);
 }));
+
+
+test('discarding one approval preserves unrelated scripts pending approvals',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const a=await flow.propose({sourcePath,scriptId:'separate-a',oldSelector:'#old',newSelector:'#a'});
+ const b=await flow.propose({sourcePath,scriptId:'separate-b',oldSelector:'#old',newSelector:'#b'});
+ assert.equal(flow.discard(a.proposalId),true);
+ assert.equal(flow.inspectPending(a.proposalId),null);
+ assert.ok(flow.inspectPending(b.proposalId));
+ const result=await flow.apply({proposalId:b.proposalId,approved:true});
+ assert.match(await readFile(result.managedPath,'utf8'),/#b/);
+}));
