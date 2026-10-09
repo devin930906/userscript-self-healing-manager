@@ -88,8 +88,13 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   // For first activation, rename() could silently overwrite a file created
   // by another process just after our last lstat. hard-link publication is
   // atomic NO-REPLACE for absent current, exactly like immutable archives.
-  await validateCurrent();
+  // The optional test hook models an uncoordinated external writer at
+  // the very last publication boundary. Check AGAIN after that adversary,
+  // not before: otherwise a late user edit or symlink silently gets replaced.
+  // This narrows the window but does not offer a hostile-process atomic CAS
+  // on Windows. Cooperating managed writers still honor the directory lease.
   if(beforePublish)await beforePublish();
+  await validateCurrent();
   if(expectedActiveHash===null){
    try{await link(stage,activePath);}
    catch(error){
