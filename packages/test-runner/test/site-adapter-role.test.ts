@@ -113,3 +113,32 @@ test('missing, malformed and unverified backend identity never certify matched V
   assert.equal(result.status,'needs-review');
  }
 });
+
+test('multi-node role counts never certify stable V1 without identity evidence for every matched element',async()=>{
+ for(const count of [2,3]){
+  const raw={
+   schemaVersion:1,siteId:'example-app',version:'1.0.0',
+   urlPatterns:['https://example.org/app/*'],
+   states:{ready:{description:'Ready'}},
+   roles:{'chat.batchButtons':{
+    contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+    strategies:[{kind:'css',selector:'.batch-button',weight:100}],
+    cardinality:{min:2,max:3},assertions:['exists'],
+   }},
+   validationCases:['BATCH_PRESENT'],
+  };
+  const multi=parseSiteAdapter(raw);
+  const deps={...makeDeps([count]),probe:async():Promise<LocatorProbeResult>=>({
+   ...status({'.batch-button':count}),
+   checks:[{method:'querySelectorAll',expression:'.batch-button',status:'found',matchCount:count}],
+  } as LocatorProbeResult)};
+  const verdict=await runSiteAdapterRoleDomCheck({
+   approved:true,target,adapter:multi,roleId:'chat.batchButtons',declaredStateId:'ready',deps,
+  });
+  assert.equal(verdict.status,'needs-review');
+  assert.equal(verdict.evidenceLevel,'none');
+  assert.equal(verdict.matchedSelector,null);
+  assert.equal(verdict.functionalVerified,false);
+  assert.equal(verdict.managerVerified,false);
+ }
+});
