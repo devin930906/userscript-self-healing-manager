@@ -108,6 +108,11 @@ export async function runSiteAdapterRoleDomCheck({
   const {n,i}=matching[0]!,cardinality=adapter.roles[roleId]!.cardinality;
   if(n<cardinality.min||n>cardinality.max)
    return result('needs-review','DOM matches violate role cardinality',null,2);
+  // The opt-in DOM.describeNode fingerprint protocol currently certifies
+  // identity only for exactly one matched element. Stable counts of 2+ do
+  // not certify that the same set of elements survived both samples.
+  if(n!==1)
+   return result('needs-review','Multiple DOM nodes matched but per-node identities were not verified',null,2);
   return result('matched-v1','Declared-state top-document selector count and backend node identity matched twice, not a script functional pass',locators[i]!.expression,2);
  }
  // A top-document absence cannot exclude nested browsing contexts or author
