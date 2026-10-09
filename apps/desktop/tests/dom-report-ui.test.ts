@@ -29,3 +29,11 @@ test('main process owns the export evidence; renderer is prohibited from submitt
  assert.doesNotMatch(preload,/report:unknown/);
  assert.match(ui,/scanId:result\.scanId,targetId:batchResult\.pageTargetId/);
 });
+test('main revokes cached evidence on a failed diagnosis and checks revision after a delayed save dialog',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const diagnostic=main.split("ipcMain.handle('usshm:batch-diagnose'")[1]?.split("ipcMain.handle('usshm:suggest-repair'")[0]??'';
+ const exportHandler=main.split("ipcMain.handle('usshm:export-dom-report'")[1]?.split("ipcMain.handle('usshm:export'")[0]??'';
+ assert.match(diagnostic,/catch\(error\)\s*\{\s*batchEvidence\.clear\(\);\s*throw error;/);
+ assert.match(exportHandler,/observed\.revision/);
+ assert.match(exportHandler,/fresh\.revision/);
+});
