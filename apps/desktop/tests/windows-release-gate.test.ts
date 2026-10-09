@@ -134,7 +134,7 @@ test('Stable executable gate verifies PE signature and x64 architecture, not jus
  const executable=Buffer.alloc(512);
  executable.writeUInt16LE(0x5a4d,0);
  executable.writeUInt32LE(0x80,0x3c);
- executable.write('PE\\0\\0',0x80,'binary');
+ executable.writeUInt32LE(0x00004550,0x80);
  executable.writeUInt16LE(0x8664,0x84);
  assert.equal(isWindowsX64Pe(executable),true);
  const x86=Buffer.from(executable);
