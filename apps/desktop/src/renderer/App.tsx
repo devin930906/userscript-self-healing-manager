@@ -40,6 +40,7 @@ declare global {interface Window{ussm:{
  listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
+ discardSiteAdapterPreview:(input:{previewId:string})=>Promise<{discarded:boolean}>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -143,8 +144,9 @@ function App(){
  async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function stageSiteAdapterImport(){
   if(adapterBusy)return;
-  setAdapterBusy(true);setAdapterPreview(null);setError('');
+  setAdapterBusy(true);const prior=adapterPreview;setAdapterPreview(null);setError('');
   try{
+   if(prior)await window.ussm.discardSiteAdapterPreview({previewId:prior.previewId});
    const preview=await window.ussm.previewSiteAdapterImport();
    if(preview){setAdapterPreview(preview);setMessage('规则文件已解析，仅为预览；需要单独确认才会保存在本机。');}
   }catch(error){setError('SiteAdapter JSON 预览失败：'+String(error));}
@@ -161,6 +163,12 @@ function App(){
    setAdapterPreview(null);
   }catch(error){setAdapterPreview(null);setError('SiteAdapter 导入失败（需重新预览）：'+String(error));}
   finally{setAdapterBusy(false);}
+ }
+ async function cancelSiteAdapterImport(){
+  if(adapterBusy||!adapterPreview)return;
+  const previewId=adapterPreview.previewId;setAdapterPreview(null);
+  try{await window.ussm.discardSiteAdapterPreview({previewId});}
+  catch(error){setError('取消 SiteAdapter 预览失败：'+String(error));}
  }
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(String(e));}}
@@ -344,7 +352,7 @@ function App(){
      <p className="dim">SHA-256：<code>{adapterPreview.sourceHash.slice(0,20)}…</code>。确认后仅保存规则定义，不会自动绑定、加载脚本或执行兼容性升级。</p>
      <div className="toolbar">
       <button type="button" disabled={adapterBusy} onClick={()=>void approveSiteAdapterImport()}>确认导入此规则</button>
-      <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>setAdapterPreview(null)}>取消预览</button>
+      <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>void cancelSiteAdapterImport()}>取消预览</button>
      </div>
     </div>}
     {adapterLibrary&&<div className="table-wrapper"><table><thead><tr><th>站点</th><th>版本</th><th>角色</th><th>页面状态</th><th>定义来源</th></tr></thead><tbody>
