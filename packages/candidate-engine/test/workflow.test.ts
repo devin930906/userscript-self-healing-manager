@@ -207,3 +207,13 @@ test('transient recovery after snapshot blocks candidate probes entirely',async(
  assert.equal(originalChecks,2);
  assert.equal(candidateChecks,0);
 });
+
+
+test('validated recommendation list never repeats the same selector expression',async()=>{
+ const repeated={...deps,capture:async()=>({targetId:target.id,url:target.url,scope:'top-document',nodes:[
+  {tagName:'BUTTON',attributes:{'data-testid':'save-button',id:'save-button'}},
+ ]})};
+ const suggestions=await suggestCandidateRepairs({target,locator,deps:repeated});
+ assert.equal(new Set(suggestions.map(x=>x.expression)).size,suggestions.length);
+ assert.ok(suggestions.length>0);
+});
