@@ -52,3 +52,27 @@ test('launching malformed chosen Chrome EXE rejects instead of reporting a start
    /spawn|exec|executable|format|permission|access|invalid/i);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('CDP discovery refuses oversized localhost JSON and excessive tab listings',async()=>{
+ let mode:'version'|'list'|'tabs'='version';
+ const server=createServer((req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/json/version'){
+   res.end(mode==='version'?JSON.stringify({Browser:'Chrome/155',padding:'x'.repeat(100000)}):JSON.stringify({Browser:'Chrome/155'}));
+  }else if(mode==='list'){
+   res.end(JSON.stringify([{type:'page',id:'a',url:'https://example.org/',padding:'x'.repeat(1_500_000)}]));
+  }else{
+   res.end(JSON.stringify(Array.from({length:257},(_,n)=>({type:'page',id:'tab'+n,url:'https://example.org/'}))));
+  }
+ });
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const address=server.address();if(!address||typeof address==='string')throw Error('port');
+  const port=address.port;
+  await assert.rejects(getChromeStatus({port}),/size|limit/i);
+  mode='list';
+  await assert.rejects(getChromeStatus({port}),/size|limit/i);
+  mode='tabs';
+  await assert.rejects(getChromeStatus({port}),/tabs|target|limit/i);
+ }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
