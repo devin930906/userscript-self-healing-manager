@@ -101,3 +101,32 @@ test('duplicate document replies cannot enqueue another locator query or certify
  await assert.rejects(probePageLocators(page,[{method:'querySelector',expression:'#save',runtimeRequired:false}],{socketFactory:()=>socket}),/duplicate.*document/i);
  assert.equal(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').length,1);
 });
+
+test('opt-in backend node fingerprint uses only CDP read-only DOM.describeNode and hashes identity',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8}}),
+  'DOM.querySelectorAll':({selector})=>({nodeIds:selector==='#save'?[31]:[]}),
+  'DOM.describeNode':({nodeId})=>({node:{nodeId,backendNodeId:4791,nodeType:1}}),
+ });
+ const result=await probePageLocators(page,[
+  {method:'querySelectorAll',expression:'#save',runtimeRequired:false},
+  {method:'querySelectorAll',expression:'.missing',runtimeRequired:false},
+ ],{socketFactory:()=>socket,includeNodeFingerprints:true});
+ const check=result.checks[0]!;
+ assert.match(check.nodeFingerprint??'',/^[0-9a-f]{64}$/);
+ assert.equal(result.checks[1]?.nodeFingerprint,undefined);
+ assert.equal(JSON.stringify(result).includes('backendNodeId'),false);
+ assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll','DOM.querySelectorAll','DOM.describeNode']);
+});
+test('malformed or unavailable node identity fails closed for opt-in fingerprint checks',async()=>{
+ for(const backendNodeId of [0,-1,'123',null,1.5]){
+  const socket=new ProtocolSocket({
+   'DOM.getDocument':()=>({root:{nodeId:8}}),
+   'DOM.querySelectorAll':()=>({nodeIds:[31]}),
+   'DOM.describeNode':()=>({node:{backendNodeId,nodeType:1}}),
+  });
+  const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#save',runtimeRequired:false}],{socketFactory:()=>socket,includeNodeFingerprints:true});
+  assert.equal(result.checks[0]?.nodeFingerprint,undefined);
+  assert.notEqual(result.checks[0]?.status,'found');
+ }
+});
