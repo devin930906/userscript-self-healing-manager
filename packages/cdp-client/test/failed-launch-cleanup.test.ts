@@ -71,3 +71,22 @@ test('spawn error before a child exists cannot terminate an unrelated Chrome pro
  }),/EXE blocked by Windows/);
  assert.equal(cleanupCalls,0);
 });
+
+
+test('launchSelectedChrome rejects a linked executable before touching CDP',async(t)=>{
+ if(process.platform==='win32'){
+  t.skip('Windows symlink creation depends on runner privileges');
+  return;
+ }
+ const {mkdtemp,writeFile,symlink,rm}=await import('node:fs/promises');
+ const {join}=await import('node:path');
+ const {tmpdir}=await import('node:os');
+ const {launchSelectedChrome}=await import('../src/index.ts');
+ const root=await mkdtemp(join(tmpdir(),'usshm-chrome-linked-'));
+ try{
+  const executable=join(root,'real.exe'),linked=join(root,'linked.exe');
+  await writeFile(executable,'fixture only');
+  await symlink(executable,linked);
+  await assert.rejects(launchSelectedChrome({executablePath:linked,port:9239}),/symlink|regular executable/i);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
