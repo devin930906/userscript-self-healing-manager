@@ -29,9 +29,9 @@ class FixtureSocket extends EventEmitter{
  close(){this.emit('close');}
 }
 test('synthetic V2 fixture interacts through bounded DOM and Input CDP commands only',async()=>{
- const socket=new FixtureSocket();
+ let socket!:FixtureSocket;
  const out=await runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
-  confirm:async()=>identity,socketFactory:()=>socket});
+  confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket();return socket;}});
  assert.equal(out.validationLevel,'synthetic-fixture-interaction');
  assert.equal(out.observed,true);
  assert.equal(out.productionEligible,false);
@@ -57,15 +57,14 @@ test('fixture interaction rejects arbitrary pages, URLs, missing approval and in
  }
 });
 test('disabled synthetic button fails closed before dispatching any Input event',async()=>{
- const socket=new FixtureSocket(true);
+ let socket!:FixtureSocket;
  await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
-  confirm:async()=>identity,socketFactory:()=>socket}),/disabled|blocked/i);
+  confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(true);return socket;}}),/disabled|blocked/i);
  assert.ok(!socket.methods.some(m=>m.startsWith('Input.')));
 });
 test('same-URL loader reload never certifies synthetic interaction',async()=>{
  let calls=0;
- const socket=new FixtureSocket();
  await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
   confirm:async()=>({...identity,loaderId:++calls===1?'l':'reload'}),
-  socketFactory:()=>socket}),/document|identity|loader|navigation|reload/i);
+  socketFactory:()=>new FixtureSocket()}),/document|identity|loader|navigation|reload/i);
 });
