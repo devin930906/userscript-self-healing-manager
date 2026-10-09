@@ -58,6 +58,8 @@
 - **只读 CSS 检查的嵌套 DOM 防误报（2026-10-09）**：当顶层元素缺失，Electron 主进程额外取得有限 DOMSnapshot 并再次核对 Frame/Loader 身份；若存在 iframe、作者 ShadowRoot，或快照失败/身份不符，就显示 `unknown` 而不是断言 `missing`。无 DOM 修改、无任意 JS 执行、无 V2/V3/V4 声称。真实 Windows Chrome ShadowRoot fixture 已加入自动回归。
 - **最新已验证开发 CI（2026-10-09）**：[Windows Development CI #37904827283](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904827283)：**316/316 tests、TypeScript、Electron build、Windows GUI+SQLite smoke、真实 Chrome CDP + ShadowRoot 测试 PASS**；[Node contracts #37904827267](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37904827267) PASS。仍不是最终 Stable，未制作中途安装包。
 
+- **Chrome CDP 发现入口限制（2026-10-09）**：`/json/version` 和 `/json/list` 改为有字节预算的流式 JSON 读取（分别 64 KiB 与 1,000,000 bytes），最多接受 256 个页面条目，并限制浏览器标识、标签页 ID 与 URL 长度；畸形或过大的本机调试端点不会直接进入 DOM 检查。TDD RED [#37905313665](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37905313665)，GREEN [Windows CI #37905377547](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37905377547)：**317/317 tests，TypeScript、Electron/Windows GUI/SQLite、真实 Chrome CDP smoke PASS**，无中途安装包。
+
 **尚未实现：** Tampermonkey 真正注入/GM_* 与 V3/V4 功能回归、DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。当前开发分支的候选定位器仅支持当前 document 中的 `document.querySelector`、`document.getElementById`、`document.getElementsByName` 和 `document.getElementsByClassName` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
