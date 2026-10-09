@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {assertStablePackageVersion,validateWindowsReleaseLayout} from '../../../scripts/windows-release-gate.mjs';
+import {assertStablePackageVersion,isWindowsX64Pe,validateWindowsReleaseLayout} from '../../../scripts/windows-release-gate.mjs';
 const base='Userscript-Self-Healing-Manager';
 const good={
  version:'1.0.0',
@@ -128,4 +128,26 @@ test('Stable release inventory rejects prerelease and mismatched application ver
  for(const appVersion of ['0.1.0-alpha.5','1.0.0-rc.1','1.0.1','v1.0.0','']){
   assert.throws(()=>assertStablePackageVersion('1.0.0',appVersion),/version|prerelease/i);
  }
+});
+
+test('Stable executable gate verifies PE signature and x64 architecture, not just MZ',()=>{
+ const executable=Buffer.alloc(512);
+ executable.writeUInt16LE(0x5a4d,0);
+ executable.writeUInt32LE(0x80,0x3c);
+ executable.write('PE\\0\\0',0x80,'binary');
+ executable.writeUInt16LE(0x8664,0x84);
+ assert.equal(isWindowsX64Pe(executable),true);
+ const x86=Buffer.from(executable);
+ x86.writeUInt16LE(0x14c,0x84);
+ assert.equal(isWindowsX64Pe(x86),false);
+ const arm64=Buffer.from(executable);
+ arm64.writeUInt16LE(0xaa64,0x84);
+ assert.equal(isWindowsX64Pe(arm64),false);
+ const mzOnly=Buffer.from(executable);
+ mzOnly.fill(0,0x80,0x84);
+ assert.equal(isWindowsX64Pe(mzOnly),false);
+ const invalidOffset=Buffer.from(executable);
+ invalidOffset.writeUInt32LE(0xffffffff,0x3c);
+ assert.equal(isWindowsX64Pe(invalidOffset),false);
+ assert.equal(isWindowsX64Pe(Buffer.from('MZ')),false);
 });
