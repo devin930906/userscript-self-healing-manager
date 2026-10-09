@@ -124,13 +124,14 @@ async function bootstrap():Promise<void>{
  });
  ipcMain.handle('usshm:site-adapter-role-check',async(event,input:unknown)=>{
   assertSender(event);
-  const q=input as {approved?:unknown;siteId?:unknown;roleId?:unknown;declaredStateId?:unknown;targetId?:unknown}|null;
-  if(!q||q.approved!==true||typeof q.siteId!=='string'||typeof q.roleId!=='string'||
+  const q=input as {approved?:unknown;siteId?:unknown;expectedSha256?:unknown;roleId?:unknown;declaredStateId?:unknown;targetId?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.siteId!=='string'||typeof q.expectedSha256!=='string'||
+     !/^[0-9a-f]{64}$/.test(q.expectedSha256)||typeof q.roleId!=='string'||
      typeof q.declaredStateId!=='string'||!q.declaredStateId||q.declaredStateId.length>64||
      typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
    throw new Error('Explicit SiteAdapter site, role, declared state, CDP target and consent required');
   // Importantly, never accept raw strategies or a caller-chosen file path.
-  const adapter=await adapters.getForInspection({siteId:q.siteId});
+  const adapter=await adapters.getForInspection({siteId:q.siteId,expectedSha256:q.expectedSha256});
   const status=await getChromeStatus({port:9223});
   const selected=status.pages.find(page=>page.id===q.targetId);
   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected SiteAdapter Chrome target unavailable');
