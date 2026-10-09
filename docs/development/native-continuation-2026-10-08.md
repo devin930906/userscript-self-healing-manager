@@ -368,3 +368,11 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - 排错发现极端竞争：旧扫描的异步失败会在新扫描已经产生有效证据后触发 `catch`。因此不能无条件 `clear()`，改为 `invalidateIfCurrent({scanId,targetId})`，仅清除失败操作自己仍拥有的批次。新增旧 scan、不同 target、不连续页、同 URL reload、重入保存对话框和版本递增测试。
 - [Windows Development CI #37895015454](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895015454) 对源码提交 `c67d322b93731252dba84b1d0f7cfcb3f6f52141`：**264/264 tests PASS、TypeScript PASS、Electron build PASS、真实 Windows GUI/SQLite smoke PASS、真实 Chrome CDP 合成行为测试 PASS**。Task 1 contracts #37895020261 亦已通过。
 - 此模块仅存当前运行的最近一次已授权扫描证据，尚无跨重启完整任务审计/站点历史。FR-029、FR-040/041 和 Phase7–12 仍未全部完成；严格保持 PR #2 为 Draft，不制作预览安装包、不提前 Stable 发布。
+
+## 2026-10-09 · Electron IPC CDP 重试真实错误包装
+
+- 代码审阅发现 `collectPagedDomDiagnosis` 的可重试白名单此前只匹配原生 `CDP page identity timeout` 等错误，但 Electron `ipcRenderer.invoke` 实际会包裹为 `Error invoking remote method 'usshm:batch-diagnose': Error: CDP page identity timeout`，造成用户界面已显示「临时通信重试一次」但真实 IPC 无法触发。
+- TDD：添加严格的 Electron 包装错误回归以及反例（任意其他 IPC 方法、同 URL navigation 身份变化、尾随未知错误文本一律不可重试）。[RED Node contract #37895463968](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895463968) 确认原实现确实无法重试。
+- 修复 `packages/scan-service/src/paginated-dom.ts`：只剥离固定 `usshm:batch-diagnose` 的标准 Electron Error envelope，再匹配完整、精确的短暂只读 CDP 错误白名单；不拓宽身份/权限/页面内容错误的可重试范围，且总重试预算仍为 1。
+- [GREEN Windows CI #37895542276](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895542276) 对提交 `51174cd290b552a65e2b46bca6947d2844c34294`：**266 tests / 266 pass / 0 fail，TypeScript、Electron build、真实 GUI/SQLite 和真实 Chrome CDP 合成行为 smoke 通过**。Node contract [#37895546571](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37895546571) 也成功。
+- 仍没有真实 Tampermonkey/GM API 交互证明、V3 用户定义功能契约和 V4 manager 验证；本开发切片不代表 Final Stable，禁止自动合并或发行。
