@@ -61,6 +61,7 @@ declare global {interface Window{ussm:{
  inspectSiteAdapterRole:(input:{siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>Promise<RoleDomResult>;
  suggestSiteAdapterRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;approved:true})=>Promise<AdapterScopedRepairsResult>;
  listBrowserProfiles:()=>Promise<BrowserProfile[]>;
+ browserProfileHealth:()=>Promise<{status:'empty'|'ready'|'write-locked'|'invalid';count:number|null}>;
  createBrowserProfile:(input:{name:string})=>Promise<BrowserProfile>;
  renameBrowserProfile:(input:{profileId:string;name:string})=>Promise<BrowserProfile>;
  defaultBrowserProfile:(input:{profileId:string})=>Promise<BrowserProfile>;
@@ -79,6 +80,7 @@ const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
  const [browserProfiles,setBrowserProfiles]=useState<BrowserProfile[]>([]);
+ const [browserProfileHealth,setBrowserProfileHealth]=useState<'empty'|'ready'|'write-locked'|'invalid'|null>(null);
  const [selectedBrowserProfileId,setSelectedBrowserProfileId]=useState('');
  const [browserProfileName,setBrowserProfileName]=useState('');
 
@@ -136,10 +138,12 @@ function App(){
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+String(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
- useEffect(()=>{void window.ussm.listBrowserProfiles().then(items=>{
-  setBrowserProfiles(items);
-  setSelectedBrowserProfileId(items.find(item=>item.isDefault)?.id??items[0]?.id??'');
- }).catch(e=>setError('无法读取浏览器配置：'+String(e)));},[]);
+ useEffect(()=>{void Promise.all([window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth()])
+  .then(([items,health])=>{
+   setBrowserProfiles(items);
+   setBrowserProfileHealth(health.status);
+   setSelectedBrowserProfileId(items.find(item=>item.isDefault)?.id??items[0]?.id??'');
+  }).catch(e=>setError('无法读取浏览器配置：'+String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
  const selectedAdapter=adapterLibrary?.find(a=>a.siteId===adapterSelectedSiteId)??null;
@@ -253,8 +257,11 @@ function App(){
   }
  }
  async function refreshBrowserProfiles(preferredId?:string){
-  const items=await window.ussm.listBrowserProfiles();
+  const [items,health]=await Promise.all([
+   window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth(),
+  ]);
   setBrowserProfiles(items);
+  setBrowserProfileHealth(health.status);
   setSelectedBrowserProfileId(current=>{
    const wanted=preferredId??current;
    return items.some(item=>item.id===wanted)?wanted:
@@ -616,7 +623,9 @@ function App(){
      <button className="secondary" disabled={!selectedBrowserProfileId} onClick={()=>void setSelectedBrowserProfileDefault()}>设为默认</button>
      <button className="secondary" disabled={!selectedBrowserProfileId} onClick={()=>void deleteSelectedBrowserProfile()}>删除配置记录</button>
     </div>
-    <p className="dim">已保存 {browserProfiles.length}/16 个独立配置；每个配置使用 Data/Chrome-Profiles/ 下独立资料目录。删除配置只删除记录，不删除浏览器或资料。启动前重新核实浏览器 EXE 与 CDP 握手。</p>
+    <p className="dim">{browserProfileHealth==='invalid'||browserProfileHealth==='write-locked'?'配置状态异常，暂不显示正常数量':`已保存 ${browserProfiles.length}/16 个独立配置`}；每个配置使用 Data/Chrome-Profiles/ 下独立资料目录。删除配置只删除记录，不删除浏览器或资料。启动前重新核实浏览器 EXE 与 CDP 握手。</p>
+    {browserProfileHealth==='invalid'&&<p className="notice">浏览器配置文件损坏或不安全：程序不会清空或覆盖原文件，请保留 Data/browser-profiles.json 以便恢复。</p>}
+    {browserProfileHealth==='write-locked'&&<p className="notice">浏览器配置正在写入或存在遗留锁：为保护资料，当前不进行配置修改，也不会自动清除锁；请先确认所有程序实例已关闭。</p>}
     {browserProfiles.find(item=>item.id===selectedBrowserProfileId)&&
      <p className="dim" style={{overflowWrap:'anywhere'}}>已选浏览器：{browserProfiles.find(item=>item.id===selectedBrowserProfileId)?.executablePath}</p>}
 
