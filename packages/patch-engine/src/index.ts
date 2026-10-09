@@ -11,8 +11,19 @@ export interface LiteralPatchDraft {
  proposedSource:string;sourceRange:{start:number;end:number};
 }
 const sha=(bytes:Uint8Array|string)=>createHash('sha256').update(bytes).digest('hex');
-export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selectorLocation}:{sourceBytes:Uint8Array;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):LiteralPatchDraft{
- if(!oldSelector||!newSelector||newSelector.length>1024)throw new Error('Selectors must be nonempty and short');
+export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selectorLocation,expectedSourceRange}:{
+ sourceBytes:Uint8Array;oldSelector:string;newSelector:string;
+ selectorLocation?:SelectorLocation|undefined;
+ /** Internal apply-time check: reconstruct EXACTLY the previously previewed AST literal. */
+ expectedSourceRange?:Readonly<{start:number;end:number}>|undefined;
+}):LiteralPatchDraft{
+ if(typeof oldSelector!=='string'||typeof newSelector!=='string'||!oldSelector||!newSelector||
+    oldSelector.length>1024||newSelector.length>1024)
+  throw new Error('Selectors must be nonempty and short');
+ if(expectedSourceRange&&
+   (!Number.isSafeInteger(expectedSourceRange.start)||!Number.isSafeInteger(expectedSourceRange.end)||
+    expectedSourceRange.start<0||expectedSourceRange.end<=expectedSourceRange.start))
+  throw new Error('Invalid approved selector source range');
  const hasBom=sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191;
  let text:string;
  try{text=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);}
@@ -27,8 +38,10 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
  function visit(node:ts.Node):void{
   if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById','getElementsByName','getElementsByClassName'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])&&node.arguments[0].text===oldSelector){
    const pos=file.getLineAndCharacterOfPosition(node.getStart(file));
-   if(!selectorLocation||(selectorLocation.method===node.expression.name.text&&selectorLocation.line===pos.line+1&&selectorLocation.column===pos.character+1))
-    matches.push(node.arguments[0]);
+   const literal=node.arguments[0];
+   if((!selectorLocation||(selectorLocation.method===node.expression.name.text&&selectorLocation.line===pos.line+1&&selectorLocation.column===pos.character+1))&&
+     (!expectedSourceRange||(literal.getStart(file)===expectedSourceRange.start&&literal.getEnd()===expectedSourceRange.end)))
+    matches.push(literal);
   }
   ts.forEachChild(node,visit);
  }
@@ -37,6 +50,7 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
  const literal=matches[0]!;const start=literal.getStart(file),end=literal.getEnd();
  const quoted=JSON.stringify(newSelector);const changed=text.slice(0,start)+quoted+text.slice(end);
  const proposedBytes=new TextEncoder().encode(changed);const outputBytes=hasBom?new Uint8Array([239,187,191,...proposedBytes]):proposedBytes;
+ if(outputBytes.length>512*1024)throw new Error('Approved patched userscript exceeds file size limit');
  return {baseHash:sha(sourceBytes),proposedHash:sha(outputBytes),oldSelector,newSelector,proposedSource:(hasBom?'\ufeff':'')+changed,sourceRange:{start,end}};
 }
 export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,expectedHash,approved,baseRevisionKind='original'}:{sourcePath:string;managedRoot:string;scriptId:string;draft:LiteralPatchDraft;expectedHash:string;approved:boolean;baseRevisionKind?:'original'|'revision'}):Promise<{backupPath:string;managedPath:string;hash:string}>{
@@ -46,8 +60,31 @@ export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,e
  const sourceInfo=await lstat(sourcePath);if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())throw new Error('Source must be a regular file');
  const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:sourceInfo});
  if(sha(current)!==expectedHash||draft.baseHash!==expectedHash)throw new Error('Source hash mismatch: stale patch or external edit');
- const proposedBytes=new TextEncoder().encode(draft.proposedSource);
- if(sha(proposedBytes)!==draft.proposedHash)throw new Error('Candidate patch hash mismatch');
+ // Treat even internally supplied drafts as untrusted at this write boundary.
+ // A self-consistent SHA does NOT prove that the draft contains only the
+ // single approved AST string-literal replacement. Reconstruct the proposed
+ // bytes from the already pinned source and the recorded literal range.
+ if(!draft||typeof draft.proposedSource!=='string'||typeof draft.proposedHash!=='string'||
+    typeof draft.baseHash!=='string'||!draft.sourceRange)
+  throw new Error('Invalid approved patch draft');
+ let verifiedDraft:LiteralPatchDraft;
+ try{
+  verifiedDraft=proposeLiteralPatch({
+   sourceBytes:current,oldSelector:draft.oldSelector,newSelector:draft.newSelector,
+   expectedSourceRange:draft.sourceRange,
+  });
+ }catch{
+  throw new Error('Approved patch draft cannot be reconstructed at its exact selector location');
+ }
+ if(verifiedDraft.baseHash!==draft.baseHash||
+    verifiedDraft.proposedHash!==draft.proposedHash||
+    verifiedDraft.proposedSource!==draft.proposedSource||
+    verifiedDraft.sourceRange.start!==draft.sourceRange.start||
+    verifiedDraft.sourceRange.end!==draft.sourceRange.end)
+  throw new Error('Approved patch draft mismatch: only the reviewed selector literal may change');
+ const proposedBytes=new TextEncoder().encode(verifiedDraft.proposedSource);
+ if(sha(proposedBytes)!==verifiedDraft.proposedHash)
+  throw new Error('Reconstructed approved patch hash mismatch');
  const folder=join(managedRoot,'managed',scriptId);await ensureWritableDataRoot(folder);
  const backupPath=join(folder,`${baseRevisionKind}-${expectedHash}.user.js`),managedPath=join(folder,`revision-${draft.proposedHash}.user.js`);
  async function writeImmutable(path:string,content:Uint8Array){
