@@ -193,6 +193,14 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 - **重要边界**：上述 Chrome 为 Google 测试版 **155.0.8059.39**，并不是用户给出的便携包 **155.0.8059.40 x64**。测试在 GitHub Windows Runner 上运行，且没有安装 Tampermonkey 扩展，因此**不证明真实 Windows 10、Tampermonkey/GM_* V4、真实用户网站 V2/V3 或最终三个发行包**。这些仍为正式 Stable 阻断项。
 - 自动测试：[Windows Development CI #37964743711](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37964743711) 与 [Node Contracts #37964743721](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37964743721)，**558/558 tests PASS**。详细 RED/GREEN 故障注入与浏览器沙箱修复记录见 [Native 开发账本](docs/development/native-continuation-2026-10-08.md)。
 
+## FR-002：多个隔离 Chrome 浏览器配置（2026-10-10）
+
+桌面端的 Chrome CDP 区新增「保存浏览器配置」「启动选定配置」「重命名配置」「设为默认」「删除配置记录」功能。可保存最多 **16 个**独立、中文命名的浏览器配置，各配置使用 `Data/Chrome-Profiles/<UUID>/` 作为专属浏览器资料目录。添加新配置时必须先通过本程序的**原生文件选择器**选定 `chrome.exe`，浏览器由主进程在明确按下启动后执行 CDP 握手；网页和用户脚本不会随配置操作自动运行。
+
+记录持久化于 `Data/browser-profiles.json`，通过有界 SHA/文件身份保护读取、原子替换持久化和 `.write-lock` 跨进程串行写入。启动前重新检查真实 EXE，不能从渲染器传入任意可执行路径或资料目录；损坏、危险或被链接的配置会拒绝覆盖。删除前显示系统原生确认对话框，**删除只删除记录，不删除 Chrome、扩展、登录状态、书签或任何资料目录**。如果更换电脑，保存的绝对 Chrome EXE 路径可能失效，必须重新选择。
+
+[Windows Development CI #37966712584](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37966712584) 与 [Node Contracts #37966712709](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37966712709) 已验证 **566/566 自动化测试**（含独立 Chrome 155 的真实 CDP 回归）。这只完成 FR-002 的实现，不代表真实 GM API V4、用户指定 Windows 10/便携 Chrome 构建或三个正式发行包已经通过 Stable 发布门槛。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
