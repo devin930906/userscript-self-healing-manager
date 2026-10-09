@@ -124,3 +124,23 @@ test('writer lock and immutable archive corruption take priority over crash stag
  assert.equal((await probe(root)).status,'damaged-archive');
  assert.equal(await readFile(stage,'utf8'),'incomplete');
 }));
+
+test('unarchived external edits take precedence over abandoned stage files',async()=>withStore(async(root,folder)=>{
+ const sha=await archive(folder,'trusted revision','revision');
+ await writeFile(join(folder,'current.user.js'),'modified by an external editor');
+ const stage=join(folder,'.revision-'+sha+'.user.js.staging-88888888-1111-4111-8111-121212121212.tmp');
+ await writeFile(stage,'unfinished old stage');
+ const report=await probe(root);
+ assert.equal(report.status,'unarchived-current');
+ assert.equal(report.activeHash,null);
+ assert.equal(report.archiveCount,1);
+ assert.equal(await readFile(stage,'utf8'),'unfinished old stage');
+ assert.equal(await readFile(join(folder,'current.user.js'),'utf8'),'modified by an external editor');
+}));
+
+test('unrelated files do not falsely trigger orphan staging diagnostics',async()=>withStore(async(root,folder)=>{
+ const sha=await archive(folder,'approved revision','revision');
+ await writeFile(join(folder,'current.user.js'),'approved revision');
+ await writeFile(join(folder,'.current.user.js.staging-not-a-uuid.tmp'),'unrelated diagnostic');
+ assert.deepEqual(await probe(root),{status:'healthy',archiveCount:1,activeHash:sha});
+}));
