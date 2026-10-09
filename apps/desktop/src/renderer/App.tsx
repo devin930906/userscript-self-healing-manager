@@ -19,6 +19,9 @@ import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 
+import type {AdapterLibraryEntry} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
+type SiteAdapterPreview={previewId:string;siteId:string;version:string;roleCount:number;stateCount:number;urlPatterns:readonly string[];sourceHash:string};
+
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
@@ -34,6 +37,9 @@ declare global {interface Window{ussm:{
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
+ listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
+ previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
+ approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
@@ -47,6 +53,9 @@ function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
  const [paths,setPaths]=useState<string[]>([]);const [result,setResult]=useState<DesktopScanResult|null>(null);
  const [history,setHistory]=useState<ScriptRecord[]>([]);const [busy,setBusy]=useState(false);
+ const [adapterLibrary,setAdapterLibrary]=useState<AdapterLibraryEntry[]|null>(null);
+ const [adapterPreview,setAdapterPreview]=useState<SiteAdapterPreview|null>(null);
+ const [adapterBusy,setAdapterBusy]=useState(false);
  const [diagnosisHistory,setDiagnosisHistory]=useState<JournalRun[]|null>(null);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
@@ -84,6 +93,7 @@ function App(){
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
+ useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+String(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
@@ -131,6 +141,27 @@ function App(){
  async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
+ async function stageSiteAdapterImport(){
+  if(adapterBusy)return;
+  setAdapterBusy(true);setAdapterPreview(null);setError('');
+  try{
+   const preview=await window.ussm.previewSiteAdapterImport();
+   if(preview){setAdapterPreview(preview);setMessage('规则文件已解析，仅为预览；需要单独确认才会保存在本机。');}
+  }catch(error){setError('SiteAdapter JSON 预览失败：'+String(error));}
+  finally{setAdapterBusy(false);}
+ }
+ async function approveSiteAdapterImport(){
+  if(adapterBusy||!adapterPreview)return;
+  const previewId=adapterPreview.previewId;
+  setAdapterBusy(true);setError('');
+  try{
+   const receipt=await window.ussm.approveSiteAdapterImport({previewId,approved:true});
+   setAdapterLibrary(await window.ussm.listSiteAdapters());
+   setMessage('已导入本地规则 '+receipt.siteId+' v'+receipt.version+'；未经过真实脚本运行或功能验证。');
+   setAdapterPreview(null);
+  }catch(error){setAdapterPreview(null);setError('SiteAdapter 导入失败（需重新预览）：'+String(error));}
+  finally{setAdapterBusy(false);}
+ }
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(String(e));}}
  async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 的 CDP 握手已验证；独立资料目录不包含原有登录信息和扩展。点击「检查 CDP 连接」刷新网页列表。');}catch(e){setError(String(e));}}
