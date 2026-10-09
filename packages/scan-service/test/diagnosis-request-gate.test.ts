@@ -66,6 +66,7 @@ test('transient transport retry preserves the last completed batch page and resu
  assert.equal(gate.isCurrent(attempt),false);
  const retry=gate.begin({...key,offset:25});
  assert.equal(gate.isCurrent(retry),true);
+ assert.equal(gate.isCurrent(attempt),false,'restarted same-offset attempt must revoke the original lease');
  gate.complete(retry,{pageItems:25,totalItems:50});
  assert.equal(gate.releaseForRetry(attempt),false);
 });
