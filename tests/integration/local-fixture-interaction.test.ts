@@ -22,9 +22,10 @@ class FixtureSocket extends EventEmitter{
  readonly blockedAttr:'inert'|'aria-hidden'|'aria-hidden-unknown'|null;
  readonly postBlockedAttr:'inert'|'aria-hidden'|null;
  readonly malformedResult:boolean;
+ readonly malformedEnvelope:boolean;
  private queryCount=0;
  private attrs=0;
- constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false,postInvalidAriaDisabled=false,changedNodesAfterClick:readonly number[]|null=null,blockedAttr:'inert'|'aria-hidden'|'aria-hidden-unknown'|null=null,postBlockedAttr:'inert'|'aria-hidden'|null=null,malformedResult=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;this.postInvalidAriaDisabled=postInvalidAriaDisabled;this.changedNodesAfterClick=changedNodesAfterClick;this.blockedAttr=blockedAttr;this.postBlockedAttr=postBlockedAttr;this.malformedResult=malformedResult;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false,postInvalidAriaDisabled=false,changedNodesAfterClick:readonly number[]|null=null,blockedAttr:'inert'|'aria-hidden'|'aria-hidden-unknown'|null=null,postBlockedAttr:'inert'|'aria-hidden'|null=null,malformedResult=false,malformedEnvelope=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;this.postInvalidAriaDisabled=postInvalidAriaDisabled;this.changedNodesAfterClick=changedNodesAfterClick;this.blockedAttr=blockedAttr;this.postBlockedAttr=postBlockedAttr;this.malformedResult=malformedResult;this.malformedEnvelope=malformedEnvelope;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
@@ -36,7 +37,7 @@ class FixtureSocket extends EventEmitter{
     (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button',...(this.invalidAriaDisabled?['aria-disabled','maybe']:[]),...(this.blockedAttr?[this.blockedAttr==='aria-hidden-unknown'?'aria-hidden':this.blockedAttr,this.blockedAttr==='inert'?'':this.blockedAttr==='aria-hidden-unknown'?'maybe':'true']:[])])):
     (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes',...(this.postInvalidAriaDisabled?['aria-disabled','maybe']:[]),...(this.postBlockedAttr?[this.postBlockedAttr,this.postBlockedAttr==='inert'?'':'true']:[])]:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])};
   else if(m.method==='DOM.getBoxModel')result={model:{content:[20,20,120,20,120,70,20,70]}};
-  queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:m.id,result:this.malformedResult?null:result})}));
+  queueMicrotask(()=>this.emit('message',{data:JSON.stringify(this.malformedEnvelope?null:{id:m.id,result:this.malformedResult?null:result})}));
  }
  close(){this.emit('close');}
 }
@@ -190,5 +191,13 @@ test('malformed CDP result payload cannot trigger synthetic Input events',async(
  await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
   confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,[42],false,false,false,false,false,null,null,null,true);return socket;}}),
   /invalid|CDP|result/i);
+ assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
+});
+
+test('malformed CDP response envelope fails closed before any synthetic Input event',async()=>{
+ let socket!:FixtureSocket;
+ await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+  confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,[42],false,false,false,false,false,null,null,null,false,true);return socket;}}),
+  /invalid|CDP|envelope/i);
  assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
 });
