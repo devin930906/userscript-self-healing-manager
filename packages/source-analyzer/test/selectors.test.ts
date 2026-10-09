@@ -73,3 +73,22 @@ test('metadata parser allows a benign leading line comment but not a header hidd
  const injected='const html = `page\\n// ==UserScript==\\n// @match https://evil.example/*\\n// ==/UserScript==`;';
  assert.deepEqual(parseUserscriptMetadata(injected).match,[]);
 });
+
+test('computed DOM method calls are inventory items requiring runtime confirmation, not silently absent',()=>{
+ const src=`
+ const a=document['querySelector']('#settings');
+ const b=document[dynamicMethod]('#unknown');
+ const c=panel['matches']('.enabled');
+ const d=document['querySelectorAll']('.rows');
+ const e=other[arbitrary]('ignore');
+ `;
+ const data=analyzeSource({scriptId:'computed',sourceBytes:encoder.encode(src)});
+ assert.deepEqual(data.selectorRecords.map(x=>x.method),[
+  'querySelector','<computed>','matches','querySelectorAll',
+ ]);
+ assert.deepEqual(data.selectorRecords.map(x=>x.receiver),['document','document','panel','document']);
+ assert.ok(data.selectorRecords.every(x=>x.runtimeRequired===true));
+ assert.ok(data.selectorRecords.every(x=>x.dynamicKind==='wrapper-unknown'));
+ assert.equal(data.selectorRecords[0]?.expression,'#settings');
+ assert.equal(data.selectorRecords[1]?.expression,'#unknown');
+});
