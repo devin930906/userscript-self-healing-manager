@@ -2,7 +2,7 @@ import {rankSelectorCandidates,type SafeDomNode,type SelectorCandidate} from './
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {resolveSiteAdapterRole,type SiteAdapter,type AdapterRoleResolution} from './site-adapter.ts';
 export interface MissingLocator {method:string;expression:string;runtimeRequired:boolean}
-export interface DomProbeCheck {method:string;expression:string;status:string;matchCount:number|null}
+export interface DomProbeCheck {method:string;expression:string;status:string;matchCount:number|null;nodeFingerprint?:string}
 export interface DomProbeEvidence {targetId:string;url:string;checks:readonly DomProbeCheck[]}
 export interface SafeSnapshotEvidence {targetId:string;url:string;scope:string;nodes:readonly SafeDomNode[]}
 export type VerifiedCandidate=Omit<SelectorCandidate,'validationLevel'>&{validationLevel:'dom-candidate-verified'};
@@ -83,6 +83,8 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
   const c=repeat.checks[i]!;
   if(b.expression===a.expression&&b.method===locator.method&&b.status==='found'&&b.matchCount===1&&
      c.expression===a.expression&&c.method===locator.method&&c.status==='found'&&c.matchCount===1&&
+     typeof b.nodeFingerprint==='string'&&/^[0-9a-f]{64}$/.test(b.nodeFingerprint)&&
+     c.nodeFingerprint===b.nodeFingerprint&&
      !seen.has(a.expression)){
    seen.add(a.expression);
    verified.push({...a,validationLevel:'dom-candidate-verified'});
