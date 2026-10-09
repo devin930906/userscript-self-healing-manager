@@ -39,7 +39,15 @@ for(const path of candidates){try{await access(path);executable=path;break;}catc
 if(!executable)throw new Error('Chrome is not installed in the Windows runner; cannot claim browser CDP smoke PASS');
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
-const html='<!doctype html><html><head><title>USSHM CDP local fixture</title></head><body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button><div class="target-pane"></div></main></body></html>';
+const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
+<body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
+<div class="target-pane"></div><div id="shadow-host"></div></main>
+<script>
+ const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
+ const shadowButton=document.createElement('span');
+ shadowButton.id='shadow-only';
+ shadowRoot.appendChild(shadowButton);
+</script></body></html>`;
 const server=createServer((req,res)=>{
  res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});
  res.end(html);
@@ -93,6 +101,7 @@ try{
  const summary=await captureDomSummary(selected);
  assert.ok(summary.nodeCount>0,'must capture real DOM nodes');
  assert.ok(summary.documentCount>=1);
+ assert.ok(summary.authorShadowTreeNodes>0,'Chrome DOMSnapshot must expose author-created Shadow Tree nodes');
  const result=await probePageLocators(selected,[
   {method:'querySelector',expression:'#heal-button',runtimeRequired:false},
   {method:'getElementById',expression:'heal-button',runtimeRequired:false},
@@ -100,6 +109,19 @@ try{
  ]);
  assert.deepEqual(result.checks.map(x=>x.status),['found','found','missing']);
  assert.deepEqual(result.checks.map(x=>x.matchCount),[1,1,0]);
+ // Top-document selectors cannot see author ShadowRoots. Even @noframes does
+ // not restrict shadow-root access, so a miss is review-required, not broken.
+ const shadowFixture={
+  path:'shadow-only.user.js',scriptId:'shadow-fixture',status:'parsed',
+  analysis:{metadata:{match:['http://127.0.0.1/*'],include:[],raw:{noframes:['']}},
+   selectorRecords:[{method:'querySelector',expression:'#shadow-only',runtimeRequired:false,receiver:'document'}]},
+ };
+ const shadowBatch=await diagnoseScriptsOnPage({
+  items:[shadowFixture],target:selected,consent:true,
+  deps:{confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary},
+ });
+ assert.equal(shadowBatch.items[0]?.status,'needs-review','ShadowRoot-only target must not be marked broken');
+ assert.match(shadowBatch.items[0]?.reason??'',/Shadow DOM/i);
 
  const bulkCandidatesInputs=[
   {method:'querySelector',expression:'#old-heal-button',runtimeRequired:false},
