@@ -7,8 +7,8 @@ export interface DomProbeEvidence {targetId:string;url:string;checks:readonly Do
 export interface SafeSnapshotEvidence {targetId:string;url:string;scope:string;nodes:readonly SafeDomNode[]}
 export type VerifiedCandidate=Omit<SelectorCandidate,'validationLevel'>&{validationLevel:'dom-candidate-verified'};
 export interface CandidateDeps {
- /** Production caller must supply a real CDP frame/loader identity checker. */
- confirm?:()=>Promise<ConfirmedPageIdentity>;
+ /** Required: no selector recommendation may be certified without Frame/Loader identity. */
+ confirm:()=>Promise<ConfirmedPageIdentity>;
  probe:(locators:readonly MissingLocator[])=>Promise<DomProbeEvidence>;
  capture:()=>Promise<SafeSnapshotEvidence>;
 }
@@ -18,6 +18,8 @@ function ensureIdentity(expected:{id:string;url:string},actual:{targetId:string;
 /** Require two independent live CDP DOM checks; suggestions always need manual approval. */
 export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:string;url:string};locator:MissingLocator;deps:CandidateDeps}):Promise<VerifiedCandidate[]>{
  if(!['querySelector','getElementById','getElementsByName','getElementsByClassName'].includes(locator.method)||locator.runtimeRequired||!locator.expression||locator.expression.length>1024)return [];
+ if(!deps||typeof deps.confirm!=='function')
+  throw new Error('Candidate CDP document identity confirmation is required');
  const confirmStable=async(baseline:ConfirmedPageIdentity):Promise<void>=>{
   const identity=await deps.confirm!();
   if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
