@@ -13,6 +13,8 @@ test('read-only visibility is restricted to a scanned static top-document locato
  assert.match(slice,/record\.receiver!=='document'/);
  assert.match(slice,/checkUserscriptPageScope\(/);
  assert.match(slice,/inspectReadOnlyElementVisibility\(/);
+ assert.match(slice,/captureDomSummary\(/);
+ assert.match(slice,/qualifyTopDocumentVisibility\(/);
  assert.match(slice,/assertStablePageDocument\(/);
  assert.match(slice,/scanSessions\.assertCurrent\(scanSnapshot\)/);
  assert.doesNotMatch(slice,/Runtime\.evaluate|Input\.dispatch|q\.selector\b|writeFile\(/);
