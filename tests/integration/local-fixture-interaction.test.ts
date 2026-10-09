@@ -14,8 +14,9 @@ class FixtureSocket extends EventEmitter{
  readonly mark:boolean;
  readonly matchedNodes:readonly number[];
  readonly replacedAfterClick:boolean;
+ readonly preMarked:boolean;
  private attrs=0;
- constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
@@ -24,7 +25,7 @@ class FixtureSocket extends EventEmitter{
   if(m.method==='DOM.getDocument')result={root:{nodeId:1}};
   else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.matchedNodes};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
-    (this.disabled?['disabled','']:['id','fixture-safe-click']):
+    (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','data-usshm-v2-fixture','yes']:['id','fixture-safe-click'])):
     (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'data-usshm-v2-fixture','yes']:['id','fixture-safe-click'])};
   else if(m.method==='DOM.getBoxModel')result={model:{content:[20,20,120,20,120,70,20,70]}};
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:m.id,result})}));
@@ -107,4 +108,12 @@ test('fixture cannot certify a marked replacement button after the synthetic cli
   confirm:async()=>identity,socketFactory:()=>new FixtureSocket(false,true,[42],true)});
  assert.equal(result.observed,false);
  assert.equal(result.productionEligible,false);
+});
+
+test('a success marker already present before the click cannot certify a new interaction',async()=>{
+ let socket!:FixtureSocket;
+ await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+  confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,[42],false,true);return socket;}}),
+  /preexisting|already|marker|fixture/i);
+ assert.ok(!socket.methods.some(m=>m.startsWith('Input.')));
 });
