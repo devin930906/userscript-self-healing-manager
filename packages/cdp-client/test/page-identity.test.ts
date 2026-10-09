@@ -20,7 +20,7 @@ const page={type:'page',id:'alpha',url:'https://example.test/path?x=1',webSocket
 test('checks actual top-frame URL using read-only Page.getFrameTree, not stale /json/list identity',async()=>{
  const socket=new FakeSocket(page.url);
  const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
- assert.deepEqual(result,{targetId:'alpha',confirmedUrl:page.url});
+ assert.deepEqual(result,{targetId:'alpha',confirmedUrl:page.url,frameId:'frame1'});
  assert.deepEqual(socket.sent.map(x=>x.method),['Page.getFrameTree']);
 });
 
