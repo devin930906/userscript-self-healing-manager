@@ -133,7 +133,7 @@ export function isWindowsX64Pe(buffer){
  if(offset<0x40||offset+6>buffer.length)return false;
  return buffer.readUInt32LE(offset)===0x00004550&&
   buffer.readUInt16LE(offset+4)===0x8664&&
-  offset+24<=buffer.length&&buffer.readUInt16LE(offset+20)>=2&&
+  offset+26<=buffer.length&&buffer.readUInt16LE(offset+20)>=2&&
   buffer.readUInt16LE(offset+24)===0x20b;
 }
 
