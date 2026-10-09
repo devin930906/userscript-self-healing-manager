@@ -102,3 +102,14 @@ test('release ZIP forbids files masquerading as ancestor directories',()=>{
   assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries}),/collid|duplicate|path|ZIP/i);
  }
 });
+
+test('Windows release ZIP rejects bidirectional display spoofing and C1 control paths',()=>{
+ for(const entry of [
+  'resources/evil\u202Eexe.txt',
+  'resources/\u2066spoof\u2069.dll',
+  'resources/hidden\u0085name.dll',
+ ]){
+  assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries:[...good.zipEntries,entry]}),
+   /unsafe|ZIP|path|name/i);
+ }
+});
