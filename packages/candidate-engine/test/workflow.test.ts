@@ -170,7 +170,7 @@ test('candidate verification keeps browser probe fanout bounded',async()=>{
  let calls=0;
  const budget={...deps,probe:async(inputs:readonly typeof locator[])=>{
   calls++;
-  assert.ok(inputs.length<=100,'candidate probe budget must never exceed 100');
+  assert.ok(inputs.length<=10,'candidate probe budget must respect ranking maximum of 10');
   return deps.probe(inputs);
  }};
  const result=await suggestCandidateRepairs({target,locator,deps:budget});
