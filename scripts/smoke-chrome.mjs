@@ -45,7 +45,7 @@ if(!executable)throw new Error('Chrome is not installed in the Windows runner; c
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
+<button id="disabled-demo" disabled>Disabled</button><button id="aria-disabled-demo" aria-disabled="true">ARIA disabled</button><input id="readonly-demo" readonly value="synthetic"><div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
  const shadowButton=document.createElement('span');
@@ -271,6 +271,26 @@ try{
  assert.equal(visibility.interactionVerified,false);
  assert.equal(visibility.V2,'blocked');
  assert.equal(visibility.V4,'not-configured');
+
+ // Actual Chrome must report visible-but-disabled controls as blockers,
+ // without executing a click or claiming real V2 interaction proof.
+ for(const [selector,blocker] of [
+  ['#disabled-demo','disabled-attribute'],
+  ['#aria-disabled-demo','aria-disabled'],
+  ['#readonly-demo','readonly-attribute'],
+  ['#heal-button','none-detected'],
+ ]){
+  const control=await inspectReadOnlyElementVisibility(selected,{
+   method:'querySelector',expression:selector,runtimeRequired:false,
+  });
+  assert.equal(control.status,'potentially-visible','direct disabled flags do not imply hidden layout: '+selector);
+  assert.equal(control.controlBlocker,blocker,'Chrome CDP direct-attribute evidence for '+selector);
+  assert.equal(control.interactionVerified,false);
+  assert.equal(control.V2,'blocked');
+  assert.equal(control.V3,'not-configured');
+  assert.equal(control.V4,'not-configured');
+ }
+
 
  const uniqueContract=await runReadOnlyDomContract({
   approved:true,target:selected,caseId:'SYNTHETIC:heal-button:unique',
