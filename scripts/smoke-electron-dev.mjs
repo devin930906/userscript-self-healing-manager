@@ -16,7 +16,7 @@ await access(resolve('dist','index.html'));
 await access(resolve('dist','main.cjs'));
 const root=await mkdtemp(join(tmpdir(),'usshm-electron-gui-'));
 const roaming=join(root,'Roaming'),local=join(root,'Local');
-let appProcess,stderr='';
+let appProcess,secondInstance,stderr='';
 try{
  await mkdir(roaming,{recursive:true});await mkdir(local,{recursive:true});
  const env={...process.env,APPDATA:roaming,LOCALAPPDATA:local,
@@ -61,11 +61,26 @@ try{
  }
  assert.ok(seenDb,'Electron did not initialize portable Data/registry.sqlite');
  assert.ok(seenRenderer,'Electron did not open the packaged React renderer file://dist/index.html');
- console.log('PASS real Windows Electron: isolated portable Data/registry.sqlite and live file:// renderer loaded (no installers).');
+ // Real duplicate-process verification: lock ownership must be established by
+ // the running Windows Electron application, not just a static code check.
+ secondInstance=spawn(exe,['.','--disable-gpu'],{
+  cwd:process.cwd(),env,windowsHide:true,stdio:['ignore','ignore','pipe'],
+ });
+ let secondExitStatus=null,secondLaunchError=null;
+ secondInstance.on('exit',(code,signal)=>{secondExitStatus={code,signal};});
+ secondInstance.on('error',error=>{secondLaunchError=error;});
+ for(let i=0;i<80&&secondExitStatus===null&&!secondLaunchError;i++)await sleep(100);
+ if(secondLaunchError)throw secondLaunchError;
+ const secondExited=secondExitStatus!==null;
+ assert.ok(secondExited,'Duplicate Electron instance did not exit; SQLite could have two writers');
+ assert.equal(exitStatus,null,'Primary Electron instance quit when second instance launched');
+ console.log('PASS real Windows Electron: isolated SQLite + live React GUI + duplicate-launch protection (no installers).');
 }catch(error){
  console.error('FAIL Electron dev startup:',error,stderr);
  process.exitCode=1;
 }finally{
+ if(secondInstance?.pid)
+  spawnSync('taskkill',['/PID',String(secondInstance.pid),'/T','/F'],{stdio:'ignore',timeout:15000});
  if(appProcess?.pid)
   spawnSync('taskkill',['/PID',String(appProcess.pid),'/T','/F'],{stdio:'ignore',timeout:15000});
  await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:300}).catch(()=>{});
