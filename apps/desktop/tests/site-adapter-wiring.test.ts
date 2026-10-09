@@ -34,3 +34,14 @@ test('SiteAdapter preload uses named operations and UI separates preview from co
  assert.match(ui,/window\.ussm\.previewSiteAdapterImport\(\)/);
  assert.match(ui,/window\.ussm\.approveSiteAdapterImport\(/);
 });
+
+test('SiteAdapter preview cancellation has a narrow main IPC route and a real UI action',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(main,/ipcMain\.handle\('usshm:site-adapter-import-discard'/);
+ assert.match(main,/adapters\.discardPreview\(/);
+ assert.match(preload,/discardSiteAdapterPreview:/);
+ assert.match(ui,/window\.ussm\.discardSiteAdapterPreview\(/);
+ assert.match(ui,/取消预览/);
+});
