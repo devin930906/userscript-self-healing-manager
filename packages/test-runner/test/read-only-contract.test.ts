@@ -36,7 +36,7 @@ test('unique DOM contract requires two stable one-node observations, and never c
  assert.equal(tools.counts().waits,1);
 });
 test('exists contract allows multiple matches; unique contract must reject same evidence',async()=>{
- const many=[sample('ambiguous',3,'querySelectorAll'),sample('ambiguous',3,'querySelectorAll')];
+ const many=[sample('found',3,'querySelectorAll'),sample('found',3,'querySelectorAll')];
  const exists=await runReadOnlyDomContract({...request('exists','querySelectorAll'),deps:deps(many)});
  assert.equal(exists.status,'passed');
  assert.equal(exists.matchCount,3);
@@ -142,4 +142,19 @@ test('exists contract stays count-based and never claims stable target identity'
  assert.equal(result.status,'passed');
  assert.equal(result.expectation,'exists');
  assert.equal(result.functionalVerified,false);
+});
+
+/** DOM.querySelectorAll, className and name are collection APIs. The real
+ * CDP probe calls DOM.querySelectorAll for each and returns status=found
+ * for ANY positive match count. "ambiguous" is a contradictory wire reply. */
+test('contradictory collection status cannot produce a passing V1 DOM contract',async()=>{
+ for(const method of ['querySelectorAll','getElementsByName','getElementsByClassName']){
+  for(const count of [1,3]){
+   const evidence=sample('ambiguous',count,method);
+   const verdict=await runReadOnlyDomContract({...request('exists',method),deps:deps([evidence,evidence])});
+   assert.equal(verdict.status,'needs-review',method+' count='+count);
+   assert.equal(verdict.matchCount,null);
+   assert.equal(verdict.functionalVerified,false);
+  }
+ }
 });
