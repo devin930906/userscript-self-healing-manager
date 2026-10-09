@@ -176,6 +176,16 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 最新 [Windows Development CI #37959261383](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37959261383) 针对源码 SHA `5cc4e90e55bdb21075ba8fe2dcb200b3f7e93a63` 显示 **538/538 tests PASS**、TypeScript、Electron build、Windows GUI/SQLite 与真实 Chrome CDP smoke 全 PASS。完整 TDD RED/GREEN 记录见 [Native 开发账本](docs/development/native-continuation-2026-10-08.md)。这**不代表**最终 Stable 发版资格已经满足。
 
+
+## 本地功能测试白名单、报告安全导出与 Electron 权限（2026-10-10）
+
+- **真实脚本绝不通过测试工具执行**：`scripts/local-fixture-behavior.ts` 是独立 CI/测试专用入口，仅对一次性本地 Chrome `127.0.0.1/fixture` 使用受限制的 `Runtime.evaluate`，当前采用 **完整脚本源码白名单**（五个预定义合成变体），而非只看 `@name`/Userscript 头部。任何额外 `eval/fetch/@require` 代码、非白名单 selector 或第三方脚本都在连接 CDP 之前拒绝。该工具**没有**在 Electron Main/Preload/Renderer 中对用户开放。
+- **测试文档身份不可漂移**：此隔离测试在运行前后验证 Chrome 主框架 `frameId`、`loaderId` 与完整 URL；同 URL 重载也会拒绝报告合成成功。合成子 iframe 的变化只代表 fixture 自身行为，仍不能证明真实 Tampermonkey V4。
+- **静态与 DOM 报告不再直接截断文件**：通过系统保存对话框选定新 `.json` 或 `.md` 后，先同目录独占暂存、有界分块写、同步到磁盘并 SHA-256 双重校验，再使用不可覆盖的硬链接发布完整文件。磁盘满/竞争者已经创建同名目标/文件系统不支持安全硬链接时明确报错，不覆盖旧文件。静态扫描结果在打开对话框期间若发生切换，导出旧报告会被拒绝。为避免误删，出现异常遗留的隐藏暂存文件不会作为旧稿随意清理。
+- **桌面 IPC 精确来源**：全部受保护 IPC 除检查发送者属于主窗口/mainFrame 外，还要求 sender 与 frame URL 都与本程序真实加载的 `index.html` **完全相等**，不再宽泛信任任意 `file://` 页面或本地开发站点。
+
+[最新 Windows Development CI #37961511923](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37961511923) 在 `dc3a79a` 上 **548/548 tests PASS**，严格 TypeScript、Electron build、Windows GUI/SQLite、真实 Chrome CDP 冒烟均成功；详见 [Native 开发账本](docs/development/native-continuation-2026-10-08.md)。**这是开发版安全测试，非真实 Tampermonkey/GM_*、Win10+Chrome155 portable 或正式三种安装包的 Stable 验收。**
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
