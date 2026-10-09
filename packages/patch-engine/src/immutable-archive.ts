@@ -1,6 +1,6 @@
-import {createHash} from 'node:crypto';
-import {isAbsolute} from 'node:path';
-import {open,lstat,unlink,type FileHandle} from 'node:fs/promises';
+import {createHash,randomUUID} from 'node:crypto';
+import {basename,dirname,isAbsolute,join} from 'node:path';
+import {open,link,lstat,unlink,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 const MAX_ARCHIVE_BYTES=512*1024;
@@ -9,41 +9,41 @@ const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex'
 type ChunkWriter=(handle:FileHandle,chunk:Uint8Array,position:number)=>Promise<number>;
 
 /**
- * Write an immutable, content-addressed managed snapshot without overwriting
- * another writer's bytes. Successful writes are flushed before activation.
- * A recoverable write error removes only the file created by this attempt.
+ * Stage and fsync full content before publishing an immutable archive path.
+ * A same-directory hard link atomically introduces the final name *without*
+ * replacing another writer's archive. A crashed or failed staging write leaves
+ * no incomplete final archive; orphan staging names are ignored by history.
  *
- * Limits: This protects ordinary I/O failures, NOT power loss mid-write or a
- * malicious concurrent process replacing the archive pathname. A separate
- * verified recovery gate remains mandatory on every read.
+ * Requires hard-link support on the managed filesystem. In particular, never
+ * fall back to unsafe rename/copy over an existing immutable revision. This
+ * is not a guarantee against malicious cross-process directory modification
+ * or sudden hardware/storage-controller failures.
  */
 export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
  archivePath:string;
  bytes:Uint8Array;
- /** Dependency injection for deterministic disk-full and short-write tests. */
+ /** Deterministic disk-full/short-write injection for recovery tests. */
  writeChunk?:ChunkWriter;
 }):Promise<void>{
  if(typeof archivePath!=='string'||!isAbsolute(archivePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
   throw new Error('Invalid immutable archive path or byte budget');
  const expectedHash=digest(bytes);
- const verifyExisting=async()=>{
-  const info=await lstat(archivePath);
+ const verify=async(path:string)=>{
+  const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink())
    throw new Error('Immutable archive path is a symlink or non-regular file');
-  const current=await readPinnedRegularFile(archivePath,{maxBytes:MAX_ARCHIVE_BYTES,expected:info});
+  const current=await readPinnedRegularFile(path,{maxBytes:MAX_ARCHIVE_BYTES,expected:info});
   if(digest(current)!==expectedHash)
    throw new Error('Immutable archive hash conflict');
  };
- let handle:FileHandle;
- try{handle=await open(archivePath,'wx',0o600);}
- catch(error){
-  if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
-  await verifyExisting();
-  return;
- }
+ // Neither the approved original nor the patched revision becomes addressable
+ // by its SHA-256 filename until all the content is flushed and re-read.
+ const staging=join(dirname(archivePath),'.'+basename(archivePath)+'.staging-'+randomUUID()+'.tmp');
+ let handle:FileHandle|undefined;
  let failure:unknown;
  try{
+  handle=await open(staging,'wx',0o600);
   const writer:ChunkWriter=writeChunk??(async(file,chunk,position)=>{
    const {bytesWritten}=await file.write(chunk,0,chunk.length,position);
    return bytesWritten;
@@ -57,24 +57,33 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
    position+=written;
   }
   await handle.sync();
- }catch(error){failure=error;}
- try{await handle.close();}
- catch(error){failure??=error;}
- const cleanupCreated=async(error:unknown):Promise<never>=>{
-  // Only this operation created the archive; never unlink on EEXIST.
-  // The pathname is local-only and the application holds its script write
-  // lock; another process replacing it remains an unsupported race.
-  try{await unlink(archivePath);}
-  catch(cleanupError){
-   if((cleanupError as NodeJS.ErrnoException).code!=='ENOENT')
-    throw new AggregateError([error,cleanupError],'Immutable archive write and cleanup both failed');
+  await handle.close();
+  handle=undefined;
+  await verify(staging);
+  try{
+   // link(2) fails with EEXIST instead of overwriting another publisher;
+   // the linked bytes were already synced and validated above.
+   await link(staging,archivePath);
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code==='EEXIST'){
+    await verify(archivePath);
+   }else if(['ENOTSUP','EOPNOTSUPP','EPERM','EXDEV'].includes(
+     (error as NodeJS.ErrnoException).code??'')){
+    throw new Error('Managed data filesystem cannot atomically publish an immutable archive (hard links required)',{cause:error});
+   }else throw error;
   }
-  throw error;
- };
- if(failure!==undefined)await cleanupCreated(failure);
- // Trust neither successful I/O nor a content-addressed filename alone.
- // A corrupted read-back is another failed write, not a published archive.
- try{await verifyExisting();}
- catch(error){await cleanupCreated(error);}
-
+  // Never trust a successful link or EEXIST alone.
+  await verify(archivePath);
+ }catch(error){failure=error;}
+ if(handle){
+  try{await handle.close();}catch(error){failure??=error;}
+ }
+ try{await unlink(staging);}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT'){
+   if(failure!==undefined)throw new AggregateError([failure,error],'Immutable staging cleanup failed after write error');
+   throw error;
+  }
+ }
+ if(failure!==undefined)throw failure;
 }
