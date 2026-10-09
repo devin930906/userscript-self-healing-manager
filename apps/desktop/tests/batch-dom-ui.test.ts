@@ -43,3 +43,8 @@ test('batch UI provides pause, resume and cancellation that releases a paused wa
  assert.match(ui,/batchPauseGate\.current\?\.cancel\(\)/);
  assert.match(ui,/setBatchPaused\(false\)/);
 });
+test('UI allows only one automatic retry for transient read-only CDP transport errors',()=>{
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(ui,/retryTransportFailures:1/);
+ assert.match(ui,/临时.*重试一次/);
+});
