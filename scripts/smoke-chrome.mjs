@@ -30,6 +30,7 @@ import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
+import {runIsolatedFixtureInteraction} from './local-fixture-interaction.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
 const candidates=[
@@ -45,8 +46,12 @@ if(!executable)throw new Error('Chrome is not installed in the Windows runner; c
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
+<button id="fixture-safe-click" type="button">Safe synthetic interaction</button>
 <button id="disabled-demo" disabled>Disabled</button><button id="aria-disabled-demo" aria-disabled="true">ARIA disabled</button><input id="readonly-demo" readonly value="synthetic"><div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
+ document.getElementById('fixture-safe-click').addEventListener('click',event=>{
+  event.currentTarget.setAttribute('data-usshm-v2-fixture','yes');
+ });
  const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
  const shadowButton=document.createElement('span');
  shadowButton.id='shadow-only';
@@ -124,6 +129,15 @@ try{
  assert.ok(summary.nodeCount>0,'must capture real DOM nodes');
  assert.ok(summary.documentCount>=1);
  assert.ok(summary.authorShadowTreeNodes>=2,'real Chrome must expose both open and closed author Shadow Trees in DOMSnapshot');
+ // This isolated fixture is the ONLY CDP Input target in our suite. Verify a
+ // real browser click and observable local side effect without running scripts
+ // from users, without arbitrary JS injection, and without elevating app V2/V3/V4.
+ const syntheticInteraction=await runIsolatedFixtureInteraction({
+  approved:true,target:selected,fixtureUrl,
+ });
+ assert.equal(syntheticInteraction.validationLevel,'synthetic-fixture-interaction');
+ assert.equal(syntheticInteraction.observed,true,'real Chrome must dispatch safe input on local fixture');
+ assert.equal(syntheticInteraction.productionEligible,false);
  const result=await probePageLocators(selected,[
   {method:'querySelector',expression:'#heal-button',runtimeRequired:false},
   {method:'getElementById',expression:'heal-button',runtimeRequired:false},
