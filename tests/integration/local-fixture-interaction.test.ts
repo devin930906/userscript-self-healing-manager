@@ -27,7 +27,7 @@ class FixtureSocket extends EventEmitter{
   else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.matchedNodes};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
     (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])):
-    (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'data-usshm-v2-fixture','yes']:['id','fixture-safe-click'])};
+    (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])};
   else if(m.method==='DOM.getBoxModel')result={model:{content:[20,20,120,20,120,70,20,70]}};
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:m.id,result})}));
  }
