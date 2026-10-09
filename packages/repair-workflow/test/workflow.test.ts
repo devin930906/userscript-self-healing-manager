@@ -141,7 +141,8 @@ test('stale proposal made before first activation cannot silently replace a newe
  const current=join(managedRoot,'managed','proposal-conflict','current.user.js');
  const approvedContent=await readFile(current,'utf8');
  assert.match(approvedContent,/#first-new/);
- await assert.rejects(flow.apply({proposalId:staleSecond.proposalId,approved:true}),/stale|changed|active|revision|conflict/i);
+ assert.equal(flow.inspectPending(staleSecond.proposalId),null,'successful activation revokes sibling previews');
+ await assert.rejects(flow.apply({proposalId:staleSecond.proposalId,approved:true}),/stale|changed|active|revision|conflict|not found|already applied/i);
  assert.equal(await readFile(current,'utf8'),approvedContent,'an old preview must not discard newer approved work');
  assert.equal(await readFile(sourcePath,'utf8'),original);
  const fresh=await flow.propose({sourcePath,scriptId:'proposal-conflict',oldSelector:'#second-old',newSelector:'#second-new'});
