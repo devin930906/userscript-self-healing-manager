@@ -202,7 +202,7 @@ async function bootstrap():Promise<void>{
    locator:{method:record.method,expression:record.expression,runtimeRequired:false},
    adapter,roleId:q.roleId,observedStateId:q.declaredStateId,
    deps:{
-    probe:locators=>probePageLocators(selected,locators),
+    probe:locators=>probePageLocators(selected,locators,{includeNodeFingerprints:true}),
     capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected),
    },
   });
@@ -514,7 +514,7 @@ async function bootstrap():Promise<void>{
   const locator={method:record.method,expression:record.expression,runtimeRequired:record.runtimeRequired};
   const startingDocument=await confirmPageIdentity(selected);
   const candidates=await suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
-   probe:(locators)=>probePageLocators(selected,locators),
+   probe:(locators)=>probePageLocators(selected,locators,{includeNodeFingerprints:true}),
    capture:()=>captureCandidateNodes(selected),confirm:()=>confirmPageIdentity(selected),
   }});
   assertStablePageDocument(startingDocument,await confirmPageIdentity(selected));
@@ -542,7 +542,7 @@ async function bootstrap():Promise<void>{
    runtimeRequired:record.runtimeRequired||record.receiver!=='document',
   }));
   const startingDocument=await confirmPageIdentity(selected);
-  const evidence=await probePageLocators(selected,locators);
+  const evidence=await probePageLocators(selected,locators,{includeNodeFingerprints:true});
   const suggestions=await suggestMissingCandidatesBulk({
    target:{id:selected.id,url:selected.url},locators,checks:evidence.checks,
    evidenceIdentity:{targetId:evidence.targetId,url:evidence.url},offset:q.offset,
@@ -592,7 +592,7 @@ async function bootstrap():Promise<void>{
     confirm:()=>confirmPageIdentity(selected),
     discover:()=>suggestCandidateRepairs({target:{id:selected.id,url:selected.url},locator,deps:{
      confirm:()=>confirmPageIdentity(selected),
-     probe:locators=>probePageLocators(selected,locators),
+     probe:locators=>probePageLocators(selected,locators,{includeNodeFingerprints:true}),
      capture:()=>captureCandidateNodes(selected),
     }}),
     verifySource,
