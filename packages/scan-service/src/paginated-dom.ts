@@ -23,8 +23,11 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
     !page.pageUrl||!/^https?:\/\//.test(page.pageUrl)||
     pageUrl!==null&&page.pageUrl!==pageUrl)
   throw new Error('CDP page identity or URL changed during paginated diagnosis');
- if(page.pageDocumentToken!==undefined&&!/^[0-9a-f]{64}$/.test(page.pageDocumentToken))
-  throw new Error('Invalid CDP page document identity token');
+ // The producer must pin the main Frame and Loader on EVERY page. When
+ // the first page omits a token, comparing only URL makes same-URL reloads
+ // undetectable, even across 25-script pagination boundaries.
+ if(typeof page.pageDocumentToken!=='string'||!/^[0-9a-f]{64}$/.test(page.pageDocumentToken))
+  throw new Error('Missing or invalid CDP page document identity token');
  if(offset>0&&(page.pageDocumentToken??null)!==pageDocumentToken)
   throw new Error('CDP page document identity changed during paginated diagnosis (same-URL reload)');
  if(page.startIndex!==offset||page.totalItems!==count||page.items.length!==count||
