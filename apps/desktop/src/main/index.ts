@@ -115,6 +115,12 @@ async function bootstrap():Promise<void>{
    throw new Error('Explicit SiteAdapter import approval required');
   return adapters.approveImport({previewId:q.previewId,approved:true});
  });
+ ipcMain.handle('usshm:site-adapter-import-discard',(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {previewId?:unknown}|null;
+  if(!q||typeof q.previewId!=='string')throw new Error('Invalid SiteAdapter preview cancellation');
+  return {discarded:adapters.discardPreview({previewId:q.previewId})};
+ });
  ipcMain.handle('usshm:pick-chrome',async event=>{assertSender(event);
   const pick=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],filters:[{name:'Chrome executable',extensions:['exe']}]});
   if(pick.canceled)return approvedChromePath;
