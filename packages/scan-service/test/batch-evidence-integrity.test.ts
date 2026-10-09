@@ -86,3 +86,23 @@ test('internally consistent found, missing, and ambiguous observations retain th
  assert.equal(ambiguous.items[0]?.status,'needs-review');
  assert.equal(ambiguous.items[0]?.verification?.V1,'blocked');
 });
+
+test('collection APIs can correctly report multiple elements without a fabricated unique-match requirement',async()=>{
+ const members=[{
+  path:'collection.user.js',scriptId:'collection',status:'parsed',
+  analysis:{
+   metadata:{match:['https://fixture.example.test/*'],include:[],raw:{}},
+   selectorRecords:[{method:'querySelectorAll',expression:'.card',receiver:'document',runtimeRequired:false}],
+  },
+ }] as any;
+ const result=await diagnoseScriptsOnPage({
+  items:members,target:page,consent:true,deps:{
+   confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'fixed'}),
+   probe:async()=>({targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+    checks:[{method:'querySelectorAll',expression:'.card',status:'found' as const,matchCount:3}]}),
+  },
+ });
+ assert.equal(result.items[0]?.status,'dom-present');
+ assert.equal(result.items[0]?.verification?.V1,'passed');
+ assert.equal(result.items[0]?.verification?.V2,'blocked');
+});
