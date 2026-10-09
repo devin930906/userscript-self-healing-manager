@@ -18,6 +18,11 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
  try{text=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);}
  catch{throw new Error('Source encoding is not valid UTF-8; refusing patch');}
  const file=ts.createSourceFile('script.user.js',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+ // Parsing can recover and still find a querySelector() call inside broken
+ // JavaScript. Reject pre-existing syntax errors instead of showing a patch
+ // preview that would mislead the user into thinking the script can execute.
+ const parseErrors=(file as ts.SourceFile&{parseDiagnostics?:readonly ts.Diagnostic[]}).parseDiagnostics;
+ if(parseErrors?.length)throw new Error('Userscript JavaScript syntax is invalid; refusing selector patch');
  const matches:ts.StringLiteralLike[]=[];
  function visit(node:ts.Node):void{
   if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&ts.isIdentifier(node.expression.name)&&['querySelector','querySelectorAll','closest','matches','getElementById','getElementsByName','getElementsByClassName'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])&&node.arguments[0].text===oldSelector){
