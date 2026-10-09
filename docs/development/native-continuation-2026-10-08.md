@@ -315,3 +315,12 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 
 - **不进入开放或封闭的 ShadowRoot 执行选择器修复，不操作跨源 iframe，不验证事件/GM_*/真实扩展功能**。`needs-review` 是保守不确定性说明而非成功修复。
 - 仍保持 `feat/v01-continuation` 开发分支 PR #2 为 Draft，不生成阶段性 Setup / Portable / ZIP 预览，不合并 main，不发布 Stable。Phase 7~12 与 RG-01…09 继续开放。
+
+## 2026-10-09 · V0–V4 验证等级防误报与 Chrome 启动稳定性
+
+- 新增 `packages/scan-service/src/verification-levels.ts`，给 `parsed/parse-error/unreadable/skipped` 和 read-only CDP DOM 证据生成保守的 V0–V4 状态矩阵。V1 的 `passed` 仅在 V0 parsed、检查量>0、全部定位器实际 DOM 匹配、计数一致且没有未确认节点时允许；top-document 缺失仅可标记 V1 failed，**不得自动推导为 V3 功能失败**。V2 永远 blocked，V3/V4 在没有可靠真实验证流程时始终 not-configured。
+- JSON 静态报告 `schemaVersion` 从 1 递增到 2，逐脚本导出 `verification` 对象；Markdown 增加 V0–V4 五列。历史格式 v1 仍能由用户自行保留（本版本没有内建 v1->v2 导入程序）；若已有外部脚本消费该 JSON 需按 v2 结构二次适配。原始 `.user.js` 文件和用户扩展储存未被修改。
+- 批量 CDP 诊断的每行新增证据等级字段，桌面表格直接展示 V0/V1/V2/V3/V4；GUI 不展示没有发生过的 manager、GM_* 和业务功能通过状态。
+- 已添加状态矩阵、静态导出和批量 DOM 凭证的自动回归，作为 FR-024 的初始闭环。**尚未**提供安全 V2 交互/可见性实验、命名 V3 功能契约或真实 V4 Tampermonkey manager bridge，因此 FR-024 全面验收仍未通过。
+- `scripts/smoke-chrome.mjs` 对 GitHub Windows runner 的随机冷启动耗时延长 CDP 握手预算，并在失败时报告子进程异常、页面数量、握手失败原因，不降低任何真实 Frame/Loader 验证门槛。一次 Windows CI [#37891196969](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37891196969) 证明 **241/241 单测、TypeScript、Electron 构建与 GUI smoke 通过**，但隔离 Chrome 首次未暴露目标（启动超时），故该运行整体标为 FAILURE；不能伪装为 Chrome 验证已通过。修复后的最终状态须以下一份 green run 为准。
+- 仍然不触发 `windows-build.yml` 三包中途安装器，不自动合并 PR，不创建 Stable Release。
