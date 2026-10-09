@@ -56,7 +56,7 @@ jobs:
           # The Chrome Windows sandbox cannot load low-integrity helpers from
           # the hosted runner's D:\a\_temp ACLs. Place the verified browser
           # under Program Files, inheriting normal Windows RX permissions.
-          # Never bypass this failure with --no-sandbox.
+          # Never disable the Chrome sandbox merely to make a CI check pass.
           $installRoot = Join-Path $env:ProgramFiles 'USSHM-ChromeForTesting-155'
           New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
           Expand-Archive -LiteralPath $archive -DestinationPath $installRoot -Force
