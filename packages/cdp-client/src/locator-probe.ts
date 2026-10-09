@@ -4,6 +4,20 @@ import type {SocketLike} from './snapshot.ts';
 export interface LiteralLocator {method:string;expression:string;runtimeRequired:boolean}
 export interface LocatorCheck {method:string;expression:string;status:'found'|'missing'|'ambiguous'|'unverified'|'blocked';matchCount:number|null;reason?:string}
 export interface LocatorProbeResult {targetId:string;url:string;validationLevel:'dom-only';checks:LocatorCheck[]}
+/** Bound every untrusted CDP reply before JSON parsing; oversized evidence is inconclusive. */
+const MAX_REPLY_BYTES=1_000_000;
+const MAX_MATCHED_NODES=10_000;
+function validatedNodeCount(nodeIds:unknown):number{
+ if(!Array.isArray(nodeIds))throw new Error('Invalid CDP selector node list');
+ if(nodeIds.length>MAX_MATCHED_NODES)throw new Error('CDP selector match count limit exceeded');
+ const seen=new Set<number>();
+ for(const nodeId of nodeIds){
+  if(!Number.isSafeInteger(nodeId)||nodeId<1||seen.has(nodeId))
+   throw new Error('Invalid or duplicate CDP selector node ID');
+  seen.add(nodeId);
+ }
+ return nodeIds.length;
+}
 function escapeIdentifier(value:string):string {
  return [...value].map((char,index)=>{
   if(/[a-zA-Z_-]/.test(char)||(/[0-9]/.test(char)&&index!==0))return char;
@@ -36,7 +50,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
  if(!locators.some(x=>asCss(x)!==null))return {targetId:target.id,url:target.url,validationLevel:'dom-only',checks};
  const socket=(options.socketFactory??((address:string)=>new WebSocket(address) as unknown as SocketLike))(endpoint);
  return await new Promise<LocatorProbeResult>((resolve,reject)=>{
-  let finished=false,id=0,rootId=0;const pending=new Map<number,number>();
+  let finished=false,id=0,rootId=0,documentReceived=false;const pending=new Map<number,number>();
   const complete=(error?:Error)=>{
    if(finished)return;finished=true;clearTimeout(timer);
    for(const [name,fn] of handlers)socket.removeEventListener(name,fn);
@@ -46,10 +60,16 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
   const onOpen=()=>{try{socket.send(JSON.stringify({id:++id,method:'DOM.getDocument',params:{depth:0,pierce:false}}));}catch(error){complete(error as Error);}};
   const onMessage=(event:{data:unknown})=>{
    try{
-    const message=JSON.parse(String(event.data));if(typeof message.id!=='number'||finished)return;
+    if(typeof event.data!=='string'||event.data.length>MAX_REPLY_BYTES)
+     throw new Error('CDP locator response size limit exceeded');
+    const message=JSON.parse(event.data);
+    if(!Number.isSafeInteger(message.id)||message.id<1||finished)return;
     if(message.id===1){
+     if(documentReceived)throw new Error('Duplicate CDP document root reply');
+     documentReceived=true;
+     if(message.error)throw new Error('CDP document root request rejected');
      rootId=message.result?.root?.nodeId;
-     if(!Number.isInteger(rootId)||rootId<1)throw new Error('Invalid CDP document root');
+     if(!Number.isSafeInteger(rootId)||rootId<1)throw new Error('Invalid CDP document root');
      for(let i=0;i<locators.length;i++){
       const css=asCss(locators[i]!);if(css===null)continue;
       const commandId=++id;pending.set(commandId,i);
@@ -59,9 +79,8 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
     }else if(pending.has(message.id)){
      const index=pending.get(message.id)!;pending.delete(message.id);const check=checks[index]!;
      if(message.error){check.status='blocked';check.reason='CSS 选择器无效或目标浏览器拒绝定位';}
-     else if(!Array.isArray(message.result?.nodeIds)){check.status='blocked';check.reason='CDP 返回格式异常';}
      else{
-      const count=message.result.nodeIds.length;check.matchCount=count;
+      const count=validatedNodeCount(message.result?.nodeIds);check.matchCount=count;
       check.status=count===0?'missing':count===1||['querySelectorAll','getElementsByName','getElementsByClassName'].includes(locators[index]!.method)?'found':'ambiguous';
       check.reason=count===0?'当前 document 无匹配节点':count>1?'匹配多个节点，请确认目标':'当前 document 存在匹配节点';
      }
