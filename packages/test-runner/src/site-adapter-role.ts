@@ -37,7 +37,10 @@ function counts(evidence:LocatorProbeResult,target:ChromeTarget,locators:readonl
     !Number.isSafeInteger(c.matchCount)||c.matchCount===null||
     c.matchCount<0||c.matchCount>10000)return null;
   if(c.matchCount===0&&c.status!=='missing')return null;
-  if(c.matchCount>0&&c.status!=='found'&&c.status!=='ambiguous')return null;
+  // Role strategies always probe querySelectorAll. The CDP client reports
+  // any positive collection result as "found", never "ambiguous": accepting
+  // ambiguous with one or more nodes would upgrade contradictory evidence.
+  if(c.matchCount>0&&c.status!=='found')return null;
   // Every matched element needs an independently confirmed backend-node
   // identity. Compare canonical sets because DOM order can change without
   // element replacement. Missing/duplicated/over-budget sets fail closed.
