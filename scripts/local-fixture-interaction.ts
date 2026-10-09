@@ -71,11 +71,15 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
    try{
     if(typeof event.data!=='string'||event.data.length>128000)
      throw new Error('Invalid fixture CDP response size');
-    const m=JSON.parse(event.data);
-    if(m.id!==serial||done)return;
-    if(m.error)throw new Error('Fixture CDP command rejected: '+waiting);
-    if(!m.result||typeof m.result!=='object'||Array.isArray(m.result))
+    const m:unknown=JSON.parse(event.data);
+    if(!m||typeof m!=='object'||Array.isArray(m))
+     throw new Error('Invalid synthetic fixture CDP response envelope');
+    const response=m as {id?:unknown;error?:unknown;result?:unknown};
+    if(response.id!==serial||done)return;
+    if(response.error)throw new Error('Fixture CDP command rejected: '+waiting);
+    if(!response.result||typeof response.result!=='object'||Array.isArray(response.result))
      throw new Error('Invalid synthetic fixture CDP result');
+    const m=response as {result:any};
     switch(waiting){
      case 'DOM.getDocument':
       root=m.result?.root?.nodeId;
