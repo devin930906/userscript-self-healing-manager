@@ -481,3 +481,14 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **影响分析：** `assessSiteAdapterUpgrade` 严格要求同 siteId、递增 semver；比较角色及其关联状态定义，列出被影响的固定版本依赖脚本和交叉回归用例，删除现有依赖角色时 `blocked-removal`，`autoActivateAllowed=false` 始终生效。只做审查计划，不执行兼容层代码动态加载/升级。
 - **修复严谨性：** 首轮测试显示 camelCase 的语义 role ID 被误拒绝，已修正；后续 330 项测试成功但 TypeScript 严格检查指出隐式 any，已修复。最终 [Windows Development CI #37908657021](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37908657021)：**332/332 tests、0 fail、TypeScript、Electron 构建、Windows GUI/SQLite 和真实 Chrome CDP smoke 全通过**；[Node contracts #37908657118](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37908657118) SUCCESS。
 - **Stable 仍有门禁：** 本切片仅 SiteAdapter 的独立、可复用、只读定义级核心，尚未完成 GUI 文件管理、真实站点多框架检测、共享兼容脚本注入、GM_* V4、V3 业务契约、用户 Windows10+便携 Chrome155、RG-01…09。PR #2 保留 Draft；不合并 main、不发布 Stable、不生成中途安装包。
+
+## 2026-10-09 · SiteAdapter GUI：本地 JSON 审查式导入与不可覆盖存储（342 项）
+
+- **产品缺口：** 上一批仅完成 `parseSiteAdapter / resolveSiteAdapterRole / assessSiteAdapterUpgrade / suggestAdapterScopedRepairs`，没有持久 SiteAdapter 文件导入，也没有可供用户查看本地规则的 Electron GUI。现在新增最小的真实管理路径，但没有宣称完整 FR-033/034 及功能修复验收。
+- **RED:** [Node contracts #37909418536](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37909418536) 新增 store 测试时缺少 `site-adapter-library.ts`，验证了尚未实现；[Node contracts #37909620308](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37909620308) 证明 Electron IPC/preload/UI 入口缺失；[Node contracts #37910164611](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37910164611) 证明取消旧预览后临时槽位不释放。
+- **本地持久库：** `packages/candidate-engine/src/site-adapter-library.ts`。导入源只能来自 main 自己启动的操作系统 JSON 文件选择器。普通文件最大 65,536 bytes，验证 UTF-8、严格 Schema、源哈希和文件身份；先生成不可猜测的 previewId，未经 `approved:true` 一律不写入。本地 `Data/site-adapters/{siteId}.json` 使用独占新建 `wx` 并写盘同步，保证已保存站点文件不会被静默覆盖；导入结果不包含原始外部源路径。复核时禁止 symlink/目录、畸形/过长内容和文件名/siteId 失配。
+- **安全升级边界：** 依赖脚本发现尚未完整接入，现阶段拒绝对已有 siteId 升级/覆盖，也不自动加载规则或触发浏览器行为。应用退出后会保留经批准的新定义；单次未批准预览只存在内存，取消时能正确回收并禁止复用。
+- **主进程/预加载：** `usshm:site-adapters`、`usshm:site-adapter-import-preview`、`usshm:site-adapter-import-approve`、`usshm:site-adapter-import-discard` 均检查 IPC sender。renderer 没有来源文件路径参数及未校验规则的任意写盘能力。
+- **GUI：** 新增「版本化站点兼容规则（SiteAdapter）」区域，显示本地已安装定义，使用两阶段预览/确认/取消。清楚标示“仅定义”“未经过真实脚本运行或功能验证”和 V3/V4 未配置。不会直接修改原始用户脚本、Tampermonkey 存储或 Chrome Profile。
+- **最终 GREEN:** [Windows Development CI #37910328861](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37910328861) **342 tests/342 pass/0 fail，TypeScript/Electron、Windows GUI/SQLite、真实 Chrome CDP synthetic smoke 全通过**；[Node contracts #37910328893](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37910328893) SUCCESS。
+- **发行未满足：** SiteAdapter 的 GUI 版本/依赖回滚、实际站点契约/脚本经理 V4、`GM_*` 真机、Windows10+便携 Chrome155、正式三形式发行和 RG-01…09 仍未完成。保持 PR #2 Draft，不中途打包或宣称 Stable。
