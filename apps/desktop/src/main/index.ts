@@ -138,7 +138,9 @@ async function bootstrap():Promise<void>{
   return runSiteAdapterRoleDomCheck({
    approved:true,target:selected,adapter,roleId:q.roleId,declaredStateId:q.declaredStateId,
    deps:{
-    confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+    confirm:confirmPageIdentity,
+    probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+    summarize:captureDomSummary,
     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
    },
   });
