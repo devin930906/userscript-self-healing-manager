@@ -12,3 +12,16 @@ test('Markdown escapes HTML and warns functional verification was not performed'
  const r=serializeStaticReport({...report,items:[{...report.items[0]!,path:'<img onerror=alert(1)>.user.js'}]},'markdown');
  assert.match(r,/未运行网页功能测试/);assert.doesNotMatch(r,/<img/);
 });
+
+test('export explicitly stores every V0-V4 status and never upgrades static data into a live pass',()=>{
+ const json=JSON.parse(serializeStaticReport(report,'json'));
+ assert.equal(json.schemaVersion,2);
+ assert.deepEqual(json.items[0].verification,{
+  V0:'passed',V1:'blocked',V2:'blocked',V3:'not-configured',V4:'not-configured',
+  highestVerified:'V0',functionalVerified:false,managerVerified:false,
+ });
+ const markdown=serializeStaticReport(report,'markdown');
+ assert.match(markdown,/V0/);
+ assert.match(markdown,/V4/);
+ assert.match(markdown,/未配置|not-configured/);
+});
