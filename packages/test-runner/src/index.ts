@@ -36,6 +36,18 @@ function readCount(evidence:LocatorProbeResult,target:ChromeTarget,locator:Liter
     check.matchCount!==null&&check.matchCount>0&&check.matchCount<=5000)return check.matchCount;
  return null;
 }
+/** A unique count does not identify the same element across two CDP sessions.
+ * The opt-in HMAC backendNodeId fingerprint proves single-node continuity
+ * without revealing backend IDs or any private page content. */
+function readUniqueIdentity(evidence:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):string|null{
+ if(evidence.targetId!==target.id||evidence.url!==target.url||
+    evidence.checks.length!==1)return null;
+ const check=evidence.checks[0];
+ if(!check||check.method!==locator.method||check.expression!==locator.expression||
+    check.status!=='found'||check.matchCount!==1)return null;
+ const digest=check.nodeFingerprint;
+ return typeof digest==='string'&&/^[0-9a-f]{64}$/.test(digest)?digest:null;
+}
 /** A named, non-destructive locator-level assertion, never functional userscript validation. */
 export async function runReadOnlyDomContract({approved,target,caseId,locator,expectation,deps}:{
  readonly approved:boolean;
@@ -72,6 +84,7 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
   if((confirmed.subframeCount??0)>0)nestedFramesSeen=true;
  };
  let first:number|null=null;
+ let firstIdentity:string|null=null;
  for(let attempt=1;attempt<=2;attempt++){
   await guard();
   let evidence:LocatorProbeResult|undefined;
@@ -81,8 +94,15 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
   await guard();
   const count=probeError||!evidence?null:readCount(evidence,target,locator);
   if(count===null)return build('needs-review','CDP observation was unavailable or inconsistent',null,attempt as 1|2);
+  // "unique" must prove *the same node* across two independent snapshots.
+  // This is deliberately stronger than the count-only "exists" contract.
+  const identity=expectation==='unique'&&count===1&&evidence?
+   readUniqueIdentity(evidence,target,locator):null;
+  if(expectation==='unique'&&count===1&&!identity)
+   return build('needs-review','Unique DOM node identity was absent or invalid',null,attempt as 1|2);
   if(attempt===1){
    first=count;
+   firstIdentity=identity;
    try{await deps.wait();}
    catch{
     await guard();
@@ -91,6 +111,8 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
    await guard();
   }else{
    if(first!==count)return build('needs-review','DOM match count was unstable between samples',null,2);
+   if(expectation==='unique'&&count===1&&firstIdentity!==identity)
+    return build('needs-review','Unique DOM node identity changed between samples',null,2);
    const passed=expectation==='exists'?count>0:count===1;
    if(!passed&&count===0){
     // A top-document miss is not evidence that a userscript fails when
