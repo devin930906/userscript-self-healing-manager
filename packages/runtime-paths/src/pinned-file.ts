@@ -22,14 +22,24 @@ export async function readPinnedRegularFile(path:string,{
    throw new Error('Unsafe pinned file: symlink or non-regular file');
   if(!Number.isSafeInteger(info.size)||info.size<0||info.size>maxBytes)
    throw new Error('Pinned file size exceeds allowed budget');
-  if(!Number.isSafeInteger(info.ino)||info.ino<=0||
-     !Number.isSafeInteger(info.dev))
+  if(!Number.isSafeInteger(info.ino)||info.ino<0||
+     !Number.isSafeInteger(info.dev)||
+     (info.ino===0&&process.platform!=='win32'))
    throw new Error('Pinned file identity unavailable');
  };
- const same=(left:Stats,right:Stats):boolean=>
-  left.dev===right.dev&&left.ino===right.ino&&
-  left.size===right.size&&left.mtimeMs===right.mtimeMs&&
-  left.ctimeMs===right.ctimeMs;
+ // Node on Windows may report ino=0 for every file. Preserve the open
+ // descriptor as the read authority and use an explicit metadata fallback
+ // (including creation time), not an illusory comparison of zero file IDs.
+ // This reduces path-swap exposure but is not a Win32 native file-ID API.
+ const same=(left:Stats,right:Stats):boolean=>{
+  const stableId=left.ino>0&&right.ino>0;
+  if(!stableId&&process.platform!=='win32')return false;
+  return left.dev===right.dev&&
+   (stableId?left.ino===right.ino:
+    left.ino===0&&right.ino===0&&left.birthtimeMs===right.birthtimeMs)&&
+   left.size===right.size&&left.mode===right.mode&&
+   left.mtimeMs===right.mtimeMs&&left.ctimeMs===right.ctimeMs;
+ };
  validateFile(before);
  if(expected){
   // Node overloads may type a caller lstat result as Stats|BigIntStats.
