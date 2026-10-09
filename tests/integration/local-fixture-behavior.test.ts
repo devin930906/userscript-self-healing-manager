@@ -91,3 +91,23 @@ test('synthetic behavior harness refuses arbitrary JavaScript even when the trus
  }
  assert.equal(opened,0,'rejected source must not even open a CDP execution websocket');
 });
+
+test('same-URL page replacement during synthetic evaluation cannot be labeled functional success',async()=>{
+ let calls=0;
+ await assert.rejects(runIsolatedFixtureBehavior({
+  target,fixtureUrl,source,
+  confirm:async()=>({targetId:target.id,confirmedUrl:fixtureUrl,frameId:'same-frame',
+   loaderId:++calls===1?'original-document':'reloaded-document'}),
+  socketFactory:()=>new FixtureSocket(true),
+ }),/frame|loader|document|navigation|identity/i);
+ assert.equal(calls,2);
+});
+test('fixture executor refuses missing or unbound main-frame document identities before evaluation',async()=>{
+ let opened=0;
+ await assert.rejects(runIsolatedFixtureBehavior({
+  target,fixtureUrl,source,
+  confirm:async()=>({targetId:target.id,confirmedUrl:fixtureUrl}),
+  socketFactory:()=>{opened++;return new FixtureSocket(true);},
+ }),/frame|loader|document|identity/i);
+ assert.equal(opened,0);
+});
