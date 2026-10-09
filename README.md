@@ -42,6 +42,8 @@
 - **Chrome 页面重载证据失效保护（2026-10-09）**：通过只读 `Page.getFrameTree` 校验顶层 Frame ID 与 Loader ID。无法确认 Loader ID 时拒绝使用 DOM 证据；即使网址未变化，页面重新加载后也会拒绝过期候选。25 份/批分页诊断携带哈希化的文档身份指纹，跨批次不混合不同生命周期的 DOM 结果。
 - **本轮自动验证（2026-10-09）**：Windows Development CI [#37888753132](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37888753132) 完成 **225/225 tests PASS、TypeScript、Electron build、真实 GUI/SQLite smoke、Chrome CDP + 合成行为冒烟测试 PASS**。**这仍然不等于真实 Tampermonkey GM_* / V3 / V4 功能通过，也不构成最终 Stable 的发行验收。**
 
+- **Shadow DOM 只读上下文识别（本轮新增）**：Chrome CDP `DOMSnapshot.captureSnapshot` 仅返回有限数量的节点统计，识别作者的 open/closed Shadow Tree 节点并忽略普通浏览器自身的 user-agent Shadow DOM；单脚本 UI、60 秒巡检和批量诊断会将不可信的顶层 `document` 缺失判定降级为「需复核」。`@noframes` 只限制 iframe 运行，不代表可以排除顶层 ShadowRoot。该能力**仅识别上下文风险，不进入 ShadowRoot 执行定位器，也不代表自动修复 Shadow DOM 内脚本**。
+
 **尚未实现：** Tampermonkey 真正注入/GM_* 与 V3/V4 功能回归、DOM iframe/shadow-root 多上下文故障归因、完全自动且可信的语义修复、真实网页 V3/V4 Tampermonkey 功能验收、AI Provider、持久后台健康监控与 Windows 10 真实设备端到端验收。当前开发分支的候选定位器仅支持当前 document 中的 `document.querySelector`、`document.getElementById`、`document.getElementsByName` 和 `document.getElementsByClassName` 静态调用，且需人工确认；候选和只读 DOM 检测还会核对脚本的 `@match` / `@include` 及排除规则，不允许跨站误判。界面中不得把“静态解析完成”称作“脚本已经修复”。
 
 ## Windows 10/11 x64：构建三个格式
