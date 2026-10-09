@@ -6,7 +6,8 @@ import {confirmPageIdentity,assertStablePageDocument} from '../src/page-identity
 class FakeSocket extends EventEmitter {
  readonly sent:Array<{id:number;method:string}>=[];
  private readonly pageUrl:string|null;
- constructor(pageUrl:string|null,private readonly includeLoader=true) {super();this.pageUrl=pageUrl;queueMicrotask(()=>this.emit('open'));}
+ private readonly includeLoader:boolean;
+ constructor(pageUrl:string|null,includeLoader=true) {super();this.pageUrl=pageUrl;this.includeLoader=includeLoader;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,listener:(event:any)=>void){this.on(name,listener);}
  removeEventListener(name:string,listener:(event:any)=>void){this.off(name,listener);}
  send(body:string) {
