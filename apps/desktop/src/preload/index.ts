@@ -34,6 +34,7 @@ const api={
  listSiteAdapters:()=>ipcRenderer.invoke('usshm:site-adapters'),
  previewSiteAdapterImport:()=>ipcRenderer.invoke('usshm:site-adapter-import-preview'),
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-import-approve',input),
+ discardSiteAdapterPreview:(input:{previewId:string})=>ipcRenderer.invoke('usshm:site-adapter-import-discard',input),
  pickChrome:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-chrome'),
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
  launchIsolatedChrome:()=>ipcRenderer.invoke('usshm:launch-isolated-chrome'),
