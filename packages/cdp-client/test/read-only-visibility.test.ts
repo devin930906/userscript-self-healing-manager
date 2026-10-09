@@ -43,7 +43,11 @@ test('CDP read-only visibility samples only safe DOM/CSS methods and never upgra
  assert.ok(s.sent.every(x=>!/^Runtime\.|^Input\.|^DOM\.set|^Page\./.test(x.method)));
 });
 test('hidden style or zero box yields hidden, not successful interactive validation',async()=>{
- for(const s of [socket(styles('none')),socket(styles('block','hidden')),socket(styles('block','visible','0')),socket(styles(),{width:0,height:33})]){
+ // Construct each socket only when a listener is ready: an already-open
+ // test socket cannot be expected to emit a second open event.
+ for(const create of [()=>socket(styles('none')),()=>socket(styles('block','hidden')),
+  ()=>socket(styles('block','visible','0')),()=>socket(styles(),{width:0,height:33})]){
+  const s=create();
   const out=await inspectReadOnlyElementVisibility(target,locator,{socketFactory:()=>s});
   assert.equal(out.status,'hidden');
   assert.equal(out.V2,'blocked');
