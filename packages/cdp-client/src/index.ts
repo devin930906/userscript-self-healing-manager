@@ -4,6 +4,7 @@ import {isAbsolute,win32} from 'node:path';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 import {lstat} from 'node:fs/promises';
 import {validateCdpPageSocket,validateCdpBrowserSocket} from './endpoint.ts';
+import type {SocketLike} from './snapshot.ts';
 
 export interface ChromeTarget {type:string;id:string;url:string;webSocketDebuggerUrl?:string|undefined}
 export interface ChromeStatus {browser:string;protocolVersion:string|null;pages:ChromeTarget[];browserSocket:string|null}
@@ -97,17 +98,72 @@ export async function assertChromeDebuggerPortFree(port:number):Promise<void>{
  }
 }
 
+/**
+ * Prove that the advertised browser WebSocket actually handles a read-only
+ * CDP Browser.getVersion command; /json/version alone is not a WebSocket
+ * handshake. Never expose user-agent, page source or arbitrary CDP commands.
+ */
+export async function verifyBrowserCdpHandshake({
+ endpoint,port=9223,socketFactory,timeoutMs=4000,
+}:{
+ endpoint:string;port?:number;socketFactory?:(url:string)=>SocketLike;timeoutMs?:number;
+}):Promise<string>{
+ const trusted=validateCdpBrowserSocket(endpoint,port);
+ if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
+  throw new Error('Invalid CDP browser handshake timeout');
+ const socket=(socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(trusted);
+ return await new Promise<string>((resolve,reject)=>{
+  let finished=false;
+  const finish=(error?:Error,product?:string)=>{
+   if(finished)return;
+   finished=true;clearTimeout(timer);
+   for(const [event,listener] of handlers)socket.removeEventListener(event,listener);
+   try{socket.close();}catch{}
+   if(error)reject(error);
+   else if(product)resolve(product);
+   else reject(new Error('CDP browser handshake did not confirm a Chrome product'));
+  };
+  const onOpen=()=>{try{socket.send(JSON.stringify({id:1,method:'Browser.getVersion'}));}
+   catch{finish(new Error('CDP browser handshake could not send Browser.getVersion'));}};
+  const onMessage=(event:{data:unknown})=>{
+   try{
+    if(typeof event.data!=='string'||event.data.length>64000)
+     throw new Error('Invalid CDP browser handshake response size');
+    const response=JSON.parse(event.data);
+    if(response.id!==1)return;
+    if(response.error)throw new Error('CDP browser handshake command rejected');
+    const product=response.result?.product;
+    if(typeof product!=='string'||product.length>128||
+       !/^(?:Chrome|Chromium|HeadlessChrome)\/[0-9]+(?:\.[0-9]+)*$/.test(product))
+     throw new Error('Invalid CDP browser product/version response');
+    finish(undefined,product);
+   }catch(error){
+    finish(error instanceof Error?error:new Error('Invalid CDP browser handshake response'));
+   }
+  };
+  const onError=()=>finish(new Error('CDP browser handshake socket error'));
+  const onClose=()=>finish(new Error('CDP browser handshake socket closed'));
+  const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[
+   ['open',onOpen],['message',onMessage],['error',onError],['close',onClose],
+  ];
+  const timer=setTimeout(()=>finish(new Error('CDP browser handshake timeout')),timeoutMs);
+  for(const [event,listener] of handlers)socket.addEventListener(event,listener);
+ });
+}
+
 /** Only a live, authenticated Chrome debugger proves startup. A child-process
  * "spawn" event alone does not: Chrome 136+ can ignore the remote debugging
  * flags for an existing/default profile.
  */
 export async function waitForChromeDebugger({
  port,timeoutMs=15000,pollMs=350,inspect=getChromeStatus,
+ verifySocket=async(endpoint:string,port:number)=>verifyBrowserCdpHandshake({endpoint,port}),
  delay=async(ms:number)=>{await new Promise<void>(resolve=>setTimeout(resolve,ms));},
  hasExited=()=>false,
 }:{
  port:number;timeoutMs?:number;pollMs?:number;
  inspect?:(input:{port:number})=>Promise<ChromeStatus>;
+ verifySocket?:(endpoint:string,port:number)=>Promise<string>;
  delay?:(ms:number)=>Promise<void>;
  hasExited?:()=>boolean;
 }):Promise<ChromeStatus>{
@@ -123,9 +179,11 @@ export async function waitForChromeDebugger({
    const status=await inspect({port});
    if(status&&/^(?:Chrome|Chromium|HeadlessChrome)\//.test(status.browser)&&
       typeof status.browserSocket==='string'&&
-      validateCdpBrowserSocket(status.browserSocket,port)===status.browserSocket)
-    return status;
-   lastError='Invalid Chrome browser identity or browser debugger socket';
+      validateCdpBrowserSocket(status.browserSocket,port)===status.browserSocket){
+    const product=await verifySocket(status.browserSocket,port);
+    if(product===status.browser)return status;
+    lastError='CDP WebSocket browser identity does not match HTTP debugger discovery';
+   }else lastError='Invalid Chrome browser identity or browser debugger socket';
   }catch(error){
    lastError=error instanceof Error?error.message.slice(0,180):'CDP debugger probe failed';
   }
