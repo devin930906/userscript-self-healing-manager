@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,writeFile,rm,symlink,readdir} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,symlink,readdir,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {
@@ -92,4 +92,19 @@ test('corrupt, oversized or malformed profile registry fails closed instead of s
   await assert.rejects(resolveBrowserProfileForLaunch({dataRoot:root,profileId:a.id}),/invalid|missing|unavailable|profile/i);
   await assert.rejects(createBrowserProfile({dataRoot:root,name:'new',executablePath:first}),/corrupt|invalid|unsafe|refus/i);
  }
+}));
+
+test('preexisting registry writer lock blocks mutation without removing the other process lease',async()=>fixture(async(root,first)=>{
+ const created=await createBrowserProfile({dataRoot:root,name:'Baseline',executablePath:first});
+ const lock=join(root,'browser-profiles.json.write-lock');
+ await mkdir(lock);
+ await assert.rejects(createBrowserProfile({dataRoot:root,name:'Concurrent',executablePath:first}),/lock|busy|writer|in progress/i);
+ await assert.rejects(renameBrowserProfile({dataRoot:root,profileId:created.id,name:'Overwrite'}),/lock|busy|writer|in progress/i);
+ await assert.rejects(setDefaultBrowserProfile({dataRoot:root,profileId:created.id}),/lock|busy|writer|in progress/i);
+ await assert.rejects(removeBrowserProfile({dataRoot:root,profileId:created.id,approved:true}),/lock|busy|writer|in progress/i);
+ assert.deepEqual((await readdir(root)).filter(x=>x.endsWith('.write-lock')),['browser-profiles.json.write-lock']);
+ assert.deepEqual((await listBrowserProfiles({dataRoot:root})).map(x=>x.name),['Baseline']);
+ await rm(lock,{recursive:true});
+ await renameBrowserProfile({dataRoot:root,profileId:created.id,name:'NewName'});
+ assert.deepEqual((await listBrowserProfiles({dataRoot:root})).map(x=>x.name),['NewName']);
 }));
