@@ -16,6 +16,18 @@ export interface ReadOnlyVisibilityEvidence {
  readonly V3:'not-configured';
  readonly V4:'not-configured';
 }
+/**
+ * A zero-match in the top document must not be shown as a definitive absence
+ * when iframe/author ShadowRoot targets might exist or snapshot evidence failed.
+ * Only the status is qualified; this cannot manufacture V2/V3/V4 success.
+ */
+export function qualifyTopDocumentVisibility(
+ evidence:ReadOnlyVisibilityEvidence,subframeCount:number,authorShadowTreeNodes:number|null,
+):ReadOnlyVisibilityEvidence{
+ if(evidence.status!=='missing')return evidence;
+ if(subframeCount===0&&authorShadowTreeNodes===0)return evidence;
+ return {...evidence,status:'unknown',matchCount:null};
+}
 const MAX_REPLY_BYTES=300_000;
 const MAX_COMPUTED_STYLES=512;
 const allowStyles=new Set(['display','visibility','opacity','pointer-events']);
