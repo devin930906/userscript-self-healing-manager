@@ -32,14 +32,14 @@ function readCount(evidence:LocatorProbeResult,target:ChromeTarget,locator:Liter
  const check=evidence.checks[0];
  if(!check||check.method!==locator.method||check.expression!==locator.expression)return null;
  if(check.status==='missing'&&check.matchCount===0)return 0;
- if((check.status==='found'||check.status==='ambiguous')&&Number.isSafeInteger(check.matchCount)&&
+ if(check.status==='found'&&Number.isSafeInteger(check.matchCount)&&
     check.matchCount!==null&&check.matchCount>0&&check.matchCount<=5000){
-  // One-element DOM APIs cannot return multiple nodes. Likewise, an
-  // "ambiguous" status with exactly one node is contradictory evidence;
-  // fail closed instead of certifying V1 from an impossible CDP response.
+  // The CDP probe internally uses DOM.querySelectorAll for all supported
+  // locator types. A positive count therefore always has status "found":
+  // "ambiguous" is contradictory evidence, even for collection methods.
+  // A single-element DOM API cannot report two or more matches.
   if((locator.method==='querySelector'||locator.method==='getElementById')&&
      check.matchCount!==1)return null;
-  if(check.status==='ambiguous'&&check.matchCount===1)return null;
   return check.matchCount;
  }
  return null;
