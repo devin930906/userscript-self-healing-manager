@@ -99,7 +99,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
         throw new Error('Preexisting synthetic success marker cannot establish click causality');
        send('DOM.getBoxModel',{nodeId:node});
       }else finish(undefined,attrs.get('id')==='fixture-safe-click'&&attrs.get('type')==='button'&&
-        !attrs.has('disabled')&&attrs.get('aria-disabled')?.toLowerCase()!=='true'&&
+        !attrs.has('disabled')&&['', 'false'].includes(attrs.get('aria-disabled')?.toLowerCase()??'')&&
         attrs.get('data-usshm-v2-fixture')==='yes');
       break;
      }
