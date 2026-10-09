@@ -166,3 +166,34 @@ test('cancellation while waiting to retry prevents the next CDP read',async()=>{
  assert.equal(outcome.cancelled,true);
  assert.equal(outcome.totalItems,0);
 });
+
+test('Electron IPC wraps a transient read-only CDP timeout without losing the one-retry allowance',async()=>{
+ const requests:number[]=[];
+ const batch=await collectPagedDomDiagnosis({
+  total:25,targetId,retryTransportFailures:1,
+  requestPage:async offset=>{
+   requests.push(offset);
+   if(requests.length===1)
+    throw new Error("Error invoking remote method 'usshm:batch-diagnose': Error: CDP page identity timeout");
+   return page(offset,25);
+  },
+  isCancelled:()=>false,onProgress:()=>{},
+ });
+ assert.deepEqual(requests,[0,0]);
+ assert.equal(batch.totalItems,25);
+});
+test('Electron error wrapping never makes arbitrary handlers or identity changes retryable',async()=>{
+ for(const msg of [
+  "Error invoking remote method 'usshm:other': Error: CDP page identity timeout",
+  "Error invoking remote method 'usshm:batch-diagnose': Error: CDP page identity changed during inspection",
+  "Error invoking remote method 'usshm:batch-diagnose': Error: CDP page identity timeout; site refused",
+ ]){
+  let count=0;
+  await assert.rejects(collectPagedDomDiagnosis({
+   total:25,targetId,retryTransportFailures:1,
+   requestPage:async()=>{count++;throw new Error(msg);},
+   isCancelled:()=>false,onProgress:()=>{},
+  }),()=>true);
+  assert.equal(count,1,msg);
+ }
+});
