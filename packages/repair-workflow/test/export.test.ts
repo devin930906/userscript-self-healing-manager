@@ -64,3 +64,10 @@ test('export rejects destination parent symlink resolving inside managed archive
   await assert.rejects(readFile(join(q.managedRoot,'managed','demo','injected.user.js')),{code:'ENOENT'});
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
+
+test('managed export reads current revisions through the pinned descriptor helper, never path-only readFile',async()=>{
+ const {readFile:loadSource}=await import('node:fs/promises');
+ const source=await loadSource(new URL('../src/export.ts',import.meta.url),'utf8');
+ assert.match(source,/readPinnedRegularFile\(currentPath,\s*\{maxBytes:512\*1024,expected:info\}\)/);
+ assert.doesNotMatch(source,/\bawait readFile\(currentPath\)/);
+});
