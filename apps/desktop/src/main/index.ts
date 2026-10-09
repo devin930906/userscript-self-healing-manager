@@ -15,6 +15,7 @@ import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-cli
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
+import {inspectReadOnlyElementVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
@@ -179,6 +180,34 @@ async function bootstrap():Promise<void>{
    journal.failIfCurrent({scanId:q.scanId,targetId:q.targetId,runId:journalRunId});
    throw error;
   }
+ });
+ ipcMain.handle('usshm:read-only-visibility',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit DOM visibility target, static selector and consent required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex as number];
+  if(!item?.analysis||!withinAuthorized(item.path))
+   throw new Error('No authorized static script analysis for visibility check');
+  const record=item.analysis.selectorRecords[q.selectorIndex as number];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('Visibility probe requires an authorized static top-document locator');
+  const cdp=await getChromeStatus({port:9223});
+  const selected=cdp.pages.find(p=>p.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)throw new Error('Selected Chrome target unavailable');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')throw new Error('Script not authorized on this target webpage');
+  const start=await confirmPageIdentity(selected);
+  const observed=await inspectReadOnlyElementVisibility(selected,{
+   method:record.method,expression:record.expression,runtimeRequired:false,
+  });
+  assertStablePageDocument(start,await confirmPageIdentity(selected));
+  scanSessions.assertCurrent(scanSnapshot);
+  return observed;
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
