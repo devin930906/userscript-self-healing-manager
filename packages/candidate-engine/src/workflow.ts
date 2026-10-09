@@ -47,7 +47,7 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  if(!ranked.length)return [];
  // Untrusted ranking inputs must never amplify a single DOM snapshot into an
  // unbounded sequence of browser probes.
- if(ranked.length>100)throw new Error('Candidate verification exceeds safe probe budget');
+ if(ranked.length>10)throw new Error('Candidate verification exceeds ranking limit');
  const confirmation=await deps.probe(ranked.map(candidate=>({method:locator.method,expression:candidate.expression,runtimeRequired:false})));
  ensureIdentity(target,confirmation);
  if(baseline)await confirmStable(baseline);
