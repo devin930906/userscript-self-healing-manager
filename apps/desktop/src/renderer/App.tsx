@@ -31,6 +31,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
  'unarchived-current':'当前受管文件不属于任何有效归档，可能遭到外部修改',
  'damaged-archive':'不可变修订归档校验失败，不能进行自动恢复',
  'write-locked':'受管写入锁存在：可能仍有其他进程正在写入，也可能是崩溃遗留',
+ 'staging-leftover':'检测到未完成的受管写入暂存文件：可能是异常退出遗留，需离线核查；程序不会自动删除',
  unsafe:'受管目录或文件安全验证失败，请保留原始资料排查',
 };
 
