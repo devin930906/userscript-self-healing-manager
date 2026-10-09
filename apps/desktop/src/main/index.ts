@@ -26,6 +26,7 @@ import {readVerifiedManagedLocator} from '../../../../packages/repair-workflow/s
 import {guardAppliedManagedRevision} from '../../../../packages/repair-workflow/src/guarded-v1.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
+import {inspectManagedIntegrity} from '../../../../packages/repair-workflow/src/managed-health.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
@@ -653,6 +654,16 @@ async function bootstrap():Promise<void>{
    throw new Error('Managed current changed during DOM verification');
   scanSessions.assertCurrent(scanSnapshot);
   return {...verdict,revisionHash:locator.revisionHash,validationLevel:'V1-managed-read-only' as const};
+ });
+ ipcMain.handle('usshm:managed-health',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId:string;itemIndex:number}|null;
+  if(!q||typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0)
+   throw new Error('Invalid managed health script index');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  // No arbitrary renderer paths or lock deletion; Main computes the Data root.
+  return inspectManagedIntegrity({managedRoot:dataRoot,scriptId:item.scriptId});
  });
  ipcMain.handle('usshm:managed-revisions',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number}|null;
