@@ -207,3 +207,33 @@ test('duplicate, malformed, missing or partial multi-node fingerprint lists fail
   assert.equal(result.status,'needs-review');
  }
 });
+
+test('explicit top open-shadow role uses dedicated probe and V1 is never promoted to functional proof',async()=>{
+ const shadow=parseSiteAdapter({
+  schemaVersion:1,siteId:'example-app',version:'1.0.0',urlPatterns:['https://example.org/app/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.shadowButton':{contexts:[{stateId:'ready',frame:'top',shadow:'open'}],
+   strategies:[{kind:'css',selector:'#shadow-send',weight:100}],cardinality:{min:1,max:1},assertions:['unique']}},
+  validationCases:['SHADOW_EXISTS'],
+ });
+ let shadowProbes=0;
+ const deps={...makeDeps([0]),probe:async()=>{throw Error('document probe must not be used')},
+  probeOpenShadow:async()=>{shadowProbes++;return status({'#shadow-send':1}) as LocatorProbeResult;}};
+ const got=await runSiteAdapterRoleDomCheck({approved:true,target,adapter:shadow,roleId:'chat.shadowButton',declaredStateId:'ready',deps});
+ assert.equal(got.status,'matched-v1');
+ assert.equal(got.V2,'blocked');assert.equal(got.V3,'not-configured');assert.equal(got.V4,'not-configured');
+ assert.equal(got.functionalVerified,false);
+ assert.equal(shadowProbes,2);
+});
+test('no shadow probe dependency cannot promote an open-shadow role to V1',async()=>{
+ const shadow=parseSiteAdapter({
+  schemaVersion:1,siteId:'example-app',version:'1.0.0',urlPatterns:['https://example.org/app/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.shadowButton':{contexts:[{stateId:'ready',frame:'top',shadow:'open'}],
+   strategies:[{kind:'css',selector:'#shadow-send',weight:100}],cardinality:{min:1,max:1},assertions:['unique']}},
+  validationCases:['SHADOW_EXISTS'],
+ });
+ const got=await runSiteAdapterRoleDomCheck({approved:true,target,adapter:shadow,roleId:'chat.shadowButton',declaredStateId:'ready',deps:makeDeps([1])});
+ assert.equal(got.status,'blocked-context');
+ assert.equal(got.evidenceLevel,'none');
+});
