@@ -99,3 +99,19 @@ test('cancelled SiteAdapter previews release their limited staging slots without
  }
  assert.deepEqual(await lib.list(),[]);
 }));
+
+test('persisted adapter detail can be loaded by validated siteId for consented read-only verification',async()=>fixture(async(dataRoot,source)=>{
+ const lib=createSiteAdapterLibrary({dataRoot});
+ const preview=await lib.previewImport({sourcePath:source});
+ await lib.approveImport({previewId:preview.previewId,approved:true});
+ const entry=(await lib.list())[0]!;
+ assert.deepEqual(entry.roleIds,['chat.sendButton']);
+ assert.deepEqual(entry.stateIds,['ready']);
+ const adapter=await lib.getForInspection({siteId:entry.siteId});
+ assert.equal(adapter.roles['chat.sendButton']?.strategies[0]?.selector,'[data-testid="send-button"]');
+ for(const siteId of ['../secret','__proto__','nonexistent','Example.App'])
+  await assert.rejects(lib.getForInspection({siteId}),/invalid|not found|ENOENT/i);
+ const stored=join(dataRoot,'site-adapters','example-app.json');
+ await writeFile(stored,JSON.stringify({...valid(),siteId:'other-site'}));
+ await assert.rejects(lib.getForInspection({siteId:'example-app'}),/mismatch|identity|site/i);
+}));
