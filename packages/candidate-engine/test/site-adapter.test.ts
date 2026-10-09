@@ -173,3 +173,28 @@ test('scope and validation ordering alone cannot create spurious impacts or bypa
  assert.deepEqual(report.removedScopePatterns,[]);
  assert.deepEqual(report.removedValidationCases,[]);
 });
+
+test('single top-level open ShadowRoot roles resolve to explicit read-only shadow context',()=>{
+ const raw=valid();
+ raw.roles['chat.shadowButton']={
+  contexts:[{stateId:'ready',frame:'top',shadow:'open'}],
+  strategies:[{kind:'css',selector:'#shadow-send',weight:90}],
+  cardinality:{min:1,max:1},assertions:['unique'],
+ };
+ const adapter=parseSiteAdapter(raw);
+ const got=resolveSiteAdapterRole({adapter,pageUrl:'https://example.org/app/inbox',roleId:'chat.shadowButton',observedStateId:'ready'});
+ assert.equal(got.status,'candidate-only');
+ assert.equal(got.rootScope,'open-shadow');
+ assert.deepEqual(got.selectors,['#shadow-send']);
+});
+test('mixed top-document and open-shadow contexts cannot be guessed into a single root',()=>{
+ const raw=valid();
+ raw.roles['chat.shadowButton']={
+  contexts:[{stateId:'ready',frame:'top',shadow:'none'},{stateId:'ready',frame:'top',shadow:'open'}],
+  strategies:[{kind:'css',selector:'#shadow-send',weight:90}],
+  cardinality:{min:1,max:1},assertions:['unique'],
+ };
+ const got=resolveSiteAdapterRole({adapter:parseSiteAdapter(raw),pageUrl:'https://example.org/app/inbox',roleId:'chat.shadowButton',observedStateId:'ready'});
+ assert.equal(got.status,'blocked-context');
+ assert.equal(got.rootScope,null);
+});
