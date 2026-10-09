@@ -44,7 +44,7 @@ test('exists contract allows multiple matches; unique contract must reject same 
  assert.match(unique.reason,/unique|multiple|唯一|multiple/i);
 });
 test('stable missing is a failed DOM-only assertion and does not establish business failure',async()=>{
- const result=await runReadOnlyDomContract({...request(),deps:deps([sample('missing',0),sample('missing',0)])});
+ const result=await runReadOnlyDomContract({...request(),deps:{...deps([sample('missing',0),sample('missing',0)]),summarize:async()=>({targetId:target.id,url:target.url,authorShadowTreeNodes:0})}});
  assert.equal(result.status,'failed');
  assert.equal(result.V3,'not-configured');
 });
@@ -73,4 +73,37 @@ test('invalid permissions, runtime or non-document locators cannot be tested',as
  await assert.rejects(runReadOnlyDomContract({...request(),caseId:'',deps:okay}),/id|case/i);
  await assert.rejects(runReadOnlyDomContract({...request(),locator:{...locator,runtimeRequired:true},deps:okay}),/static|runtime|literal/i);
  await assert.rejects(runReadOnlyDomContract({...request(),locator:{method:'querySelector',expression:'',runtimeRequired:false},deps:okay}),/selector|literal|locator/i);
+});
+
+test('ShadowRoot-only selector is inconclusive in a top-document DOM contract',async()=>{
+ const safe={...deps([sample('missing',0),sample('missing',0)]),
+  summarize:async()=>({targetId:target.id,url:target.url,authorShadowTreeNodes:2})};
+ const result=await runReadOnlyDomContract({...request(),deps:safe});
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.matchCount,null);
+ assert.match(result.reason,/shadow/i);
+});
+test('nested iframe can hide a missing top-document selector, so no definitive failure is allowed',async()=>{
+ const safe={...deps([sample('missing',0),sample('missing',0)]),
+  confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'frame',loaderId:'a',subframeCount:1}),
+  summarize:async()=>({targetId:target.id,url:target.url,authorShadowTreeNodes:0})};
+ const result=await runReadOnlyDomContract({...request(),deps:safe});
+ assert.equal(result.status,'needs-review');
+ assert.match(result.reason,/iframe/i);
+});
+test('unknown ShadowRoot context, including missing or malformed evidence, cannot prove locator absence',async()=>{
+ for(const summarize of [undefined,async()=>{throw Error('snapshot failed');},
+  async()=>({targetId:target.id,url:target.url,authorShadowTreeNodes:-1})]){
+  const tools={...deps([sample('missing',0),sample('missing',0)]),...(summarize?{summarize}:{})};
+  const result=await runReadOnlyDomContract({...request(),deps:tools});
+  assert.equal(result.status,'needs-review');
+  assert.equal(result.matchCount,null);
+ }
+});
+test('context inspection is bounded by Chrome Frame/Loader identity',async()=>{
+ let loader='stable';
+ const tools={...deps([sample('missing',0),sample('missing',0)]),
+  confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'frame',loaderId:loader}),
+  summarize:async()=>{loader='reload';return {targetId:target.id,url:target.url,authorShadowTreeNodes:0};}};
+ await assert.rejects(runReadOnlyDomContract({...request(),deps:tools}),/document|loader|identity/i);
 });
