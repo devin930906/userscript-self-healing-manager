@@ -12,7 +12,7 @@ export interface CompletedDomBatch extends BatchDomResult {
 export interface PaginatedDomProgress extends BatchDomResult {
  readonly remainingItems:number;
 }
-function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,expectedItems}:{
+function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,pageDocumentToken,expectedItems}:{
  offset:number;total:number;targetId:string;pageUrl:string|null;
  pageDocumentToken:string|null;
  expectedItems:readonly {scriptId?:string|undefined;path:string}[]|undefined;
