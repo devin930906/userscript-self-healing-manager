@@ -12,7 +12,7 @@ import {access,mkdir,mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {buildChromeLaunchArgs,getChromeStatus,waitForChromeDebugger,assertChromeDebuggerPortFree} from '../packages/cdp-client/src/index.ts';
+import {buildChromeLaunchArgs,getChromeStatus,waitForChromeDebugger,assertChromeDebuggerPortFree,startVerifiedChromeChild,terminateFailedChromeLaunch} from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
@@ -166,6 +166,42 @@ try{
   }
  }
  console.log('PASS real Chrome FR-002: two persisted, independent UUID profile directories and live CDP handshakes.');
+
+ // Simulate a post-spawn CDP verification failure against a genuine Chrome
+ // process. The exact production teardown routine must stop the child tree,
+ // release its debugging port and leave the normal running fixture untouched.
+ // No existing user Chrome instance is consulted or terminated.
+ const brokenLaunchPort=9237;
+ const brokenLaunchProfile=join(profilesData,'forced-failure-fixture');
+ await assertChromeDebuggerPortFree(brokenLaunchPort);
+ await assert.rejects(startVerifiedChromeChild({
+  spawnChrome:()=>spawn(executable,[
+   ...buildChromeLaunchArgs(brokenLaunchPort,{isolatedProfileDir:brokenLaunchProfile}),
+   '--headless=new','--no-first-run','--disable-extensions',
+   '--disable-background-networking','--disable-gpu','about:blank',
+  ],{windowsHide:true,stdio:'ignore'}),
+  handshake:async(_child,hasExited)=>{
+   const ready=await waitForChromeDebugger({
+    port:brokenLaunchPort,timeoutMs:25000,hasExited,
+   });
+   assert.ok(ready.browser.startsWith('Chrome/')||
+    ready.browser.startsWith('HeadlessChrome/'));
+   throw new Error('synthetic-forced-handshake-rejection');
+  },
+  terminateChrome:terminateFailedChromeLaunch,
+ }),/synthetic-forced-handshake-rejection/);
+ let freed=false;
+ for(let attempt=0;attempt<50;attempt++){
+  try{await assertChromeDebuggerPortFree(9237);freed=true;break;}
+  catch{await delay(120);}
+ }
+ assert.equal(freed,true,'Failed launch must release real Chrome CDP port 9237');
+ // Main fixture Chrome must still be available; cleanup cannot kill other
+ // Chrome processes just because they use CDP in the same test workflow.
+ assert.ok((await getChromeStatus({port:9223})).browser.startsWith('Chrome/')||
+  (await getChromeStatus({port:9223})).browser.startsWith('HeadlessChrome/'));
+ console.log('PASS real Chrome CDP failed-start cleanup: new process tree and port released; existing fixture Chrome remains connected.');
+
 
  // Optional release-compatibility job: assert the PRODUCT reported by the
  // live CDP browser socket, not a downloaded archive filename or a fixture.
