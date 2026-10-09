@@ -256,3 +256,26 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - RED：[扫描版本接口缺失 #37831641684](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37831641684)、[IPC wiring 缺失 #37831793645](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37831793645)、[逐脚本 IPC 版本门禁缺失 #37832505213](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37832505213)、[新预览授权 gate 缺失 #37833552129](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37833552129)、[旧预览清理缺失 #37834164070](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37834164070)。历史源码接口更新后曾短暂导致旧 wiring 测试按 `lastScan` 误判失败；已把这些测试升级为验证 `scanSnapshot`，并修复了异步 React 严格空值校验。
 - GREEN：[Windows Development CI #37834296649](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37834296649) 对应源码 HEAD `22872bb31ddb7b27cc60857b1617e79fc40f5a94`：**207/207 自动测试通过，严格 TypeScript、Electron/React 构建、真实 Windows Electron GUI + 隔离 SQLite 数据目录、真实 Chrome CDP、合成脚本修复前→部分修复→完整修复→回滚全部 PASS**。
 - 当前仍没有通过真实 Tampermonkey/GM_*、目标 Windows 10 + 便携 Chrome 155、Shadow DOM/iframe 内定位器真正修复及三个最终可发行产物的完整门禁。**Ruling：只按经过真实证据验证的能力报告当前状态，维持 Draft，不以新增单测数量替代 Stable 功能合格证明**。本次没有触发安装包生成、外部发布、合并 main 或用户环境人工检查。
+
+
+## 2026-10-09：异步 UI 竞争保护、批量扫描挂起隔离、单实例数据库保护
+
+本次使用 Superpowers systematic-debugging + test-driven-development 继续执行原先已批准的 Native 开发任务，不要求用户人工验证，也不产生临时安装包。
+
+### React UI：对三个相互独立的异步操作做严格过期保护
+
+- 新增 `apps/desktop/src/renderer/latest-request-gate.ts`，使用递增序号隔离已取消或已切换页面的请求；`begin / invalidate / isCurrent / commit` 拒绝旧操作写回，不声称物理取消进行中的 CDP IPC。
+- `App.tsx` 的 `batchDiagnose`、单文件 `probePage`、`suggestBulkRepairs` 分别使用独立请求代号；页面或扫描变化时，主动废止旧回调并释放对应加载状态。**重要：旧请求的 `finally` 不再无条件调用 `setBusy(false)`，以免将新版任务的 busy 指示错误清除。**
+- 新增 8 项测试，包括代号失效、旧响应/错误不回写、旧 finally 不覆盖新状态、UI wiring。RED：[CI #37886002800](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37886002800) 记录 4 项 UI contract 未满足；GREEN：[CI #37886207712](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37886207712) 完整 215/215 项通过，Electron GUI 与真实 Chrome 同步 PASS。
+
+### 扫描与受管修复的并发边界
+
+- `ScanSessionCoordinator` 过去只在新扫描完成时切换 active scan；若重新扫描仍在读取磁盘，旧 scanId 仍可以合法调度 CDP 诊断。本轮在开始新扫描时**立即暂停所有旧 scanId 的授权**，若最新扫描失败则恢复上一份已提交扫描。旧的、已失效的并发扫描结果不能覆盖新扫描。RED：[CI #37886380904](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37886380904) 的相关用例。
+- CI 同时实际捕捉到此前偶发的**同脚本两个并发批准同时成功**（同一个 RED #37886380904 中原有 `simultaneous approvals` 用例观察到 2 而非 1）；其根因是两次 `apply()` 均能在第一次创建 managed current 之前通过磁盘不存在检查。现在 `createRepairWorkflow` 用按 `scriptId` 的同步 Set 锁，**首次 await 前加锁，激活完成或出错后在 finally 释放**；互不相干的脚本不会相互锁死。原始用户文件仍从不被覆盖。
+- 桌面软件以 `app.requestSingleInstanceLock()` 拒绝并行开启另一主进程，降低多个 GUI 同时操作同一个 SQLite 与受管修订目录的风险。Windows Dev CI 现在自动启动第二个真实 Electron 程序，验证第二实例自动退出且第一实例未退出、数据库与 React 视图仍正常。没有生成预览安装包。
+- RED：[单实例保护缺失 #37886777693](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37886777693)。GREEN：[Windows Development CI #37886956282](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37886956282) 对应 `333dab80a23a59f3a5a0412a3e96deb6f7eb03f2`：**219/219 tests PASS、0 FAIL，TypeScript PASS，React/Electron 构建 PASS、Windows 真正 Electron GUI、SQLite、重复启动保护 PASS，真实 Chrome CDP 行为回归 PASS**。
+
+### Release Gate 仍开放
+
+- 自动合成 fixture 不等同真实 Tampermonkey/GM_* 执行。未验证用户实际脚本、Window 10 + 用户便携 Chrome 155 组合，仍未具备 iframe/Shadow DOM 内自愈与最终三种安装/便携发行产物的 Stable 签收。
+- 保留开发分支 PR #2 的 Draft 状态，不合并、自动发布或向用户提供中途预览安装包。每一步只以执行证据描述结果，不能因为测试数量增加而错误宣布最终 Stable。
