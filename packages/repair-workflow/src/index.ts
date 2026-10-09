@@ -18,13 +18,14 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  const pending=new Map<string,PendingProposal>();
  const applying=new Set<string>();
  const revisionsEpoch=new Map<string,number>();
+ let invalidationEpoch=0;
  const discardScriptPending=(scriptId:string)=>{
   for(const [id,record] of pending){
    if(record.scriptId===scriptId)pending.delete(id);
   }
  };
  return {
-  invalidatePending():void{pending.clear();},
+  invalidatePending():void{invalidationEpoch++;pending.clear();},
   /** Removes only an unpublished preview that lost its CDP/source identity. */
   discard(proposalId:string):boolean{return pending.delete(proposalId);},
   /** Main-process-only review identity. Never accept a rollback target supplied
@@ -39,6 +40,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
    if(applying.has(scriptId))throw new Error('Cannot propose while a managed revision operation is in progress');
    const startedEpoch=revisionsEpoch.get(scriptId)??0;
+   const startedInvalidationEpoch=invalidationEpoch;
    const file=await lstat(sourcePath);
    if(!file.isFile()||file.isSymbolicLink())throw new Error('Source must be an ordinary file');
    if(file.size>512*1024)throw new Error('Script is too large');
@@ -85,7 +87,8 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    const draft=proposeLiteralPatch({sourceBytes:workingBytes,oldSelector,newSelector,selectorLocation:updatedLocation});
    // Proposing awaited disk/AST work; a same-script apply or rollback could
    // have started while this proposal was being computed.
-   if(applying.has(scriptId)||(revisionsEpoch.get(scriptId)??0)!==startedEpoch)
+   if(applying.has(scriptId)||invalidationEpoch!==startedInvalidationEpoch||
+      (revisionsEpoch.get(scriptId)??0)!==startedEpoch)
     throw new Error('Managed revision changed during proposal preparation');
    if(pending.size>=100)throw new Error('Too many pending patch proposals');
    const proposalId=randomUUID();
