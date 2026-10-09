@@ -513,3 +513,13 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **安全读取：** `regularBounded` 不再 lstat 后又通过路径做无界 readFile。改为打开**同一个文件描述符**，POSIX 等支持的平台启用 O_NOFOLLOW；读前后比对路径/FD 类型、inode、device、size 和 mtime，限制大小不超过 65,536 bytes。Windows 上仍依赖文件身份与权限校验，**不宣称彻底消除所有目录替换竞态**。
 - **GREEN 证据：** 最新源码 [Windows Development CI #37912842330](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37912842330) **352 tests / 352 pass / 0 fail**，严格 TypeScript、Electron 构建、Windows GUI/SQLite、真实隔离 Chrome CDP smoke 均 PASS；[Node contracts #37912842249](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37912842249) SUCCESS。
 - **Stable 不变：** SiteAdapter 规则版本保护仅用于 V1 DOM 核验，用户页面状态仍属声明；Tampermonkey/GM_*、V2/V3/V4 真机、iframe/Shadow 多上下文、AI Provider、Windows10+便携 Chrome155 和正式三发行包 RG 门禁尚未完成。PR #2 仍为 Draft、不合并 main、不生成中途安装包。
+
+## 2026-10-09 · CDP 后台节点身份双采样 + 进程内 HMAC 保护（357 项）
+
+- **现存误判：** 旧 `runSiteAdapterRoleDomCheck` 对两个独立 CDP 查询仅比对 selector 的匹配数量。动态网页可用新 DOM 节点替换旧按钮，但查询结果始终是 1，从而错误认定稳定 V1 角色定位。
+- **TDD RED:** [Node Contracts #37913723198](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37913723198) 引入缺失的 opt-in DOM.backend node 身份回归与 SiteAdapter 计数相同、后台身份不同的用例，证明原逻辑无法区分节点替换。另一次首轮 RED 发现测试数据使用纯数字的十六进制字符串来模拟大写，大小写转换没有作用；测试改用字母后重新验证。
+- **只读身份扩展：** `packages/cdp-client/src/locator-probe.ts` 新增 `includeNodeFingerprints`（默认 false，其他扫描保持旧行为）。仅对唯一命中的节点发送有界 `DOM.describeNode`；拒绝无效 backendNodeId/nodeType 或出错的响应，不运行 `Runtime.evaluate` 或 JavaScript，不触发 DOM 更改。只把内部 `backendNodeId` 通过进程级随机密钥 HMAC-SHA256 转成指纹，不在 IPC 中传原始 ID，不记录页面正文。进程重启后指纹密钥变化，避免将此字段当作持久节点身份。
+- **V1 双采样约束：** `packages/test-runner/src/site-adapter-role.ts` 两次采样不仅要有相同的数量，还必须有同一个后台节点身份指纹；数量为 1 却缺乏有效指纹返回 `needs-review`，相同数量但替换节点也 `needs-review`。CDP 的主 frame/loader 身份及 reload 拦截仍然生效。没有提升 V2/V3/V4 的证据等级。
+- **真实桌面与 Chrome 路径：** `apps/desktop/src/main/index.ts` 的 SiteAdapter role check 显式 opt-in；`scripts/smoke-chrome.mjs` 的受控真实 Chrome fixture 使用相同代码路径。其他定位探测仍默认不采集指纹。
+- **GREEN:** [Windows Development CI #37914295063](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37914295063) **357 tests / 357 pass / 0 fail**，严格 TypeScript、Electron 构建、Windows GUI/SQLite smoke、真实 Chrome CDP smoke 全部成功；[Node contracts #37914295046](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37914295046) SUCCESS。
+- **Stable 未完成：** 动态网页 V1 定位证据更严格，但 iframe/Shadow DOM 正式多上下文角色检测、V2 交互、V3 业务验证、真实 Tampermonkey/GM_* V4、指定 Win10+便携 Chrome155 和正式三发行包验收仍未完成。保持 PR Draft，不合并 main，不发布 Stable，不生成中途包。
