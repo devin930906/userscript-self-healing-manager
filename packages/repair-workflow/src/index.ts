@@ -36,6 +36,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
   async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
    if(!isAbsolute(sourcePath))throw new Error('Source path must be absolute');
    if(!/^[a-z0-9_-]{1,64}$/i.test(scriptId))throw new Error('Unsafe scriptId');
+   if(applying.has(scriptId))throw new Error('Cannot propose while a managed revision operation is in progress');
    const file=await lstat(sourcePath);
    if(!file.isFile()||file.isSymbolicLink())throw new Error('Source must be an ordinary file');
    if(file.size>512*1024)throw new Error('Script is too large');
