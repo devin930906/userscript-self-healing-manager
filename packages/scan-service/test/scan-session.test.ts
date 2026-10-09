@@ -35,3 +35,26 @@ test('missing scan IDs and scans not yet created never authorize DOM diagnosis',
  assert.throws(()=>store.require(''),/scan|identity/i);
  assert.throws(()=>store.require('fake'),/scan|identity/i);
 });
+
+test('a rescan in progress immediately suspends old CDP script authorization',async()=>{
+ const store=new ScanSessionCoordinator<{label:string}>();
+ const old=await store.replace(async()=>({label:'old'}));
+ let finish:(value:{label:string})=>void=()=>{throw new Error('uninitialized')};
+ const pending=store.replace(()=>new Promise(resolve=>{finish=resolve;}));
+ assert.throws(()=>store.require(old.scanId),/stale|scan|in.progress/i);
+ assert.throws(()=>store.assertCurrent(old),/stale|scan|in.progress/i);
+ finish({label:'new'});
+ const next=await pending;
+ assert.equal(store.require(next.scanId),next);
+ assert.throws(()=>store.require(old.scanId),/stale/i);
+});
+test('failed in-flight rescan restores the previous committed scan only after error',async()=>{
+ const store=new ScanSessionCoordinator<{label:string}>();
+ const old=await store.replace(async()=>({label:'verified'}));
+ let fail:(error:Error)=>void=()=>{throw new Error('uninitialized')};
+ const pending=store.replace(()=>new Promise<{label:string}>((_,reject)=>{fail=reject;}));
+ assert.throws(()=>store.require(old.scanId),/stale|scan|in.progress/i);
+ fail(new Error('Disk became unreadable'));
+ await assert.rejects(pending,/Disk became unreadable/);
+ assert.equal(store.require(old.scanId),old);
+});
