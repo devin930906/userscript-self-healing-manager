@@ -44,9 +44,9 @@ test('saved Chrome preference uses bounded identity-pinned reads on the settings
  // A config file can change between lstat() and readFile(). Reading it by
  // pathname with no byte cap would bypass the 4096-byte validation race.
  const implementation=await readFile(new URL('../src/preferred-chrome.ts',import.meta.url),'utf8');
- assert.match(implementation,/readPinnedRegularFile\\(config/,
+ assert.match(implementation,/readPinnedRegularFile\(config/,
   'The optional saved path must be read from a verified bounded file descriptor');
- assert.doesNotMatch(implementation,/await readFile\\(config/,
+ assert.doesNotMatch(implementation,/await readFile\(config/,
   'Do not reopen an already checked settings pathname for an unbounded read');
  await savePreferredChromePath({dataRoot:root,executablePath:exe});
  assert.equal(await loadPreferredChromePath({dataRoot:root}),exe);
