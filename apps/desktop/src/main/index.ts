@@ -151,7 +151,7 @@ async function bootstrap():Promise<void>{
   batchEvidence.record({scanId:q.scanId,targetId:q.targetId,
    total:scanSnapshot.items.length,offset,page:authenticatedPage});
   return authenticatedPage;
-  }catch(error){batchEvidence.clear();throw error;}
+  }catch(error){batchEvidence.invalidateIfCurrent({scanId:q.scanId,targetId:q.targetId});throw error;}
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
