@@ -46,7 +46,12 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
  */
 function isTransientCdpReadError(error:unknown):boolean{
  if(!(error instanceof Error))return false;
- return /^(?:CDP page identity timeout|CDP page identity socket error|CDP page identity socket closed before response|CDP locator probe timeout|CDP socket error|CDP socket closed before locator results|CDP snapshot timeout|CDP candidate snapshot timeout)$/.test(error.message);
+ // Electron ipcRenderer.invoke wraps errors thrown by this named main handler.
+ // Strip ONLY the exact transport envelope for our own read-only endpoint,
+ // never an arbitrary error, different IPC method or appended explanation.
+ const ipcPrefix="Error invoking remote method 'usshm:batch-diagnose': Error: ";
+ const message=error.message.startsWith(ipcPrefix)?error.message.slice(ipcPrefix.length):error.message;
+ return /^(?:CDP page identity timeout|CDP page identity socket error|CDP page identity socket closed before response|CDP locator probe timeout|CDP socket error|CDP socket closed before locator results|CDP snapshot timeout|CDP candidate snapshot timeout)$/.test(message);
 }
 
 /**
