@@ -274,3 +274,27 @@ test('iframe child loader replacing while top URL and loader stay stable cannot 
  await assert.rejects(runSiteAdapterRoleDomCheck({approved:true,target,adapter,
   roleId:'chat.frameButton',declaredStateId:'ready',deps}),/frame|loader|identity|navigation/i);
 });
+
+test('SiteAdapter V1 never accepts contradictory ambiguous querySelectorAll evidence with one or multiple proven nodes',async()=>{
+ for(const count of [1,2]){
+  const schema=parseSiteAdapter({
+   schemaVersion:1,siteId:'example-app',version:'1.0.0',
+   urlPatterns:['https://example.org/app/*'],states:{ready:{description:'Ready'}},
+   roles:{'chat.ambiguous':{contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+    strategies:[{kind:'css',selector:'.ambiguous',weight:100}],
+    cardinality:{min:1,max:2},assertions:['exists']}},
+   validationCases:['AMBIGUOUS'],
+  });
+  const deps={...makeDeps([count]),probe:async():Promise<LocatorProbeResult>=>({
+   targetId:target.id,url:target.url,validationLevel:'dom-only',
+   checks:[{method:'querySelectorAll',expression:'.ambiguous',status:'ambiguous',
+    matchCount:count,...(count===1?{nodeFingerprint:'a'.repeat(64)}:
+     {nodeFingerprints:['a'.repeat(64),'b'.repeat(64)]})}],
+  })};
+  const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter:schema,
+   roleId:'chat.ambiguous',declaredStateId:'ready',deps});
+  assert.equal(result.status,'needs-review','inconsistent querySelectorAll status must not become V1');
+  assert.equal(result.evidenceLevel,'none');
+  assert.equal(result.functionalVerified,false);
+ }
+});
