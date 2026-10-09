@@ -24,6 +24,7 @@ function socket(style=styles(),size={width:110,height:33},nodeIds=[32]){
  return new FakeSocket({
   'DOM.getDocument':()=>({root:{nodeId:7}}),
   'DOM.querySelectorAll':()=>({nodeIds}),
+  'DOM.getAttributes':()=>({attributes:[]}),
   'CSS.enable':()=>({}),
   'CSS.getComputedStyleForNode':()=>style,
   'DOM.getBoxModel':()=>({model:size}),
@@ -35,11 +36,12 @@ test('CDP read-only visibility samples only safe DOM/CSS methods and never upgra
  assert.equal(out.status,'potentially-visible');
  assert.equal(out.matchCount,1);
  assert.equal(out.pointerBlocked,false);
+ assert.equal(out.controlBlocker,'none-detected');
  assert.equal(out.V2,'blocked');
  assert.equal(out.V3,'not-configured');
  assert.equal(out.V4,'not-configured');
  assert.equal(JSON.stringify(out).includes('#action'),false);
- assert.deepEqual(s.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll','CSS.enable','CSS.getComputedStyleForNode','DOM.getBoxModel']);
+ assert.deepEqual(s.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll','DOM.getAttributes','CSS.enable','CSS.getComputedStyleForNode','DOM.getBoxModel']);
  assert.ok(s.sent.every(x=>!/^Runtime\.|^Input\.|^DOM\.set|^Page\./.test(x.method)));
 });
 test('hidden style or zero box yields hidden, not successful interactive validation',async()=>{
@@ -173,4 +175,19 @@ test('zero or multiple matches do not read attributes of arbitrary elements',asy
   assert.equal(got.controlBlocker,'unknown');
   assert.ok(!s.sent.some(x=>x.method==='DOM.getAttributes'));
  }
+});
+
+test('CDP attribute read rejection keeps visibility observation but refuses enabled inference',async()=>{
+ const s=new FakeSocket({
+  'DOM.getDocument':()=>({root:{nodeId:7}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[32]}),
+  'DOM.getAttributes':()=>{throw Error('attributes unavailable')},
+  'CSS.enable':()=>({}),
+  'CSS.getComputedStyleForNode':()=>styles(),
+  'DOM.getBoxModel':()=>({model:{width:110,height:33}}),
+ });
+ const got=await inspectReadOnlyElementVisibility(target,locator,{socketFactory:()=>s});
+ assert.equal(got.status,'potentially-visible');
+ assert.equal(got.controlBlocker,'unknown');
+ assert.equal(got.V2,'blocked');
 });
