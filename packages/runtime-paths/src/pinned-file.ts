@@ -57,8 +57,22 @@ export async function readPinnedRegularFile(path:string,{
   const opened=await handle.stat();
   validateFile(opened);
   if(!same(before,opened))throw new Error('Pinned file identity changed before open');
-  const bytes=await handle.readFile();
-  if(bytes.length>maxBytes)throw new Error('Pinned file exceeded byte limit during read');
+  // The file may grow AFTER lstat/open. Never use handle.readFile() here:
+  // that method could allocate the entire enlarged file before we reject it.
+  // Read at most maxBytes + 1 directly from the pinned descriptor, in bounded
+  // chunks. The extra byte distinguishes an over-budget file from exact fit.
+  const chunks:Buffer[]=[];
+  let total=0;
+  while(total<=maxBytes){
+   const budget=Math.min(64*1024,maxBytes+1-total);
+   const chunk=Buffer.allocUnsafe(budget);
+   const {bytesRead}=await handle.read(chunk,0,budget,total);
+   if(bytesRead===0)break;
+   total+=bytesRead;
+   if(total>maxBytes)throw new Error('Pinned file exceeded byte limit during read');
+   chunks.push(chunk.subarray(0,bytesRead));
+  }
+  const bytes=Buffer.concat(chunks,total);
   const reread=await handle.stat();
   validateFile(reread);
   if(!same(opened,reread))throw new Error('Pinned file changed during read');
