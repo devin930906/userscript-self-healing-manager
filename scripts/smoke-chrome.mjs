@@ -13,7 +13,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {buildChromeLaunchArgs,getChromeStatus,getVerifiedChromeStatus,waitForChromeDebugger,assertChromeDebuggerPortFree,startVerifiedChromeChild,terminateFailedChromeLaunch} from '../packages/cdp-client/src/index.ts';
-import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
+import {confirmPageIdentity,assertStablePageDocument} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
