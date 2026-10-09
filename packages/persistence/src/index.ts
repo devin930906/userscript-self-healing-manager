@@ -10,15 +10,30 @@ export function openDatabase(path:string):DatabaseHandle{
  const db=new DatabaseSync(path); db.exec('PRAGMA journal_mode = WAL');db.exec('PRAGMA foreign_keys = ON');return db;
 }
 export function migrateDatabase(db:DatabaseHandle):void{
- db.exec(`BEGIN IMMEDIATE;
- CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS scripts(
- id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL, display_name TEXT NOT NULL,
- sha256 TEXT NOT NULL, health_status TEXT NOT NULL, metadata_json TEXT NOT NULL,
- created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
- INSERT INTO schema_version(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
- COMMIT;`);
- if(db.prepare('SELECT MAX(version) AS version FROM schema_version').get()?.version!==1)throw new Error('Unsupported database schema version');
+ // Claim a SQLite write transaction BEFORE inspecting or changing the schema.
+ // A newer app's Data must never be "partially migrated" by an older binary.
+ db.exec('BEGIN IMMEDIATE');
+ try{
+  const known=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'").get();
+  if(known){
+   const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
+   if(versions.length!==1||versions[0]?.version!==1)
+    throw new Error('Unsupported database schema version; newer or uninitialized Data must not be downgraded');
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
+   CREATE TABLE IF NOT EXISTS scripts(
+   id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL, display_name TEXT NOT NULL,
+   sha256 TEXT NOT NULL, health_status TEXT NOT NULL, metadata_json TEXT NOT NULL,
+   created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+   INSERT INTO schema_version(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);`);
+  const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
+  if(versions.length!==1||versions[0]?.version!==1)
+   throw new Error('Unsupported database schema version');
+  db.exec('COMMIT');
+ }catch(error){
+  db.exec('ROLLBACK');
+  throw error;
+ }
 }
 export function createScriptRepository(db:DatabaseHandle){
  const update=db.prepare(`INSERT INTO scripts(id,path,display_name,sha256,health_status,metadata_json,created_at,updated_at)
