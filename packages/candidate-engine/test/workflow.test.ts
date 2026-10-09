@@ -7,7 +7,7 @@ const confirmed=async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'m
 const safeNodes=[{tagName:'BUTTON',attributes:{'data-testid':'save-button'}}];
 const deps={
  confirm:confirmed,
- probe:async(inputs:readonly {method:string;expression:string;runtimeRequired:boolean}[])=>({targetId:'alpha',url:'https://example.org',checks:inputs.map(input=>({method:input.method,expression:input.expression,status:input.expression==='#save-old'?'missing':'found',matchCount:input.expression==='#save-old'?0:1}))}),
+ probe:async(inputs:readonly {method:string;expression:string;runtimeRequired:boolean}[])=>({targetId:'alpha',url:'https://example.org',checks:inputs.map(input=>({method:input.method,expression:input.expression,status:input.expression==='#save-old'?'missing':'found',matchCount:input.expression==='#save-old'?0:1,...(input.expression!=='#save-old'?{nodeFingerprint:'a'.repeat(64)}:{})}))}),
  capture:async()=>({targetId:'alpha',url:'https://example.org',scope:'top-document',nodes:safeNodes})
 };
 test('confirmed missing CSS locator produces uniquely live-verified read-only suggestions',async()=>{
@@ -41,6 +41,7 @@ test('name and class collection repairs require unique live CDP confirmation',as
    probe:async inputs=>({targetId:target.id,url:target.url,checks:inputs.map(x=>({
     method:x.method,expression:x.expression,status:x.expression==='old-value'?'missing':'found',
     matchCount:x.expression==='old-value'?0:1,
+    ...(x.expression!=='old-value'?{nodeFingerprint:'a'.repeat(64)}:{}),
    }))}),
    capture:async()=>({targetId:target.id,url:target.url,scope:'top-document',nodes}),
   }});
