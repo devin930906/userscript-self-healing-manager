@@ -106,7 +106,7 @@
 ## Windows 10/11 x64：构建三个格式
 
 1. **仅用于开发者在 Windows 自行构建或最终发行验证**：安装 Node.js 24 LTS 和 npm，克隆/解压完整源码。正式发布后，最终用户无需单独安装 Node.js。
-2. 双击项目根目录的 `build-windows.cmd`。脚本执行 `npm install`（GitHub Actions 使用 `npm ci`）、`npm test`、`npm run build`、`npm run dist:win`，并将完整 `win-unpacked` 目录另外打成 ZIP。
+2. 双击项目根目录的 `build-windows.cmd`。脚本以 `npm ci` 按锁文件安装依赖，依次运行 `npm test`、`npm run typecheck`、`npm run build`、`npm run dist:win`，最后将完整 `win-unpacked` 目录单独打成 ZIP 并生成 SHA-256 清单；任一步失败即停止。
 3. 构建和测试全部通过时，`release/` 文件夹应包含：
 
 ```text
@@ -166,6 +166,15 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 这是一个**只读时点诊断**，不持有跨进程持续快照锁。发现异常请首先保留 Data 备份；只有在所有管理器进程完全退出、确认对应写入锁不属于活跃事务，并检查 current 与不可变归档后，才可进行离线人工恢复。不要直接删除 current、归档或随意解除锁。
 
 新增 7 个文件系统完整性检查与 2 个 IPC/UI 安全接线回归；另有独立 Windows Node 子进程真实竞争测试，确认两个 OS 进程不能同时抢占相同的已批准修订。[Windows CI #37956693652](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37956693652) **528/528 tests PASS**，TypeScript、Electron、GUI/SQLite 与真实 Chrome CDP 冒烟测试通过；仍非 Stable。
+
+## V1 证据、原子导出和可重现构建加固（2026-10-10）
+
+- **V1 证据不夸大**：通用 DOM contract 的集合选择器，只接受符合真实 `DOM.querySelectorAll` 规则的正数 `found`；不再因 `ambiguous` 与节点数量矛盾就误报 V1 passed。读取可见性时，重复节点 ID 或大于 10,000 的响应一律 `unknown`。V1 仍不能当作脚本真实功能 V3、Tampermonkey 注入 V4。
+- **原子且不可覆盖的 .user.js 导出**：先在目标目录创建随机独占隐藏暂存文件，以受控块写入、`fsync`、SHA-256 pinned 回读验证后，用同卷硬链接原子发布用户选择的新文件名，并再验最终文件；若发生磁盘满或竞争者先创建同名目标，拒绝发布并清理暂存，保留竞争者文件。目标文件系统不支持必需的安全硬链接时，明确拒绝，不偷偷降级为可能覆盖文件的 rename/copy。
+- **活动修订稳定快照**：导出读取活动文件至发布完成期间持有相同的 `current.user.js.write-lock` 排他锁，防止其他遵守协议的管理器进程切换修订；遇到已有锁（包括疑似崩溃残留）立即拒绝，绝不擅自清除。原始源脚本、Tampermonkey 扩展存储均不会被改动。恶意外部编辑或突然断电仍不在此事务的强保证范围内。
+- **Windows 发行脚本自检**：双击 `build-windows.cmd` 会使用固定依赖的 `npm ci`，在实际打包前强制通过单元/集成测试、严格 TypeScript 与 Electron 构建；正式 Setup.exe、Portable.exe、完整 ZIP 仍需要独立真实 Windows 打包/启动/迁移与 RG-01～09 验收。本开发轮未生成中途安装包。
+
+最新 [Windows Development CI #37959261383](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37959261383) 针对源码 SHA `5cc4e90e55bdb21075ba8fe2dcb200b3f7e93a63` 显示 **538/538 tests PASS**、TypeScript、Electron build、Windows GUI/SQLite 与真实 Chrome CDP smoke 全 PASS。完整 TDD RED/GREEN 记录见 [Native 开发账本](docs/development/native-continuation-2026-10-08.md)。这**不代表**最终 Stable 发版资格已经满足。
 
 ## 已知开发限制
 
