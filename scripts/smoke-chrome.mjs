@@ -27,6 +27,7 @@ import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapt
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
+import {readVerifiedManagedLocator} from '../packages/repair-workflow/src/managed-locator.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
@@ -435,6 +436,28 @@ try{
  const draft=await flow.propose({sourcePath,scriptId:'chrome-smoke-fixture',oldSelector:'#old-heal-button',newSelector:chosen.expression});
  assert.match(draft.preview,/heal-button/);
  const applied=await flow.apply({proposalId:draft.proposalId,approved:true});
+ // Real Chrome V1 post-apply attestation: re-open the active managed current,
+ // verify its immutable archive hash, then probe the actual patched AST
+ // selector twice using stable opaque backend-node fingerprints.
+ const managedVerifiedLocator=await readVerifiedManagedLocator({
+  managedRoot:profile,scriptId:'chrome-smoke-fixture',
+  revisionHash:applied.hash,selectorIndex:0,
+ });
+ assert.equal(managedVerifiedLocator.expression,'#heal-button');
+ const managedContract=await runReadOnlyDomContract({
+  approved:true,target:selected,caseId:'SYNTHETIC:managed-applied:V1',
+  locator:{method:managedVerifiedLocator.method,
+   expression:managedVerifiedLocator.expression,runtimeRequired:false},
+  expectation:'unique',
+  deps:{confirm:confirmPageIdentity,
+   probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+   wait:()=>delay(125),
+  },
+ });
+ assert.equal(managedContract.status,'passed');
+ assert.equal(managedContract.V3,'not-configured');
+ assert.equal(managedContract.managerVerified,false);
+
  assert.equal(await readFile(sourcePath,'utf8'),original);
  assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
  // One DOM selector being repaired is insufficient: this fixture requires BOTH.
