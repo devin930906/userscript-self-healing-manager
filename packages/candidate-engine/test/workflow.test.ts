@@ -248,3 +248,12 @@ test('missing node fingerprint never upgrades a candidate to live-verified',asyn
  }};
  assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:withoutIdentity}),[]);
 });
+
+test('different verified selectors for the same backend node yield only one recommendation',async()=>{
+ const aliases={...deps,capture:async()=>({...await deps.capture(),nodes:[
+  {tagName:'BUTTON',attributes:{id:'save-button','data-testid':'save-button'}},
+ ]})};
+ const ranked=await suggestCandidateRepairs({target,locator,deps:aliases});
+ assert.equal(ranked.length,1,'two selectors resolving to one CDP backend node are aliases, not separate fixes');
+ assert.equal(ranked[0]?.expression,'[data-testid="save-button"]');
+});
