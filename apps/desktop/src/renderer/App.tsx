@@ -12,6 +12,7 @@ import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
+import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {VerifiedCandidate} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
@@ -20,6 +21,7 @@ import type {ManagedRevision} from '../../../../packages/repair-workflow/src/his
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
+ inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique';approved:true})=>Promise<ReadOnlyDomContractResult>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  listDiagnosisHistory:()=>Promise<JournalRun[]>;
@@ -68,6 +70,9 @@ function App(){
  const [contractEvidence,setContractEvidence]=useState<{selectorIndex:number;result:ReadOnlyDomContractResult}|null>(null);
  const contractGeneration=useRef(new LatestRequestGate());
  const contractActive=useRef(false);
+ const [visibilityEvidence,setVisibilityEvidence]=useState<{selectorIndex:number;result:ReadOnlyVisibilityEvidence}|null>(null);
+ const visibilityGeneration=useRef(new LatestRequestGate());
+ const visibilityActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -86,6 +91,7 @@ function App(){
  useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;batchPauseGate.current?.cancel();batchPauseGate.current=null;setBatchPaused(false);if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{visibilityGeneration.current.invalidate();if(visibilityActive.current){visibilityActive.current=false;setBusy(false);}setVisibilityEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -177,6 +183,25 @@ function App(){
   }catch(error){
    if(probeGeneration.current.isCurrent(token))setError('页面定位器核验失败：'+String(error));
   }finally{if(probeGeneration.current.isCurrent(token)){probeActive.current=false;setBusy(false);}}
+ }
+ async function inspectElementVisibility(){
+  if(focused===null||!result||!targetId||busy)return;
+  const selector=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!selector||selector.runtimeRequired||selector.receiver!=='document')return;
+  const token=visibilityGeneration.current.begin();
+  const itemIndex=focused,selectorIndex=repairIndex,scanId=result.scanId,target=targetId;
+  visibilityActive.current=true;setBusy(true);setError('');setVisibilityEvidence(null);
+  try{
+   const evidence=await window.ussm.inspectElementVisibility({scanId,itemIndex,selectorIndex,targetId:target,approved:true});
+   if(visibilityGeneration.current.isCurrent(token)){
+    setVisibilityEvidence({selectorIndex,result:evidence});
+    setMessage('只读 CSS 可见性采样完成；不能证明元素可点击、脚本功能或 GM API 通过。');
+   }
+  }catch(error){
+   if(visibilityGeneration.current.isCurrent(token))setError('CSS 可见性检查失败：'+String(error));
+  }finally{
+   if(visibilityGeneration.current.isCurrent(token)){visibilityActive.current=false;setBusy(false);}
+  }
  }
  async function runDomContract(){
   if(focused===null||!result||!targetId||busy)return;
@@ -318,6 +343,17 @@ function App(){
     <b>命名 DOM 合约：</b>{contractEvidence.result.caseId} · 结果：{contractEvidence.result.status==='passed'?'通过（仅 DOM）':contractEvidence.result.status==='failed'?'未满足 DOM 条件':'需要复核'}
     · 连续检查 {contractEvidence.result.attempts} 次 · 匹配数量 {contractEvidence.result.matchCount??'不确定'} · 等级 {contractEvidence.result.evidenceLevel} · V3/V4：未配置
     <small>{contractEvidence.result.reason}；不能据此认定 Tampermonkey 已注入或脚本功能已修复。</small>
+   </div>}
+   <div className="toolbar">
+    <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
+     onClick={()=>void inspectElementVisibility()}>只读检查可见性（CSS/盒模型）</button>
+    <span className="dim">使用 Chrome DOM/CSS 只读证据，不触发 click、scroll 或脚本。V2 未验证，不能证明元素可点击；V3/V4 未配置。</span>
+   </div>
+   {visibilityEvidence&&visibilityEvidence.selectorIndex===repairIndex&&<div className="notice">
+    <b>CSS 可见性：</b>{visibilityEvidence.result.status==='potentially-visible'?'可能可见':visibilityEvidence.result.status==='hidden'?'被隐藏':visibilityEvidence.result.status==='missing'?'顶层 DOM 未匹配':visibilityEvidence.result.status==='ambiguous'?'多个匹配':'证据不足'}
+    · 匹配数 {visibilityEvidence.result.matchCount??'未知'}
+    · Pointer events {visibilityEvidence.result.pointerBlocked===true?'禁止':visibilityEvidence.result.pointerBlocked===false?'未禁止':'未知'}
+    · V2 未验证；仅供人工判断，不能证明元素可点击或业务功能正常。
    </div>}
    <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
