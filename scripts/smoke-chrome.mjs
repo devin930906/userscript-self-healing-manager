@@ -158,7 +158,7 @@ try{
    const live=port===9231?
     await waitForChromeDebugger({port:9231,timeoutMs:25000,hasExited:()=>failure!==null||exited}):
     await waitForChromeDebugger({port:9232,timeoutMs:25000,hasExited:()=>failure!==null||exited});
-   assert.ok(/^Chrome\\/|^HeadlessChrome\\/|^Chromium\\//.test(live.browser));
+   assert.ok(['Chrome/','HeadlessChrome/','Chromium/'].some(prefix=>live.browser.startsWith(prefix)));
    await access(isolatedProfileDir);
   }finally{
    if(instance.pid)spawnSync('taskkill',['/PID',String(instance.pid),'/T','/F'],
