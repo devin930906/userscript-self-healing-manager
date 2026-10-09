@@ -3,7 +3,9 @@
  * An approved apply must have happened in a separate guarded transaction.
  *
  * If a strict two-sample V1 observation cannot be established, restore the
- * exact immutable predecessor. A failed restore is explicitly BLOCKED, never
+ * exact immutable predecessor. Only a two-sample unique node contract may
+ * retain the revision; existence-only or multi-match results are insufficient.
+ * A failed restore is explicitly BLOCKED, never
  * disguised as a successful rollback.
  */
 export interface GuardedV1Result {
@@ -35,8 +37,8 @@ export async function guardAppliedManagedRevision({approved,scriptId,appliedHash
  try{
   const evidence=await verify() as Record<string,unknown>|null;
   if(evidence&&evidence.status==='passed'&&evidence.evidenceLevel==='V1'&&
-     evidence.attempts===2&&typeof evidence.matchCount==='number'&&
-     Number.isSafeInteger(evidence.matchCount)&&evidence.matchCount>=1&&
+     evidence.expectation==='unique'&&evidence.attempts===2&&
+     evidence.matchCount===1&&
      evidence.V2==='blocked'&&evidence.V3==='not-configured'&&
      evidence.V4==='not-configured'&&evidence.functionalVerified===false&&
      evidence.managerVerified===false)
