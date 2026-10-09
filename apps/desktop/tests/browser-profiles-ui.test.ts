@@ -27,3 +27,14 @@ test('renderer cannot dictate arbitrary Chrome EXE or profile directory through 
  assert.doesNotMatch(handler,/q\.executablePath|q\.profileDir|q\.dataRoot/);
  assert.doesNotMatch(preload,/createBrowserProfile:.*executablePath/);
 });
+
+test('browser profile UI explicitly distinguishes damaged settings and writer lock from no saved profiles',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const preload=await readFile('apps/desktop/src/preload/index.ts','utf8');
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(main,/ipcMain\.handle\('usshm:browser-profile-health'/);
+ assert.match(preload,/ipcRenderer\.invoke\('usshm:browser-profile-health'/);
+ assert.match(ui,/browserProfileHealth/);
+ assert.match(ui,/浏览器配置文件损坏/);
+ assert.match(ui,/浏览器配置正在写入或存在遗留锁/);
+});
