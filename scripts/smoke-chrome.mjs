@@ -12,7 +12,7 @@ import {access,mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {buildChromeLaunchArgs,getChromeStatus} from '../packages/cdp-client/src/index.ts';
+import {buildChromeLaunchArgs,getChromeStatus,waitForChromeDebugger,assertChromeDebuggerPortFree} from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
@@ -105,6 +105,12 @@ try{
  }
  if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture. Last CDP status='+lastStatusError+
   '; observed page count='+observedPageCount+'; frame identity='+lastIdentityError+'; Chrome stderr='+diagnostics);
+ // A successful process spawn is not enough: the real running Chrome must
+ // expose a verified localhost browser websocket. The live port must also
+ // reject a second launch so we never misattribute an existing session.
+ const verifiedDebugger=await waitForChromeDebugger({port:9223,timeoutMs:5000});
+ assert.ok(verifiedDebugger.browserSocket?.includes('/devtools/browser/'));
+ await assert.rejects(assertChromeDebuggerPortFree(9223),/port.*(in use|unavailable)/i);
  // Verify the actual installed Chrome EXE survives a preference reload (no autorun).
  await savePreferredChromePath({dataRoot:profile,executablePath:executable});
  assert.equal(await loadPreferredChromePath({dataRoot:profile}),executable);
