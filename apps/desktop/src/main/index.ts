@@ -134,6 +134,7 @@ async function bootstrap():Promise<void>{
   const offset=q.offset??0;
   if(!Number.isSafeInteger(offset)||offset<0||offset>1000||offset%25!==0)throw new Error('Invalid batch offset');
   const scanSnapshot=scanSessions.require(q.scanId);
+  try{
   const status=await getChromeStatus({port:9223});
   scanSessions.assertCurrent(scanSnapshot);
   const selected=status.pages.find(p=>p.id===q.targetId);
@@ -150,6 +151,7 @@ async function bootstrap():Promise<void>{
   batchEvidence.record({scanId:q.scanId,targetId:q.targetId,
    total:scanSnapshot.items.length,offset,page:authenticatedPage});
   return authenticatedPage;
+  }catch(error){batchEvidence.clear();throw error;}
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
@@ -289,7 +291,9 @@ async function bootstrap():Promise<void>{
   if(selection.canceled||!selection.filePath)return {canceled:true};
   scanSessions.assertCurrent(scanSnapshot);
   // The scan or target may have changed while the save dialog was visible.
-  batchEvidence.snapshot({scanId:q.scanId,targetId:q.targetId});
+  const fresh=batchEvidence.snapshot({scanId:q.scanId,targetId:q.targetId});
+  if(fresh.revision!==observed.revision)
+   throw new Error('DOM evidence changed while save dialog was open; export cancelled');
   await writeFile(selection.filePath,content,{encoding:'utf8',flag:'w'});
   return {canceled:false,path:selection.filePath};
  });
