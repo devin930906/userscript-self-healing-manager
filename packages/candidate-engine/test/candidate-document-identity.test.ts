@@ -9,7 +9,7 @@ const snapshot={targetId:target.id,url:target.url,scope:'top-document',
 const matched=(entries:readonly typeof locator[])=>({targetId:target.id,url:target.url,
  checks:entries.map(e=>({method:e.method,expression:e.expression,
  status:e.expression==='#old-action'?'missing':'found',
- matchCount:e.expression==='#old-action'?0:1}))});
+ matchCount:e.expression==='#old-action'?0:1,...(e.expression!=='#old-action'?{nodeFingerprint:'a'.repeat(64)}:{})}))});
 
 test('candidate suggestions refuse same-URL main-frame navigation between original probe and captured DOM',async()=>{
  let identities=0,probes=0;
