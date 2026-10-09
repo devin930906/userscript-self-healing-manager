@@ -7,7 +7,8 @@ const target={type:'page',id:'test-target',url:'https://example.test/a',webSocke
 const locator={method:'querySelector' as const,expression:'#action',runtimeRequired:false};
 class FakeSocket extends EventEmitter {
  sent:{id:number;method:string;params:any}[]=[];
- constructor(private readonly steps:Record<string,(params:any)=>unknown>){super();queueMicrotask(()=>this.emit('open'));}
+ private readonly steps:Record<string,(params:any)=>unknown>;
+ constructor(steps:Record<string,(params:any)=>unknown>){super();this.steps=steps;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,fn:(event:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(event:any)=>void){this.off(name,fn);}
  send(raw:string){
