@@ -15,6 +15,7 @@ const sha=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  if(!isAbsolute(managedRoot))throw new Error('Managed root must be absolute');
  const pending=new Map<string,PendingProposal>();
+ const applying=new Set<string>();
  return {
   invalidatePending():void{pending.clear();},
   async propose({sourcePath,scriptId,oldSelector,newSelector,selectorLocation}:{sourcePath:string;scriptId:string;oldSelector:string;newSelector:string;selectorLocation?:SelectorLocation|undefined}):Promise<ProposalReceipt>{
@@ -75,7 +76,14 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    if(approved!==true)throw new Error('Explicit approval required');
    const found=pending.get(proposalId);
    if(!found)throw new Error('Proposal not found or already applied');
+   // Lock synchronously, before any filesystem await. Otherwise two approvals
+   // can both pass the missing-current check and race to activate distinct
+   // revisions. The lock is per script so unrelated repairs remain independent.
+   if(applying.has(found.scriptId))
+    throw new Error('Another repair approval for this script is already in progress');
+   applying.add(found.scriptId);
    pending.delete(proposalId);
+   try{
    const sourceInfo=await lstat(found.sourcePath);
    if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink()||sha(await readFile(found.sourcePath))!==found.originalHash)
     throw new Error('Original source hash mismatch after patch proposal; refusing stale repair'); 
@@ -94,6 +102,7 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
    const receipt=await applyManagedPatch({sourcePath:found.workingPath,managedRoot,scriptId:found.scriptId,draft:found.draft,expectedHash:found.draft.baseHash,approved:true,baseRevisionKind:found.baseRevisionKind});
    await activateManagedRevision({managedRoot,scriptId:found.scriptId,hash:receipt.hash,approved:true});
    return receipt;
+   }finally{applying.delete(found.scriptId);}
   },
  };
 }
