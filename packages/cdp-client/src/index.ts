@@ -238,7 +238,8 @@ export async function startVerifiedChromeChild({spawnChrome,handshake,terminateC
   throw error;
  }
 }
-async function terminateFailedChromeLaunch(child:ChildProcess):Promise<void>{
+/** @internal Shared with Windows CI fixture to exercise the exact production teardown. */
+export async function terminateFailedChromeLaunch(child:ChildProcess):Promise<void>{
  // Do not accidentally kill a different process after a PID is recycled.
  if(!child.pid||child.exitCode!==null||child.signalCode!==null)return;
  if(process.platform==='win32'){
