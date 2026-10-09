@@ -27,7 +27,12 @@ export function createRepairWorkflow({managedRoot}:{managedRoot:string}){
  return {
   invalidatePending():void{invalidationEpoch++;pending.clear();},
   /** Removes only an unpublished preview that lost its CDP/source identity. */
-  discard(proposalId:string):boolean{return pending.delete(proposalId);},
+  discard(proposalId:string):boolean{
+   // Invalidate any in-flight preparation that was started before a scan
+   // revoked its approval, even if no pending record exists yet.
+   invalidationEpoch++;
+   return pending.delete(proposalId);
+  },
   /** Main-process-only review identity. Never accept a rollback target supplied
    * by the renderer; use this immutable draft's verified predecessor hash. */
   inspectPending(proposalId:string):Readonly<{scriptId:string;previousHash:string;proposedHash:string;newSelector:string}>|null{
