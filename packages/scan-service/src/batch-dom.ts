@@ -1,7 +1,7 @@
 import type {ScanItemResult} from './index.ts';
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
 import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
-import type {ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
+import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {checkUserscriptPageScope} from '../../candidate-engine/src/page-scope.ts';
 import {summarizeLiveLocatorCheck} from './health.ts';
 
@@ -48,9 +48,12 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  // Page identity must be authenticated even if all scripts are out of scope
  // or have only dynamic locators. Observe nested frames without storing URLs.
  let nestedFramesSeen=false;
+ let baselineDocument:ConfirmedPageIdentity|undefined;
  const checkIdentity=async()=>{
   const identity=await deps.confirm(target);
   assertPageIdentity(target,identity);
+  if(baselineDocument)assertStablePageDocument(baselineDocument,identity);
+  else baselineDocument=identity;
   if((identity.subframeCount??0)>0)nestedFramesSeen=true;
  };
  await checkIdentity();
