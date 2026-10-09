@@ -7,7 +7,11 @@ test('Windows CI runs a separate real Chrome 155 fixture smoke with pinned offic
  assert.match(workflow,/chrome155:\s*\n/);
  assert.match(workflow,/runs-on:\s*windows-latest/);
  assert.match(workflow,/storage\.googleapis\.com\/chrome-for-testing-public\/155\.0\.8059\.39\/win64\/chrome-win64\.zip/);
- assert.match(workflow,/Expand-Archive/);
+ assert.match(workflow,/\$installRoot\s*=\s*Join-Path \$env:ProgramFiles 'USSHM-ChromeForTesting-155'/);
+ assert.match(workflow,/Expand-Archive -LiteralPath \$archive -DestinationPath \$installRoot/);
+ assert.doesNotMatch(workflow,/Expand-Archive -LiteralPath \$archive -DestinationPath \$env:RUNNER_TEMP/,
+  'Windows sandbox cannot execute Chrome binaries from the hosted runner temp directory');
+ assert.doesNotMatch(workflow,/--no-sandbox/,'do not weaken Chrome sandbox to make tests pass');
  assert.match(workflow,/CHROME_PATH=\$exe/);
  assert.match(workflow,/USSHM_SMOKE_EXPECT_CHROME_MAJOR:\s*'155'/);
  assert.match(workflow,/node --experimental-strip-types scripts\/smoke-chrome\.mjs/);
