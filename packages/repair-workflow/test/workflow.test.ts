@@ -280,3 +280,15 @@ test('scan invalidation clears staged approvals while allowing fresh scan propos
  const applied=await flow.apply({proposalId:fresh.proposalId,approved:true});
  assert.match(await readFile(applied.managedPath,'utf8'),/#fresh/);
 }));
+
+
+test('explicit discarded approval cannot be applied, while a new proposal remains possible',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const obsolete=await flow.propose({sourcePath,scriptId:'discarded',oldSelector:'#old',newSelector:'#obsolete'});
+ assert.equal(flow.discard(obsolete.proposalId),true);
+ assert.equal(flow.inspectPending(obsolete.proposalId),null);
+ await assert.rejects(flow.apply({proposalId:obsolete.proposalId,approved:true}),/not found|already applied/i);
+ const fresh=await flow.propose({sourcePath,scriptId:'discarded',oldSelector:'#old',newSelector:'#fresh'});
+ const applied=await flow.apply({proposalId:fresh.proposalId,approved:true});
+ assert.match(await readFile(applied.managedPath,'utf8'),/#fresh/);
+}));
