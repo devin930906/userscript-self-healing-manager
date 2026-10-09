@@ -22,3 +22,9 @@ test('UI displays evidence counts and explicit limitations',async()=>{
 test('switching inspected scripts clears stale DOM evidence',async()=>{
  assert.match(await ui(),/setFocused\(item\.index\);setPageProbe\(null\)/);
 });
+
+test('UI warns that author ShadowRoot can hide selectors from top-document probes',async()=>{
+ const source=await ui();
+ assert.match(source,/authorShadowTreeNodes/);
+ assert.match(source,/Shadow DOM.*需复核|ShadowRoot.*需复核/);
+});
