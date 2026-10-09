@@ -10,8 +10,18 @@ export interface SelectorRecord {
   dynamicKind:DynamicKind;runtimeRequired:boolean;
 }
 export interface MetadataParseResult {name:string|null;match:string[];include:string[];grant:string[];runAt:string|null;raw:Record<string,string[]>}
+export interface ManagerApiCall {
+ /** Static syntactic reference, NOT proof that the real manager injected APIs. */
+ readonly api:string;
+ readonly line:number;
+ readonly column:number;
+ readonly grantStatus:'declared'|'missing'|'unknown';
+ readonly evidenceLevel:'static-only';
+ readonly managerVerified:false;
+}
 export interface SourceAnalysis {
  scriptId:string;sourceSha256:string;metadata:MetadataParseResult;selectorRecords:SelectorRecord[];
+ managerApiCalls:ManagerApiCall[];
  parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom'|'invalid';lineEnding:'crlf'|'lf'|'mixed'|'none';
 }
 export function parseUserscriptMetadata(source:string):MetadataParseResult {
@@ -69,12 +79,37 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   // Never turn corrupt user scripts into a successful AST scan with replacement
   // characters. The original byte hash remains available for diagnostics.
   return {scriptId,sourceSha256,metadata:parseUserscriptMetadata(''),
-   selectorRecords:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
+   selectorRecords:[],managerApiCalls:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
    encoding:'invalid',lineEnding:'none'};
  }
  const source=ts.createSourceFile(`${scriptId}.user.js`,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const selectorRecords:SelectorRecord[]=[];
+ const managerApiCalls:ManagerApiCall[]=[];
+ const metadata=parseUserscriptMetadata(text);
+ const grants=new Set(metadata.grant.map(x=>x.trim()));
+ function collectManagerApi(node:ts.CallExpression):void{
+  const callee=node.expression;
+  let api:string|null=null;
+  if(ts.isIdentifier(callee)&&/^GM_[A-Za-z][A-Za-z0-9_]{0,79}$/.test(callee.text))
+   api=callee.text;
+  else if(ts.isPropertyAccessExpression(callee)&&
+      ts.isIdentifier(callee.expression)&&callee.expression.text==='GM'&&
+      /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(callee.name.text))
+   api='GM.'+callee.name.text;
+  else if(ts.isElementAccessExpression(callee)&&
+      ts.isIdentifier(callee.expression)&&callee.expression.text==='GM'){
+   const key=callee.argumentExpression;
+   api=key&&ts.isStringLiteralLike(key)&&/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(key.text)?
+    'GM.'+key.text:'GM.<dynamic>';
+  }
+  if(!api)return;
+  const pos=source.getLineAndCharacterOfPosition(node.getStart(source));
+  managerApiCalls.push({api,line:pos.line+1,column:pos.character+1,
+   grantStatus:api==='GM.<dynamic>'?'unknown':grants.has(api)?'declared':'missing',
+   evidenceLevel:'static-only',managerVerified:false});
+ }
  function walk(node:ts.Node):void{
+   if(ts.isCallExpression(node))collectManagerApi(node);
    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&METHODS.has(node.expression.name.text)&&node.arguments[0]){
      const selector=selectorOf(node.arguments[0]);const start=source.getLineAndCharacterOfPosition(node.getStart(source));const end=source.getLineAndCharacterOfPosition(node.getEnd());
      const scope=functionScope(node);
@@ -88,7 +123,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  walk(source);
  const diagnostics=((source as ts.SourceFile & {parseDiagnostics?:readonly ts.Diagnostic[]}).parseDiagnostics??[]).map(d=>ts.flattenDiagnosticMessageText(d.messageText,' '));
  const crlf=(text.match(/\r\n/g)??[]).length;const lf=(text.match(/(?<!\r)\n/g)??[]).length;
- return {scriptId,sourceSha256,metadata:parseUserscriptMetadata(text),selectorRecords,
+ return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,
    parseDiagnostics:diagnostics,encoding:sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191?'utf-8-bom':'utf-8',
    lineEnding:crlf&&lf?'mixed':crlf?'crlf':lf?'lf':'none'};
 }
