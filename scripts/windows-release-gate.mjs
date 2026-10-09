@@ -126,6 +126,29 @@ async function digest(path){
  for await(const data of createReadStream(path))hash.update(data);
  return hash.digest('hex');
 }
+/** Validate the PE/COFF header and AMD64 machine type, not just DOS MZ bytes. */
+export function isWindowsX64Pe(buffer){
+ if(!Buffer.isBuffer(buffer)||buffer.length<0x40||buffer.readUInt16LE(0)!==0x5a4d)return false;
+ const offset=buffer.readUInt32LE(0x3c);
+ if(offset<0x40||offset+6>buffer.length)return false;
+ return buffer.toString('ascii',offset,offset+4)==='PE\\0\\0'&&
+  buffer.readUInt16LE(offset+4)===0x8664;
+}
+
+async function validateX64Pe(path){
+ const handle=await open(path,'r');
+ try{
+  const dos=Buffer.alloc(0x40);
+  if((await handle.read(dos,0,dos.length,0)).bytesRead!==dos.length)return false;
+  if(dos.readUInt16LE(0)!==0x5a4d)return false;
+  const offset=dos.readUInt32LE(0x3c);
+  if(offset<0x40||offset>1024*1024)return false;
+  const coff=Buffer.alloc(6);
+  if((await handle.read(coff,0,coff.length,offset)).bytesRead!==coff.length)return false;
+  return coff.toString('ascii',0,4)==='PE\\0\\0'&&coff.readUInt16LE(4)===0x8664;
+ }finally{await handle.close();}
+}
+
 async function magic(path,expected){
  const handle=await open(path,'r');
  try{
@@ -154,8 +177,8 @@ async function runFinalArtifactInventory(){
  for(const [i,name] of names.entries()){
   const full=join(folder,name),info=await stat(full);
   if(!info.isFile()||info.size<64*1024)throw new Error('Missing, empty or invalid release artifact: '+name);
-  if(!(await magic(full,i===2?Buffer.from([0x50,0x4b]):Buffer.from([0x4d,0x5a]))))
-   throw new Error('Invalid EXE or ZIP signature: '+name);
+  if(i===2?!(await magic(full,Buffer.from([0x50,0x4b,0x03,0x04]))):!(await validateX64Pe(full)))
+   throw new Error('Invalid Windows x64 PE executable or ZIP signature: '+name);
   checksums.push(`${await digest(full)}  ${name}`);
  }
  // Never overwrite an existing signed or published manifest.
