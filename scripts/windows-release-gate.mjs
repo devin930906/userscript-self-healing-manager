@@ -43,7 +43,7 @@ function normalizedZipEntry(entry){
  // Windows extraction can reinterpret ":" as an NTFS alternate data stream
  // or reserve device names even when nested and followed by an extension.
  // Trailing dots/spaces also alias distinct ZIP names on Win32.
- if(segments.some(segment=>segment.includes(':')||/[. ]$/.test(segment)||
+ if(segments.some(segment=>/[<>:"|?*]/.test(segment)||/[. ]$/.test(segment)||
     /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\..*)?$/i.test(segment)))
   throw new Error('Unsafe Windows ZIP path, device name or alternate stream');
  if(segments.some(s=>s.toLowerCase()==='data')||
