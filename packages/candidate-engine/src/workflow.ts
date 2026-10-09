@@ -1,4 +1,5 @@
 import {rankSelectorCandidates,type SafeDomNode,type SelectorCandidate} from './index.ts';
+import {resolveSiteAdapterRole,type SiteAdapter,type AdapterRoleResolution} from './site-adapter.ts';
 export interface MissingLocator {method:string;expression:string;runtimeRequired:boolean}
 export interface DomProbeCheck {method:string;expression:string;status:string;matchCount:number|null}
 export interface DomProbeEvidence {targetId:string;url:string;checks:readonly DomProbeCheck[]}
@@ -31,4 +32,30 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
    verified.push({...a,validationLevel:'dom-candidate-verified'});
  }
  return verified;
+}
+
+
+export type AdapterScopedRepairsResult=AdapterRoleResolution&{
+ readonly candidates:readonly VerifiedCandidate[];
+};
+/**
+ * A versioned semantic role narrows, never broadens, the ordinary two-step
+ * live DOM candidate probe. The role's local selectors cannot turn candidate
+ * evidence into V2 interaction / V3 functional / V4 manager verification.
+ */
+export async function suggestAdapterScopedRepairs({target,locator,adapter,roleId,observedStateId,deps}:{
+ target:{id:string;url:string};
+ locator:MissingLocator;
+ adapter:SiteAdapter;
+ roleId:string;
+ observedStateId:string|null;
+ deps:CandidateDeps;
+}):Promise<AdapterScopedRepairsResult>{
+ const role=resolveSiteAdapterRole({adapter,pageUrl:target.url,roleId,observedStateId});
+ if(role.status!=='candidate-only')return {...role,candidates:[]};
+ const allowed=new Map(role.selectors.map((css,index)=>[css,index]));
+ const suggestions=await suggestCandidateRepairs({target,locator,deps});
+ const permitted=suggestions.filter(candidate=>allowed.has(candidate.cssSelector));
+ permitted.sort((a,b)=>allowed.get(a.cssSelector)!-allowed.get(b.cssSelector)!);
+ return {...role,candidates:permitted};
 }
