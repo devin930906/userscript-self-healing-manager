@@ -101,6 +101,8 @@ test('malformed remote DOM objects never enter event-listener inspection',async(
   {type:'string',objectId:'remote-1'},
   {type:'function',objectId:'remote-1'},
   {type:'object',objectId:''},
+  {type:'object',subtype:'node',objectId:'remote\u0000invalid'},
+  {type:'object',subtype:'node',objectId:'remote\ninvalid'},
   {type:'object',objectId:'remote-1',subtype:'null'},
   {type:'object',objectId:'remote-1',subtype:'array'},
   {type:'object',objectId:'remote-1',subtype:'date'},
