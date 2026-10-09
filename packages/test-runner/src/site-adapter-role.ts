@@ -20,6 +20,7 @@ export interface RoleCheckDeps {
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  probe:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
  probeOpenShadow?:(target:ChromeTarget,locators:readonly LiteralLocator[])=>Promise<LocatorProbeResult>;
+ probeIframe?:(target:ChromeTarget,locators:readonly LiteralLocator[],frameId:string)=>Promise<LocatorProbeResult>;
  wait:()=>Promise<void>;
  summarize:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
@@ -88,6 +89,8 @@ export async function runSiteAdapterRoleDomCheck({
  // for a role declared inside an open ShadowRoot.
  if(role.rootScope==='open-shadow'&&typeof deps?.probeOpenShadow!=='function')
   return result('blocked-context','No trusted open ShadowRoot CDP probe configured');
+ if(role.rootScope==='iframe-document'&&typeof deps?.probeIframe!=='function')
+  return result('blocked-context','No trusted iframe document CDP probe configured');
  if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||
     typeof deps.wait!=='function'||typeof deps.summarize!=='function')
   throw new Error('Invalid SiteAdapter DOM inspection dependencies');
@@ -98,6 +101,10 @@ export async function runSiteAdapterRoleDomCheck({
  const baseline=await deps.confirm(target);
  if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||!baseline.frameId||!baseline.loaderId)
   throw new Error('CDP page identity not verified for SiteAdapter');
+ const iframe=baseline.soleSameOriginSubframe;
+ if(role.rootScope==='iframe-document'&&
+    ((baseline.subframeCount??0)!==1||!iframe?.frameId||!iframe.loaderId))
+  return result('blocked-context','Exactly one same-origin child frame with a pinned loader is required');
  let subframes=(baseline.subframeCount??0)>0;
  const guard=async()=>{
   const current=await deps.confirm(target);
@@ -107,7 +114,11 @@ export async function runSiteAdapterRoleDomCheck({
  const inspect=async():Promise<Counts>=>{
   await guard();
   let observation:LocatorProbeResult|undefined;
-  try{observation=await (role.rootScope==='open-shadow'?deps.probeOpenShadow!:deps.probe)(target,locators);}
+  try{
+   if(role.rootScope==='open-shadow')observation=await deps.probeOpenShadow!(target,locators);
+   else if(role.rootScope==='iframe-document')observation=await deps.probeIframe!(target,locators,iframe!.frameId);
+   else observation=await deps.probe(target,locators);
+  }
   catch{await guard();return null;}
   await guard();
   return counts(observation!,target,locators);
@@ -132,6 +143,8 @@ export async function runSiteAdapterRoleDomCheck({
  // shadow roots. Context snapshots must be verifiable and within budget.
  if(role.rootScope==='open-shadow')
   return result('needs-review','No stable match in the selected open ShadowRoot; complex/nested contexts are not excluded',null,2);
+ if(role.rootScope==='iframe-document')
+  return result('needs-review','No stable match in the one pinned iframe document; nested Shadow DOM remains unknown',null,2);
  if(subframes)return result('needs-review','Possible matches inside iframe contexts',null,2);
  try{
   const ctx=await deps.summarize(target);
