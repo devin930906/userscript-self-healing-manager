@@ -213,6 +213,14 @@ node --experimental-strip-types scripts/diagnose.ts --output report.json "D:\\Yo
 
 回归同时覆盖**本地伪造 HTTP Chrome 服务但无 WebSocket**时拒绝，以及真实 Windows Chrome for Testing 155.0.8059.39 的正常握手。Windows [Development CI #37970418007](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37970418007) 中官方 Chrome 155 专项和桌面 Electron 验证均 SUCCESS；[Node Contracts #37970417569](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37970417569) **581/581 PASS**。这是 CDP 协议身份校验，不等于已经验证调试端口的 Windows **OS PID/可执行文件归属**；指定便携版 Chrome、真实 Tampermonkey/GM API 与三种 Stable 发行包仍未验收。
 
+## Chrome V2 只读事件监听器检查（2026-10-10）
+
+新增桌面端「**检查事件监听器（只读）**」功能。用户先选择已授权的 `.user.js`、脚本内静态顶层 DOM 定位器和目标 Chrome 页面，再显式点击检查按钮。主进程校验网页适用域、CDP WebSocket 浏览器身份、同一个 frame/loader 页面身份与扫描会话有效性，然后使用 Chrome CDP 的 `DOMDebugger.getEventListeners` 只查看该唯一元素**直接注册的 click 监听器数量**；远程 JavaScript 对象引用在检查后释放。不会点击元素、滚动网页、执行用户脚本或返回任何事件 handler 源码/页面文字/私人 DOM 数据。
+
+结果包括：发现直接监听器、未观察到、缺失、多匹配或证据不足。**没有直接监听器不等于没有功能**：事件可能委托到父节点，来自内联脚本、框架或 Tampermonkey 沙箱。即使确实发现监听器，也不证明点击安全或业务操作成功。因此 UI 严格显示 **V2 blocked / V3、V4 not-configured**，不能把只读观察当成自愈成功。
+
+[Windows Chrome 155 CI #37971931853](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37971931853) 已真实检测隔离 fixture 上注册和未注册直接 click 监听器两种情况，日志输出 `PASS real Chrome direct listener inspection: registered vs none-observed, read-only V2 blocked.`；[Node Contracts #37971931860](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37971931860) **589/589 PASS**。这些仍不是用户 Windows 10/便携版 Chrome 155.0.8059.40、真实 Tampermonkey/GM API 或三个 Stable 发行包的完整验收。
+
 ## 已知开发限制
 
 - Windows 三包已在 GitHub Actions 的 Windows Server 2025 runner 编译，并且 ZIP 解压版主 EXE 已能创建 Data/registry.sqlite；但尚未完成 Windows 10 实机及便携 Chrome 测试。
