@@ -1,5 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {lstat,open,readFile,readdir,unlink} from 'node:fs/promises';
+import {lstat,open,readdir,unlink} from 'node:fs/promises';
+import {constants} from 'node:fs';
 import {isAbsolute,join} from 'node:path';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 import {parseSiteAdapter,type SiteAdapter} from './site-adapter.ts';
@@ -35,14 +36,33 @@ async function regularBounded(path:string):Promise<Uint8Array>{
  const stat=await lstat(path);
  if(!stat.isFile()||stat.isSymbolicLink())throw new Error('Site adapter must be a regular non-symlink file');
  if(stat.size<1||stat.size>MAX_BYTES)throw new Error('Site adapter JSON exceeds the safe size limit');
- const data=await readFile(path);
- if(data.byteLength<1||data.byteLength>MAX_BYTES)
-  throw new Error('Site adapter JSON exceeds the safe size limit');
- const after=await lstat(path);
- if(!after.isFile()||after.isSymbolicLink()||after.size!==data.byteLength||
-    after.ino!==stat.ino||after.dev!==stat.dev)
-  throw new Error('Site adapter file identity changed while reading');
- return data;
+ // Hold a single file descriptor throughout the bounded read. O_NOFOLLOW
+ // rejects final-component symlinks where the OS supports it; fstat identity
+ // also rejects replacements between path inspection and descriptor open.
+ const flags=constants.O_RDONLY|(constants.O_NOFOLLOW??0);
+ const handle=await open(path,flags);
+ try{
+  const opened=await handle.stat();
+  if(!opened.isFile()||opened.dev!==stat.dev||opened.ino!==stat.ino||
+     opened.size!==stat.size||opened.mtimeMs!==stat.mtimeMs)
+   throw new Error('Site adapter file identity changed before reading');
+  const buffer=Buffer.alloc(opened.size);
+  let offset=0;
+  while(offset<buffer.length){
+   const {bytesRead}=await handle.read(buffer,offset,buffer.length-offset,offset);
+   if(bytesRead===0)throw new Error('Site adapter truncated during bounded read');
+   offset+=bytesRead;
+  }
+  const after=await handle.stat();
+  const finalPath=await lstat(path);
+  if(!after.isFile()||!finalPath.isFile()||finalPath.isSymbolicLink()||
+     after.dev!==opened.dev||after.ino!==opened.ino||
+     finalPath.dev!==opened.dev||finalPath.ino!==opened.ino||
+     after.size!==opened.size||finalPath.size!==opened.size||
+     after.mtimeMs!==opened.mtimeMs||finalPath.mtimeMs!==opened.mtimeMs)
+   throw new Error('Site adapter file identity changed during reading');
+  return buffer;
+ }finally{await handle.close();}
 }
 function decodeAdapter(bytes:Uint8Array):SiteAdapter{
  let content:string;
@@ -142,12 +162,16 @@ export function createSiteAdapterLibrary({dataRoot}:{dataRoot:string}){
    }
    return result;
   },
-  async getForInspection({siteId}:{siteId:string}):Promise<SiteAdapter>{
+  async getForInspection({siteId,expectedSha256}:{siteId:string;expectedSha256:string}):Promise<SiteAdapter>{
    // Caller may know the site name only; never accept a path or raw selector.
    if(typeof siteId!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(siteId))
     throw new Error('Invalid SiteAdapter site ID');
+   if(typeof expectedSha256!=='string'||!/^[0-9a-f]{64}$/.test(expectedSha256))
+    throw new Error('Invalid SiteAdapter reviewed SHA-256 digest');
    await prepareDirectory();
    const bytes=await regularBounded(pathOf(siteId));
+   if(sha(bytes)!==expectedSha256)
+    throw new Error('SiteAdapter content changed since the reviewed library listing; refresh and reselect the rule');
    const adapter=decodeAdapter(bytes);
    if(adapter.siteId!==siteId)
     throw new Error('Stored SiteAdapter site identity mismatch');
