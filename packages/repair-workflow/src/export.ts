@@ -1,10 +1,16 @@
 import {createHash} from 'node:crypto';
-import {join,isAbsolute,relative,dirname} from 'node:path';
+import {join,isAbsolute,relative,dirname,sep} from 'node:path';
 import {lstat,writeFile,realpath} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {listManagedRevisions} from './history.ts';
 
 export interface ExportManagedReceipt {readonly path:string;readonly hash:string;readonly bytes:number}
+/** A '..'-prefixed child name is still a child; only the WHOLE '..' path
+ * segment crosses out of the root. Apply to both lexical and real paths. */
+function withinRoot(base:string,candidate:string):boolean{
+ const rel=relative(base,candidate);
+ return rel===''||(!isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('..'+sep));
+}
 /**
  * Copies an already verified managed current revision to a NEW userscript file.
  * Caller must obtain destinationPath from an OS Save dialog. Never overwrite,
@@ -15,15 +21,13 @@ export async function exportManagedCurrent({managedRoot,scriptId,destinationPath
 }):Promise<ExportManagedReceipt>{
  if(!isAbsolute(managedRoot)||!isAbsolute(destinationPath)||!destinationPath.toLowerCase().endsWith('.user.js'))
   throw new Error('Absolute .user.js export destination required');
- const relativeToRoot=relative(managedRoot,destinationPath);
- if(relativeToRoot===''||(!relativeToRoot.startsWith('..')&&!isAbsolute(relativeToRoot)))
+ if(withinRoot(managedRoot,destinationPath))
   throw new Error('Cannot export into the managed data root');
  // Lexical checks alone can be bypassed by a user-created junction or symlink
  // in the Save dialog's parent directory (especially on Windows). Reject the
  // resolved parent if it aliases any part of managedRoot.
  const [resolvedRoot,resolvedParent]=await Promise.all([realpath(managedRoot),realpath(dirname(destinationPath))]);
- const resolvedRel=relative(resolvedRoot,resolvedParent);
- if(resolvedRel===''||(!resolvedRel.startsWith('..')&&!isAbsolute(resolvedRel)))
+ if(withinRoot(resolvedRoot,resolvedParent))
   throw new Error('Resolved export directory is inside managed data root');
 
  // listManagedRevisions validates the managed path hierarchy and the content hashes.
