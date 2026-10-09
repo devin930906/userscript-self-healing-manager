@@ -132,8 +132,8 @@ function App(){
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
- async function startChrome(){try{await window.ussm.launchChrome();setMessage('已请求启动选定 Chrome；请点击检查 CDP 连接确认握手成功。');}catch(e){setError(String(e));}}
- async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 已启动；这是新的独立资料目录，不包含原有登录信息和扩展。请检查 CDP 握手。');}catch(e){setError(String(e));}}
+ async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(String(e));}}
+ async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 的 CDP 握手已验证；独立资料目录不包含原有登录信息和扩展。点击「检查 CDP 连接」刷新网页列表。');}catch(e){setError(String(e));}}
  async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${String(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
  async function loadDiagnosisHistory(){
   try{setDiagnosisHistory(await window.ussm.listDiagnosisHistory());}
