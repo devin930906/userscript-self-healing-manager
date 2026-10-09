@@ -32,7 +32,7 @@ declare global {interface Window{ussm:{
  scan:(request:{paths:string[];recursive:boolean})=>Promise<DesktopScanResult>;
  listScripts:()=>Promise<ScriptRecord[]>;
  exportReport:(format:'json'|'markdown')=>Promise<{canceled:boolean;path?:string}>;
- exportDomReport:(input:{scanId:string;format:'json'|'markdown';report:BatchDomResult})=>Promise<{canceled:boolean;path?:string}>;
+ exportDomReport:(input:{scanId:string;targetId:string;format:'json'|'markdown'})=>Promise<{canceled:boolean;path?:string}>;
 }}}
 const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
@@ -111,7 +111,7 @@ function App(){
  }),[]);
  async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
- async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,format,report:batchResult});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
+ async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('已请求启动选定 Chrome；请点击检查 CDP 连接确认握手成功。');}catch(e){setError(String(e));}}
  async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 已启动；这是新的独立资料目录，不包含原有登录信息和扩展。请检查 CDP 握手。');}catch(e){setError(String(e));}}
