@@ -6,11 +6,12 @@ import type {PaginatedDomPage} from './paginated-dom.ts';
  * cannot supply or modify its diagnosis contents. A new scan invalidates it.
  */
 export class BatchEvidenceStore {
+ private revisionNumber=0;
  private active:{
   scanId:string;targetId:string;pageUrl:string;token:string;
   total:number;items:BatchDomItem[];observedAt:string;
  }|null=null;
- clear():void{this.active=null;}
+ clear():void{this.active=null;this.revisionNumber++;}
  record({scanId,targetId,total,offset,page}:{
   scanId:string;targetId:string;total:number;offset:number;page:PaginatedDomPage;
  }):void{
@@ -27,26 +28,28 @@ export class BatchEvidenceStore {
      page.remainingItems!==total-offset-expectedSize||!Array.isArray(page.items)||
      page.items.length!==expectedSize||
      page.items.some((item,i)=>item?.index!==offset+i)){
-   this.active=null;
+   this.clear();
    throw new Error('Invalid authenticated CDP evidence page');
   }
   if(offset===0){
    this.active={scanId,targetId,pageUrl:page.pageUrl,token,total,
     items:structuredClone([...page.items]),observedAt:new Date().toISOString()};
+   this.revisionNumber++;
    return;
   }
   const state=this.active;
   if(!state||state.scanId!==scanId||state.targetId!==targetId||
      state.total!==total||state.items.length!==offset||
      state.pageUrl!==page.pageUrl||state.token!==token){
-   this.active=null;
+   this.clear();
    throw new Error('CDP document identity or script batch order changed; stale evidence invalidated');
   }
   state.items.push(...structuredClone([...page.items]));
   state.observedAt=new Date().toISOString();
+  this.revisionNumber++;
  }
  snapshot({scanId,targetId}:{scanId:string;targetId:string}):{
-  report:BatchDomResult;lastObservedAt:string;remainingItems:number;
+  report:BatchDomResult;lastObservedAt:string;remainingItems:number;revision:number;
  }{
   const state=this.active;
   if(!state||state.scanId!==scanId||state.targetId!==targetId)
@@ -55,6 +58,6 @@ export class BatchEvidenceStore {
    validationLevel:'dom-only',pageTargetId:state.targetId,pageUrl:state.pageUrl,
    pageDocumentToken:state.token,totalItems:state.items.length,
    items:structuredClone(state.items),
-  },lastObservedAt:state.observedAt,remainingItems:state.total-state.items.length};
+  },lastObservedAt:state.observedAt,remainingItems:state.total-state.items.length,revision:this.revisionNumber};
  }
 }
