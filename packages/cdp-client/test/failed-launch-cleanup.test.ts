@@ -90,3 +90,17 @@ test('launchSelectedChrome rejects a linked executable before touching CDP',asyn
   await assert.rejects(launchSelectedChrome({executablePath:linked,port:9239}),/symlink|regular executable/i);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+
+test('direct Chrome launch refuses regular non-EXE before probing a debugger',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');
+ const {join}=await import('node:path');
+ const {tmpdir}=await import('node:os');
+ const {launchSelectedChrome}=await import('../src/index.ts');
+ const root=await mkdtemp(join(tmpdir(),'usshm-chrome-non-exe-'));
+ try{
+  const fake=join(root,'not-chrome.txt');
+  await writeFile(fake,'fixture only');
+  await assert.rejects(launchSelectedChrome({executablePath:fake,port:9239}),/EXE executable/i);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
