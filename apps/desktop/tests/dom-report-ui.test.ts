@@ -33,8 +33,15 @@ test('main revokes cached evidence on a failed diagnosis and checks revision aft
  const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
  const diagnostic=main.split("ipcMain.handle('usshm:batch-diagnose'")[1]?.split("ipcMain.handle('usshm:suggest-repair'")[0]??'';
  const exportHandler=main.split("ipcMain.handle('usshm:export-dom-report'")[1]?.split("ipcMain.handle('usshm:export'")[0]??'';
- assert.match(diagnostic,/catch\(error\)\s*\{\s*batchEvidence\.invalidateIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId\}\);/);
- assert.match(diagnostic,/journal\.failIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId,runId:journalRunId\}\);\s*throw error;/);
+ // Only a still-active failed lease can clear evidence; a stale failure
+ // must never delete pages belonging to a restarted batch. Transient CDP
+ // errors preserve the completed prefix for the same-offset retry.
+ assert.match(diagnostic,/if\(diagnosisRequests\.isCurrent\(ticket\)\)/);
+ assert.match(diagnostic,/if\(isTransientCdpReadError\(error\)\)/);
+ assert.match(diagnostic,/diagnosisRequests\.releaseForRetry\(ticket\)/);
+ assert.match(diagnostic,/diagnosisRequests\.failIfCurrent\(ticket\)/);
+ assert.match(diagnostic,/batchEvidence\.invalidateIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId\}\)/);
+ assert.match(diagnostic,/journal\.failIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId,runId:journalRunId\}\)/);
  assert.match(exportHandler,/observed\.revision/);
  assert.match(exportHandler,/fresh\.revision/);
 });
