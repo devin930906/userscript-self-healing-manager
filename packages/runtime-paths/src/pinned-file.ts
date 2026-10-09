@@ -57,7 +57,7 @@ export async function readPinnedRegularFile(path:string,{
   const opened=await handle.stat();
   validateFile(opened);
   if(!same(before,opened))throw new Error('Pinned file identity changed before open');
-  // The file may grow AFTER lstat/open. Never use handle.readFile() here:
+  // The file may grow AFTER lstat/open. Never use an unbounded whole-file read here:
   // that method could allocate the entire enlarged file before we reject it.
   // Read at most maxBytes + 1 directly from the pinned descriptor, in bounded
   // chunks. The extra byte distinguishes an over-budget file from exact fit.
