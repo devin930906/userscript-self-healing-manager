@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {lstat,rename,writeFile,unlink} from 'node:fs/promises';
+import {lstat,rename,writeFile,unlink,mkdir,rmdir} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
@@ -85,6 +85,18 @@ async function readState(dataRoot:string):Promise<SavedState>{
  try{return validateState(JSON.parse(raw.toString('utf8')));}
  catch{throw new Error('Corrupt or invalid browser profile registry; preserve it for recovery');}
 }
+/** Serialize read-modify-write across application processes. Never steal orphaned locks. */
+async function withRegistryWriteLease<T>(dataRoot:string,fn:()=>Promise<T>):Promise<T>{
+ const lock=rootPath(dataRoot)+'.write-lock';
+ try{await mkdir(lock,{mode:0o700});}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='EEXIST')
+   throw new Error('Another browser profile registry writer holds the lock');
+  throw error;
+ }
+ try{return await fn();}
+ finally{await rmdir(lock);}
+}
 async function persist(dataRoot:string,state:SavedState):Promise<void>{
  const target=rootPath(dataRoot);
  // Do not repair or overwrite corrupted data silently. No browser is
@@ -117,6 +129,7 @@ export async function listBrowserProfiles({dataRoot}:{dataRoot:string}):Promise<
 export async function createBrowserProfile({dataRoot,name,executablePath}:{
  dataRoot:string;name:string;executablePath:string;
 }):Promise<BrowserProfile>{
+ return withRegistryWriteLease(dataRoot,async()=>{
  const title=normalizeName(name);
  await assertChromeExecutable(executablePath);
  const state=await readState(dataRoot);
@@ -128,10 +141,13 @@ export async function createBrowserProfile({dataRoot,name,executablePath}:{
   defaultId:state.defaultId??entry.id};
  await persist(dataRoot,changed);
  return {...entry,isDefault:changed.defaultId===entry.id};
+ });
 }
+
 export async function renameBrowserProfile({dataRoot,profileId,name}:{
  dataRoot:string;profileId:string;name:string;
 }):Promise<BrowserProfile>{
+ return withRegistryWriteLease(dataRoot,async()=>{
  validateId(profileId);const title=normalizeName(name);
  const state=await readState(dataRoot);
  const found=state.profiles.find(x=>x.id===profileId);
@@ -141,21 +157,27 @@ export async function renameBrowserProfile({dataRoot,profileId,name}:{
  const changed={...state,profiles:state.profiles.map(x=>x.id===profileId?{...x,name:title}:x)};
  await persist(dataRoot,changed);
  return {...found,name:title,isDefault:state.defaultId===profileId};
+ });
 }
+
 export async function setDefaultBrowserProfile({dataRoot,profileId}:{
  dataRoot:string;profileId:string;
 }):Promise<BrowserProfile>{
+ return withRegistryWriteLease(dataRoot,async()=>{
  validateId(profileId);
  const state=await readState(dataRoot);
  const found=state.profiles.find(x=>x.id===profileId);
  if(!found)throw new Error('Browser profile not found');
  await persist(dataRoot,{...state,defaultId:profileId});
  return {...found,isDefault:true};
+ });
 }
+
 /** Remove only a saved registry record. Never remove a Chrome EXE or profile directory. */
 export async function removeBrowserProfile({dataRoot,profileId,approved}:{
  dataRoot:string;profileId:string;approved:boolean;
 }):Promise<void>{
+ return withRegistryWriteLease(dataRoot,async()=>{
  if(approved!==true)throw new Error('Explicit browser profile removal approval required');
  validateId(profileId);
  const state=await readState(dataRoot);
@@ -163,7 +185,9 @@ export async function removeBrowserProfile({dataRoot,profileId,approved}:{
  const remaining=state.profiles.filter(x=>x.id!==profileId);
  const defaultId=state.defaultId===profileId?(remaining[0]?.id??null):state.defaultId;
  await persist(dataRoot,{...state,profiles:remaining,defaultId});
+ });
 }
+
 /** Caller must explicitly select this profile; never load external profile dirs. */
 export async function resolveBrowserProfileForLaunch({dataRoot,profileId}:{
  dataRoot:string;profileId:string;
