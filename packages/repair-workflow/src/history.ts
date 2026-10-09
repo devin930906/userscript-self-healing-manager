@@ -1,6 +1,7 @@
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash} from 'node:crypto';
 import {join,isAbsolute} from 'node:path';
-import {readdir,lstat,writeFile,rename,unlink} from 'node:fs/promises';
+import {readdir,lstat} from 'node:fs/promises';
+import {commitManagedCurrent} from './current-activation.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 export interface ManagedRevision {readonly hash:string;readonly kind:'original'|'revision';readonly fileName:string;readonly verified:true}
@@ -53,12 +54,14 @@ export async function activateManagedRevision({managedRoot,scriptId,hash,approve
  if(!bytes)throw new Error('Revision hash not found in managed archive');
  const activePath=join(folder,'current.user.js');
  // Fail closed: never silently discard edits made to current.user.js outside this manager.
+ let expectedActiveHash:string|null=null;
  let existingInfo:Awaited<ReturnType<typeof lstat>>|undefined;
  try{existingInfo=await lstat(activePath);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  if(existingInfo){
   if(!existingInfo.isFile()||existingInfo.isSymbolicLink())throw new Error('Unsafe managed current file: symlink or non-regular file');
   if(existingInfo.size>512*1024)throw new Error('Managed current file is too large');
   const currentHash=hashBytes(await readPinnedRegularFile(activePath,{maxBytes:512*1024,expected:existingInfo}));
+  expectedActiveHash=currentHash;
   let isArchived=false;
   for(const kind of ['revision','original'] as const){
    try{await verifiedArchive(folder,kind+'-'+currentHash+'.user.js',currentHash);isArchived=true;break;}
@@ -66,10 +69,6 @@ export async function activateManagedRevision({managedRoot,scriptId,hash,approve
   }
   if(!isArchived)throw new Error('Managed current contains unmanaged external edits; preserve them before restoring');
  }
- const temporary=join(folder,'current-'+randomUUID()+'.tmp');
- try{
-  await writeFile(temporary,bytes,{flag:'wx',mode:0o600});
-  await rename(temporary,activePath);
- }catch(error){await unlink(temporary).catch(()=>{});throw error;}
+ await commitManagedCurrent({activePath,bytes,expectedActiveHash});
  return {hash,activePath};
 }
