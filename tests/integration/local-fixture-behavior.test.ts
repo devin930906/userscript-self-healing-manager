@@ -24,7 +24,7 @@ test('explicit local-only fixture can verify behavior via isolated Chrome runtim
  let socket:FixtureSocket|undefined;let confirms=0;
  const observed=await runIsolatedFixtureBehavior({
   target,fixtureUrl,source,
-  confirm:async()=>{confirms++;return {targetId:target.id,confirmedUrl:fixtureUrl};},
+  confirm:async()=>{confirms++;return {targetId:target.id,confirmedUrl:fixtureUrl,frameId:'fixture-frame',loaderId:'fixture-loader'};},
   socketFactory:()=>{socket=new FixtureSocket(true);return socket;},
  });
  assert.equal(observed,true);
@@ -39,13 +39,13 @@ test('explicit local-only fixture can verify behavior via isolated Chrome runtim
 });
 test('a missing selector returns false, not a false functional success',async()=>{
  const worked=await runIsolatedFixtureBehavior({
-  target,fixtureUrl,source,confirm:async()=>({targetId:target.id,confirmedUrl:fixtureUrl}),
+  target,fixtureUrl,source,confirm:async()=>({targetId:target.id,confirmedUrl:fixtureUrl,frameId:'fixture-frame',loaderId:'fixture-loader'}),
   socketFactory:()=>new FixtureSocket(false),
  });
  assert.equal(worked,false);
 });
 test('fixture executor refuses foreign URLs, non-local fixtures, and arbitrary userscript sources',async()=>{
- const confirm=async()=>({targetId:target.id,confirmedUrl:fixtureUrl});
+ const confirm=async()=>({targetId:target.id,confirmedUrl:fixtureUrl,frameId:'fixture-frame',loaderId:'fixture-loader'});
  let opened=0;
  const socketFactory=()=>{opened++;return new FixtureSocket(true);};
  const cases=[
@@ -68,13 +68,13 @@ test('navigation and runtime exceptions fail closed rather than reporting script
  assert.equal(opened,0);
  await assert.rejects(runIsolatedFixtureBehavior({
   target,fixtureUrl,source,
-  confirm:async()=>({targetId:target.id,confirmedUrl:fixtureUrl}),
+  confirm:async()=>({targetId:target.id,confirmedUrl:fixtureUrl,frameId:'fixture-frame',loaderId:'fixture-loader'}),
   socketFactory:()=>new FixtureSocket(true,true),
  }),/exception|failed|script/i);
 });
 
 test('synthetic behavior harness refuses arbitrary JavaScript even when the trusted-looking userscript header matches',async()=>{
- const confirm=async()=>({targetId:target.id,confirmedUrl:fixtureUrl});
+ const confirm=async()=>({targetId:target.id,confirmedUrl:fixtureUrl,frameId:'fixture-frame',loaderId:'fixture-loader'});
  let opened=0;
  const socketFactory=()=>{opened++;return new FixtureSocket(true);};
  for(const malicious of [
