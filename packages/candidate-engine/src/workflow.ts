@@ -47,6 +47,8 @@ export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:
  if(snapshot.scope!=='top-document')throw new Error('Only top-document DOM evidence is supported');
  const ranked=rankSelectorCandidates({method:locator.method,oldSelector:locator.expression,nodes:snapshot.nodes});
  if(!ranked.length)return [];
+ // A single-node fingerprint is scoped to the CDP process; page identity must
+ // remain pinned for every subsequent verification round trip.
  // The snapshot and candidate probing are separate CDP round trips. Confirm
  // the broken selector has not transiently recovered before we probe fixes.
  const preCandidateOriginal=await deps.probe([locator]);
