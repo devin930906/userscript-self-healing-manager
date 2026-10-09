@@ -40,7 +40,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
 
  const socket=(socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
  const observed=await new Promise<boolean>((resolve,reject)=>{
-  let done=false,serial=0,waiting='',root=0,node=0,x=0,y=0,attributesRead=0;
+  let done=false,serial=0,waiting='',root=0,node=0,x=0,y=0,attributesRead=0,postClick=false;
   const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[];
   const finish=(error?:Error,passed=false)=>{
    if(done)return;done=true;clearTimeout(timer);
@@ -85,6 +85,8 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
       if(!Array.isArray(matches)||matches.length!==1||
          !Number.isSafeInteger(matches[0])||matches[0]<1)
        throw new Error('Synthetic fixture button must match exactly one valid node');
+      if(postClick&&matches[0]!==node)
+       throw new Error('Synthetic fixture target changed after click');
       node=matches[0];
       send('DOM.getAttributes',{nodeId:node});
       break;
@@ -122,7 +124,8 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
        attributesRead=2;
        send('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',clickCount:1});
       }else{
-       send('DOM.getAttributes',{nodeId:node});
+       postClick=true;
+       send('DOM.querySelectorAll',{nodeId:root,selector:'#fixture-safe-click'});
       }
       break;
      default:throw new Error('Unexpected synthetic fixture CDP response');
