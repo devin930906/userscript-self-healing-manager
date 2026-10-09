@@ -67,6 +67,12 @@ test('release contract rejects invalid versions, suspicious archive entry counts
 test('Windows ZIP inventory rejects NTFS alternate streams and reserved DOS device paths',()=>{
  for(const entry of [
   'resources/app.asar:evil',
+  'resources/invalid<name.dll',
+  'resources/invalid>name.dll',
+  'resources/invalid"name.dll',
+  'resources/invalid|name.dll',
+  'resources/invalid?name.dll',
+  'resources/invalid*name.dll',
   'resources/a.txt:private:$DATA',
   'CON',
   'NUL.txt',
