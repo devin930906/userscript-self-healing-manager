@@ -225,3 +225,26 @@ test('candidate inspection fails closed before CDP when required probe or captur
  await assert.rejects(suggestCandidateRepairs({target,locator,deps:missingProbe}),/probe and snapshot/i);
  await assert.rejects(suggestCandidateRepairs({target,locator,deps:missingCapture}),/probe and snapshot/i);
 });
+
+
+test('same unique count with a replaced backend node never certifies a repair candidate',async()=>{
+ let candidateProbes=0;
+ const swapped={...deps,probe:async(inputs:readonly typeof locator[])=>{
+  const result=await deps.probe(inputs);
+  if(inputs[0]?.expression!==locator.expression){
+   candidateProbes++;
+   if(candidateProbes===2)return {...result,checks:result.checks.map(check=>({...check,nodeFingerprint:'b'.repeat(64)}))};
+  }
+  return result;
+ }};
+ assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:swapped}),[]);
+ assert.equal(candidateProbes,2);
+});
+
+test('missing node fingerprint never upgrades a candidate to live-verified',async()=>{
+ const withoutIdentity={...deps,probe:async(inputs:readonly typeof locator[])=>{
+  const response=await deps.probe(inputs);
+  return {...response,checks:response.checks.map(check=>({...check,nodeFingerprint:undefined}))};
+ }};
+ assert.deepEqual(await suggestCandidateRepairs({target,locator,deps:withoutIdentity}),[]);
+});
