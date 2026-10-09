@@ -564,8 +564,10 @@ async function bootstrap():Promise<void>{
     });
     if(locator.expression!==trusted.newSelector)
      throw new Error('Managed AST selector differs from approved replacement');
-    const expectation=['querySelectorAll','getElementsByName','getElementsByClassName']
-     .includes(locator.method)?'exists' as const:'unique' as const;
+    // Guarded retention is intentionally narrower than standalone V1 checks:
+    // a multi-match/existence contract cannot prove the patch targets one
+    // stable node across both Chrome samples. Roll back if it is not unique.
+    const expectation='unique' as const;
     const verdict=await runReadOnlyDomContract({
      approved:true,target:selected,
      caseId:'MANAGED_GUARD_'+item.scriptId!.slice(0,24)+':IDX_'+index,
