@@ -18,6 +18,8 @@ function ensureIdentity(expected:{id:string;url:string},actual:{targetId:string;
 /** Require two independent live CDP DOM checks; suggestions always need manual approval. */
 export async function suggestCandidateRepairs({target,locator,deps}:{target:{id:string;url:string};locator:MissingLocator;deps:CandidateDeps}):Promise<VerifiedCandidate[]>{
  if(!['querySelector','getElementById','getElementsByName','getElementsByClassName'].includes(locator.method)||locator.runtimeRequired||!locator.expression||locator.expression.length>1024)return [];
+ if(!deps||typeof deps.probe!=='function'||typeof deps.capture!=='function')
+  throw new Error('Candidate inspection requires live CDP probe and snapshot functions');
  if(!deps||typeof deps.confirm!=='function')
   throw new Error('Candidate CDP document identity confirmation is required');
  const confirmStable=async(baseline:ConfirmedPageIdentity):Promise<void>=>{
