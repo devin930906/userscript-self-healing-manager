@@ -15,7 +15,7 @@ import {getChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-cli
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
-import {inspectReadOnlyElementVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
+import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
@@ -205,9 +205,20 @@ async function bootstrap():Promise<void>{
   const observed=await inspectReadOnlyElementVisibility(selected,{
    method:record.method,expression:record.expression,runtimeRequired:false,
   });
-  assertStablePageDocument(start,await confirmPageIdentity(selected));
+  // A top-document CSS miss cannot exclude targets inside an iframe or
+  // author ShadowRoot. A failed/saturated snapshot stays unknown, not missing.
+  const context=observed.status==='missing'?
+   await captureDomSummary(selected).catch(()=>null):null;
+  const end=await confirmPageIdentity(selected);
+  assertStablePageDocument(start,end);
   scanSessions.assertCurrent(scanSnapshot);
-  return observed;
+  const authorRoots=context&&context.targetId===selected.id&&
+   context.url===selected.url&&context.validationLevel==='evidence-only'&&
+   Number.isSafeInteger(context.authorShadowTreeNodes)&&
+   context.authorShadowTreeNodes>=0&&context.authorShadowTreeNodes<=200000?
+   context.authorShadowTreeNodes:null;
+  return qualifyTopDocumentVisibility(observed,
+   Math.max(start.subframeCount??0,end.subframeCount??0),authorRoots);
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
