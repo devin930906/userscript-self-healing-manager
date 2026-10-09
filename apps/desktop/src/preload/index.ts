@@ -36,6 +36,7 @@ const api={
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-import-approve',input),
  discardSiteAdapterPreview:(input:{previewId:string})=>ipcRenderer.invoke('usshm:site-adapter-import-discard',input),
  inspectSiteAdapterRole:(input:{siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-role-check',input),
+ suggestSiteAdapterRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;siteId:string;expectedSha256:string;roleId:string;declaredStateId:string;approved:true})=>ipcRenderer.invoke('usshm:site-adapter-suggest-repair',input),
  pickChrome:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-chrome'),
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
  launchIsolatedChrome:()=>ipcRenderer.invoke('usshm:launch-isolated-chrome'),
