@@ -16,8 +16,9 @@ class FixtureSocket extends EventEmitter{
  readonly replacedAfterClick:boolean;
  readonly preMarked:boolean;
  readonly unsafeButtonType:boolean;
+ readonly invalidAriaDisabled:boolean;
  private attrs=0;
- constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;queueMicrotask(()=>this.emit('open'));}
+ constructor(disabled=false,mark=true,matchedNodes:readonly number[]=[42],replacedAfterClick=false,preMarked=false,unsafeButtonType=false,invalidAriaDisabled=false){super();this.disabled=disabled;this.mark=mark;this.matchedNodes=matchedNodes;this.replacedAfterClick=replacedAfterClick;this.preMarked=preMarked;this.unsafeButtonType=unsafeButtonType;this.invalidAriaDisabled=invalidAriaDisabled;queueMicrotask(()=>this.emit('open'));}
  addEventListener(n:string,f:(event:any)=>void){this.on(n,f);}
  removeEventListener(n:string,f:(event:any)=>void){this.off(n,f);}
  send(raw:string){
@@ -26,7 +27,7 @@ class FixtureSocket extends EventEmitter{
   if(m.method==='DOM.getDocument')result={root:{nodeId:1}};
   else if(m.method==='DOM.querySelectorAll')result={nodeIds:this.matchedNodes};
   else if(m.method==='DOM.getAttributes')result={attributes:this.attrs++===0?
-    (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])):
+    (this.disabled?['disabled','']:(this.preMarked?['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button',...(this.invalidAriaDisabled?['aria-disabled','maybe']:[])])):
     (this.mark?[...(this.replacedAfterClick?['id','different-button']:['id','fixture-safe-click']),'type',this.unsafeButtonType?'submit':'button','data-usshm-v2-fixture','yes']:['id','fixture-safe-click','type',this.unsafeButtonType?'submit':'button'])};
   else if(m.method==='DOM.getBoxModel')result={model:{content:[20,20,120,20,120,70,20,70]}};
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:m.id,result})}));
@@ -124,5 +125,13 @@ test('synthetic fixture rejects submit-type buttons before any mouse event',asyn
  await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
   confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,[42],false,false,true);return socket;}}),
   /button|type|fixture|submit/i);
+ assert.ok(!socket.methods.some(m=>m.startsWith('Input.')));
+});
+
+test('synthetic fixture refuses unknown aria-disabled states before click',async()=>{
+ let socket!:FixtureSocket;
+ await assert.rejects(runIsolatedFixtureInteraction({approved:true,target,fixtureUrl:url,
+  confirm:async()=>identity,socketFactory:()=>{socket=new FixtureSocket(false,true,[42],false,false,false,true);return socket;}}),
+  /disabled|blocked|invalid/i);
  assert.ok(!socket.methods.some(m=>m.startsWith('Input.')));
 });
