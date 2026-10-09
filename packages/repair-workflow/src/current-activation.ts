@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {basename,dirname,isAbsolute,join} from 'node:path';
-import {open,lstat,rename,unlink,type FileHandle} from 'node:fs/promises';
+import {open,lstat,rename,link,unlink,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 const MAX_BYTES=512*1024;
@@ -16,10 +16,12 @@ type ChunkWriter=(handle:FileHandle,chunk:Uint8Array,position:number)=>Promise<n
  * edits made while staging. This reduces the race window, but Node's rename is
  * not a cross-process compare-and-swap or a full power-loss transaction.
  */
-export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,writeChunk}:{
+export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,writeChunk,beforePublish}:{
  activePath:string;bytes:Uint8Array;expectedActiveHash:string|null;
  /** Test injection of short writes, disk faults and external file edits. */
  writeChunk?:ChunkWriter;
+ /** Internal deterministic race injection only; never passed from renderer. */
+ beforePublish?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof activePath!=='string'||!isAbsolute(activePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_BYTES||
@@ -70,9 +72,23 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   const stagedInfo=await lstat(stage);
   const staged=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:stagedInfo});
   if(digest(staged)!==digest(bytes))throw new Error('Staged managed current hash mismatch');
-  // No await between this final comparison and the atomic rename call.
+  // For first activation, rename() could silently overwrite a file created
+  // by another process just after our last lstat. hard-link publication is
+  // atomic NO-REPLACE for absent current, exactly like immutable archives.
   await validateCurrent();
-  await rename(stage,activePath);
+  if(beforePublish)await beforePublish();
+  if(expectedActiveHash===null){
+   try{await link(stage,activePath);}
+   catch(error){
+    if((error as NodeJS.ErrnoException).code==='EEXIST')
+     throw new Error('Managed current appeared during staging; external change rejected');
+    throw error;
+   }
+  }else{
+   // Replacing an existing current still has a cross-process compare/rename
+   // window. Native compare-and-swap or OS process lock is a remaining gate.
+   await rename(stage,activePath);
+  }
   const activatedInfo=await lstat(activePath);
   const activated=await readPinnedRegularFile(activePath,{maxBytes:MAX_BYTES,expected:activatedInfo});
   if(digest(activated)!==digest(bytes))
