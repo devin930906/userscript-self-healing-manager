@@ -15,7 +15,7 @@ const target={id:'p1',type:'page',url:'https://example.com/',webSocketDebuggerUr
 test('DOMSnapshot counts evidence without returning private page text',async()=>{
  const socket=new FakeSocket({strings:['private password','secret'],documents:[{nodes:{nodeName:[0,1,2]}},{nodes:{nodeName:[0]}}]});
  const result=await captureDomSummary(target,{socketFactory:()=>socket as any});
- assert.deepEqual(result,{targetId:'p1',url:'https://example.com/',documentCount:2,nodeCount:4,validationLevel:'evidence-only'});
+ assert.deepEqual(result,{targetId:'p1',url:'https://example.com/',documentCount:2,nodeCount:4,authorShadowTreeNodes:0,validationLevel:'evidence-only'});
  assert.equal(JSON.parse(socket.sent[0]!).method,'DOMSnapshot.captureSnapshot');
  assert.ok(!JSON.stringify(result).includes('secret'));
 });
