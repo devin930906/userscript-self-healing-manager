@@ -35,10 +35,20 @@ test('a contradictory status missing with nonzero count cannot establish V1 pres
  assert.equal(out.status,'needs-review');
 });
 test('collection selectors still support a valid exists assertion for 2+ matching nodes',async()=>{
- const e=evidence('querySelectorAll','.rows','ambiguous',3);
+ const e=evidence('querySelectorAll','.rows','found',3);
  const out=await runReadOnlyDomContract(request('querySelectorAll','.rows',e));
  assert.equal(out.status,'passed');
  assert.equal(out.matchCount,3);
  assert.equal(out.V2,'blocked');
  assert.equal(out.functionalVerified,false);
+});
+
+test('an impossible ambiguous status on a CDP collection selector is never certified as V1',async()=>{
+ for(const method of ['querySelectorAll','getElementsByName','getElementsByClassName']){
+  const e=evidence(method,'#safe','ambiguous',2);
+  const result=await runReadOnlyDomContract(request(method,'#safe',e));
+  assert.equal(result.status,'needs-review',method);
+  assert.equal(result.matchCount,null);
+  assert.equal(result.V3,'not-configured');
+ }
 });
