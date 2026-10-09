@@ -47,7 +47,7 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
  * no page-document change, permission/scope error, malformed response, DOM
  * budget violation or arbitrary renderer-provided error is eligible.
  */
-function isTransientCdpReadError(error:unknown):boolean{
+export function isTransientCdpReadError(error:unknown):boolean{
  if(!(error instanceof Error))return false;
  // Electron ipcRenderer.invoke wraps errors thrown by this named main handler.
  // Strip ONLY the exact transport envelope for our own read-only endpoint,
