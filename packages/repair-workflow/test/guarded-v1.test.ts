@@ -12,7 +12,7 @@ function fixture(outcome:unknown|Error){
  };
  return {input,stats:()=>({verified,rollbacks})};
 }
-const passed={status:'passed',evidenceLevel:'V1',attempts:2,matchCount:1,
+const passed={status:'passed',evidenceLevel:'V1',expectation:'unique',attempts:2,matchCount:1,
  V2:'blocked',V3:'not-configured',V4:'not-configured',
  functionalVerified:false,managerVerified:false};
 
@@ -72,5 +72,19 @@ test('no approval, forged hash, same before/after revision and malicious script 
   const f=fixture(passed);mutate(f.input);
   await assert.rejects(guardAppliedManagedRevision(f.input),/approval|invalid|script|hash|guard/i);
   assert.deepEqual(f.stats(),{verified:0,rollbacks:[]});
+ }
+});
+
+test('guarded V1 retention requires one continuously identified unique locator rather than a weaker exists or multi-match contract',async()=>{
+ for(const bad of [
+  {...passed,expectation:'exists'},
+  {...passed,matchCount:2},
+  {...passed,expectation:'exists',matchCount:8},
+  {...passed,expectation:undefined},
+ ]){
+  const f=fixture(bad);
+  const result=await guardAppliedManagedRevision(f.input);
+  assert.equal(result.status,'rolled-back-v1','non-unique DOM evidence must not retain an unproven patch');
+  assert.deepEqual(f.stats().rollbacks,[original]);
  }
 });
