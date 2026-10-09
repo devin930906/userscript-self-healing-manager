@@ -130,3 +130,27 @@ test('malformed or unavailable node identity fails closed for opt-in fingerprint
   assert.notEqual(result.checks[0]?.status,'found');
  }
 });
+
+test('backend node identity digest is stable for one node across sockets but changes for a replacement',async()=>{
+ const identities:number[]=[41,41,42];
+ const digests:string[]=[];
+ for(const backendNodeId of identities){
+  const socket=new ProtocolSocket({
+   'DOM.getDocument':()=>({root:{nodeId:8}}),
+   'DOM.querySelectorAll':()=>({nodeIds:[31]}),
+   'DOM.describeNode':()=>({node:{backendNodeId,nodeType:1}}),
+  });
+  const sampled=await probePageLocators(page,[{method:'querySelectorAll',expression:'#save',runtimeRequired:false}],{
+   socketFactory:()=>socket,includeNodeFingerprints:true,
+  });
+  assert.equal(sampled.checks[0]?.status,'found');
+  digests.push(sampled.checks[0]!.nodeFingerprint!);
+ }
+ assert.equal(digests[0],digests[1]);
+ assert.notEqual(digests[1],digests[2]);
+ // A process-local HMAC must not equal the publicly computable SHA256 of a
+ // small backend ID: the IPC-visible value must not disclose the raw ID.
+ const {createHash}=await import('node:crypto');
+ const plain=createHash('sha256').update('usshm-cdp-backend-node-v1:').update('41').digest('hex');
+ assert.notEqual(digests[0],plain);
+});
