@@ -44,3 +44,58 @@ test('name and class collection repairs require unique live CDP confirmation',as
   assert.deepEqual(proposed.map(x=>x.expression),[value]);
  }
 });
+
+test('versioned adapter role strictly filters DOM-confirmed repair candidates without auto-applying',async()=>{
+ const {parseSiteAdapter}=await import('../src/site-adapter.ts');
+ const {suggestAdapterScopedRepairs}=await import('../src/workflow.ts');
+ const adapter=parseSiteAdapter({
+  schemaVersion:1,siteId:'sample',version:'1.0.0',urlPatterns:['https://example.org/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.sendButton':{
+   contexts:[{stateId:'ready',frame:'top',shadow:'none'}],
+   strategies:[{kind:'css',selector:'[data-testid="save-button"]',weight:100}],
+   cardinality:{min:1,max:1},assertions:['unique'],
+  }},
+  validationCases:['SAVE_VISIBLE'],
+ });
+ const observed=await suggestAdapterScopedRepairs({
+  target,locator,adapter,roleId:'chat.sendButton',observedStateId:'ready',
+  deps:{...deps,capture:async()=>({...await deps.capture(),nodes:[
+   {tagName:'BUTTON',attributes:{'data-testid':'save-button'}},
+   {tagName:'BUTTON',attributes:{'data-testid':'different-button'}},
+  ]})},
+ });
+ assert.equal(observed.status,'candidate-only');
+ assert.deepEqual(observed.candidates.map(c=>c.cssSelector),['[data-testid="save-button"]']);
+ assert.equal(observed.candidates[0]?.approved,false);
+ assert.equal(observed.functionalVerified,false);
+});
+test('adapter-scoped candidate search never starts CDP for wrong origin or unresolved nested frame',async()=>{
+ const {parseSiteAdapter}=await import('../src/site-adapter.ts');
+ const {suggestAdapterScopedRepairs}=await import('../src/workflow.ts');
+ const adapter=parseSiteAdapter({
+  schemaVersion:1,siteId:'sample',version:'1.0.0',urlPatterns:['https://example.org/*'],
+  states:{ready:{description:'Ready'}},
+  roles:{'chat.sendButton':{
+   contexts:[{stateId:'ready',frame:'iframe',shadow:'none'}],
+   strategies:[{kind:'css',selector:'#new-button',weight:100}],
+   cardinality:{min:1,max:1},assertions:['unique'],
+  }},
+  validationCases:['SAVE_VISIBLE'],
+ });
+ let calls=0;
+ const blockedDeps={
+  probe:async()=>{calls++;throw Error('CDP must not be invoked for blocked role');},
+  capture:async()=>{calls++;throw Error('DOM snapshot must not be invoked for blocked role');},
+ };
+ const denied=await suggestAdapterScopedRepairs({
+  target:{id:'alpha',url:'https://other.example.org/'},locator,adapter,
+  roleId:'chat.sendButton',observedStateId:'ready',deps:blockedDeps,
+ });
+ assert.equal(denied.status,'out-of-scope');
+ const nested=await suggestAdapterScopedRepairs({
+  target,locator,adapter,roleId:'chat.sendButton',observedStateId:'ready',deps:blockedDeps,
+ });
+ assert.equal(nested.status,'blocked-context');
+ assert.equal(calls,0);
+});
