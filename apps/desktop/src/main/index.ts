@@ -15,7 +15,7 @@ import {probePageLocators} from '../../../../packages/cdp-client/src/locator-pro
 import {confirmPageIdentity} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
-import {listManagedRevisions,activateManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
+import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../../../../packages/repair-workflow/src/export.ts';
 import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
@@ -249,7 +249,7 @@ async function bootstrap():Promise<void>{
   const scanSnapshot=scanSessions.require(q.scanId);
   const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
-  return activateManagedRevision({managedRoot:dataRoot,scriptId:item.scriptId,hash:q.hash,approved:true});
+  return repairs.restore({scriptId:item.scriptId,hash:q.hash,approved:true});
  });
  ipcMain.handle('usshm:export',async (event,format:unknown)=>{assertSender(event);if(format!=='json'&&format!=='markdown')throw new Error('Invalid format');if(!lastScan)throw new Error('No scan has been performed');
  const ext=format==='json'?'json':'md';const result=await dialog.showSaveDialog(mainWindow,{defaultPath:join(app.getPath('documents'),`usshm-report.${ext}`),filters:[{name:ext.toUpperCase(),extensions:[ext]}]});
