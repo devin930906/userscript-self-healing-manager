@@ -241,3 +241,27 @@ test('automatic rollback must not overwrite another already approved managed rev
   approved:true,expectedCurrentHash:first.hash}),/current|concurrent|stale|changed|hash/i);
  assert.equal(createHash('sha256').update(await readFile(join(managedRoot,'managed','script01','current.user.js'))).digest('hex'),second.hash);
 }));
+
+
+test('successful repair invalidates sibling proposals for the same script',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const first=await flow.propose({sourcePath,scriptId:'siblings',oldSelector:'#old',newSelector:'#first'});
+ const second=await flow.propose({sourcePath,scriptId:'siblings',oldSelector:'#old',newSelector:'#second'});
+ await flow.apply({proposalId:first.proposalId,approved:true});
+ assert.equal(flow.inspectPending(second.proposalId),null);
+ await assert.rejects(flow.apply({proposalId:second.proposalId,approved:true}),/not found|already applied/i);
+}));
+
+test('successful managed rollback invalidates obsolete proposed repairs',async()=>withSource(async(sourcePath,managedRoot)=>{
+ const flow=createRepairWorkflow({managedRoot});
+ const initial=await flow.propose({sourcePath,scriptId:'rollback-script',oldSelector:'#old',newSelector:'#new'});
+ const applied=await flow.apply({proposalId:initial.proposalId,approved:true});
+ const staged=await flow.propose({sourcePath,scriptId:'rollback-script',oldSelector:'#new',newSelector:'#future'});
+ assert.ok(flow.inspectPending(staged.proposalId));
+ const original=await readFile(sourcePath);
+ const {createHash}=await import('node:crypto');
+ const originalHash=createHash('sha256').update(original).digest('hex');
+ await flow.restore({scriptId:'rollback-script',hash:originalHash,approved:true,expectedCurrentHash:applied.hash});
+ assert.equal(flow.inspectPending(staged.proposalId),null);
+ await assert.rejects(flow.apply({proposalId:staged.proposalId,approved:true}),/not found|already applied/i);
+}));
