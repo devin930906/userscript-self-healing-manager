@@ -504,3 +504,12 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **真实 Chrome 验证：** `scripts/smoke-chrome.mjs` 添加真实 Windows Runner 上的本机隔离 Chrome fixture 测试：顶层 role 唯一匹配可得 `matched-v1`，只位于 ShadowRoot 内的定位器必须 `needs-review`；始终 `V3/V4=not-configured`。
 - **GREEN：** [Windows Development CI #37911811189](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37911811189) **349 tests, 349 PASS, 0 FAIL**，TypeScript、Electron 构建、Windows GUI/SQLite smoke、真实 Chrome CDP smoke 全成功；[Node Contracts #37911811075](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37911811075) 成功。
 - **未完成 Stable 门禁：** 用户声明的页面状态并非真实观测/认证、缺少 iframe/Shadow 扩展支持、V2 交互/非破坏性断言、V3 业务层、真正 Tampermonkey/GM_* V4、Win10 便携 Chrome155 真机和 RG-01...09 正式三发行包验收。保持 PR #2 Draft，不合并 main，不发布 Stable，不生成中途包。
+
+## 2026-10-09 · SiteAdapter 规则完整性、文件替换竞态与审查版本锁定（352 项）
+
+- **发现风险：** UI 列出已保存 SiteAdapter 角色之后，磁盘中的 `Data/site-adapters/{siteId}.json` 可能被其他进程替换或修改。此前主进程仅凭 `siteId` 读取当时的最新文件并执行真实 CDP V1 检查，可能使用用户在 UI 中未查看过的新规则。
+- **TDD RED:** [Node Contracts #37912627498](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37912627498) 的新用例要求站点检查必须携带 UI 已展示的哈希，磁盘文件即使仍是合法 Schema、相同 siteId 但策略不同也必须拒绝，并拒绝缺失、错误长度和不匹配的摘要。
+- **修复：** `createSiteAdapterLibrary().getForInspection({siteId,expectedSha256})` 强制检查小写 64 位 SHA-256 和文件实际内容哈希；`usshm:site-adapter-role-check` 在 main 验证该参数，preload 声明显式接收，renderer 从 `selectedAdapter.sha256` 发送。变更后不自动刷新、自动批准或悄然切换新规则；用户必须回到规则列表重新检查。
+- **安全读取：** `regularBounded` 不再 lstat 后又通过路径做无界 readFile。改为打开**同一个文件描述符**，POSIX 等支持的平台启用 O_NOFOLLOW；读前后比对路径/FD 类型、inode、device、size 和 mtime，限制大小不超过 65,536 bytes。Windows 上仍依赖文件身份与权限校验，**不宣称彻底消除所有目录替换竞态**。
+- **GREEN 证据：** 最新源码 [Windows Development CI #37912842330](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37912842330) **352 tests / 352 pass / 0 fail**，严格 TypeScript、Electron 构建、Windows GUI/SQLite、真实隔离 Chrome CDP smoke 均 PASS；[Node contracts #37912842249](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37912842249) SUCCESS。
+- **Stable 不变：** SiteAdapter 规则版本保护仅用于 V1 DOM 核验，用户页面状态仍属声明；Tampermonkey/GM_*、V2/V3/V4 真机、iframe/Shadow 多上下文、AI Provider、Windows10+便携 Chrome155 和正式三发行包 RG 门禁尚未完成。PR #2 仍为 Draft、不合并 main、不生成中途安装包。
