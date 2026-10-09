@@ -17,6 +17,7 @@ import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/s
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
+import type {VerifiedPreviewResult} from '../../../../packages/repair-workflow/src/verified-preview.ts';
 import type {BulkCandidateResult} from '../../../../packages/candidate-engine/src/bulk.ts';
 import type {ManagedRevision} from '../../../../packages/repair-workflow/src/history.ts';
 
@@ -32,6 +33,7 @@ declare global {interface Window{ussm:{
  listDiagnosisHistory:()=>Promise<JournalRun[]>;
  cancelDiagnosis:(input:{scanId:string;targetId:string})=>Promise<{cancelled:boolean}>;
  suggestRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedCandidate[]>;
+ prepareVerifiedPreview:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedPreviewResult>;
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
@@ -344,6 +346,21 @@ function App(){
   try{const candidates=await window.ussm.suggestRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true});setRepairCandidates(candidates);setMessage(candidates.length?'取得 '+candidates.length+' 个 DOM 匹配的候选；候选不代表功能验证通过。':'当前网页没有足够可靠的唯一候选，请手动输入新选择器。');}
   catch(e){setError('候选定位器提取失败：'+String(e));}finally{setBusy(false);}
  }
+ async function prepareVerifiedPreview(){
+  if(focused===null||!targetId||!result||busy||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
+  setWatchEnabled(false);setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
+  try{
+   const receipt=await window.ussm.prepareVerifiedPreview({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true});
+   if(receipt.status==='prepared'&&receipt.proposal&&receipt.candidate){
+    setRepairNew(receipt.candidate.expression);
+    setRepairProposal(receipt.proposal);
+    setMessage('已从唯一 CDP 候选自动准备补丁预览；仍需单独审核保存。原脚本未修改，V2/V3/V4 未验证。');
+   }else{
+    setMessage('没有唯一可靠的 DOM 候选：需要人工复核，未创建修复预览，未写入文件。');
+   }
+  }catch(error){setError('自动准备修复预览失败：'+String(error));}
+  finally{setBusy(false);}
+ }
  async function proposeRepair(){if(focused===null||!result||!repairNew.trim())return;
   setWatchEnabled(false);setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
   try{const r=await window.ussm.proposeRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
@@ -539,6 +556,7 @@ function App(){
      <label>新的方法参数<input aria-label="输入新选择器" value={repairNew} onChange={e=>{setRepairNew(e.target.value);setRepairProposal(null);}} placeholder={getRepairInputHint(details.analysis?.selectorRecords[repairIndex]?.method)} /></label>
      <button type="button" disabled={busy||!targetId||!details.analysis} onClick={()=>void suggestBulkRepairs()}>批量生成修复候选（最多 8 处）</button>
      <button disabled={busy||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void suggestRepair()}>生成候选定位器（只读）</button>
+     <button disabled={busy||!result||focused===null||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void prepareVerifiedPreview()}>自动准备唯一候选的受管修复预览</button>
      <button disabled={busy||!repairNew.trim()||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired} onClick={()=>void proposeRepair()}>生成修复预览</button>
     </div>
     {bulkRepairResults&&<div className="notice">
