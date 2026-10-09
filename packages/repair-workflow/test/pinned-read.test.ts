@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {join} from 'node:path';
 import {mkdtemp,writeFile,readFile,rename,symlink,link,lstat,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {readPinnedRegularFile} from '../src/pinned-read.ts';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 async function fixture<T>(run:(dir:string)=>Promise<T>):Promise<T>{
  const dir=await mkdtemp(join(tmpdir(),'usshm-pinned-'));
