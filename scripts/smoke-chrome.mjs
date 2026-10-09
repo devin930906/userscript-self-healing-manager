@@ -75,27 +75,34 @@ try{
  ],{windowsHide:true,stdio:['ignore','ignore','pipe']});
  chrome.stderr?.on('data',chunk=>{diagnostics=(diagnostics+String(chunk)).slice(-1800);});
  let spawnFailure;
+ let exitDetails='';
  chrome.on('error',error=>{spawnFailure=error;});
+ chrome.on('exit',(code,signal)=>{exitDetails='Chrome exited before CDP readiness (code='+code+', signal='+signal+')';});
  let selected;
- let lastIdentityError='';
- for(let attempt=0;attempt<55;attempt++){
+ let lastIdentityError='',lastStatusError='',observedPageCount=0;
+ // Cold Windows hosted runners can spend longer initializing first-run Chrome
+ // and CDP even with an isolated profile. Do not report a protocol failure from
+ // a short startup race; still fail closed if no real frame is confirmed.
+ for(let attempt=0;attempt<110;attempt++){
   if(spawnFailure)throw spawnFailure;
+  if(exitDetails)throw new Error(exitDetails+' '+diagnostics);
   try{
    const status=await getChromeStatus({port:9223});
+   observedPageCount=status.pages.length;
    const candidate=status.pages.find(x=>x.url===fixtureUrl&&x.webSocketDebuggerUrl);
    if(candidate){
     // /json/list may announce the URL just before the top FrameTree is ready.
-    // Wait for the live frame to confirm before treating this as browser-ready.
     try{
      await confirmPageIdentity(candidate);
      selected=candidate;
      break;
     }catch(error){lastIdentityError=String(error);}
    }
-  }catch{ /* Chrome may not have opened its CDP port yet. */ }
-  await delay(300);
+  }catch(error){lastStatusError=String(error).slice(0,350);}
+  await delay(350);
  }
- if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture: '+lastIdentityError+' '+diagnostics);
+ if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture. Last CDP status='+lastStatusError+
+  '; observed page count='+observedPageCount+'; frame identity='+lastIdentityError+'; Chrome stderr='+diagnostics);
  // Verify the actual installed Chrome EXE survives a preference reload (no autorun).
  await savePreferredChromePath({dataRoot:profile,executablePath:executable});
  assert.equal(await loadPreferredChromePath({dataRoot:profile}),executable);
