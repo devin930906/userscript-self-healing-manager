@@ -395,3 +395,13 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 ### Remaining Stable gaps
 
 - FR-025 仍缺安全的 visibility/interactable/assertion-change/cleanup、站点上下文、授权非破坏性事件测试以及 V3 真正业务契约；管理器 V4 和 Windows10+指定 Chrome155 portable 仍需独立真实验证。没有制作中途 Windows 三包、合并 main 或发布 Stable。
+
+## 2026-10-09 · 本地 SQLite 诊断历史
+
+- **Ruling：单独建库而不触碰既有脚本资料库**。旧 `registry.sqlite` schema v1 不做结构更改；新增 `diagnosis-journal.sqlite` 在已授权的应用 Data root 存有限诊断历史，兼容 Installed/Portable 数据根路径逻辑。代价是独立数据库与暂未实现跨重启继续执行。
+- **持久安全证据**：`packages/job-journal/src/index.ts` 通过 Node SQLite WAL、FK、BEGIN IMMEDIATE/COMMIT/Rollback，要求每页最多25项连续 index/offset/验证等级约束，按 SHA-256 的 scan+target session key 和重新哈希的 Frame/Loader 文档 token 进行批次身份核对；仅保存页面 origin、行序、状态与计数、V0/V1，禁止原始脚本名、源码、完整磁盘路径、DOM、页面 query/hash、CDP raw token 落盘。限制最大 1000/任务和保留最近 200 runs。
+- **重启安全**：应用重启时旧 `running` 标为 `interrupted`，不自动重连旧 Chrome 标签。拒绝未来 schema 版本（不危险降级）。每个脚本历史行可只读复核，但仍然只是 V0/V1，不是 Tampermonkey 真实运行证明。
+- **Electron**：启动时独立开启 job journal，`before-quit` 关闭；每批由可信 main CDP 诊断并经 `BatchEvidenceStore` 校验后才落盘；失败时只对当前 run 标记 failed。新增最小化 `usshm:diagnosis-history`、`usshm:diagnosis-cancel`，preload 只能列出已脱敏的历史汇总、取消当前受控任务。React 显示本地最近诊断历史、断开/失败/取消/完成和项数。
+- **TDD RED** [#37897725218](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37897725218) 缺少 job journal 源码；[#37898008930](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37898008930) 缺少 Electron/UI 接线；更新旧回归中与可信证据失效捕获代码的过期正则，但保留原始语义断言。
+- **GREEN** [Windows CI #37898342762](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37898342762)，提交 `b34ad49338af1fe2ade8445cfc0c15b419f74373`：**288/288 tests / 0 failures，TypeScript/Electron build、真实 Windows GUI+SQLite/duplicate-instance、真实隔离 Chrome CDP 冒烟 PASS**；Node contract [#37898342771](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37898342771) 成功。
+- **仍不符合 Stable**：历史查看不等于持久 job queue/断点安全重跑，缺少版本化 SiteAdapter、真正 V2/V3/V4 实际功能合约、长期后台监控和完整 Windows 三种最终发行/迁移门禁。PR #2 继续 Draft，无中途安装预览。
