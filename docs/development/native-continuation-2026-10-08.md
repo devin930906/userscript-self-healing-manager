@@ -302,3 +302,16 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **未完成跨 iframe/ShadowRoot 的实际修复、AI Provider、安全语义修复、常驻健康守护，以及正式生产三格式 Windows 发行验收**。
 - **未完成用户 Windows 10 x64 + 指定便携 Chrome 155 的组合验收，也未完成 RG-01…RG-09 全部独立安全/迁移/发行门禁**。
 - **状态依旧：PR #2 Draft，未合并 `main`，没有创建中途安装包，没有发布 Stable，所有开发结果只按真实证据标记。**
+
+## 2026-10-09 · Shadow DOM 只读上下文和故障误报抑制
+
+- **QA-022 对应部分推进，仍非完成**：在 CDP DOMSnapshot 的 `documents[0].nodes.shadowRootType` 的有界 rare-string 索引中识别作者的 `open/closed` Shadow Tree，忽略 `user-agent` 根。只读取总量，严查无效索引、未知 root type、过大响应/节点数，不将 DOM 文本、表单内容或 Shadow DOM 本文暴露给 UI。CDP 规范字段来自 [Chrome DevTools Protocol DOMSnapshot](https://chromedevtools.github.io/devtools-protocol/tot/DOMSnapshot/)。
+- **批量诊断**：为每组 25 个脚本增加一次受控只读 DOM 概览，并再次验证真实 Frame + Loader ID；在顶层 `document` 零命中且页面作者 Shadow Tree 存在（或该证据无效/不可读）时，结果从 `locator-missing` 降级为 `needs-review`，`missing` 归零，`needsReview` 增加。若 iframe 与 Shadow DOM 都不确定，两者都在原因中注明；`@noframes` 只免除 iframe 不确定性，不误当作对 ShadowRoot 的豁免。
+- **单脚本 UI 与 60 秒巡检**：显示 author Shadow Tree 节点数；单脚本旧定位器零命中时明确标为 `需复核（Shadow DOM）`；巡检汇总也降级为 `needs-review`，不把 ShadowRoot 误判为脚本业务失败。
+- **真实 Chrome / Windows runner**：自建 localhost fixture 通过 `attachShadow({mode:'open'})` 生成目标，验证正常 `document.querySelector` 零命中而批量结果为 `needs-review`；后续同 fixture 加入 closed ShadowRoot 并要求 CDP 摘要识别 open/closed 的作者 Shadow Tree。无任何真实 Tampermonkey 插件安装、未知脚本执行、网站破坏性操作或用户账号访问。
+- **TDD**：新增 snapshot、batch-dom、renderer 和监控回归。先推送失败用例（例如 Node 24 Task 1 contracts [RED #37890259354](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37890259354)），再实现。Windows [GREEN #37890573674](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/37890573674) 已实证 **232/232 自动测试 PASS、TypeScript、Electron build、真实 Chrome CDP + 原有合成行为冒烟 PASS**。closed-root 和监控汇总新增回归需以本条文档之后的最终提交 CI 为准。
+
+### 此切片尚未提供的能力
+
+- **不进入开放或封闭的 ShadowRoot 执行选择器修复，不操作跨源 iframe，不验证事件/GM_*/真实扩展功能**。`needs-review` 是保守不确定性说明而非成功修复。
+- 仍保持 `feat/v01-continuation` 开发分支 PR #2 为 Draft，不生成阶段性 Setup / Portable / ZIP 预览，不合并 main，不发布 Stable。Phase 7~12 与 RG-01…09 继续开放。
