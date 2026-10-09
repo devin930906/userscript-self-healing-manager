@@ -4,6 +4,8 @@ import {asCss,type LiteralLocator} from './locator-probe.ts';
 import type {SocketLike} from './snapshot.ts';
 
 export type ReadOnlyVisibility='potentially-visible'|'hidden'|'missing'|'ambiguous'|'unknown';
+/** Direct-element attributes only; not a full disabled or pointer-interaction proof. */
+export type ReadOnlyControlBlocker='disabled-attribute'|'aria-disabled'|'readonly-attribute'|'none-detected'|'unknown';
 export interface ReadOnlyVisibilityEvidence {
  readonly targetId:string;
  readonly url:string;
@@ -11,6 +13,7 @@ export interface ReadOnlyVisibilityEvidence {
  readonly status:ReadOnlyVisibility;
  readonly matchCount:number|null;
  readonly pointerBlocked:boolean|null;
+ readonly controlBlocker:ReadOnlyControlBlocker;
  readonly interactionVerified:false;
  readonly V2:'blocked';
  readonly V3:'not-configured';
@@ -30,6 +33,24 @@ export function qualifyTopDocumentVisibility(
 }
 const MAX_REPLY_BYTES=300_000;
 const MAX_COMPUTED_STYLES=512;
+const MAX_ATTRIBUTES=256;
+/** No attribute values are ever exported. Invalid, duplicate or saturated responses are unknown. */
+function directControlBlocker(raw:unknown):ReadOnlyControlBlocker{
+ if(!Array.isArray(raw)||raw.length>MAX_ATTRIBUTES||raw.length%2!==0)return 'unknown';
+ const attr=new Map<string,string>();
+ for(let i=0;i<raw.length;i+=2){
+  const name=raw[i],value=raw[i+1];
+  if(typeof name!=='string'||typeof value!=='string'||
+    !/^[a-zA-Z_:][a-zA-Z0-9_:.-]{0,127}$/.test(name)||value.length>2048||attr.has(name.toLowerCase()))
+   return 'unknown';
+  attr.set(name.toLowerCase(),value);
+ }
+ if(attr.has('disabled'))return 'disabled-attribute';
+ if(attr.has('aria-disabled')&&!['true','false'].includes(attr.get('aria-disabled')!.trim().toLowerCase()))return 'unknown';
+ if(attr.get('aria-disabled')?.trim().toLowerCase()==='true')return 'aria-disabled';
+ if(attr.has('readonly'))return 'readonly-attribute';
+ return 'none-detected';
+}
 const allowStyles=new Set(['display','visibility','opacity','pointer-events']);
 /**
  * Collects limited CSS/box evidence only. No JS evaluation, DOM mutation,
@@ -47,7 +68,7 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
   throw new Error('Invalid read-only visibility timeout');
  const output=(status:ReadOnlyVisibility,matchCount:number|null,pointerBlocked:boolean|null=null):ReadOnlyVisibilityEvidence=>({
   targetId:target.id,url:target.url,validationLevel:'css-box-read-only',
-  status,matchCount,pointerBlocked,interactionVerified:false,
+  status,matchCount,pointerBlocked,controlBlocker,interactionVerified:false,
   V2:'blocked',V3:'not-configured',V4:'not-configured',
  });
  const socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
@@ -55,6 +76,7 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
   let ended=false,nextId=0,expectedId=0,expectedMethod='';
   let nodeId=0,matchCount:number|null=null;
   let styles:Map<string,string>|null=null;
+  let controlBlocker:ReadOnlyControlBlocker='unknown';
   const send=(method:string,params:Record<string,unknown>={})=>{
    expectedId=++nextId;expectedMethod=method;
    socket.send(JSON.stringify({id:expectedId,method,params}));
@@ -75,7 +97,9 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
     if(m.id!==expectedId||ended)return;
     if(m.error){
      if(expectedMethod==='DOM.getDocument')throw new Error('Cannot read CDP document root');
-     if(expectedMethod==='DOM.getBoxModel'){
+     if(expectedMethod==='DOM.getAttributes'){
+      controlBlocker='unknown';send('CSS.enable');
+     }else if(expectedMethod==='DOM.getBoxModel'){
       const hidden=styles?.get('display')==='none'||['hidden','collapse'].includes(styles?.get('visibility')??'')||
        Number(styles?.get('opacity'))===0;
       finish(undefined,output(hidden?'hidden':'unknown',matchCount));
@@ -98,6 +122,11 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
       if(nodes.length===0){finish(undefined,output('missing',0));break;}
       if(nodes.length>1){finish(undefined,output('ambiguous',matchCount));break;}
       nodeId=nodes[0];
+      send('DOM.getAttributes',{nodeId});
+      break;
+     }
+     case 'DOM.getAttributes':{
+      controlBlocker=directControlBlocker(m.result?.attributes);
       send('CSS.enable');
       break;
      }
