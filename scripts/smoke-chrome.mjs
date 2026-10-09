@@ -120,6 +120,15 @@ try{
  // reject a second launch so we never misattribute an existing session.
  const verifiedDebugger=await waitForChromeDebugger({port:9223,timeoutMs:5000});
  assert.ok(verifiedDebugger.browserSocket?.includes('/devtools/browser/'));
+ // Optional release-compatibility job: assert the PRODUCT reported by the
+ // live CDP browser socket, not a downloaded archive filename or a fixture.
+ const expectedMajor=process.env.USSHM_SMOKE_EXPECT_CHROME_MAJOR;
+ if(expectedMajor!==undefined){
+  if(!/^[0-9]{2,3}$/.test(expectedMajor)||
+     !new RegExp('^(?:Chrome|Chromium|HeadlessChrome)/'+expectedMajor+'\\.').test(verifiedDebugger.browser))
+   throw new Error('Chrome smoke browser major mismatch: expected '+expectedMajor+
+    ', actual CDP product '+verifiedDebugger.browser);
+ }
  await assert.rejects(assertChromeDebuggerPortFree(9223),/port.*(in use|unavailable)/i);
  // Verify the actual installed Chrome EXE survives a preference reload (no autorun).
  await savePreferredChromePath({dataRoot:profile,executablePath:executable});
