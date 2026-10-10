@@ -125,6 +125,16 @@ export async function runReadOnlyInteractionReadiness({
      !Number.isSafeInteger(e.listenerCount)||e.listenerCount===null||
      e.listenerCount<1||e.listenerCount>512)
    return {kind:'review',reason:'No consistent direct click listener was confirmed'};
+  // CSS and listener evidence are collected over separate CDP sockets. A
+  // dynamic page can replace the selector's target without changing its URL,
+  // frame or loader. Pin the DOM node again before accepting this sample;
+  // cross-sample identity alone cannot detect a swap inside one observation.
+  let after:LocatorProbeResult;
+  try{after=await deps.probe(target,[locator]);}
+  catch{await guard();return {kind:'review',reason:'Post-metadata DOM node observation unavailable'};}
+  await guard();
+  if(fingerprint(after,target,locator)!==key)
+   return {kind:'review',reason:'DOM node changed during read-only control observations'};
   return {kind:'ready',value:{fingerprint:key,listenerCount:e.listenerCount}};
  };
  const first=await sample();
