@@ -293,6 +293,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     try { await cdp?.close(); } catch(e) { failures.push(new Error('CDP cleanup: '+String(e))); }
     // Failed spawn with no PID did not create a running Electron process.
     // It must not create a second cleanup failure or block removal of this test-only data.
+    const exitedBeforeCleanup = exitConfirmed;
     if (child?.pid && !exitConfirmed) {
       const processToStop = child;
       const ended = new Promise<void>((resolve, reject) => {
@@ -334,7 +335,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       catch(e) { failures.push(e as Error); }
     }
     if(child?.pid && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
-    if(exit && exit.code !== 0 && !spawnError && !failures.some(e => e.message.includes('Electron cleanup'))) {
+    if(exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError) {
       // Unexpected early shutdown must never disappear behind later cleanup.
       failures.push(new Error(exitFailure(exit) ?? 'Electron exited unexpectedly'));
     }
