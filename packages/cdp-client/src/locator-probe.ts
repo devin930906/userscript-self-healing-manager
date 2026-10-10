@@ -97,6 +97,11 @@ function selectSingleIframeDocument(root:unknown,expectedFrameId:string):number|
 
 function escapeIdentifier(value:string):string {
  return [...value].map((char,index)=>{
+  // CSS identifiers cannot be a lone hyphen or begin with a hyphen-digit.
+  // DOM.getElementById and getElementsByClassName can legitimately use both.
+  if(index===0&&char==='-'&&value==='-')return '\\-';
+  if(index===1&&value[0]==='-'&&/[0-9]/.test(char))
+   return '\\'+char.codePointAt(0)!.toString(16)+' ';
   if(/[a-zA-Z_-]/.test(char)||(/[0-9]/.test(char)&&index!==0))return char;
   if(char===' ')return '\\ ';
   return '\\'+char.codePointAt(0)!.toString(16)+' ';
