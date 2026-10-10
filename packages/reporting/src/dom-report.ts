@@ -46,6 +46,10 @@ export function serializeDomBatchReport(
    throw new Error('Invalid or overstated userscript verification');
   if(v.V1==='passed'&&(row.status!=='dom-present'||row.checked<1||row.found!==row.checked))
    throw new Error('Unsupported DOM evidence verification claim');
+  if(v.V1==='failed'&&(row.status!=='locator-missing'||row.checked<1||row.missing<1))
+   throw new Error('Unsupported V1 failed verification claim');
+  if(v.V1==='skipped'&&row.status!=='out-of-scope'&&row.status!=='skipped')
+   throw new Error('Unsupported V1 skipped verification claim');
   // Do not serialize evidence reason strings or private absolute directories:
   // CDP errors and source paths can contain credentials or personal details.
   const name=row.path.replace(/\\/g,'/').split('/').at(-1)??'';
