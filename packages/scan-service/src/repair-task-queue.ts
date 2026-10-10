@@ -43,13 +43,20 @@ export interface RepairTaskQueue {
  * journal before enabling unattended filesystem operations.
  */
 export function createRepairTaskQueue(tasks:readonly RepairTask[],
- options:{onProgress?:(snapshot:RepairTaskSnapshot)=>void}={},
+ options:{
+  onProgress?:(snapshot:RepairTaskSnapshot)=>void;
+  /** Separate trusted pre-write hash/backup/approval check, never invoked on unapproved jobs. */
+  beforeDispatch?:(row:RepairTaskRow)=>Promise<boolean>|boolean;
+ }={},
 ):RepairTaskQueue{
  if(!Array.isArray(tasks)||!tasks.length||tasks.length>1000)
   throw new Error('Invalid repair task queue budget');
  if(!options||typeof options!=='object'||Array.isArray(options)||
-    (options.onProgress!==undefined&&typeof options.onProgress!=='function'))
+    (options.onProgress!==undefined&&typeof options.onProgress!=='function')||
+    (options.beforeDispatch!==undefined&&typeof options.beforeDispatch!=='function'))
   throw new Error('Invalid repair task queue options');
+ // Pin the pre-write gate itself against post-approval caller mutation.
+ const beforeDispatch=options.beforeDispatch;
  const ids=new Set<string>();
  for(const task of tasks){
   if(!task||typeof task.id!=='string'||!/^[-a-zA-Z0-9_.:]{1,128}$/.test(task.id)||
@@ -105,6 +112,20 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
     // callback has actually started: check both again after notification.
     if(stopped){update(i,'cancelled');break;}
     if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
+    if(beforeDispatch){
+     let authorized=false;
+     try{
+      // A negative result or exception fails closed without leaking its
+      // (potentially private) error message into the status snapshot.
+      authorized=(await beforeDispatch(Object.freeze({...rows[i]!})))===true;
+     }catch{}
+     // The preflight may have yielded while the user cancelled the run,
+     // revoked consent or replaced a file. The separate trusted preflight
+     // callback owns file-hash comparison; we still re-check local consent.
+     if(stopped){update(i,'cancelled');break;}
+     if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
+     if(!authorized){update(i,'blocked');continue;}
+    }
     try{
      await task.execute();
      // Cancellation is not rollback. An in-flight operation that completed
