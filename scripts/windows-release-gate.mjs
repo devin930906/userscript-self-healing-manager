@@ -166,7 +166,9 @@ export async function writeOrVerifyChecksumManifest(path,expectedLines){
  * Filename-only tar listings do not expose Unix symlink file types or ZIP
  * encryption. This checks metadata safety, not full archive decompression.
  */
-export async function inspectReleaseZipEntryTypes(path){
+export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false}={}){
+ if(typeof verifyLocalHeaders!=='boolean')
+  throw new Error('Invalid release ZIP local-header verification option');
  const handle=await open(path,'r');
  try{
   const stat=await handle.stat();
@@ -209,6 +211,7 @@ export async function inspectReleaseZipEntryTypes(path){
    const commentLength=central.readUInt16LE(offset+32);
    const startingDisk=central.readUInt16LE(offset+34);
    const attrs=central.readUInt32LE(offset+38);
+   const localOffset=central.readUInt32LE(offset+42);
    if(flags&0x41)throw new Error('Encrypted ZIP entries are forbidden in Stable archives');
    if(startingDisk!==0||compressedBytes===0xffffffff||uncompressedBytes===0xffffffff)
     throw new Error('Unsupported multi-volume or ZIP64 entry in release archive');
@@ -230,6 +233,32 @@ export async function inspectReleaseZipEntryTypes(path){
     throw new Error('Unsafe special ZIP entry type or Windows reparse point');
    if(!nameLength||nameLength>1024||offset+46+nameLength+extraLength+commentLength>size)
     throw new Error('Invalid ZIP central-directory path budget');
+   if(verifyLocalHeaders){
+    if(localOffset===0xffffffff||localOffset+30>start)
+     throw new Error('ZIP local-header offset out of bounds');
+    const local=Buffer.alloc(30);
+    if((await handle.read(local,0,30,localOffset)).bytesRead!==30||
+       local.readUInt32LE(0)!==0x04034b50)
+     throw new Error('Invalid ZIP local file header');
+    const localFlags=local.readUInt16LE(6);
+    const localCompression=local.readUInt16LE(8);
+    const localNameLength=local.readUInt16LE(26);
+    const localExtraLength=local.readUInt16LE(28);
+    const dataStart=localOffset+30+localNameLength+localExtraLength;
+    if(localFlags!==flags||localCompression!==compression||
+       localNameLength!==nameLength||dataStart+compressedBytes>start)
+     throw new Error('ZIP local header metadata mismatch or unsafe entry bounds');
+    // Byte-for-byte equality prevents central-directory names from
+    // concealing a different extraction destination in the local header.
+    const localName=Buffer.alloc(localNameLength);
+    if((await handle.read(localName,0,localNameLength,localOffset+30)).bytesRead!==localNameLength||
+       !localName.equals(central.subarray(offset+46,offset+46+nameLength)))
+     throw new Error('ZIP local header filename mismatch');
+    if(!(flags&8)&&(local.readUInt32LE(14)!==central.readUInt32LE(offset+16)||
+       local.readUInt32LE(18)!==compressedBytes||
+       local.readUInt32LE(22)!==uncompressedBytes))
+     throw new Error('ZIP local header CRC or size mismatch');
+   }
    offset+=46+nameLength+extraLength+commentLength;
   }
   if(offset!==size)throw new Error('ZIP central-directory count or length mismatch');
@@ -292,7 +321,7 @@ async function runFinalArtifactInventory(){
  if(listed.status!==0||listed.error)throw new Error('ZIP entry enumeration failed');
  const entries=listed.stdout.split(/\r?\n/).filter(Boolean);
  const verified=validateWindowsReleaseLayout({version,artifactNames:found,zipEntries:entries});
- const inspected=await inspectReleaseZipEntryTypes(zip);
+ const inspected=await inspectReleaseZipEntryTypes(zip,{verifyLocalHeaders:true});
  if(inspected.entryCount!==verified.zipEntryCount)
   throw new Error('ZIP central-directory entry count differs from archive filename inventory');
  const checksums=[];
