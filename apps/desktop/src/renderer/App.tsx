@@ -38,6 +38,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
 
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
+ backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
@@ -197,6 +198,18 @@ function App(){
   setError('');setMessage('已接收 '+allowed.length+' 个系统拖放的脚本文件');
  }),[]);
  async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function backupRegistry(){
+  if(busy)return;
+  setBusy(true);setError('');
+  try{
+   const saved=await window.ussm.backupRegistry();
+   if(!saved.canceled)setMessage('SQLite 索引备份成功：'+saved.path+' · SHA-256：'+saved.sha256+
+    '。注意：仅备份 registry.sqlite，不是完整 Data/ 灾难恢复包。');
+  }catch{
+   // Do not print raw SQLite/OS errors: they may contain private local paths.
+   setError('SQLite 索引备份失败：请选择新的、可写入的 .sqlite 文件名；不会覆盖已有备份。');
+  }finally{setBusy(false);}
+ }
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
  async function stageSiteAdapterImport(){
@@ -556,6 +569,12 @@ function App(){
   </aside>
   <main className="main"><header><div><div className="eyebrow">USERSCRIPT MAINTENANCE</div><h1>油猴脚本智能自愈管理器</h1><p>批量检查源码中的 DOM 依赖，定位潜在失效点，记录可追溯的静态分析结果。</p></div><span className="status-dot">●　离线分析模式</span></header>
    <section className="stats"><div className="stat"><label>资料库脚本</label><strong>{history.length}</strong><span>SQLite 本地索引</span></div><div className="stat"><label>本次处理</label><strong>{result?.processedCount??0}</strong><span>逐文件隔离</span></div><div className="stat"><label>解析错误</label><strong className={result?.errorCount?'warn':''}>{result?.errorCount??0}</strong><span>待人工检查</span></div><div className="stat"><label>动态 Selector</label><strong>{result?.items.reduce((sum,x)=>sum+x.runtimeRequiredCount,0)??0}</strong><span>需要运行时确认</span></div></section>
+   <section className="panel">
+    <div className="panel-head"><div><h2>SQLite 索引备份</h2>
+     <p>仅备份 SQLite 脚本索引 registry.sqlite，使用一致性 WAL 快照及 SHA-256 校验。不包含受管修订、诊断历史、Chrome 配置和其他 Data/ 文件；不能代替完整恢复包。</p>
+    </div><span className="pill">安全不覆盖</span></div>
+    <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void backupRegistry()}>另存 SQLite 索引备份</button></div>
+   </section>
    <section className="panel import"><div className="panel-head"><div><h2>导入并扫描脚本</h2><p>仅静态检查，不运行 JavaScript，不修改原件。</p></div><span className="pill">安全只读</span></div>
    <div className={'drop '+(dragging?'dragging':'')} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{void onDrop(e);}}>
      <div className="drop-symbol">⇧</div><b>拖放 .user.js 文件到这里</b><div>或者使用按钮选择单个、多个脚本及脚本文件夹</div>
