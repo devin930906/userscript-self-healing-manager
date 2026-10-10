@@ -33,6 +33,7 @@ import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
 import {createBatchRepairWorkflow} from '../packages/repair-workflow/src/batch.ts';
 import {readVerifiedManagedLocator} from '../packages/repair-workflow/src/managed-locator.ts';
 import {guardAppliedManagedRevision} from '../packages/repair-workflow/src/guarded-v1.ts';
+import {guardAppliedManagedBatchRevision} from '../packages/repair-workflow/src/guarded-batch-v1.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
@@ -726,6 +727,9 @@ try{
  assert.match(batchProposal.preview,/#heal-button/);
  assert.match(batchProposal.preview,/\.target-pane/);
  assert.equal(await readFile(batchSource,'utf8'),original);
+ const trustedBatch=batchFlow.inspectPending(batchProposal.proposalId);
+ assert.ok(trustedBatch);
+ assert.equal(trustedBatch.selectorIndexes.length,2);
  const batchApplied=await batchFlow.applyBatch({
   proposalId:batchProposal.proposalId,approved:true,
  });
@@ -737,6 +741,38 @@ try{
  }),true,'both batch AST changes must produce the fixture business effect');
  assert.equal(await readFile(batchSource,'utf8'),original,
   'batch managed repair must preserve original userscript');
+ const batchV1=await guardAppliedManagedBatchRevision({
+  approved:true,scriptId:'chrome-batch-fixture',appliedHash:batchApplied.hash,
+  previousHash:trustedBatch.previousHash,selectorIndexes:trustedBatch.selectorIndexes,
+  verify:async(index)=>{
+   const locator=await readVerifiedManagedLocator({
+    managedRoot:profile,scriptId:'chrome-batch-fixture',
+    revisionHash:batchApplied.hash,selectorIndex:index,
+   });
+   const proof=await runReadOnlyDomContract({
+    approved:true,target:selected,
+    caseId:'BATCH:chrome-batch-fixture:IDX_'+index,
+    locator:{method:locator.method,expression:locator.expression,runtimeRequired:false},
+    expectation:'unique',
+    deps:{
+     confirm:confirmPageIdentity,
+     probe:(target,locators)=>probePageLocators(target,locators,{includeNodeFingerprints:true}),
+     summarize:captureDomSummary,
+     wait:()=>delay(125),
+    },
+   });
+   assert.equal(proof.V2,'blocked');
+   return proof;
+  },
+  restore:hash=>batchFlow.restore({
+   scriptId:'chrome-batch-fixture',hash,approved:true,expectedCurrentHash:batchApplied.hash,
+  }),
+ });
+ assert.equal(batchV1.status,'retained-v1');
+ assert.deepEqual(batchV1.verifiedIndexes,trustedBatch.selectorIndexes);
+ assert.equal(batchV1.V2,'blocked');
+ assert.equal(batchV1.functionalVerified,false);
+ console.log('PASS real Chrome guarded two-selector managed V1: each exact approved locator passes twice; no V2/V3/V4.');
  const batchRolled=await activateManagedRevision({
   managedRoot:profile,scriptId:'chrome-batch-fixture',
   hash:batchProposal.baseHash,approved:true,
