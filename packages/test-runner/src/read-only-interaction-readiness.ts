@@ -112,8 +112,19 @@ export async function runReadOnlyInteractionReadiness({
   if(!validateVisibility(v,target))
    return {kind:'review',reason:'CSS control evidence invalid or inconsistent'};
   if(v.status==='hidden'||v.pointerBlocked===true||
-     ['disabled-attribute','aria-disabled','readonly-attribute'].includes(v.controlBlocker))
+     ['disabled-attribute','aria-disabled','readonly-attribute'].includes(v.controlBlocker)){
+   // A blocker is meaningful only for the node originally pinned. React
+   // rerenders and SPA swaps can replace a selector target during CSS reads
+   // without changing the top frame/loader. A changed node is inconclusive,
+   // not proof that the original control was disabled or hidden.
+   let blockedNode:LocatorProbeResult;
+   try{blockedNode=await deps.probe(target,[locator]);}
+   catch{await guard();return {kind:'review',reason:'Blocked-control node identity could not be reconfirmed'};}
+   await guard();
+   if(fingerprint(blockedNode,target,locator)!==key)
+    return {kind:'review',reason:'Control node changed before blocker could be confirmed'};
    return {kind:'blocked',reason:'Control has an observed read-only blocker'};
+  }
   if(v.status!=='potentially-visible'||v.matchCount!==1||
      v.pointerBlocked!==false||v.controlBlocker!=='none-detected')
    return {kind:'review',reason:'Control visibility or blocker metadata incomplete'};
