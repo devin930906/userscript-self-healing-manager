@@ -81,6 +81,25 @@ as a real manager observation.
   spoofed URLs and complete production Main/Preload/UI authorization.
 - No installation packages were generated in these development workflows.
 
+## Post-observation UI revocation hardening
+
+A pending observation can complete after the user selects a different Chrome
+executable/profile. The UI now holds a `LatestRequestGate` dedicated to
+manager observation. A Chrome status or executable change invalidates the
+old generation and clears its displayed manager result. Any late IPC
+response cannot overwrite the new browser's state. Separate `managerBusy`
+prevents a second concurrent manager observation from being started by
+a double click. Starting any newly selected Chrome profile invalidates
+the previously selected CDP session.
+
+- RED [Node contracts #38046965256](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38046965256):
+  regression test proved the old UI was missing generation invalidation.
+- GREEN [Windows CI #38047022068](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38047022068):
+  **811 tests / 810 PASS / 1 SKIP / 0 FAIL**, strict TypeScript,
+  real Windows Electron GUI + SQLite and real Chrome 155 MV3 fixture all
+  succeeded. [Node contracts #38047022084](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38047022084)
+  SUCCESS.
+
 ## Explicit certification limits
 
 A Manifest V3 worker may be suspended and absent from
