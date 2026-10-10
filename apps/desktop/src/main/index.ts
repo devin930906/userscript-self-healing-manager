@@ -28,6 +28,7 @@ import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../
 import {inspectReadOnlyEventListeners} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
+import {createBatchRepairWorkflow} from '../../../../packages/repair-workflow/src/batch.ts';
 import {prepareVerifiedRepairPreview} from '../../../../packages/repair-workflow/src/verified-preview.ts';
 import {readVerifiedManagedLocator} from '../../../../packages/repair-workflow/src/managed-locator.ts';
 import {guardAppliedManagedRevision} from '../../../../packages/repair-workflow/src/guarded-v1.ts';
@@ -95,6 +96,7 @@ async function bootstrap():Promise<void>{
  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
+ const batchRepairs=createBatchRepairWorkflow({managedRoot:dataRoot});
  const adapters=createSiteAdapterLibrary({dataRoot});
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
@@ -204,7 +206,7 @@ async function bootstrap():Promise<void>{
  journal.interruptRunning();
  batchEvidence.clear(); // A new scan revokes any previously collected DOM evidence immediately.
  lastScan=await scanSessions.replace(()=>runStaticScan({paths:scanPaths,recursive,maxFiles:1000},{repository}));
- pendingApprovals.clear();repairs.invalidatePending();return lastScan;});
+ pendingApprovals.clear();repairs.invalidatePending();batchRepairs.invalidatePending();return lastScan;});
  ipcMain.handle('usshm:list-scripts',event=>{assertSender(event);return repository.list();});
  ipcMain.handle('usshm:site-adapters',async event=>{
   assertSender(event);
@@ -762,6 +764,76 @@ async function bootstrap():Promise<void>{
   if(proposal.originalHash!==item.analysis.sourceSha256)throw new Error('Original scan hash mismatch; please rescan');
   pendingApprovals.register(proposal.proposalId,scanSnapshot.scanId);
   return proposal;
+ });
+ ipcMain.handle('usshm:propose-batch-repair',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;
+   changes?:unknown}|null;
+  if(!q||typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||
+     Number(q.itemIndex)<0||!Array.isArray(q.changes)||q.changes.length<2||
+     q.changes.length>8)
+   throw new Error('A scan and 2–8 selected batch changes are required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Batch source must be an authorized scan item');
+  const selected=new Set<number>();
+  const changes=q.changes.map(raw=>{
+   const part=raw as {selectorIndex?:unknown;newSelector?:unknown}|null;
+   if(!part||!Number.isSafeInteger(part.selectorIndex)||
+      Number(part.selectorIndex)<0||typeof part.newSelector!=='string'||
+      !part.newSelector||part.newSelector.length>1024||
+      selected.has(Number(part.selectorIndex)))
+    throw new Error('Invalid or duplicated batch selector item');
+   const index=Number(part.selectorIndex);selected.add(index);
+   const record=item.analysis!.selectorRecords[index];
+   if(!record||record.runtimeRequired||record.dynamicKind!=='literal')
+    throw new Error('Batch selector must be one scanned static AST literal');
+   return {oldSelector:record.expression,newSelector:part.newSelector as string,
+    selectorLocation:{method:record.method,line:record.sourceRange.start.line,
+     column:record.sourceRange.start.column}};
+  });
+  const info=await lstat(item.path);
+  if(!info.isFile()||info.isSymbolicLink())
+   throw new Error('Unsafe original script: rescan required');
+  const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info});
+  if(createHash('sha256').update(bytes).digest('hex')!==item.analysis.sourceSha256)
+   throw new Error('Original batch script changed after scan');
+  scanSessions.assertCurrent(scanSnapshot);
+  const proposal=await batchRepairs.proposeBatch({
+   sourcePath:item.path,scriptId:item.scriptId,changes,
+  });
+  scanSessions.assertCurrent(scanSnapshot);
+  if(proposal.originalHash!==item.analysis.sourceSha256){
+   batchRepairs.discard(proposal.proposalId);
+   throw new Error('Batch scanned source hash mismatch');
+  }
+  pendingApprovals.register(proposal.proposalId,scanSnapshot.scanId);
+  return proposal;
+ });
+ ipcMain.handle('usshm:apply-batch-repair',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;
+   proposalId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     typeof q.proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(q.proposalId)||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0)
+   throw new Error('Explicit reviewed batch repair approval is required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  const reviewed=batchRepairs.inspectPending(q.proposalId);
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path)||
+     !reviewed||reviewed.scriptId!==item.scriptId)
+   throw new Error('Batch revision approval is stale or unrelated');
+  const info=await lstat(item.path);
+  if(!info.isFile()||info.isSymbolicLink())throw new Error('Unsafe batch source');
+  const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info});
+  if(createHash('sha256').update(bytes).digest('hex')!==item.analysis.sourceSha256)
+   throw new Error('Original script changed since the scan');
+  scanSessions.assertCurrent(scanSnapshot);
+  try{return await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
+  finally{pendingApprovals.consume(q.proposalId);}
  });
  ipcMain.handle('usshm:apply-repair-guarded',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId?:unknown;proposalId?:unknown;approved?:unknown;
