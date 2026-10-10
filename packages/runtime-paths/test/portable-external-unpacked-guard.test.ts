@@ -134,7 +134,7 @@ test('Windows junction cannot redirect portable Data writes outside its selected
     await assert.rejects(
       ensureWritableDataRoot(join(link, 'Data')),
       /symlink|reparse|junction/i,
-      'a Junction ancestor must be rejected before any Data directory or probe is written',
+      'a Junction ancestor must cause the data-root initialization to reject',
     );
     assert.equal(await readFile(marker, 'utf8'), 'unchanged source data');
     assert.deepEqual(await readdir(realTarget), ['existing-settings.txt'],
