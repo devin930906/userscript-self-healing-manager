@@ -92,3 +92,29 @@ test('computed DOM method calls are inventory items requiring runtime confirmati
  assert.equal(data.selectorRecords[0]?.expression,'#settings');
  assert.equal(data.selectorRecords[1]?.expression,'#unknown');
 });
+
+test('prototype-shaped userscript metadata keys cannot crash or poison the metadata parser',()=>{
+ const source=[
+  '// ==UserScript==',
+  '// @__proto__ hidden',
+  '// @constructor override',
+  '// @toString override',
+  '// @hasOwnProperty override',
+  '// @name Safe Header',
+  '// @match https://example.org/*',
+  '// ==/UserScript==',
+  'document.querySelector("#safe");',
+ ].join('\n');
+ const metadata=parseUserscriptMetadata(source);
+ assert.equal(metadata.name,'Safe Header');
+ assert.deepEqual(metadata.match,['https://example.org/*']);
+ for(const key of ['__proto__','constructor','toString','hasOwnProperty']){
+  assert.equal(Object.hasOwn(metadata.raw,key),true,key);
+  assert.equal(Array.isArray(metadata.raw[key]),true,key);
+ }
+ assert.equal(Object.getPrototypeOf(metadata.raw),null);
+ const analysis=analyzeSource({scriptId:'untrusted-metadata',sourceBytes:encoder.encode(source)});
+ assert.equal(analysis.metadata.name,'Safe Header');
+ assert.equal(analysis.selectorRecords.length,1);
+ assert.equal(analysis.parseDiagnostics.length,0);
+});
