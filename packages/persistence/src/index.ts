@@ -172,12 +172,24 @@ export async function backupVerifiedSqliteSnapshot(
  }
 }
 
+/**
+ * Validate the entire known v1 registry table layout, constraints and absence
+ * of unexpected triggers. A checksum or SQLite integrity_check alone only
+ * proves internal consistency, not compatibility or safety for later import.
+ * Shared by snapshot publication and independent recovery verification.
+ */
+export function assertRegistryV1SnapshotSchema(db:DatabaseHandle):void{
+ const marker=db.prepare("SELECT type FROM sqlite_master WHERE name='schema_version' LIMIT 1")
+  .get() as {type:string}|undefined;
+ if(marker?.type!=='table')
+  throw new Error('Invalid registry snapshot schema marker');
+ const rows=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
+ if(rows.length!==1||rows[0]?.version!==1)
+  throw new Error('Backup database has an unsupported schema version');
+ assertV1ScriptsTable(db);
+}
+
 /** A registry snapshot also requires the exact v1 registry schema. */
 export async function backupRegistryDatabase(db:DatabaseHandle,destination:string):Promise<RegistryBackupReceipt>{
- return backupVerifiedSqliteSnapshot(db,destination,copy=>{
-  const rows=copy.prepare('SELECT version FROM schema_version LIMIT 2').all();
-  if(rows.length!==1||rows[0]?.version!==1)
-   throw new Error('Backup database has an unsupported schema version');
-  assertV1ScriptsTable(copy);
- });
+ return backupVerifiedSqliteSnapshot(db,destination,assertRegistryV1SnapshotSchema);
 }
