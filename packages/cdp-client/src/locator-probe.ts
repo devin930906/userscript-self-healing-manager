@@ -118,7 +118,9 @@ export function asCss(input:LiteralLocator):string|null{
   return '[name="'+escaped+'"]';
  }
  if(input.method==='getElementsByClassName'){
-  const tokens=input.expression.trim().split(/\s+/).filter(Boolean);
+  // DOM getElementsByClassName tokenizes on HTML ASCII whitespace only;
+// Unicode NBSP and em-space are valid literal class-name characters.
+  const tokens=input.expression.split(/[ \t\n\f\r]+/).filter(Boolean);
   return tokens.length?tokens.map(x=>'.'+escapeIdentifier(x)).join(''):null;
  }
  return null;
