@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
-import {lstat,mkdir,open,readFile,readdir,writeFile} from 'node:fs/promises';
+import {lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {DatabaseSync} from 'node:sqlite';
@@ -93,12 +94,20 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
  const manifestInfo=await lstat(manifestFile);
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe core recovery manifest');
- const manifestBytes=await readFile(manifestFile);
+ const manifestBytes=await readPinnedRegularFile(manifestFile,{
+  maxBytes:1024*1024,expected:manifestInfo
+ });
  let manifest:unknown;
- try{manifest=JSON.parse(manifestBytes.toString('utf8'));}catch{throw new Error('Invalid core recovery manifest');}
- const obj=manifest as {kind?:unknown;complete?:unknown;atomicAcrossStores?:unknown;files?:unknown}|null;
+ try{manifest=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(manifestBytes));}
+ catch{throw new Error('Invalid core recovery manifest encoding or JSON');}
+ const obj=manifest as {
+  kind?:unknown;complete?:unknown;atomicAcrossStores?:unknown;
+  scope?:unknown;files?:unknown;
+ }|null;
  if(!obj||obj.kind!=='usshm-core-recovery-v1'||obj.complete!==true||
-   obj.atomicAcrossStores!==false||!Array.isArray(obj.files)||obj.files.length!==3)
+   obj.atomicAcrossStores!==false||
+   obj.scope!=='registry+journal+managed-revisions-only'||
+   !Array.isArray(obj.files)||obj.files.length!==3)
   throw new Error('Invalid or incomplete core recovery manifest');
  for(let i=0;i<paths.length;i++){
   const file=obj.files[i] as Partial<ManifestFile>|undefined;
