@@ -121,7 +121,9 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   return source;
  };
  const collectBindings=(node:ts.Node):void=>{
-  if(ts.isVariableDeclaration(node)){
+  if(ts.isVariableDeclaration(node)&&!ts.isCatchClause(node.parent)){
+   // A catch parameter is scoped ONLY to its catch clause, not a hoisted
+   // function-level var. CatchClause below records that distinct binding.
    const list=node.parent;
    const isBlockScoped=ts.isVariableDeclarationList(list)&&
     (list.flags&(ts.NodeFlags.Let|ts.NodeFlags.Const))!==0;
