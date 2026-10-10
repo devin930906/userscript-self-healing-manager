@@ -35,7 +35,9 @@ export function parseUserscriptMetadata(source:string):MetadataParseResult {
   if(!line.trim()||/^\s*\/\//.test(line))continue;
   break;
  }
- const raw:Record<string,string[]>={};
+ // Metadata keys are untrusted; inherited names such as __proto__/constructor
+ // must never select Object.prototype methods or setters.
+ const raw:Record<string,string[]>=Object.create(null) as Record<string,string[]>;
  if(start>=0)for(let i=start+1;i<lines.length;i++){
    const line=lines[i]!;
    if(/^\s*\/\/\s*==\/UserScript==/.test(line))break;
