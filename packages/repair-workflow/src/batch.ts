@@ -8,7 +8,7 @@ import {activateManagedRevision,listManagedRevisions} from './history.ts';
 
 const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
 type Pending={scriptId:string;sourcePath:string;workingPath:string;originalHash:string;
- kind:'original'|'revision';draft:BatchLiteralPatchDraft};
+ kind:'original'|'revision';draft:BatchLiteralPatchDraft;selectorIndexes:readonly number[]};
 async function pinned(path:string){
  const info=await lstat(path);
  if(!info.isFile()||info.isSymbolicLink()||info.size>512*1024)
@@ -30,7 +30,7 @@ export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){
   inspectPending(proposalId:string){
    const item=pending.get(proposalId);
    return item?Object.freeze({scriptId:item.scriptId,previousHash:item.draft.baseHash,
-    proposedHash:item.draft.proposedHash}):null;
+    proposedHash:item.draft.proposedHash,selectorIndexes:Object.freeze([...item.selectorIndexes])}):null;
   },
   async proposeBatch({sourcePath,scriptId,changes}:{
    sourcePath:string;scriptId:string;changes:readonly BatchSelectorChange[];
@@ -63,12 +63,14 @@ export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){
    const active=workingPath===sourcePath?initial:
     analyzeSource({scriptId,sourceBytes:working}).selectorRecords;
    if(initial.length!==active.length)throw new Error('Managed AST selector count changed');
+   const selectorIndexes:number[]=[];
    const mapped=changes.map(change=>{
     if(!change?.selectorLocation)throw new Error('Missing pinned batch selector position');
     const i=initial.findIndex(r=>r.method===change.selectorLocation.method&&
      r.sourceRange.start.line===change.selectorLocation.line&&
      r.sourceRange.start.column===change.selectorLocation.column);
     const currentLocator=i>=0?active[i]:undefined;
+    if(i>=0)selectorIndexes.push(i);
     if(!currentLocator||currentLocator.method!==change.selectorLocation.method||
        currentLocator.expression!==change.oldSelector||currentLocator.dynamicKind!=='literal')
      throw new Error('Batch selector mapping no longer matches scanned source');
@@ -77,6 +79,8 @@ export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){
      column:currentLocator.sourceRange.start.column,
     }};
    });
+   if(selectorIndexes.some(i=>i>=50)||new Set(selectorIndexes).size!==selectorIndexes.length)
+    throw new Error('Batch V1 only supports unique scanned selector indexes 0..49');
    const draft=proposeLiteralPatchBatch({sourceBytes:working,changes:mapped});
    if(sha(await pinned(sourcePath))!==originalHash||
       (workingPath!==sourcePath&&sha(await pinned(workingPath))!==draft.baseHash))
@@ -85,7 +89,8 @@ export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){
     throw new Error('Batch preview became stale');
    if(pending.size>=64)throw new Error('Too many pending batch reviews');
    const proposalId=randomUUID();
-   pending.set(proposalId,{scriptId,sourcePath,workingPath,originalHash,kind,draft});
+   pending.set(proposalId,{scriptId,sourcePath,workingPath,originalHash,kind,draft,
+    selectorIndexes:Object.freeze([...selectorIndexes].sort((a,b)=>a-b))});
    return {proposalId,scriptId,originalHash,baseHash:draft.baseHash,
     proposedHash:draft.proposedHash,
     changes:draft.changes.map(x=>({oldSelector:x.oldSelector,newSelector:x.newSelector})),
