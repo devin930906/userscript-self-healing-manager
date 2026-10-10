@@ -11,7 +11,11 @@ permissions:
 jobs:
   release-contracts:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     steps:
@@ -20,7 +24,7 @@ jobs:
         with:
           node-version: '24'
       - name: Release gate tests only (no installers or uploads)
-        run: node --experimental-strip-types --test tests/integration/windows-release-evidence.test.ts tests/integration/final-build-authorization.test.ts tests/integration/distribution.test.ts
+        run: node --experimental-strip-types --test tests/integration/windows-release-evidence.test.ts tests/integration/final-build-authorization.test.ts tests/integration/distribution.test.ts tests/integration/packaged-startup.test.ts tests/integration/windows-command.test.ts apps/desktop/tests/windows-release-gate.test.ts apps/desktop/tests/three-target-release-contract.test.ts
   windows:
     if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
@@ -83,26 +87,6 @@ jobs:
           # Prior inventory gate has already validated names and ZIP entry types.
           Expand-Archive -LiteralPath $zip -DestinationPath $target
           node scripts/windows-release-gate.mjs --verify-extracted release/win-unpacked $target
-      - name: Record signatures and explicitly unverified Stable gates
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          $setup = Join-Path 'release' "Userscript-Self-Healing-Manager-Setup-$version-win-x64.exe"
-          $portable = Join-Path 'release' "Userscript-Self-Healing-Manager-Portable-$version-win-x64.exe"
-          $report = [ordered]@{
-            sourceCommit = $env:GITHUB_SHA
-            version = $version
-            runnerOS = [System.Environment]::OSVersion.VersionString
-            threeFileInventory = 'passed-on-ci'
-            extractedZipByteMatch = 'passed-on-ci'
-            setupAuthenticodeStatus = (Get-AuthenticodeSignature -LiteralPath $setup).Status.ToString()
-            portableAuthenticodeStatus = (Get-AuthenticodeSignature -LiteralPath $portable).Status.ToString()
-            userWindows10Chrome155_0_8059_40 = 'not-verified'
-            realTampermonkeyGM = 'not-verified'
-            stableApproved = $false
-            pending = 'Independent DIST-001..014 and RG-01..09 audit'
-          }
-          $report | ConvertTo-Json | Set-Content -Path release/windows-verification-evidence.json -Encoding utf8
       - name: Smoke-check unpacked Windows executable
         shell: pwsh
         run: |
@@ -171,6 +155,26 @@ jobs:
           $removed = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/S') -Wait -PassThru
           if ($removed.ExitCode -ne 0) { throw "NSIS uninstall failed: $($removed.ExitCode)" }
           Write-Host 'Smoke PASS: NSIS silent uninstall finished'
+      - name: Record signatures and explicitly unverified Stable gates
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $setup = Join-Path 'release' "Userscript-Self-Healing-Manager-Setup-$version-win-x64.exe"
+          $portable = Join-Path 'release' "Userscript-Self-Healing-Manager-Portable-$version-win-x64.exe"
+          $report = [ordered]@{
+            sourceCommit = $env:GITHUB_SHA
+            version = $version
+            runnerOS = [System.Environment]::OSVersion.VersionString
+            threeFileInventory = 'passed-on-ci'
+            extractedZipByteMatch = 'passed-on-ci'
+            setupAuthenticodeStatus = (Get-AuthenticodeSignature -LiteralPath $setup).Status.ToString()
+            portableAuthenticodeStatus = (Get-AuthenticodeSignature -LiteralPath $portable).Status.ToString()
+            userWindows10Chrome155_0_8059_40 = 'not-verified'
+            realTampermonkeyGM = 'not-verified'
+            stableApproved = $false
+            pending = 'Independent DIST-001..014 and RG-01..09 audit'
+          }
+          $report | ConvertTo-Json | Set-Content -Path release/windows-verification-evidence.json -Encoding utf8
       - name: Upload tag-only artifacts for independent RG audit (not automatically Stable)
         uses: actions/upload-artifact@v4
         with:
