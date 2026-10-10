@@ -21,3 +21,14 @@ test('manager target observation travels through consent-gated Electron Main and
  assert.match(ui,/扩展运行目标|扩展目标/);
  assert.match(ui,/V4.*未验证|V4.*未配置/);
 });
+
+test('changing Chrome identity revokes any in-flight manager observation instead of displaying stale V4 hints',async()=>{
+ const ui=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(ui,/managerTargetGeneration=useRef\(new LatestRequestGate\(\)\)/);
+ assert.match(ui,/managerTargetGeneration\.current\.invalidate\(\);setManagerTargetReport\(null\)/);
+ assert.match(ui,/\[cdp,chromePath\]/);
+ assert.match(ui,/managerTargetGeneration\.current\.begin\(\)/);
+ assert.match(ui,/managerTargetGeneration\.current\.commit\(token,\(\)=>setManagerTargetReport\(observed\)\)/);
+ assert.match(ui,/setManagerBusy\(false\)/);
+ assert.match(ui,/disabled=\{!cdp\|\|busy\|\|managerBusy\}/);
+});
