@@ -243,3 +243,26 @@ test('a different frame or URL at pre-click gate refuses Input even when the sel
   assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
  }
 });
+
+test('a duplicated CDP box-model response cannot dispatch an extra synthetic click',async()=>{
+ let socket!:FixtureSocket;
+ class DuplicatingBoxSocket extends FixtureSocket{
+  override send(raw:string){
+   const msg=JSON.parse(raw);
+   super.send(raw);
+   if(msg.method==='DOM.getBoxModel'){
+    const geometry={model:{content:[20,20,120,20,120,70,20,70]}};
+    queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:msg.id,result:geometry})}));
+   }
+  }
+ }
+ const result=await runIsolatedFixtureInteraction({
+  approved:true,target,fixtureUrl:url,
+  confirm:async()=>identity,
+  socketFactory:()=>{socket=new DuplicatingBoxSocket();return socket;},
+ });
+ assert.equal(result.observed,true);
+ assert.deepEqual(socket.methods.filter(x=>x==='Input.dispatchMouseEvent'),[
+  'Input.dispatchMouseEvent','Input.dispatchMouseEvent',
+ ],'exactly one press and one release must be dispatched');
+});
