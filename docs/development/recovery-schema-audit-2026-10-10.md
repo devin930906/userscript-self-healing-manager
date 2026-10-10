@@ -12,8 +12,8 @@ userscripts, Tampermonkey data or live Chrome profiles.
 2. An offline actor can alter the SQLite copy *and then rewrite the manifest
    hash and byte count*. SQLite `integrity_check=ok` and the schema version
    alone do not establish the expected application schema.
-3. Added two registry regressions: an unexpected DELETE trigger and an added
-   scripts column.
+3. Added four registry regressions: an unexpected DELETE trigger, an added
+   scripts column, an extra UNIQUE index and an altered version-marker table.
 4. Added three journal regressions: an unexpected trigger, an extra column, and
    removal of the journal-items foreign key.
 
@@ -21,7 +21,8 @@ userscripts, Tampermonkey data or live Chrome profiles.
 
 - `assertRegistryV1SnapshotSchema` is shared by registry backup publication
   and `verifyCoreRecoveryBundle`; checks the version marker, expected scripts
-  columns, path uniqueness, and absence of unexpected table triggers.
+  columns, exact v1 UNIQUE-index inventory, version-marker layout, and absence
+  of unexpected table triggers. Startup migration reuses this fail-closed gate.
 - `assertJournalSchemaSafety` is now shared by journal startup, snapshot
   publication and core recovery verification. In addition to the trigger gate,
   it checks the v1 column names/types/NOT NULL/primary-key order and the
@@ -32,13 +33,14 @@ userscripts, Tampermonkey data or live Chrome profiles.
 ## Reproducible evidence
 
 - Registry RED: [Task 1 contracts run #38035913485](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38035913485).
+- Registry index/marker RED: [Task 1 contracts run #38036369794](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38036369794).
 - Journal RED: [Task 1 contracts run #38036074019](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38036074019).
-- Final GREEN code: [commit 07b37ef66](https://github.com/devin930906/userscript-self-healing-manager/commit/07b37ef663188c5a140514868db3a7c6814ce335).
-- [Windows Development CI #38036123116](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38036123116):
-  **702 tests, 701 passed, 1 skipped, 0 failed**; TypeScript typecheck,
+- GREEN code: [registry/journal verifier 07b37ef66](https://github.com/devin930906/userscript-self-healing-manager/commit/07b37ef663188c5a140514868db3a7c6814ce335), [stricter registry constraints 25547dc3e](https://github.com/devin930906/userscript-self-healing-manager/commit/25547dc3eebdd229fd76acd746a4f7db9f7694b2).
+- [Windows Development CI #38036412854](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38036412854):
+  **704 tests, 703 passed, 1 skipped, 0 failed**; TypeScript typecheck,
   Electron build, actual Windows Electron/SQLite GUI startup, and real Chrome
   155 CDP synthetic smoke passed.
-- [Node contracts #38036123106](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38036123106) passed.
+- [Node contracts #38036412862](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38036412862) passed.
 
 ## Important limits and release policy
 
