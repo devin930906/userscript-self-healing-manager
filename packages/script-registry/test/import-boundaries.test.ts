@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdtemp,mkdir,rm,readFile,writeFile,symlink,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {basename,join} from 'node:path';
 import {enumerateScripts,importPaths} from '../src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,type ScriptRecord} from '../../persistence/src/index.ts';
 
@@ -108,18 +108,22 @@ test('a registry identity lookup failure isolates its file and a later retry suc
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
 
-test('folder enumeration and import accept case-insensitive .user.js extensions consistently',async()=>{
+test('folder discovery includes only case-insensitive .user.js suffixes, while explicitly selected non-userscripts are rejected',async()=>{
  const root=await mkdtemp(join(tmpdir(),'usshm-registry-extension-'));
  const db=openDatabase(':memory:');migrateDatabase(db);
  try{
-  const path=join(root,'CASE.USER.JS'),bytes=Buffer.from('// ==UserScript==\\n// @name Upper extension\\n// ==/UserScript==\\nconst a=1;\\n'.replaceAll('\\n','\n'));
-  await writeFile(path,bytes);
+  const accepted=['lower.user.js','MIXED.User.Js','UPPER.USER.JS'];
+  const rejected=['ordinary.js','lookalike.user.jsx','backup.user.js.bak','almostuser.js','noextension','user.js.txt'];
+  for(const filename of [...accepted,...rejected])await writeFile(join(root,filename),'const example=1;');
   const entries=await enumerateScripts({paths:[root],recursive:true,followSymlinks:false});
-  assert.deepEqual(entries.filter(x=>x.status==='found').map(x=>x.path),[path]);
+  assert.deepEqual(entries.filter(x=>x.status==='found').map(x=>basename(x.path)).sort(),accepted.slice().sort());
   const repo=createScriptRepository(db);
-  const items=await importPaths({paths:[root],recursive:true,repository:repo});
-  assert.deepEqual(items.map(x=>x.status),['imported']);
-  assert.equal(repo.list().length,1);
-  assert.deepEqual(await readFile(path),bytes);
+  const results=await importPaths({paths:[root],recursive:true,repository:repo});
+  assert.deepEqual(results.map(x=>x.status),['imported','imported','imported']);
+  assert.equal(repo.list().length,3);
+  assert.deepEqual(repo.list().map(x=>x.displayName).sort(),accepted.slice().sort());
+  const explicit=await importPaths({paths:rejected.map(x=>join(root,x)),recursive:false,repository:repo});
+  assert.deepEqual(explicit.map(x=>x.status),rejected.map(()=>'invalid-extension'));
+  assert.equal(repo.list().length,3);
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
