@@ -17,6 +17,7 @@ import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyEventListenerEvidence} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
 import type {ReadOnlyInteractionReadinessResult} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
+import type {UserscriptManagerTargetReport} from '../../../../packages/cdp-client/src/manager-targets.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
@@ -82,6 +83,7 @@ declare global {interface Window{ussm:{
  removeBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{deleted:boolean}>;
  launchBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{started:boolean;port:number;isolated:true}>;
   pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
+ getManagerTargets:(input:{approved:true})=>Promise<UserscriptManagerTargetReport>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
  scan:(request:{paths:string[];recursive:boolean})=>Promise<DesktopScanResult>;
@@ -116,6 +118,7 @@ function App(){
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
  const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
+ const [managerTargetReport,setManagerTargetReport]=useState<UserscriptManagerTargetReport|null>(null);
  const [targetId,setTargetId]=useState('');
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
@@ -418,7 +421,21 @@ function App(){
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(summarizeSafeDesktopError(e));}}
  async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
  async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 的 CDP 握手已验证；独立资料目录不包含原有登录信息和扩展。点击「检查 CDP 连接」刷新网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
- async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${summarizeSafeDesktopError(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
+ async function checkCdp(){
+  setManagerTargetReport(null);
+  try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}
+  catch(e){setCdp(null);setError(`CDP 握手失败：${summarizeSafeDesktopError(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}
+ }
+ async function inspectManagerTargets(){
+  if(!cdp||busy)return;
+  setBusy(true);setError('');setManagerTargetReport(null);
+  try{
+   const observed=await window.ussm.getManagerTargets({approved:true});
+   setManagerTargetReport(observed);
+   setMessage('已检查当前 Chrome 的扩展后台运行目标；未观察到不代表未安装，V4 与 GM_* 行为仍未验证。');
+  }catch(error){setError('管理器扩展目标检查失败：'+summarizeSafeDesktopError(error));}
+  finally{setBusy(false);}
+ }
  async function loadDiagnosisHistory(){
   try{setDiagnosisHistory(await window.ussm.listDiagnosisHistory());}
   catch(error){setError('读取本地诊断历史失败：'+summarizeSafeDesktopError(error));}
@@ -817,7 +834,14 @@ function App(){
     <p className="dim">所有兼容规则仅为候选定义，未经过真实脚本运行或功能验证。V3／V4 未配置，尚不能认定 Tampermonkey 或 GM_* 功能正常。</p>
    </section>
    <section className="panel"><div className="panel-head"><div><h2>Chrome CDP 浏览器连接</h2><p>仅连接本机 127.0.0.1:9223；可进行人工授权的只读 DOM 快照和定位器匹配，不执行用户脚本。</p></div><span className="pill">受控连接</span></div>
-    <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}><button className="secondary" onClick={()=>void pickChrome()}>选择 Chrome</button><button className="secondary" disabled={!chromePath} onClick={()=>void startChrome()}>启动浏览器调试</button><button className="secondary" disabled={!chromePath} onClick={()=>void startIsolatedChrome()}>启动隔离调试 Chrome</button><button onClick={()=>void checkCdp()}>检查 CDP 连接</button></div>
+    <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}><button className="secondary" onClick={()=>void pickChrome()}>选择 Chrome</button><button className="secondary" disabled={!chromePath} onClick={()=>void startChrome()}>启动浏览器调试</button><button className="secondary" disabled={!chromePath} onClick={()=>void startIsolatedChrome()}>启动隔离调试 Chrome</button><button onClick={()=>void checkCdp()}>检查 CDP 连接</button><button className="secondary" disabled={!cdp||busy} onClick={()=>void inspectManagerTargets()}>检查油猴管理器扩展目标（只读）</button></div>
+    {managerTargetReport&&<div className="notice">
+     <p><b>扩展运行目标观察（不是安装或 V4 证明）</b></p>
+     <p>Tampermonkey Stable：{managerTargetReport.observed.includes('tampermonkey-stable')?'观察到后台运行目标':'没有观察到运行目标（不代表未安装）'}；
+      Tampermonkey Beta：{managerTargetReport.observed.includes('tampermonkey-beta')?'观察到后台运行目标':'没有观察到运行目标（不代表未安装）'}；
+      Violentmonkey：{managerTargetReport.observed.includes('violentmonkey')?'观察到后台运行目标':'没有观察到运行目标（不代表未安装）'}。</p>
+     <p>V4 未验证／未配置：无法据此证明脚本注入、GM_* 权限、储存或网络请求工作正常；不会执行脚本或读取扩展数据。</p>
+    </div>}
     <p className="dim" style={{overflowWrap:'anywhere',marginTop:12}}>{chromePath||'尚未选择浏览器 EXE（可选择便携版 Chrome）'}</p>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap',marginTop:12}}>
      <input aria-label="浏览器配置名称" maxLength={40} value={browserProfileName}
