@@ -7,6 +7,7 @@ import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinn
 import {createHash,randomUUID} from 'node:crypto';
 import {exportManagedRecovery,verifyManagedRecovery} from '../../../../packages/repair-workflow/src/managed-export.ts';
 import {createCoreRecoveryBundle,verifyCoreRecoveryBundle} from '../../../../packages/repair-workflow/src/core-recovery.ts';
+import {stageCoreRecoveryForOfflineReview} from '../../../../packages/repair-workflow/src/core-recovery-stage.ts';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
@@ -158,6 +159,33 @@ async function bootstrap():Promise<void>{
   if(picker.canceled||!picker.filePaths[0])return {canceled:true};
   const audited=await verifyCoreRecoveryBundle({snapshotDirectory:picker.filePaths[0]});
   return {canceled:false,verified:audited.valid,files:audited.files};
+ });
+ ipcMain.handle('usshm:stage-core-recovery',async event=>{
+  assertSender(event);
+  // Two OS-owned directory selections: backup source and a NEW output parent.
+  // Renderer never controls paths; this operation cannot activate live Data.
+  const source=await dialog.showOpenDialog(mainWindow,{
+   title:'选择已经核验的核心备份目录',properties:['openDirectory'],
+  });
+  if(source.canceled||!source.filePaths[0])return {canceled:true};
+  const output=await dialog.showOpenDialog(mainWindow,{
+   title:'选择离线恢复目录的父文件夹（不会覆盖）',
+   properties:['openDirectory','createDirectory'],
+  });
+  if(output.canceled||!output.filePaths[0])return {canceled:true};
+  const approval=await dialog.showMessageBox(mainWindow,{
+   type:'warning',title:'离线暂存核心备份（不自动启用）',
+   message:'确认仅将受检备份复制到全新的离线目录？',
+   detail:'不会替换当前 Data、运行中的数据库、浏览器资料或油猴脚本。不包含 Chrome 配置、账号和密钥。失败的不完整目录不会自动删除。',
+   buttons:['取消','确认复制'],defaultId:0,cancelId:0,noLink:true,
+  });
+  if(approval.response!==1)return {canceled:true};
+  const destination=join(output.filePaths[0],
+   'USSHM-staged-recovery-'+new Date().toISOString().slice(0,10)+'-'+randomUUID());
+  const staged=await stageCoreRecoveryForOfflineReview({
+   snapshotDirectory:source.filePaths[0],activeDataRoot:dataRoot,destination,
+  });
+  return {canceled:false,...staged,activated:false};
  });
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
