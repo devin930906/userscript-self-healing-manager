@@ -67,3 +67,22 @@ test('case-sensitive @exclude does not block a distinct lower-case path',()=>{
 test('unsupported regular-expression URL include remains unknown, not a match',()=>{
  assert.equal(checkUserscriptPageScope(meta([],['/example\\.com\/admin/']),'https://example.com/admin').status,'unknown');
 });
+
+test('oversized userscript activation-rule lists fail closed before any allow result',()=>{
+ const allowed='https://example.org/*';
+ const many=Array.from({length:257},()=>allowed);
+ assert.equal(checkUserscriptPageScope(meta(many),'https://example.org/page').status,'unknown');
+ assert.equal(checkUserscriptPageScope(meta([allowed],many),'https://example.org/page').status,'unknown');
+ assert.equal(checkUserscriptPageScope(meta([allowed],[],{exclude:many}),'https://example.org/page').status,'unknown');
+ assert.equal(checkUserscriptPageScope(meta([allowed],[],{'exclude-match':many}),'https://example.org/page').status,'unknown');
+ const withinBudget=Array.from({length:256},()=>allowed);
+ assert.equal(checkUserscriptPageScope(meta(withinBudget),'https://example.org/page').status,'allowed');
+});
+
+test('aggregate hostile metadata pattern size cannot bypass a scope budget via many sub-limit rules',()=>{
+ const allowed='https://example.org/*';
+ const longRule='https://example.org/'+'x'.repeat(1940);
+ const matches=[allowed,...Array.from({length:40},()=>longRule)];
+ assert.equal(checkUserscriptPageScope(meta(matches),'https://example.org/page').status,'unknown');
+ assert.equal(checkUserscriptPageScope(meta([allowed],[],{exclude:Array.from({length:40},()=>longRule)}),'https://example.org/page').status,'unknown');
+});
