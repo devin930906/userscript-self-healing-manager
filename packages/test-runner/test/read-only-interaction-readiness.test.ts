@@ -113,3 +113,30 @@ test('unapproved, invalid or dynamic selectors cannot open browser observation p
  }
  assert.equal(calls,0);
 });
+
+test('a positive readiness result must re-pin the same DOM node after CSS and listener observations',async()=>{
+ const d=deps();
+ const result=await runReadOnlyInteractionReadiness(request(d));
+ assert.equal(result.status,'potentially-ready');
+ assert.equal(d.calls.filter(method=>method==='probe').length,4,
+  'Each sample must verify the exact node both before and after separate CDP evidence');
+ assert.equal(d.calls.filter(method=>method==='listeners').length,2);
+});
+test('a replacement between DOM pin and control metadata cannot be combined into a positive result',async()=>{
+ const d=deps({fingerprints:[digest,'b'.repeat(64)]});
+ const result=await runReadOnlyInteractionReadiness(request(d));
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.samples,1,
+  'Change within the first sample must fail before waiting for a second sample');
+ assert.equal(d.calls.filter(method=>method==='wait').length,0);
+ assert.equal(d.calls.filter(method=>method==='probe').length,2);
+});
+test('a transient replacement in the second sample must invalidate otherwise stable first-sample evidence',async()=>{
+ const d=deps({fingerprints:[digest,digest,digest,'b'.repeat(64)]});
+ const result=await runReadOnlyInteractionReadiness(request(d));
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.samples,2);
+ assert.equal(d.calls.filter(method=>method==='probe').length,4);
+ assert.equal(result.V2,'blocked');
+ assert.equal(result.functionalVerified,false);
+});
