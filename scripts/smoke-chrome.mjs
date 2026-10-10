@@ -657,13 +657,18 @@ try{
  });
  assert.equal(nestedContextDiagnosis.items[0]?.status,'needs-review',
   'a selector that is only in an iframe cannot be classified as broken from the top document');
+ // @noframes rules out iframe execution, but this page deliberately contains
+ // author ShadowRoot contexts. A top-document miss is therefore inconclusive.
  const topOnlyDiagnosis=await diagnoseScriptsOnPage({
   items:[{path:'top-only-fixture.user.js',scriptId:'top-only-fixture',status:'parsed',
    analysis:{...fakeAnalysis('#iframe-only'),metadata:{...scope,raw:{noframes:['']}}}}],
-  target:selected,consent:true,deps:{confirm:confirmPageIdentity,probe:probePageLocators},
+  target:selected,consent:true,deps:{
+   confirm:confirmPageIdentity,probe:probePageLocators,summarize:captureDomSummary,
+  },
  });
- assert.equal(topOnlyDiagnosis.items[0]?.status,'locator-missing',
-  '@noframes is defined as top-level only by Tampermonkey');
+ assert.equal(topOnlyDiagnosis.items[0]?.status,'needs-review',
+  '@noframes limits iframe execution but cannot prove an author ShadowRoot has no matching locator');
+ assert.match(topOnlyDiagnosis.items[0]?.reason??'',/Shadow DOM/i);
  await confirmPageIdentity(selected);
  console.log('PASS real Chrome CDP: page identity, 51-script batches, bulk candidates, synthetic behavior fail/repair-pass/rollback-fail, export.');
  console.log('Fixture-only browser DOM side effects verified. No Tampermonkey extension, GM_* API, or real userscript was executed.');
