@@ -26,10 +26,10 @@ export function resolveDataRoot(input: DataRootInput): string {
   if (input.distributionMode === 'portable-exe') {
     // Compare Windows path aliases using Windows semantics even on non-Windows CI.
     // The external launcher directory must never resolve to the unpacked EXE dir.
-    const external = win32.normalize(base).toLowerCase();
+    const external = win32.resolve(base).toLowerCase();
     const unpacked = input.exeDirectory;
     if (unpacked && win32.isAbsolute(unpacked) &&
-        external === win32.normalize(unpacked).toLowerCase()) {
+        external === win32.resolve(unpacked).toLowerCase()) {
       throw new Error('PORTABLE_EXECUTABLE_DIR matches unpacked executable directory; refusing temporary data root');
     }
   }
