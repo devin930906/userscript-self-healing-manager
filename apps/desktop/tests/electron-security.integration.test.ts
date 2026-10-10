@@ -16,7 +16,7 @@
  * hook/harness and is deliberately not claimed as verified here.
  */
 import assert from 'node:assert/strict';
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -27,6 +27,21 @@ import { test } from 'node:test';
 
 const enabled = process.platform === 'win32'
   && process.env.USSHM_ELECTRON_SECURITY_INTEGRATION === '1';
+
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label + ' timed out')), milliseconds);
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+// RED assertions authored before replacing the unbounded lifecycle waits.
+test('timeout helper rejects a pending operation and preserves a completed result', async () => {
+  await assert.rejects(withTimeout(new Promise<never>(() => {}), 10, 'probe'), /probe timed out/);
+  assert.equal(await withTimeout(Promise.resolve('complete'), 1000, 'probe'), 'complete');
+});
 
 interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
@@ -80,7 +95,7 @@ async function connectCdp(url: string): Promise<{
       if (ws.readyState === WebSocket.CLOSED) return;
       const closed = new Promise<void>(resolve => ws.addEventListener('close', () => resolve(), { once: true }));
       ws.close();
-      await Promise.race([closed, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('CDP close timeout')), 5000))]);
+      await withTimeout(closed, 5000, 'CDP close');
     },
   };
 }
@@ -121,10 +136,10 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
         response.end('<!doctype html><title>' + marker + '</title>');
       } else { response.writeHead(404); response.end(); }
     });
-    await new Promise<void>((done, fail) => {
+    await withTimeout(new Promise<void>((done, fail) => {
       redirectServer!.once('error', fail);
       redirectServer!.listen(0, '127.0.0.1', done);
-    });
+    }), 5000, 'HTTP listen');
     const address = redirectServer.address();
     assert.ok(address && typeof address !== 'string');
     const localRedirect = `http://127.0.0.1:${address.port}/redirect`;
@@ -160,9 +175,11 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     const origin = `http://127.0.0.1:${browserWs.port}`;
     let target: Target | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
+      if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
+      if (exit) throw new Error('Electron exited during target discovery: ' + JSON.stringify(exit));
       const response = await fetch(origin + '/json/list', { signal: AbortSignal.timeout(1000) }).catch(() => null);
       if (response?.ok) {
-        const targets = await response.json() as Target[];
+        const targets = await withTimeout(response.json() as Promise<Target[]>, 1000, 'CDP target response body');
         target = targets.find((entry) =>
           entry.type === 'page' && entry.url?.startsWith('file://')
           && entry.url.replaceAll('\\\\', '/').endsWith('/dist/index.html')
@@ -171,6 +188,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       if (target) break;
       await delay(200);
     }
+    if (exit) throw new Error('Electron exited before renderer ready: ' + JSON.stringify(exit));
     assert.ok(target?.webSocketDebuggerUrl, 'Expected the bundled local renderer');
     const trustedUrl = target.url!;
     cdp = await connectCdp(target.webSocketDebuggerUrl);
@@ -178,6 +196,8 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     await cdp.call('Page.enable');
 
     async function evaluate<T>(expression: string): Promise<T> {
+      if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
+      if (exit) throw new Error('Electron exited prematurely: ' + JSON.stringify(exit));
       const response = await cdp!.call('Runtime.evaluate', {
         expression, returnByValue: true, awaitPromise: true,
       });
@@ -255,20 +275,29 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   } finally {
     const failures: Error[] = [];
     try { await cdp?.close(); } catch(e) { failures.push(new Error('CDP cleanup: '+String(e))); }
-    if (child && !child.pid) {
-      failures.push(new Error('Electron spawn produced no PID: ' + (spawnError?.message ?? 'unknown launch failure')));
-    }
+    // Failed spawn with no PID did not create a running Electron process.
+    // It must not create a second cleanup failure or block removal of this test-only data.
     if (child?.pid && !exitConfirmed) {
-      const ended = new Promise<void>(resolve=>child!.once('exit',()=>resolve()));
-      const killed = spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],
-        {stdio:'pipe',encoding:'utf8',timeout:10000,windowsHide:true});
-      if(killed.error||killed.status!==0) failures.push(new Error('taskkill failed: '+String(killed.error??killed.stderr)));
-      try { await Promise.race([ended,new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Electron exit timed out')),10000))]); }
-      catch(e) { failures.push(e as Error); }
+      const processToStop = child;
+      const ended = new Promise<void>((resolve, reject) => {
+        processToStop.once('exit', () => resolve());
+        processToStop.once('error', reject);
+      });
+      try {
+        await withTimeout(new Promise<void>((resolve, reject) => {
+          const killer = spawn('taskkill', ['/PID', String(processToStop.pid), '/T', '/F'],
+            {windowsHide:true,stdio:['ignore','ignore','pipe']});
+          let errorOutput = '';
+          killer.stderr?.on('data', data => { errorOutput += String(data).slice(0,1024); });
+          killer.once('error', reject);
+          killer.once('exit', code => code === 0 ? resolve() :
+            reject(new Error('taskkill failed, exit ' + code + ': ' + errorOutput)));
+        }), 10000, 'taskkill');
+        await withTimeout(ended, 10000, 'Electron exit');
+      } catch (e) { failures.push(new Error('Electron cleanup: ' + String(e))); }
     }
     if(redirectServer?.listening) {
-      try { await Promise.race([new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())),
-        new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('HTTP close timed out')),10000))]); }
+      try { await withTimeout(new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())), 10000, 'HTTP close'); }
       catch(e) { failures.push(e as Error); }
     }
     if(child?.pid && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
