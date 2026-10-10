@@ -1,4 +1,4 @@
-name: Windows three-edition preview build
+name: Windows three-edition final-tag-only verification
 on:
   workflow_dispatch:
 concurrency:
@@ -15,6 +15,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Block branch or prerelease packaging before installing anything
+        env:
+          USSHM_BUILD_REF: ${{ github.ref }}
+          USSHM_BUILD_EVENT: ${{ github.event_name }}
+        run: node scripts/final-build-authorization.mjs
       - name: Install dependencies
         run: npm ci
       - name: Unit tests
@@ -113,10 +118,10 @@ jobs:
             $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)"
           } | Set-Content release/SHA256SUMS.txt
-      - name: Upload untrusted preview artifacts (not Stable)
+      - name: Upload tag-only artifacts for independent RG audit (not automatically Stable)
         uses: actions/upload-artifact@v4
         with:
-          name: usshm-windows-three-editions-preview
+          name: usshm-windows-three-editions-final-RG-audit-required
           path: |
             release/*.exe
             release/*.zip
