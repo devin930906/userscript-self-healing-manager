@@ -35,6 +35,7 @@ import {activateManagedRevision} from '../packages/repair-workflow/src/history.t
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
 import {runIsolatedFixtureInteraction} from './local-fixture-interaction.ts';
+import {runSyntheticFunctionalLifecycle,SYNTHETIC_LIFECYCLE_SOURCES} from './synthetic-functional-lifecycle.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
 const candidates=[
@@ -616,8 +617,9 @@ try{
  assert.equal(await readFile(sourcePath,'utf8'),original);
  assert.match(await readFile(applied.managedPath,'utf8'),/#heal-button/);
  // One DOM selector being repaired is insufficient: this fixture requires BOTH.
+ const partialRevision=await readFile(applied.managedPath,'utf8');
  const partiallyRepairedBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,
-  source:await readFile(applied.managedPath,'utf8')});
+  source:partialRevision});
  assert.equal(partiallyRepairedBehavior,false);
  const active=join(profile,'managed','chrome-smoke-fixture','current.user.js');
  assert.equal(await readFile(active,'utf8'),await readFile(applied.managedPath,'utf8'));
@@ -645,6 +647,26 @@ try{
  assert.equal(await readFile(restored.activePath,'utf8'),original);
  const restoredBehavior=await runIsolatedFixtureBehavior({target:selected,fixtureUrl,source:await readFile(restored.activePath,'utf8')});
  assert.equal(restoredBehavior,false);
+ // Named four-stage synthetic contract: original fails, one patch fails,
+ // both patches pass, rollback fails. It is NEVER production V3 or manager V4.
+ const namedSynthetic=await runSyntheticFunctionalLifecycle({
+  approved:true,target:selected,fixtureUrl,
+  sources:{
+   baseline:original,partial:partialRevision,repaired:combinedRevision,
+   rollback:await readFile(restored.activePath,'utf8'),
+  },
+  execute:source=>runIsolatedFixtureBehavior({target:selected,fixtureUrl,source}),
+ });
+ assert.deepEqual(namedSynthetic.observations,
+  {baseline:false,partial:false,repaired:true,rollback:false});
+ assert.equal(namedSynthetic.status,'fixture-passed');
+ assert.equal(namedSynthetic.productionEligible,false);
+ assert.equal(namedSynthetic.V3,'not-configured');
+ assert.equal(namedSynthetic.V4,'not-configured');
+ assert.equal(namedSynthetic.managerVerified,false);
+ assert.equal(original,SYNTHETIC_LIFECYCLE_SOURCES.baseline);
+ assert.equal(partialRevision,SYNTHETIC_LIFECYCLE_SOURCES.partial);
+ assert.equal(combinedRevision,SYNTHETIC_LIFECYCLE_SOURCES.repaired);
  // The fixture script creates a real about:srcdoc iframe. A top-level document
  // miss does not prove that a userscript which can run in frames is broken.
  await delay(400);
@@ -671,6 +693,7 @@ try{
  assert.match(topOnlyDiagnosis.items[0]?.reason??'',/Shadow DOM/i);
  await confirmPageIdentity(selected);
  console.log('PASS real Chrome CDP: page identity, 51-script batches, bulk candidates, synthetic behavior fail/repair-pass/rollback-fail, export.');
+ console.log('PASS named SYNTHETIC functional lifecycle: baseline FAIL / partial FAIL / repaired PASS / rollback FAIL; V3/V4 not certified.');
  console.log('Fixture-only browser DOM side effects verified. No Tampermonkey extension, GM_* API, or real userscript was executed.');
 }catch(error){
  console.error('FAIL real Chrome CDP smoke:',error);
