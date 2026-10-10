@@ -206,3 +206,84 @@ export function proposeLiteralPatchBatch({
  return {baseHash:sha(sourceBytes),proposedHash:sha(outputBytes),
   proposedSource,changes:selected};
 }
+
+
+/**
+ * Store a single verified all-or-nothing batch revision as immutable snapshots.
+ * Does not update current.user.js: approval + compare-and-swap activation must
+ * happen in a separate trusted repair-workflow transaction.
+ */
+export async function applyManagedPatchBatch({
+ sourcePath,managedRoot,scriptId,draft,expectedHash,approved,baseRevisionKind='original',
+}:{
+ sourcePath:string;managedRoot:string;scriptId:string;
+ draft:BatchLiteralPatchDraft;expectedHash:string;approved:boolean;
+ baseRevisionKind?:'original'|'revision';
+}):Promise<{backupPath:string;managedPath:string;hash:string}>{
+ if(approved!==true)throw new Error('Explicit batch repair approval required');
+ if(typeof scriptId!=='string'||!/^[a-z0-9_-]{1,64}$/i.test(scriptId)||
+    !isAbsolute(sourcePath)||!isAbsolute(managedRoot))
+  throw new Error('Unsafe batch script ID or filesystem paths');
+ if(baseRevisionKind!=='original'&&baseRevisionKind!=='revision')
+  throw new Error('Unsafe batch predecessor kind');
+ if(typeof expectedHash!=='string'||!/^[a-f0-9]{64}$/.test(expectedHash)||
+    !draft||typeof draft!=='object'||
+    draft.baseHash!==expectedHash||!/^[a-f0-9]{64}$/.test(draft.proposedHash)||
+    typeof draft.proposedSource!=='string'||
+    !Array.isArray(draft.changes)||draft.changes.length<2||draft.changes.length>8)
+  throw new Error('Invalid approved batch draft');
+ const meta=await lstat(sourcePath);
+ if(!meta.isFile()||meta.isSymbolicLink()||meta.size>512*1024)
+  throw new Error('Batch source must be a small regular file');
+ const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:meta});
+ if(sha(current)!==expectedHash)
+  throw new Error('Batch source hash mismatch after review: stale or external edit');
+ // Never trust internally supplied source strings or SHA: rebuild from pinned
+ // original bytes using *only* the previously reviewed AST literal spans.
+ const replay=proposeLiteralPatchBatch({
+  sourceBytes:current,
+  changes:draft.changes.map(x=>({
+   oldSelector:x.oldSelector,newSelector:x.newSelector,
+   selectorLocation:deriveExactBatchCallLocation(current,x),
+   expectedSourceRange:x.sourceRange,
+  })),
+ });
+ if(replay.baseHash!==draft.baseHash||replay.proposedHash!==draft.proposedHash||
+    replay.proposedSource!==draft.proposedSource||
+    JSON.stringify(replay.changes)!==JSON.stringify(draft.changes))
+  throw new Error('Batch approved draft mismatch at immutable write boundary');
+ const bytes=new TextEncoder().encode(replay.proposedSource);
+ if(sha(bytes)!==replay.proposedHash)
+  throw new Error('Reconstructed batch patch checksum mismatch');
+ const folder=join(managedRoot,'managed',scriptId);
+ await ensureWritableDataRoot(folder);
+ const backupPath=join(folder,baseRevisionKind+'-'+expectedHash+'.user.js');
+ const managedPath=join(folder,'revision-'+draft.proposedHash+'.user.js');
+ await persistImmutableSnapshot({archivePath:backupPath,bytes:current});
+ await persistImmutableSnapshot({archivePath:managedPath,bytes});
+ return {backupPath,managedPath,hash:replay.proposedHash};
+}
+/** Locate the *call*, not arbitrary text, containing a pinned reviewed range. */
+function deriveExactBatchCallLocation(sourceBytes:Uint8Array,entry:{
+ sourceRange:{start:number;end:number};oldSelector:string;
+}):SelectorLocation{
+ const text=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);
+ const file=ts.createSourceFile('script.user.js',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+ const matches:SelectorLocation[]=[];
+ function visit(node:ts.Node):void{
+  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&
+     node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])){
+   const literal=node.arguments[0];
+   if(literal.getStart(file)===entry.sourceRange.start&&
+      literal.getEnd()===entry.sourceRange.end&&literal.text===entry.oldSelector){
+    const pos=file.getLineAndCharacterOfPosition(node.getStart(file));
+    matches.push({method:node.expression.name.text,line:pos.line+1,column:pos.character+1});
+   }
+  }
+  ts.forEachChild(node,visit);
+ }
+ visit(file);
+ if(matches.length!==1)
+  throw new Error('Cannot reconstruct exact reviewed batch selector call');
+ return matches[0]!;
+}
