@@ -55,6 +55,7 @@ const api={
  launchChrome:()=>ipcRenderer.invoke('usshm:launch-chrome'),
  launchIsolatedChrome:()=>ipcRenderer.invoke('usshm:launch-isolated-chrome'),
  getCdpStatus:()=>ipcRenderer.invoke('usshm:cdp-status'),
+ getManagerTargets:(input:{approved:true})=>ipcRenderer.invoke('usshm:manager-targets',input),
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:probe-locators',input),
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:read-only-visibility',input),
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:read-only-event-listeners',input),
