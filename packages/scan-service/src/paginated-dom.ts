@@ -68,7 +68,7 @@ export async function collectPagedDomDiagnosis({total,targetId,expectedItems,req
  requestPage:(offset:number)=>Promise<PaginatedDomPage>;
  isCancelled:()=>boolean;
  /** Does not abort an in-flight page; gates only the next batch. */
- pauseGate?:Pick<BatchPauseGate,'waitUntilReady'>;
+ pauseGate?:Pick<BatchPauseGate,'waitUntilReady'|'isCancelled'>;
  /** Only bounded transport timeouts may be retried. Never retry changed identity. */
  retryTransportFailures?:0|1;
  onProgress:(result:PaginatedDomProgress)=>void;
@@ -80,12 +80,19 @@ export async function collectPagedDomDiagnosis({total,targetId,expectedItems,req
  const items:BatchDomItem[]=[];
  let pageUrl:string|null=null;
  let pageDocumentToken:string|null=null;
+ let gateInterrupted=false;
  for(let offset=0;offset<total;offset+=25){
   let page:PaginatedDomPage|undefined;
   for(let attempt=0;attempt<=retryTransportFailures;attempt++){
    if(isCancelled())break;
-   if(pauseGate&&!(await pauseGate.waitUntilReady()))break;
-   if(isCancelled())break;
+   if(pauseGate&&!(await pauseGate.waitUntilReady())){
+    gateInterrupted=true;
+    break;
+   }
+   // The cooperative gate and the separate user cancellation callback
+   // are independent revocation sources. Neither can authorize another
+   // request after cancellation of the other.
+   if(isCancelled()||pauseGate?.isCancelled===true)break;
    try{
     page=await requestPage(offset);
     break;
@@ -96,7 +103,7 @@ export async function collectPagedDomDiagnosis({total,targetId,expectedItems,req
     if(attempt>=retryTransportFailures||!isTransientCdpReadError(error))throw error;
    }
   }
-  if(isCancelled()||!page)break;
+  if(isCancelled()||pauseGate?.isCancelled===true||!page)break;
   requireValidPage(page,{offset,total,targetId,pageUrl,pageDocumentToken,expectedItems});
   pageUrl=page.pageUrl;
   pageDocumentToken=page.pageDocumentToken??null;
@@ -104,5 +111,6 @@ export async function collectPagedDomDiagnosis({total,targetId,expectedItems,req
   onProgress({validationLevel:'dom-only',pageTargetId:targetId,pageUrl,...(pageDocumentToken?{pageDocumentToken}:{}),items:[...items],totalItems:items.length,remainingItems:total-items.length});
  }
  return {validationLevel:'dom-only',pageTargetId:targetId,pageUrl:pageUrl??'',...(pageDocumentToken?{pageDocumentToken}:{}),totalItems:items.length,
-  remainingItems:total-items.length,cancelled:isCancelled(),items};
+  remainingItems:total-items.length,
+  cancelled:isCancelled()||gateInterrupted||pauseGate?.isCancelled===true,items};
 }
