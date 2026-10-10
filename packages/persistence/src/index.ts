@@ -126,10 +126,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
  }catch(error){
   let rollbackError:unknown;
   try{db.exec('ROLLBACK');}catch(cleanupError){rollbackError=cleanupError;}
-  // Schema rejection is an explicit version boundary, not a guessed SQLite error.
-  const classification=error instanceof Error&&/^(Unsupported database schema version|Unknown unversioned scripts database|Invalid database schema version marker|Missing or incompatible scripts table|Incompatible scripts|Incompatible registry|Invalid registry snapshot|Backup database has an unsupported schema version|Unsafe SQLite v1 schema)/.test(error.message)
-   ?'DATABASE_SCHEMA_UNSUPPORTED':undefined;
-  throw classification?new DatabasePersistenceError(classification,error,{rollbackError}):classifyDatabaseError(error,{rollbackError});
+  throw classifyDatabaseError(error,{rollbackError});
  }
 }
 export function createScriptRepository(db:DatabaseHandle){
