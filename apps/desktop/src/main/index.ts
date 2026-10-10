@@ -147,6 +147,18 @@ async function bootstrap():Promise<void>{
   const checked=await verifyCoreRecoveryBundle({snapshotDirectory:receipt.path});
   return {canceled:false,...receipt,verified:checked.valid,files:checked.files};
  });
+ ipcMain.handle('usshm:verify-core-recovery',async event=>{
+  assertSender(event);
+  // The selected directory comes exclusively from the native OS picker.
+  // This operation NEVER migrates, activates, restores or overwrites Data.
+  const picker=await dialog.showOpenDialog(mainWindow,{
+   properties:['openDirectory'],
+   title:'选择现有的 USSHM 核心恢复备份目录（仅只读核验）',
+  });
+  if(picker.canceled||!picker.filePaths[0])return {canceled:true};
+  const audited=await verifyCoreRecoveryBundle({snapshotDirectory:picker.filePaths[0]});
+  return {canceled:false,verified:audited.valid,files:audited.files};
+ });
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
  ipcMain.handle('usshm:pick-directory',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openDirectory']});if(x.canceled)return null;
