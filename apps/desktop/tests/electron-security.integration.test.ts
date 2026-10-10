@@ -43,6 +43,19 @@ test('timeout helper rejects a pending operation and preserves a completed resul
   assert.equal(await withTimeout(Promise.resolve('complete'), 1000, 'probe'), 'complete');
 });
 
+test('lifecycle regressions distinguish clean exit, failed exit and timed-out process', async () => {
+  assert.equal(exitFailure({ code: 0, signal: null }), undefined);
+  assert.match(exitFailure({ code: 7, signal: null }) ?? '', /code 7/);
+  assert.match(exitFailure({ code: null, signal: 'SIGTERM' }) ?? '', /signal SIGTERM/);
+  await assert.rejects(withTimeout(new Promise<never>(() => {}), 10, 'taskkill exit'), /taskkill exit timed out/);
+});
+
+function exitFailure(status: {code: number | null; signal: NodeJS.Signals | null}): string | undefined {
+  if (status.code === 0) return undefined;
+  return status.code !== null ? 'Electron exited with code ' + status.code :
+    'Electron exited with signal ' + (status.signal ?? 'unknown');
+}
+
 interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
 
@@ -177,9 +190,12 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     for (let attempt = 0; attempt < 100; attempt++) {
       if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
       if (exit) throw new Error('Electron exited during target discovery: ' + JSON.stringify(exit));
-      const response = await fetch(origin + '/json/list', { signal: AbortSignal.timeout(1000) }).catch(() => null);
+      const controller = new AbortController();
+      const response = await fetch(origin + '/json/list', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(1000)]) }).catch(() => null);
       if (response?.ok) {
-        const targets = await withTimeout(response.json() as Promise<Target[]>, 1000, 'CDP target response body');
+        let targets: Target[];
+        try { targets = await withTimeout(response.json() as Promise<Target[]>, 1000, 'CDP target response body'); }
+        finally { controller.abort(); }
         target = targets.find((entry) =>
           entry.type === 'page' && entry.url?.startsWith('file://')
           && entry.url.replaceAll('\\\\', '/').endsWith('/dist/index.html')
@@ -188,7 +204,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       if (target) break;
       await delay(200);
     }
-    if (exit) throw new Error('Electron exited before renderer ready: ' + JSON.stringify(exit));
+    if (exit) throw new Error(exitFailure(exit) ?? 'Electron exited before renderer ready');
     assert.ok(target?.webSocketDebuggerUrl, 'Expected the bundled local renderer');
     const trustedUrl = target.url!;
     cdp = await connectCdp(target.webSocketDebuggerUrl);
@@ -197,7 +213,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
 
     async function evaluate<T>(expression: string): Promise<T> {
       if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
-      if (exit) throw new Error('Electron exited prematurely: ' + JSON.stringify(exit));
+      if (exit) throw new Error(exitFailure(exit) ?? 'Electron exited prematurely (code 0)');
       const response = await cdp!.call('Runtime.evaluate', {
         expression, returnByValue: true, awaitPromise: true,
       });
@@ -280,27 +296,48 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     if (child?.pid && !exitConfirmed) {
       const processToStop = child;
       const ended = new Promise<void>((resolve, reject) => {
+        if (processToStop.exitCode !== null || processToStop.signalCode !== null) return resolve();
         processToStop.once('exit', () => resolve());
         processToStop.once('error', reject);
       });
+      let killer: ChildProcess | undefined;
       try {
-        await withTimeout(new Promise<void>((resolve, reject) => {
-          const killer = spawn('taskkill', ['/PID', String(processToStop.pid), '/T', '/F'],
-            {windowsHide:true,stdio:['ignore','ignore','pipe']});
-          let errorOutput = '';
-          killer.stderr?.on('data', data => { errorOutput += String(data).slice(0,1024); });
-          killer.once('error', reject);
-          killer.once('exit', code => code === 0 ? resolve() :
+        killer = spawn('taskkill', ['/PID', String(processToStop.pid), '/T', '/F'],
+          {windowsHide:true,stdio:['ignore','ignore','pipe']});
+        const runningKiller = killer;
+        let errorOutput = '';
+        runningKiller.stderr?.on('data', data => { errorOutput += String(data).slice(0,1024); });
+        const killerFinished = new Promise<void>((resolve, reject) => {
+          runningKiller.once('error', reject);
+          runningKiller.once('exit', code => code === 0 ? resolve() :
             reject(new Error('taskkill failed, exit ' + code + ': ' + errorOutput)));
-        }), 10000, 'taskkill');
+        });
+        await withTimeout(killerFinished, 10000, 'taskkill exit');
         await withTimeout(ended, 10000, 'Electron exit');
-      } catch (e) { failures.push(new Error('Electron cleanup: ' + String(e))); }
+      } catch (e) {
+        failures.push(new Error('Electron cleanup: ' + String(e)));
+      } finally {
+        if (killer && killer.exitCode === null && killer.signalCode === null) {
+          // A timer expiring must terminate the *taskkill* child as well.
+          const stopped = new Promise<void>(resolve => {
+            if (killer!.exitCode !== null || killer!.signalCode !== null) return resolve();
+            killer!.once('exit', () => resolve());
+          });
+          killer.kill();
+          try { await withTimeout(stopped, 3000, 'taskkill termination'); }
+          catch (e) { failures.push(new Error('taskkill subprocess cleanup: ' + String(e))); }
+        }
+      }
     }
     if(redirectServer?.listening) {
       try { await withTimeout(new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())), 10000, 'HTTP close'); }
       catch(e) { failures.push(e as Error); }
     }
     if(child?.pid && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
+    if(exit && exit.code !== 0 && !spawnError && !failures.some(e => e.message.includes('Electron cleanup'))) {
+      // Unexpected early shutdown must never disappear behind later cleanup.
+      failures.push(new Error(exitFailure(exit) ?? 'Electron exited unexpectedly'));
+    }
     else { try { await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200}); }
       catch(e) { failures.push(new Error('Temporary directory cleanup: '+String(e))); } }
     if(failures.length) throw new AggregateError(failures,'Electron security cleanup failed');
