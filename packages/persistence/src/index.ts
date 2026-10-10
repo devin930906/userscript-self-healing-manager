@@ -24,6 +24,19 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
     c.name!==expected[i]||c.type.toUpperCase()!=='TEXT'||
     (i===0?c.pk!==1:c.pk!==0||c.notnull!==1)))
   throw new Error('Incompatible scripts columns for schema version 1');
+ // A marker and matching columns are not enough: without this UNIQUE
+ // constraint two IDs may silently refer to the same managed source path.
+ // SQLite table-valued PRAGMAs support bound index names, not interpolated SQL.
+ const indexes=db.prepare(`SELECT name,"unique" AS isUnique,partial
+  FROM pragma_index_list('scripts')`).all() as {name:string;isUnique:number;partial:number}[];
+ const indexColumns=db.prepare('SELECT name FROM pragma_index_info(?)');
+ const pathUnique=indexes.some(index=>{
+  if(index.isUnique!==1||index.partial!==0)return false;
+  const fields=indexColumns.all(index.name) as {name:string|null}[];
+  return fields.length===1&&fields[0]?.name==='path';
+ });
+ if(!pathUnique)
+  throw new Error('Incompatible scripts schema: missing unique path constraint');
 }
 export function migrateDatabase(db:DatabaseHandle):void{
  // Claim a SQLite write transaction BEFORE inspecting or changing the schema.
