@@ -57,6 +57,23 @@ function readUniqueIdentity(evidence:LocatorProbeResult,target:ChromeTarget,loca
  const digest=check.nodeFingerprint;
  return typeof digest==='string'&&/^[0-9a-f]{64}$/.test(digest)?digest:null;
 }
+/** Match the bounded frame/loader evidence accepted at the batch scan boundary.
+ * Never promote a malformed injected confirmation to a V1 locator verdict. */
+function assertBoundedFrameIdentity(identity:ConfirmedPageIdentity):void {
+ if(!identity||typeof identity.frameId!=='string'||!identity.frameId||
+    identity.frameId.length>256||typeof identity.loaderId!=='string'||
+    !identity.loaderId||identity.loaderId.length>256)
+  throw new Error('Unverified CDP document identity: invalid frame or loader');
+ const count=identity.subframeCount;
+ if(count!==undefined&&(!Number.isSafeInteger(count)||count<0||count>64))
+  throw new Error('Unverified CDP document identity: invalid frame count');
+ const child=identity.soleSameOriginSubframe;
+ if(child!==undefined&&
+    (count!==1||!child||typeof child.frameId!=='string'||!child.frameId||
+     child.frameId.length>256||child.frameId===identity.frameId||
+     typeof child.loaderId!=='string'||!child.loaderId||child.loaderId.length>256))
+  throw new Error('Unverified CDP document identity: invalid child frame');
+}
 /** A named, non-destructive locator-level assertion, never functional userscript validation. */
 export async function runReadOnlyDomContract({approved,target,caseId,locator,expectation,deps}:{
  readonly approved:boolean;
@@ -87,8 +104,9 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
   functionalVerified:false,managerVerified:false,
  });
  const baseline=await deps.confirm(target);
- if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
-  !baseline.frameId||!baseline.loaderId)throw new Error('Unverified CDP document identity');
+ assertBoundedFrameIdentity(baseline);
+ if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url)
+  throw new Error('Unverified CDP document identity');
  let nestedFramesSeen=(baseline.subframeCount??0)>0;
  const guard=async()=>{
   const confirmed=await deps.confirm(target);
