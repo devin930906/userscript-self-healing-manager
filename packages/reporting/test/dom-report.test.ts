@@ -50,3 +50,36 @@ test('DOM report rejects malformed or injected result fields before serializatio
   assert.throws(()=>serializeDomBatchReport(bad as BatchDomResult,'json','2026-10-09T06:30:00.000Z'));
  }
 });
+
+
+test('DOM exports reject contradictory V1 grades and count partitions in both formats',()=>{
+ const cases=[
+  {status:'dom-present',checked:1,found:1,missing:1,needsReview:0,grade:'passed'},
+  {status:'needs-review',checked:1,found:1,missing:1,needsReview:0,grade:'blocked'},
+  {status:'locator-missing',checked:1,found:1,missing:0,needsReview:0,grade:'blocked'},
+  {status:'dom-present',checked:1,found:0,missing:0,needsReview:1,grade:'blocked'},
+ ] as const;
+ for(const row of cases){
+  const report={...sample,items:[{...sample.items[0],
+   status:row.status,checked:row.checked,found:row.found,missing:row.missing,
+   needsReview:row.needsReview,
+   verification:{...sample.items[0]!.verification,V1:row.grade},
+  }]};
+  for(const format of ['json','markdown'] as const){
+   assert.throws(()=>serializeDomBatchReport(report as BatchDomResult,format,'2026-10-10T06:15:00.000Z'),
+    /invalid|inconsistent|contradict|unsupported/i,JSON.stringify(row)+' '+format);
+  }
+ }
+});
+
+test('DOM exports preserve legitimate unchecked review-only evidence',()=>{
+ const report={...sample,items:[{...sample.items[0],
+  status:'needs-review' as const,checked:0,found:0,missing:0,needsReview:3,
+  verification:{...sample.items[0]!.verification,V1:'blocked' as const,highestVerified:'V0' as const},
+ }]};
+ const json=JSON.parse(serializeDomBatchReport(report,'json','2026-10-10T06:15:00.000Z'));
+ assert.equal(json.items[0].needsReview,3);
+ assert.equal(json.items[0].verification.V1,'blocked');
+ const markdown=serializeDomBatchReport(report,'markdown','2026-10-10T06:15:00.000Z');
+ assert.match(markdown,/needs-review.*0.*0.*0.*3.*passed.*blocked/);
+});
