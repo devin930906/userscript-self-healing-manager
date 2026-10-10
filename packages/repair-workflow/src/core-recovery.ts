@@ -1,7 +1,8 @@
 import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
 import {lstat,mkdir,open,readFile,readdir,writeFile} from 'node:fs/promises';
-import {dirname,isAbsolute,join,relative,resolve} from 'node:path';
+import {dirname,isAbsolute,join,resolve} from 'node:path';
+import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {DatabaseSync} from 'node:sqlite';
 import {backupRegistryDatabase,type DatabaseHandle} from '../../persistence/src/index.ts';
 import {type DiagnosisJournal} from '../../job-journal/src/index.ts';
@@ -50,11 +51,10 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  if(typeof dataRoot!=='string'||typeof destination!=='string'||
     !isAbsolute(dataRoot)||!isAbsolute(destination)||!(registry instanceof DatabaseSync))
   throw new Error('Invalid core recovery input');
- const source=resolve(dataRoot),target=resolve(destination),rel=relative(source,target);
- if(rel===''||(!rel.startsWith('..')&&!isAbsolute(rel)))
-  throw new Error('Core backup cannot be written inside source Data');
+ const source=resolve(dataRoot),target=resolve(destination);
  await directory(source);
  await directory(dirname(target));
+ await assertRecoveryDestinationOutsideSource(source,target);
  // The new directory is claimed exclusively. If something fails, the folder
  // has no complete manifest, remains for forensic review, and is not deleted.
  await mkdir(target,{recursive:false,mode:0o700});

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {lstat,mkdir,readdir,readFile,writeFile} from 'node:fs/promises';
-import {isAbsolute,join,relative,resolve,dirname} from 'node:path';
+import {isAbsolute,join,resolve,dirname} from 'node:path';
+import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 
 export interface ManagedRecoveryFile {
@@ -46,11 +47,9 @@ export async function exportManagedRecovery(input:{
     !isAbsolute(managedRoot)||!isAbsolute(destination))
   throw new Error('Absolute source and destination are required');
  const source=resolve(managedRoot),target=resolve(destination);
- const inside=relative(source,target);
- if(inside===''||(!inside.startsWith('..')&&!isAbsolute(inside)))
-  throw new Error('Backup destination cannot be inside source Data');
  if(!(await safeDir(source))||!(await safeDir(dirname(target))))
   throw new Error('Missing or unsafe recovery source/destination directory');
+ await assertRecoveryDestinationOutsideSource(source,target);
  const managed=join(source,'managed');
  const managedExists=await safeDir(managed);
  const scriptIds=managedExists?(await readdir(managed)).sort():[];
