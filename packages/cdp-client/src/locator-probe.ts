@@ -110,7 +110,12 @@ function escapeIdentifier(value:string):string {
 export function asCss(input:LiteralLocator):string|null{
  if(input.runtimeRequired||!input.expression||input.expression.length>1024)return null;
  if(input.method==='querySelector'||input.method==='querySelectorAll')return input.expression;
- if(input.method==='getElementById')return '#'+escapeIdentifier(input.expression);
+ if(input.method==='getElementById'){
+  // CSS interprets U+0000 as U+FFFD, but native getElementById compares
+  // the literal ID. Never certify the wrong element as a valid match.
+  if(input.expression.includes('\0'))return null;
+  return '#'+escapeIdentifier(input.expression);
+ }
  if(input.method==='getElementsByName'){
   // CSS attribute values are strings, not identifier tokens. Reject unsafe control bytes.
   if(/[\u0000-\u001f\u007f]/.test(input.expression)||input.expression.length>256)return null;
@@ -118,6 +123,7 @@ export function asCss(input:LiteralLocator):string|null{
   return '[name="'+escaped+'"]';
  }
  if(input.method==='getElementsByClassName'){
+  if(input.expression.includes('\0'))return null;
   // DOM getElementsByClassName tokenizes on HTML ASCII whitespace only;
 // Unicode NBSP and em-space are valid literal class-name characters.
   const tokens=input.expression.split(/[ \t\n\f\r]+/).filter(Boolean);
