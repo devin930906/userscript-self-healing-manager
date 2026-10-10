@@ -11,6 +11,7 @@
 - [Windows 三格式发行合同](docs/distribution/windows-three-editions.md)
 - [2026-10-10：离线核心备份核验与安全暂存执行证据](docs/development/offline-core-recovery-2026-10-10.md)
 - [2026-10-10：具名合成功能回归与正式程序编译产物安全门禁](docs/development/synthetic-functional-and-production-boundary-2026-10-10.md)
+- [2026-10-10：真实 Chrome for Testing 155 MV3 扩展引导验收（非 Tampermonkey V4）](docs/development/chrome155-extension-fixture-2026-10-10.md)
 
 ## 目前可以做什么
 
