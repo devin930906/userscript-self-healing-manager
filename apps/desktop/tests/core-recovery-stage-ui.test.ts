@@ -11,7 +11,7 @@ test('offline recovery staging requires main-frame IPC, two OS directory choices
  assert.match(handler,/assertSender\(event\)/);
  assert.match(handler,/dialog\.showOpenDialog\(mainWindow/g);
  assert.match(handler,/dialog\.showMessageBox\(mainWindow/);
- assert.match(handler,/stageCoreRecoveryForOfflineReview\(\{snapshotDirectory:/);
+ assert.match(handler,/stageCoreRecoveryForOfflineReview\(\{\s*snapshotDirectory:/);
  assert.match(handler,/activeDataRoot:dataRoot/);
  assert.match(handler,/randomUUID\(\)/);
  assert.doesNotMatch(handler,/\b(?:rm|unlink|migrateDatabase|rename|deleteFile)\s*\(/);
