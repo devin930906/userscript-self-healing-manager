@@ -103,8 +103,12 @@ export async function inspectKnownUserscriptManagerTargets({
      V4:'not-configured',
      managerVerified:false,
     }));
-   }catch{
-    finish(new Error('CDP manager target discovery failed or returned inconsistent evidence'));
+   }catch(error){
+    // Keep only this fixed, private-data-free identity code actionable.
+    // Raw CDP error descriptions and URLs are never surfaced.
+    if(error instanceof Error&&error.message==='Chrome browser identity changed during manager target observation')
+     finish(error);
+    else finish(new Error('CDP manager target discovery failed or returned inconsistent evidence'));
    }
   };
   const onError=()=>finish(new Error('CDP manager target socket error'));
