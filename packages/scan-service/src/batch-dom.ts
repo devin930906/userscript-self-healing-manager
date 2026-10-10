@@ -195,7 +195,8 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  const finalItems=results.map((item,index)=>{
   const metadata=items[index]?.analysis?.metadata;
   const frameUnverified=nestedFramesSeen&&!metadata?.raw.noframes?.length;
-  const shadowUnverified=deps.summarize!==undefined&&shadowContext!=='absent';
+  // No context provider is also unknown: absence of evidence is not evidence of no Shadow DOM.
+  const shadowUnverified=shadowContext!=='absent';
   if(item.status==='out-of-scope'&&frameUnverified)
    return {...item,status:'needs-review' as const,missing:0,
     needsReview:item.needsReview+Math.max(1,item.missing),
