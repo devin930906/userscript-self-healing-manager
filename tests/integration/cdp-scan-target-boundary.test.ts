@@ -61,3 +61,32 @@ test('both CDP entrypoints require explicit approval before observing',async()=>
  }),/consent|approval/i);
  assert.equal(calls,0);
 });
+
+test('V1 contract rejects untrusted frame evidence before the first DOM probe',async()=>{
+ const invalid=[
+  {frameId:'f'.repeat(257),loaderId:'loader'},
+  {frameId:'main',loaderId:'l'.repeat(257)},
+  {frameId:'main',loaderId:'loader',subframeCount:-1},
+  {frameId:'main',loaderId:'loader',subframeCount:65},
+  {frameId:'main',loaderId:'loader',subframeCount:'1'},
+  {frameId:'main',loaderId:'loader',subframeCount:1,
+   soleSameOriginSubframe:{frameId:'main',loaderId:'child-loader'}},
+  {frameId:'main',loaderId:'loader',subframeCount:2,
+   soleSameOriginSubframe:{frameId:'child',loaderId:'child-loader'}},
+ ];
+ for(const bad of invalid){
+  let confirmations=0,probes=0;
+  await assert.rejects(runReadOnlyDomContract({
+   approved:true,target:page,caseId:'fixture:invalid-frame',
+   locator,expectation:'exists',deps:{
+    confirm:async()=>{confirmations++;return {targetId:page.id,confirmedUrl:page.url,...bad} as any;},
+    probe:async()=>{probes++;return {targetId:page.id,url:page.url,
+     validationLevel:'dom-only' as const,checks:[{method:locator.method,
+      expression:locator.expression,status:'missing' as const,matchCount:0}]};},
+    wait:async()=>{},summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+   },
+  }),/frame|loader|document|identity|count/i,JSON.stringify(bad));
+  assert.equal(confirmations,1,'do not continue CDP observation after invalid frame identity');
+  assert.equal(probes,0,'no locator probe is permitted for invalid identity');
+ }
+});
