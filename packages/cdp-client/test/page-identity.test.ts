@@ -108,7 +108,9 @@ test('single same-origin child document exposes bounded frame/loader identity wi
  })();
  const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
  assert.equal(result.subframeCount,1);
- assert.deepEqual(result.soleSameOriginSubframe,{frameId:'child-a',loaderId:'child-load'});
+ assert.equal(result.soleSameOriginSubframe?.frameId,'child-a');
+ assert.equal(result.soleSameOriginSubframe?.loaderId,'child-load');
+ assert.match(result.soleSameOriginSubframe?.urlFingerprint??'',/^[a-f0-9]{64}$/);
  assert.doesNotMatch(JSON.stringify(result),/secret|child\?/);
  assert.doesNotThrow(()=>assertStablePageDocument(result,{...result}));
  assert.throws(()=>assertStablePageDocument(result,{
