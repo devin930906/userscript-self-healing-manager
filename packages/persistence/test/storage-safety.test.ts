@@ -59,3 +59,41 @@ test('SQLite recovery backup refuses a destination hidden beneath a symlinked an
   await assert.rejects(stat(join(outside,'backups','snapshot.sqlite')),{code:'ENOENT'});
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('v1 schema rejects a NOCASE path uniqueness rule without rewriting existing records',()=>{
+ const db=openDatabase(':memory:');
+ try{
+  // A schema with the expected columns and two UNIQUE indexes can still
+  // collapse two different case-sensitive source paths via NOCASE.
+  db.exec(`CREATE TABLE schema_version(version INTEGER NOT NULL);
+   INSERT INTO schema_version VALUES(1);
+   CREATE TABLE scripts(
+    id TEXT PRIMARY KEY, path TEXT COLLATE NOCASE UNIQUE NOT NULL,
+    display_name TEXT NOT NULL, sha256 TEXT NOT NULL,
+    health_status TEXT NOT NULL, metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+   );`);
+  const repo=createScriptRepository(db);
+  repo.upsert(makeRecord('first','/scripts/Case.user.js'));
+  assert.throws(()=>repo.upsert(makeRecord('second','/scripts/case.user.js')),/constraint|unique/i,
+   'NOCASE demonstrates that the existing layout collapses distinct source paths');
+  assert.throws(()=>migrateDatabase(db),/collat|binary|unique|schema|incompatible/i,
+   'a v1 migration must reject incompatible case-insensitive path uniqueness');
+  assert.equal(db.prepare('SELECT version FROM schema_version').get()?.version,1);
+  assert.deepEqual(repo.list().map(x=>[x.id,x.path]),[['first','/scripts/Case.user.js']]);
+ }finally{db.close();}
+});
+
+test('normal v1 registry retains distinct paths differing only by case',()=>{
+ const db=openDatabase(':memory:');
+ try{
+  migrateDatabase(db);
+  const repo=createScriptRepository(db);
+  repo.upsert(makeRecord('upper','/scripts/Case.user.js'));
+  repo.upsert(makeRecord('lower','/scripts/case.user.js'));
+  migrateDatabase(db);
+  assert.equal(repo.findIdByPath('/scripts/Case.user.js'),'upper');
+  assert.equal(repo.findIdByPath('/scripts/case.user.js'),'lower');
+  assert.equal(repo.list().length,2);
+ }finally{db.close();}
+});
