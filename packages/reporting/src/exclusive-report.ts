@@ -79,6 +79,9 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   await file.close();file=undefined;
   await verify(stage);
   if(beforePublish)await beforePublish();
+  // Reject changes between the initial staging verification and publication.
+  // This also guards test-injected races without touching an existing target.
+  await verify(stage);
   try{await link(stage,destinationPath);}
   catch(error){
    const code=(error as NodeJS.ErrnoException).code;
@@ -88,7 +91,20 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
     throw new Error('Destination filesystem cannot safely publish report without overwrite (hard links required)',{cause:error});
    throw error;
   }
-  await verify(destinationPath);
+  try{await verify(destinationPath);}
+  catch(error){
+   // The hard link is already visible. Best-effort rollback is restricted
+   // to the inode we published, never a different destination file.
+   try{
+    const [published,staged]=await Promise.all([lstat(destinationPath),lstat(stage)]);
+    if(published.dev!==staged.dev||published.ino!==staged.ino||published.ino===0)
+     throw new Error('Cannot safely roll back a report with changed destination identity');
+    await unlink(destinationPath);
+   }catch(rollbackError){
+    throw new AggregateError([error,rollbackError],'Report verification and publication rollback failed');
+   }
+   throw error;
+  }
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
  try{await unlink(stage);}
