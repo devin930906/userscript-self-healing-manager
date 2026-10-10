@@ -159,9 +159,14 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
  const retryFailed=async():Promise<RepairTaskSnapshot>=>{
   if(stopped)throw new Error('Cancelled repair queue cannot be retried');
   if(active)throw new Error('Cannot retry while queue is running');
+  // Re-arm failed rows atomically from an observer's point of view.
+  // Calling update() here publishes an intermediate queued snapshot while
+  // active=false, letting a reentrant progress listener call run() and seize
+  // half of the retry set before this invocation acquires the run lease.
+  // run() atomically acquires active=true before its first observer emit.
   for(let i=0;i<planned.length;i++)if(rows[i]!.status==='failed'&&
    planned[i]!.approved===true&&planned[i]!.permissionSource.approved===true)
-   update(i,'queued',rows[i]!.attempts);
+   rows[i]=Object.freeze({...rows[i]!,status:'queued',errorCode:null});
   return run();
  };
  return Object.freeze({
