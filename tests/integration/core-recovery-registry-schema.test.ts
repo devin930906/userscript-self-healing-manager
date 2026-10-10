@@ -14,7 +14,9 @@ const sha256=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
 for(const alteration of [
  {name:'unrecognized trigger',sql:`CREATE TRIGGER malicious_insert AFTER INSERT ON scripts
   BEGIN DELETE FROM scripts WHERE id = NEW.id; END;`},
- {name:'unexpected scripts column',sql:'ALTER TABLE scripts ADD COLUMN unrecognized TEXT'}
+ {name:'unexpected scripts column',sql:'ALTER TABLE scripts ADD COLUMN unrecognized TEXT'},
+ {name:'extra unique script index',sql:'CREATE UNIQUE INDEX unexpected_name_unique ON scripts(display_name)'},
+ {name:'extra schema-version column',sql:'ALTER TABLE schema_version ADD COLUMN hidden_version INTEGER'}
 ]){
  test(`core recovery verifier rejects a checksum-rewritten registry containing an ${alteration.name}`,async()=>{
   const tmp=await mkdtemp(join(tmpdir(),'usshm-recovery-schema-'));
