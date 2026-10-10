@@ -19,18 +19,21 @@ export interface GuardedBatchV1Result{
  readonly managerVerified:false;
 }
 export async function guardAppliedManagedBatchRevision({
- approved,scriptId,appliedHash,previousHash,selectorIndexes,verify,restore,
+ approved,scriptId,appliedHash,previousHash,selectorIndexes,verify,confirmActiveHash,restore,
 }:{
  readonly approved:boolean;readonly scriptId:string;
  readonly appliedHash:string;readonly previousHash:string;
  readonly selectorIndexes:readonly number[];
  readonly verify:(selectorIndex:number)=>Promise<unknown>;
+ /** Fresh trusted managed-current hash check after ALL browser observations. */
+ readonly confirmActiveHash:()=>Promise<string|null>;
  readonly restore:(previousHash:string)=>Promise<{hash:string;activePath:string}>;
 }):Promise<GuardedBatchV1Result>{
  if(approved!==true||typeof scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(scriptId)||
     typeof appliedHash!=='string'||!/^[a-f0-9]{64}$/.test(appliedHash)||
     typeof previousHash!=='string'||!/^[a-f0-9]{64}$/.test(previousHash)||
-    previousHash===appliedHash||typeof verify!=='function'||typeof restore!=='function'||
+    previousHash===appliedHash||typeof verify!=='function'||
+    typeof confirmActiveHash!=='function'||typeof restore!=='function'||
     !Array.isArray(selectorIndexes)||selectorIndexes.length<2||selectorIndexes.length>8||
     selectorIndexes.some((index,i)=>!Number.isSafeInteger(index)||index<0||index>=50||
       (i>0&&index<=selectorIndexes[i-1]!)))
@@ -51,7 +54,8 @@ export async function guardAppliedManagedBatchRevision({
     break;
    checked.push(index);
   }
-  if(checked.length===selectorIndexes.length)
+  if(checked.length===selectorIndexes.length&&
+     await confirmActiveHash()===appliedHash)
    return {...base,status:'retained-v1',activeHash:appliedHash,
     verifiedIndexes:Object.freeze([...checked])};
  }catch{
