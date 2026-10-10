@@ -835,7 +835,10 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
-  try{return await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
+  try{
+   const applied=await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});
+   return {...applied,activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
+  }
   finally{pendingApprovals.consume(q.proposalId);}
  });
  ipcMain.handle('usshm:apply-batch-repair-guarded',async(event,input:unknown)=>{
@@ -909,7 +912,8 @@ async function bootstrap():Promise<void>{
     scriptId:item.scriptId!,hash,approved:true,expectedCurrentHash:applied.hash,
    }),
   });
-  return {...safety,backupPath:applied.backupPath,managedPath:applied.managedPath};
+  return {...safety,backupPath:applied.backupPath,managedPath:applied.managedPath,
+   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
  });
  ipcMain.handle('usshm:apply-repair-guarded',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId?:unknown;proposalId?:unknown;approved?:unknown;
@@ -988,16 +992,22 @@ async function bootstrap():Promise<void>{
    },
    restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
-  return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath};
+  return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath,
+   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;proposalId:string;approved:true}|null;
   if(!q||q.approved!==true||typeof q.proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(q.proposalId))throw new Error('Explicit repair approval required');
   const scanSnapshot=scanSessions.require(q.scanId);
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
-  const applied=await repairs.apply({proposalId:q.proposalId,approved:true});
-  pendingApprovals.consume(q.proposalId);
-  return applied;
+  const trusted=repairs.inspectPending(q.proposalId);
+  if(!trusted||!scanSnapshot.items.some(item=>item.scriptId===trusted.scriptId&&
+      withinAuthorized(item.path)))
+   throw new Error('The repair is not tied to a current authorized script');
+  let applied:Awaited<ReturnType<typeof repairs.apply>>;
+  try{applied=await repairs.apply({proposalId:q.proposalId,approved:true});}
+  finally{pendingApprovals.consume(q.proposalId);}
+  return {...applied,activePath:join(dataRoot,'managed',trusted.scriptId,'current.user.js')};
  });
  ipcMain.handle('usshm:verify-managed-dom',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
