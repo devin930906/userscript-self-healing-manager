@@ -71,3 +71,7 @@ jobs:
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
         run: node --experimental-strip-types scripts/smoke-chrome.mjs
+      - name: Real Chrome for Testing 155 isolated MV3 extension load (NOT Tampermonkey)
+        env:
+          USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
+        run: node --experimental-strip-types scripts/smoke-extension-cft.mjs
