@@ -93,6 +93,67 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  const managerApiCalls:ManagerApiCall[]=[];
  const metadata=parseUserscriptMetadata(text);
  const grants=new Set(metadata.grant.map(x=>x.trim()));
+ // A local binding named GM or GM_getValue is not a Tampermonkey API.
+ // Build the lexical binding map before collecting calls, so hoisted var
+ // and declarations encountered AFTER a call still mask the name.
+ const localBindings=new Map<ts.Node,Set<string>>();
+ const addBinding=(owner:ts.Node,name:string)=>{
+  const local=localBindings.get(owner)??new Set<string>();
+  local.add(name);localBindings.set(owner,local);
+ };
+ const collectNames=(name:ts.BindingName,owner:ts.Node):void=>{
+  if(ts.isIdentifier(name)){addBinding(owner,name.text);return;}
+  for(const member of name.elements)if(ts.isBindingElement(member))
+   collectNames(member.name,owner);
+ };
+ const isFunctionScope=(node:ts.Node):boolean=>ts.isSourceFile(node)||
+  ts.isFunctionDeclaration(node)||ts.isFunctionExpression(node)||
+  ts.isArrowFunction(node)||ts.isMethodDeclaration(node)||
+  ts.isConstructorDeclaration(node)||ts.isGetAccessorDeclaration(node)||
+  ts.isSetAccessorDeclaration(node);
+ const isLexicalScope=(node:ts.Node):boolean=>isFunctionScope(node)||
+  ts.isBlock(node)||ts.isCaseBlock(node)||ts.isCatchClause(node)||
+  ts.isForStatement(node)||ts.isForInStatement(node)||ts.isForOfStatement(node);
+ const ownerOf=(from:ts.Node,scope:'function'|'lexical'):ts.Node=>{
+  for(let parent=from.parent;parent;parent=parent.parent)
+   if(scope==='function'?isFunctionScope(parent):isLexicalScope(parent))
+    return parent;
+  return source;
+ };
+ const collectBindings=(node:ts.Node):void=>{
+  if(ts.isVariableDeclaration(node)){
+   const list=node.parent;
+   const isBlockScoped=ts.isVariableDeclarationList(list)&&
+    (list.flags&(ts.NodeFlags.Let|ts.NodeFlags.Const))!==0;
+   collectNames(node.name,ownerOf(node,isBlockScoped?'lexical':'function'));
+  }else if(ts.isParameter(node)){
+   collectNames(node.name,ownerOf(node,'function'));
+  }else if(ts.isCatchClause(node)&&node.variableDeclaration){
+   collectNames(node.variableDeclaration.name,node);
+  }else if(ts.isFunctionDeclaration(node)&&node.name){
+   addBinding(ownerOf(node,'lexical'),node.name.text);
+   addBinding(node,node.name.text);
+  }else if(ts.isFunctionExpression(node)&&node.name){
+   // A named function expression binds its name inside itself ONLY.
+   addBinding(node,node.name.text);
+  }else if((ts.isClassDeclaration(node)||ts.isEnumDeclaration(node))&&node.name){
+   addBinding(ownerOf(node,'lexical'),node.name.text);
+  }else if(ts.isClassExpression(node)&&node.name){
+   addBinding(node,node.name.text);
+  }else if(ts.isImportClause(node)&&node.name){
+   addBinding(source,node.name.text);
+  }else if(ts.isImportSpecifier(node)||ts.isNamespaceImport(node)||
+            ts.isImportEqualsDeclaration(node)){
+   addBinding(source,node.name.text);
+  }
+  ts.forEachChild(node,collectBindings);
+ };
+ collectBindings(source);
+ const isLocallyBound=(node:ts.Node,name:string):boolean=>{
+  for(let parent:ts.Node|undefined=node;parent;parent=parent.parent)
+   if(localBindings.get(parent)?.has(name))return true;
+  return false;
+ };
  function collectManagerApi(node:ts.CallExpression):void{
   const callee=node.expression;
   let api:string|null=null;
@@ -109,6 +170,10 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
     'GM.'+key.text:'GM.<dynamic>';
   }
   if(!api)return;
+  // Local variables/imports/functions with the same name are not proof of a
+  // call into the privileged userscript manager. Do not manufacture V4 risk
+  // rows from unrelated user code.
+  if(isLocallyBound(node,api.startsWith('GM.')?'GM':api))return;
   const pos=source.getLineAndCharacterOfPosition(node.getStart(source));
   managerApiCalls.push({api,line:pos.line+1,column:pos.character+1,
    grantStatus:api==='GM.<dynamic>'?'unknown':grants.has(api)?'declared':'missing',
