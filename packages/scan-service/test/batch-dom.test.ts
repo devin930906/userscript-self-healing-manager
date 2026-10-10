@@ -29,7 +29,7 @@ test('batch uses metadata page scope and never probes out-of-scope or invalid sc
  assert.equal(result.items[0]?.missing,1);
  assert.equal(result.items[1]?.checked,0);
  assert.equal(result.items[2]?.needsReview,1);
- assert.equal(identities,4,'validate page at operation boundaries and on both sides of each CDP probe');
+ assert.equal(identities,5,'validate page at operation boundaries, on both sides of each CDP probe, and after Shadow DOM context evidence');
 });
 
 test('batch isolates a failed script probe but refuses to treat navigation as success',async()=>{
