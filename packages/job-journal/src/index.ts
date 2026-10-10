@@ -1,6 +1,7 @@
 import {randomUUID,createHash} from 'node:crypto';
 import {isAbsolute} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
+import {backupVerifiedSqliteSnapshot} from '../../persistence/src/index.ts';
 import type {PaginatedDomPage} from '../../scan-service/src/paginated-dom.ts';
 
 export type JournalState='running'|'completed'|'cancelled'|'interrupted'|'failed';
@@ -193,6 +194,19 @@ export function openDiagnosisJournal(file:string){
   listItems(runId:string):JournalItem[]{
    if(!/^[0-9a-f-]{36}$/i.test(runId))throw new Error('Invalid journal run id');
    return listRows.all(runId) as unknown as JournalItem[];
+  },
+  /** Consistent, read-only journal export. Never auto-restore or write to original scripts. */
+  backupSnapshot(destination:string):Promise<{path:string;sha256:string;bytes:number}>{
+   return backupVerifiedSqliteSnapshot(db,destination,copy=>{
+    const version=(copy.prepare('PRAGMA user_version').get() as {user_version:unknown}).user_version;
+    if(version!==1)throw new Error('Unsupported diagnosis journal backup version');
+    for(const table of ['journal_runs','journal_items']){
+     const exists=copy.prepare("SELECT type FROM sqlite_master WHERE name=?").get(table) as {type?:string}|undefined;
+     if(exists?.type!=='table')throw new Error('Incomplete diagnosis journal backup schema');
+    }
+    const problems=copy.prepare('PRAGMA foreign_key_check').all();
+    if(problems.length)throw new Error('Diagnosis journal backup foreign key mismatch');
+   });
   },
   close():void{db.close();},
  };
