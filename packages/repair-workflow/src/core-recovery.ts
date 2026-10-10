@@ -12,6 +12,11 @@ import {exportManagedRecovery,verifyManagedRecovery} from './managed-export.ts';
 type ManifestFile={readonly path:string;readonly sha256:string;readonly bytes:number};
 const paths=['registry.sqlite','diagnosis-journal.sqlite','managed-recovery/manifest.json'] as const;
 const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
+function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
+ return !!value&&typeof value==='object'&&!Array.isArray(value)&&
+  Object.keys(value).length===keys.length&&
+  keys.every(k=>Object.prototype.hasOwnProperty.call(value,k));
+}
 async function directory(path:string){
  const stat=await lstat(path);
  if(!stat.isDirectory()||stat.isSymbolicLink())throw new Error('Unsafe core recovery directory');
@@ -104,14 +109,16 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
   kind?:unknown;complete?:unknown;atomicAcrossStores?:unknown;
   scope?:unknown;files?:unknown;
  }|null;
- if(!obj||obj.kind!=='usshm-core-recovery-v1'||obj.complete!==true||
+ if(!hasOnlyKeys(obj,['kind','complete','atomicAcrossStores','scope','files'])||
+   !obj||obj.kind!=='usshm-core-recovery-v1'||obj.complete!==true||
    obj.atomicAcrossStores!==false||
    obj.scope!=='registry+journal+managed-revisions-only'||
    !Array.isArray(obj.files)||obj.files.length!==3)
   throw new Error('Invalid or incomplete core recovery manifest');
  for(let i=0;i<paths.length;i++){
   const file=obj.files[i] as Partial<ManifestFile>|undefined;
-  if(!file||file.path!==paths[i]||typeof file.sha256!=='string'||
+  if(!hasOnlyKeys(file,['path','sha256','bytes'])||
+     !file||file.path!==paths[i]||typeof file.sha256!=='string'||
      !/^[a-f0-9]{64}$/.test(file.sha256)||!Number.isSafeInteger(file.bytes)||
      typeof file.bytes!=='number'||file.bytes<0)
    throw new Error('Invalid core recovery file manifest');
