@@ -50,3 +50,23 @@ test('tagged release must verify three real files, ZIP safety and SHA256 checksu
   'An unverified installer/ZIP must never reach the final artifact upload step');
  assert.match(workflow,/Release inventory|Verify final (?:three|Windows)|final release inventory/i);
 });
+
+
+test('the executable final-build gate rejects the real Alpha checkout without creating an installer',async()=>{
+ const {spawnSync}=await import('node:child_process');
+ const script='scripts/final-build-authorization.mjs';
+ for(const env of [
+  {USSHM_BUILD_REF:'refs/heads/feat/v01-continuation',USSHM_BUILD_EVENT:'workflow_dispatch'},
+  {USSHM_BUILD_REF:'refs/tags/v1.0.0',USSHM_BUILD_EVENT:'workflow_dispatch'},
+  {USSHM_BUILD_REF:'refs/tags/v0.1.0-alpha.5',USSHM_BUILD_EVENT:'workflow_dispatch'},
+ ]){
+  const result=spawnSync(process.execPath,[script],{
+   cwd:process.cwd(),encoding:'utf8',
+   env:{...process.env,...env},
+   timeout:5000,
+  });
+  assert.equal(result.status,1,'Alpha packaging must exit non-zero before any build');
+  assert.match(result.stderr,/blocked|prerelease|version|tag|release/i);
+  assert.equal(result.stdout,'');
+ }
+});
