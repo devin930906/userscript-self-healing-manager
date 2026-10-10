@@ -52,6 +52,23 @@ function includePattern(pattern:string,url:URL):boolean|null {
  return wildcardMatch(canonicalPattern,url.href);
 }
 export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:string):PageScopeResult {
+ // Treat userscript metadata as hostile input, not a bounded trusted list.
+ // Enforce the aggregate cap BEFORE accepting even the first @match: a huge
+ // trailing deny/include list must not bypass full activation-scope review.
+ const unverified={status:'unknown' as const,reason:'Userscript page-scope rules exceed the safe evaluation budget or are malformed'};
+ if(!meta||!meta.raw||typeof meta.raw!=='object'||Array.isArray(meta.raw))return unverified;
+ const groups=[meta.match,meta.include,meta.raw['exclude-match']??[],meta.raw.exclude??[]];
+ let patternCount=0,totalCharacters=0;
+ for(const patterns of groups){
+  if(!Array.isArray(patterns))return unverified;
+  patternCount+=patterns.length;
+  if(patternCount>256)return unverified;
+  for(const pattern of patterns){
+   if(typeof pattern!=='string')return unverified;
+   totalCharacters+=pattern.length;
+   if(totalCharacters>65536)return unverified;
+  }
+ }
  let url:URL;
  try{url=new URL(pageUrl);}catch{return {status:'blocked',reason:'Invalid page URL'};}
  if(!['http:','https:'].includes(url.protocol))return {status:'blocked',reason:'Only HTTP(S) CDP pages are supported'};
