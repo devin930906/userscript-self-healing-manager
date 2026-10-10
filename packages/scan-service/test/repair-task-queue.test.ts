@@ -169,3 +169,52 @@ test('revoking approval during progress notification blocks dispatch before call
  assert.equal(called,0);
  assert.equal(outcome.items[0]?.status,'blocked');
 });
+
+test('per-item asynchronous pre-dispatch gate can block unsafe writes without interrupting unrelated jobs',async()=>{
+ const invoked:string[]=[];
+ const approved:string[]=[];
+ const tasks=['a','b','c'].map(id=>({
+  id,scriptId:id,approved:true,execute:async()=>{invoked.push(id);},
+ }));
+ const q=createRepairTaskQueue(tasks,{
+  beforeDispatch:async row=>{
+   approved.push(row.id);
+   if(row.id==='b')throw new Error('PRIVATE ORIGINAL HASH MISMATCH');
+   return row.id!=='c';
+  },
+ });
+ const output=await q.run();
+ assert.deepEqual(approved,['a','b','c']);
+ assert.deepEqual(invoked,['a']);
+ assert.deepEqual(output.items.map(x=>x.status),['completed','blocked','blocked']);
+ assert.doesNotMatch(JSON.stringify(output),/PRIVATE ORIGINAL HASH MISMATCH/);
+});
+
+test('cancellation during asynchronous pre-dispatch verification never calls the write callback',async()=>{
+ let entered!:()=>void,release!:()=>void;
+ const ready=new Promise<void>(resolve=>{entered=resolve;});
+ const held=new Promise<void>(resolve=>{release=resolve;});
+ let executed=0;
+ const q=createRepairTaskQueue([{id:'one',scriptId:'a',approved:true,
+  execute:async()=>{executed++;},
+ }],{beforeDispatch:async()=>{entered();await held;return true;}});
+ const work=q.run();
+ await ready;
+ q.cancel();release();
+ const outcome=await work;
+ assert.equal(executed,0);
+ assert.equal(outcome.cancelled,true);
+ assert.equal(outcome.items[0]?.status,'cancelled');
+});
+
+test('pre-dispatch callback is pinned against caller mutation and cannot broaden task authority',async()=>{
+ let executed=0;
+ const options={beforeDispatch:async()=>false};
+ const q=createRepairTaskQueue([{id:'one',scriptId:'a',approved:true,
+  execute:async()=>{executed++;},
+ }],options);
+ options.beforeDispatch=async()=>true;
+ const result=await q.run();
+ assert.equal(executed,0);
+ assert.equal(result.items[0]?.status,'blocked');
+});
