@@ -100,6 +100,11 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
     // however, approval is re-checked before every dispatch.
     if(task.approved!==true||task.permissionSource.approved!==true){update(i,'blocked');continue;}
     update(i,'running',rows[i]!.attempts+1);
+    // Progress listeners run synchronously at the last dispatch boundary.
+    // They may revoke consent or cancel the queue before the operation
+    // callback has actually started: check both again after notification.
+    if(stopped){update(i,'cancelled');break;}
+    if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
     try{
      await task.execute();
      // Cancellation is not rollback. An in-flight operation that completed
