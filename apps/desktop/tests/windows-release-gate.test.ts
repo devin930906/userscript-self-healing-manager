@@ -205,3 +205,43 @@ test('final release gate rejects tampered, duplicate and extra checksum entries 
   }
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('ZIP central-directory gate rejects Unix symlinks and encrypted entries invisible in filename listings',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');
+ const gate=await import('../../../scripts/windows-release-gate.mjs');
+ const inspect=(gate as any).inspectReleaseZipEntryTypes;
+ assert.equal(typeof inspect,'function','ZIP type gate must inspect central-directory metadata');
+ const dir=await mkdtemp(join(tmpdir(),'usshm-zip-types-'));
+ function makeZip({unixMode=0,encrypted=false,zip64=false}:{unixMode?:number;encrypted?:boolean;zip64?:boolean}={}){
+  const name=Buffer.from('resources/app.asar');
+  const central=Buffer.alloc(46+name.length);
+  central.writeUInt32LE(0x02014b50,0);
+  central.writeUInt16LE(unixMode?(3<<8)|20:20,4);
+  central.writeUInt16LE(20,6);
+  central.writeUInt16LE(encrypted?1:0,8);
+  central.writeUInt16LE(name.length,28);
+  central.writeUInt32LE(unixMode?(unixMode*65536)>>>0:0x20,38);
+  name.copy(central,46);
+  const end=Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50,0);
+  end.writeUInt16LE(zip64?0xffff:1,8);
+  end.writeUInt16LE(zip64?0xffff:1,10);
+  end.writeUInt32LE(central.length,12);
+  return Buffer.concat([central,end]);
+ }
+ const path=join(dir,'package.zip');
+ try{
+  await writeFile(path,makeZip());
+  assert.equal((await inspect(path)).entryCount,1);
+  for(const unsafe of [
+   {unixMode:0o120777},
+   {encrypted:true},
+   {zip64:true},
+  ]){
+   await writeFile(path,makeZip(unsafe));
+   await assert.rejects(inspect(path),/symlink|link|encrypt|ZIP64|archive|unsafe|unsupported/i,JSON.stringify(unsafe));
+  }
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
