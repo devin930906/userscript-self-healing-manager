@@ -129,3 +129,23 @@ test('diagnosis journal rejects contradictory per-item totals and status before 
   }
  }finally{journal.close();}
 }));
+
+
+test('uninspected dynamic or iframe locators remain valid review-only journal evidence',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ try{
+  const baseline=page(0,1);
+  for(const pending of [1,3,50]){
+   const row={...baseline.items[0]!,status:'needs-review' as const,
+    checked:0,found:0,missing:0,needsReview:pending,
+    verification:{...baseline.items[0]!.verification,
+     V1:'blocked' as const,highestVerified:'V0' as const}};
+   const result=journal.recordPage({
+    scanId,targetId,total:1,offset:0,
+    page:{...baseline,items:[row]},
+   });
+   assert.equal(result.status,'completed');
+   assert.equal(journal.listItems(result.runId)[0]?.needsReview,pending);
+  }
+ }finally{journal.close();}
+}));
