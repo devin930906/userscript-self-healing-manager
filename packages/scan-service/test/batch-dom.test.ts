@@ -271,3 +271,32 @@ test('batch CDP errors are redacted before results reach renderer or reports',as
  assert.equal(output.items[0]?.verification?.V1,'blocked');
  assert.equal(output.items[0]?.verification?.V3,'not-configured');
 });
+
+
+test('malformed per-script CDP response is isolated and cannot abort later authorized scripts',async()=>{
+ const malformed=[
+  null,
+  {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:null},
+  {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:[null]},
+  {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:{length:1}},
+ ];
+ for(const broken of malformed){
+  let calls=0;
+  const outcome=await diagnoseScriptsOnPage({
+   items:[items[0],items[0]],target:page,consent:true,deps:{
+    confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+    probe:async(_target,locators)=>{
+     calls++;
+     if(calls===1)return broken as any;
+     return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+      checks:locators.map(x=>({method:x.method,expression:x.expression,status:'found' as const,matchCount:1}))};
+    },
+   },
+  });
+  assert.equal(calls,2,'subsequent independent script must still be diagnosed');
+  assert.deepEqual(outcome.items.map(x=>x.status),['error','dom-present']);
+  assert.equal(outcome.items[0]?.reason,'CDP evidence identity or shape mismatch');
+  assert.equal(outcome.items[0]?.verification?.V1,'blocked');
+  assert.equal(outcome.items[1]?.verification?.V1,'passed');
+ }
+});
