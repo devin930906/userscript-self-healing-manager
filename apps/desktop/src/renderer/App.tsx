@@ -41,6 +41,7 @@ declare global {interface Window{ussm:{
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
+ createCoreRecovery:()=>Promise<{canceled:boolean;path?:string;manifestSha256?:string;files?:number;verified?:boolean}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
@@ -233,6 +234,20 @@ function App(){
     '（'+saved.files+' 个文件、'+saved.bytes+' 字节）。不等于完整 Data/ 恢复；并未将脚本安装到 Tampermonkey。');
   }catch{
    setError('受管修订备份失败：只接受完整已归档修订；符号链接、写入锁或外部修改均会拒绝。已产生的不完整目录不会自动删除。');
+  }finally{setBusy(false);}
+ }
+ async function createCoreRecovery(){
+  if(busy)return;
+  setBusy(true);setError('');
+  try{
+   const receipt=await window.ussm.createCoreRecovery();
+   if(!receipt.canceled&&receipt.verified){
+    setMessage('核心资料组合备份验证通过：'+receipt.path+
+     '。总清单 SHA-256：'+receipt.manifestSha256+
+     '。这是跨存储非原子快照，不是完整 Data/ 恢复，也不包含浏览器配置或密钥。');
+   }
+  }catch{
+   setError('核心资料组合备份失败。请检查目标目录和资料是否处于写入状态；不完整目录不会自动删除。');
   }finally{setBusy(false);}
  }
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
@@ -604,6 +619,9 @@ function App(){
     </div>
     <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void exportManagedRecovery()}>导出受管修订恢复备份</button>
      <p className="dim">仅备份受管修订归档及匹配的 current.user.js，不包含 SQLite 数据库、Chrome 配置或密钥；不等于完整灾难恢复。</p>
+    </div>
+    <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void createCoreRecovery()}>创建核心资料组合备份</button>
+     <p className="dim">组合 registry.sqlite、诊断历史和受管修订，并生成 SHA-256 总清单。跨存储非原子快照；不是完整 Data/ 灾难恢复，不包含站点规则、Chrome 配置和密钥，也不会自动恢复脚本。</p>
     </div>
    </section>
    <section className="panel import"><div className="panel-head"><div><h2>导入并扫描脚本</h2><p>仅静态检查，不运行 JavaScript，不修改原件。</p></div><span className="pill">安全只读</span></div>
