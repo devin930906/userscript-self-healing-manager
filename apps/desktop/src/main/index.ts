@@ -6,7 +6,7 @@ import {lstat} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinned-file.ts';
 import {createHash} from 'node:crypto';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
-import {openDatabase,migrateDatabase,createScriptRepository} from '../../../../packages/persistence/src/index.ts';
+import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
@@ -95,6 +95,18 @@ async function bootstrap():Promise<void>{
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:backup-registry',async event=>{
+  assertSender(event);
+  // The renderer does not supply a path, database handle or source filename:
+  // only a native OS Save dialog can choose a NEW backup destination.
+  const save=await dialog.showSaveDialog(mainWindow,{
+   defaultPath:join(app.getPath('documents'),'USSHM-registry-'+new Date().toISOString().slice(0,10)+'.sqlite'),
+   filters:[{name:'SQLite registry backup',extensions:['sqlite']}],
+  });
+  if(save.canceled||!save.filePath)return {canceled:true};
+  const receipt=await backupRegistryDatabase(db,save.filePath);
+  return {canceled:false,...receipt};
+ });
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
  ipcMain.handle('usshm:pick-directory',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openDirectory']});if(x.canceled)return null;
