@@ -106,7 +106,7 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
      !/^[a-f0-9]{64}$/.test(file.sha256)||!Number.isSafeInteger(file.bytes)||
      typeof file.bytes!=='number'||file.bytes<0)
    throw new Error('Invalid core recovery file manifest');
-  const snapshot=await shaFile(join(root,...paths[i].split('/')),
+  const snapshot=await shaFile(join(root,...paths[i]!.split('/')),
    i===2?1024*1024:512*1024*1024);
   if(snapshot.sha256!==file.sha256||snapshot.bytes!==file.bytes)
    throw new Error('Core recovery file hash mismatch');
