@@ -205,3 +205,24 @@ test('malformed listener socket payload after resolving node attempts cleanup',a
  assert.equal(got.status,'unknown');
  assert.ok(socket.sent.some(command=>command.method==='Runtime.releaseObject'));
 });
+
+test('CDP resolved non-node object without subtype cannot masquerade as a DOM listener target',async()=>{
+ for(const resolved of [
+  {type:'object',objectId:'remote-1'},
+  {type:'object',subtype:'window',objectId:'remote-1'},
+  {type:'object',subtype:'array',objectId:'remote-1'},
+ ]){
+  const socket=new FakeSocket({
+   'DOM.getDocument':()=>({root:{nodeId:3}}),
+   'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+   'DOM.resolveNode':()=>({object:resolved}),
+   'DOMDebugger.getEventListeners':()=>({listeners:[{type:'click'}]}),
+  });
+  const actual=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
+  assert.equal(actual.status,'unknown',JSON.stringify(resolved));
+  assert.equal(actual.listenerCount,null);
+  assert.deepEqual(socket.sent.map(x=>x.method),[
+   'DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode',
+  ]);
+ }
+});
