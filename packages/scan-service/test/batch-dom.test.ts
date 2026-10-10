@@ -42,7 +42,7 @@ test('batch isolates a failed script probe but refuses to treat navigation as su
   probe:async()=>{if(number++===0)throw new Error('one script failed');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:[{method:'querySelector',expression:'#missing',status:'missing',matchCount:0}]};}
  }});
  assert.deepEqual(result.items.map(x=>x.status),['error','locator-missing']);
- assert.equal(result.items[0]?.reason,'one script failed');
+ assert.equal(result.items[0]?.reason,'CDP locator probe failed');
  await assert.rejects(diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
   confirm:async()=>({targetId:page.id,confirmedUrl:'https://other.example'}),
   probe:async()=>{throw new Error('must not call');}
@@ -250,4 +250,24 @@ test('absent Shadow DOM context provider cannot certify top-document missing loc
  assert.equal(outcome.items[0]?.needsReview,1);
  assert.equal(outcome.items[0]?.verification?.V1,'blocked');
  assert.match(outcome.items[0]?.reason??'',/shadow|context/i);
+});
+
+
+test('batch CDP errors are redacted before results reach renderer or reports',async()=>{
+ const secret='https://example.org/private?session=DO_NOT_LEAK_TOKEN';
+ const sourcePath='C:\\\\Users\\\\Private\\\\sensitive.user.js';
+ const output=await diagnoseScriptsOnPage({
+  items:[items[0],items[0]],target:page,consent:true,deps:{
+   confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+   probe:async()=>{throw new Error('CDP selector failed: '+secret+' '+sourcePath);},
+  },
+ });
+ assert.deepEqual(output.items.map(row=>row.status),['error','error']);
+ assert.deepEqual(output.items.map(row=>row.reason),[
+  'CDP locator probe failed','CDP locator probe failed',
+ ]);
+ const serialized=JSON.stringify(output);
+ assert.doesNotMatch(serialized,/DO_NOT_LEAK_TOKEN|Private|sensitive\\.user\\.js|session=/);
+ assert.equal(output.items[0]?.verification?.V1,'blocked');
+ assert.equal(output.items[0]?.verification?.V3,'not-configured');
 });
