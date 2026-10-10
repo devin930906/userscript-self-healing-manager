@@ -37,7 +37,8 @@ test('repeat migration is idempotent and preserves distinct same-named scripts w
   const original=repo.list();
   for(let i=0;i<5;i++)migrateDatabase(db);
   assert.deepEqual(createScriptRepository(db).list(),original);
-  assert.deepEqual(db.prepare('SELECT version FROM schema_version').all(),[{version:1}]);
+  assert.equal(db.prepare('SELECT version FROM schema_version').get()?.version,1);
+  assert.equal(db.prepare('SELECT version FROM schema_version').all().length,1);
  }finally{db.close();}
 });
 
