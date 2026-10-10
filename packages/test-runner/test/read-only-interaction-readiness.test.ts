@@ -82,7 +82,7 @@ test('no direct listener, absent event evidence or unknown CSS conditions cannot
  }
 });
 test('changing unique node fingerprint, target or reload invalidates combination of evidence',async()=>{
- const replaced=await runReadOnlyInteractionReadiness(request(deps({fingerprints:[digest,'b'.repeat(64)]})));
+ const replaced=await runReadOnlyInteractionReadiness(request(deps({fingerprints:[digest,digest,'b'.repeat(64),'b'.repeat(64)]})));
  assert.equal(replaced.status,'needs-review');
  assert.equal(replaced.samples,2);
  await assert.rejects(runReadOnlyInteractionReadiness(request(deps({loaderIds:['original','original','new']}))),
