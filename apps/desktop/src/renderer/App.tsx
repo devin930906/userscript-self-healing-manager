@@ -40,6 +40,7 @@ declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
+ exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
@@ -221,6 +222,17 @@ function App(){
   }catch{
    // Database and OS errors may include private directory names.
    setError('诊断历史备份失败：请另选新的、可写入的 .sqlite 路径。现有备份不会被覆盖。');
+  }finally{setBusy(false);}
+ }
+ async function exportManagedRecovery(){
+  if(busy)return;
+  setBusy(true);setError('');
+  try{
+   const saved=await window.ussm.exportManagedRecovery();
+   if(!saved.canceled)setMessage('受管修订恢复备份已通过 SHA-256 验证：'+saved.path+
+    '（'+saved.files+' 个文件、'+saved.bytes+' 字节）。不等于完整 Data/ 恢复；并未将脚本安装到 Tampermonkey。');
+  }catch{
+   setError('受管修订备份失败：只接受完整已归档修订；符号链接、写入锁或外部修改均会拒绝。已产生的不完整目录不会自动删除。');
   }finally{setBusy(false);}
  }
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
@@ -589,6 +601,9 @@ function App(){
     <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void backupRegistry()}>另存 SQLite 索引备份</button></div>
     <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void backupJournal()}>另存诊断历史 SQLite 备份</button>
      <p className="dim">仅备份诊断历史数据库，不包含受管修订、浏览器配置或完整 Data/ 资料。</p>
+    </div>
+    <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void exportManagedRecovery()}>导出受管修订恢复备份</button>
+     <p className="dim">仅备份受管修订归档及匹配的 current.user.js，不包含 SQLite 数据库、Chrome 配置或密钥；不等于完整灾难恢复。</p>
     </div>
    </section>
    <section className="panel import"><div className="panel-head"><div><h2>导入并扫描脚本</h2><p>仅静态检查，不运行 JavaScript，不修改原件。</p></div><span className="pill">安全只读</span></div>
