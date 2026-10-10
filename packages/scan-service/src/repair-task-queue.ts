@@ -75,6 +75,8 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
  }));
  const gate=new BatchPauseGate();
  let active=false,stopped=false;
+ // Every pause invalidates any asynchronous hash/backup verification in flight.
+ let pauseEpoch=0;
  const rows:RepairTaskRow[]=planned.map(t=>({
   id:t.id,scriptId:t.scriptId,status:t.approved?'queued':'blocked',
   attempts:0,errorCode:null,
@@ -112,19 +114,33 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
     // callback has actually started: check both again after notification.
     if(stopped){update(i,'cancelled');break;}
     if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
+    // A progress observer may pause while this row is newly marked running.
+    // No callback is dispatched until the user explicitly resumes it.
+    if(!(await gate.waitUntilReady())||stopped){update(i,'cancelled');break;}
+    if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
     if(beforeDispatch){
-     let authorized=false;
-     try{
-      // A negative result or exception fails closed without leaking its
-      // (potentially private) error message into the status snapshot.
-      authorized=(await beforeDispatch(Object.freeze({...rows[i]!})))===true;
-     }catch{}
-     // The preflight may have yielded while the user cancelled the run,
-     // revoked consent or replaced a file. The separate trusted preflight
-     // callback owns file-hash comparison; we still re-check local consent.
-     if(stopped){update(i,'cancelled');break;}
-     if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
-     if(!authorized){update(i,'blocked');continue;}
+     let validated=false;
+     while(!validated){
+      const verifiedAtEpoch=pauseEpoch;
+      let authorized=false;
+      try{
+       // The caller independently verifies approval, source hash and backups.
+       // Never reveal callback error text: it may contain private script data.
+       authorized=(await beforeDispatch(Object.freeze({...rows[i]!})))===true;
+      }catch{}
+      if(stopped){update(i,'cancelled');break;}
+      if(task.permissionSource.approved!==true){update(i,'blocked');break;}
+      if(!authorized){update(i,'blocked');break;}
+      // A pause during an awaited preflight invalidates that preflight even
+      // when resume happened before it finished. Re-run the trusted check.
+      if(gate.isPaused||pauseEpoch!==verifiedAtEpoch){
+       if(!(await gate.waitUntilReady())||stopped){update(i,'cancelled');break;}
+       if(task.permissionSource.approved!==true){update(i,'blocked');break;}
+       continue;
+      }
+      validated=true;
+     }
+     if(!validated){if(stopped)break;continue;}
     }
     try{
      await task.execute();
@@ -150,7 +166,7 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
  };
  return Object.freeze({
   run,retryFailed,
-  pause:()=>gate.pause(),
+  pause:()=>{const paused=gate.pause();if(paused)pauseEpoch++;return paused;},
   resume:()=>gate.resume(),
   cancel:()=>{
    if(stopped)return;
