@@ -35,7 +35,7 @@ test('managed recovery export requires trusted Electron IPC and directory select
  const preload=await readFile(new URL('../../apps/desktop/src/preload/index.ts',import.meta.url),'utf8');
  const renderer=await readFile(new URL('../../apps/desktop/src/renderer/App.tsx',import.meta.url),'utf8');
  assert.match(main,/ipcMain\.handle\('usshm:export-managed-recovery',async event=>\{\s*assertSender\(event\)/);
- assert.match(main,/exportManagedRecovery\(\{managedRoot:dataRoot,destination:/);
+ assert.match(main,/exportManagedRecovery\(\{managedRoot:dataRoot,destination(?:[:},])/);
  assert.match(main,/verifyManagedRecovery\(\{snapshotDirectory:receipt\.path\}\)/);
  assert.match(preload,/exportManagedRecovery:\(\)=>ipcRenderer\.invoke\('usshm:export-managed-recovery'\)/);
  assert.match(renderer,/window\.ussm\.exportManagedRecovery\(\)/);
