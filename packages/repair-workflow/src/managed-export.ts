@@ -117,9 +117,9 @@ export async function verifyManagedRecovery({snapshotDirectory}:{
  const root=resolve(snapshotDirectory);
  if(!(await safeDir(root)))throw new Error('Unsafe or missing managed recovery directory');
  const manifestPath=join(root,'manifest.json'),manifestInfo=await lstat(manifestPath);
- if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>2*1024*1024)
+ if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe managed recovery manifest');
- const bytes=await readPinnedRegularFile(manifestPath,{maxBytes:2*1024*1024,expected:manifestInfo});
+ const bytes=await readPinnedRegularFile(manifestPath,{maxBytes:1024*1024,expected:manifestInfo});
  let parsed:unknown;
  try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
  catch{throw new Error('Invalid managed recovery manifest');}
