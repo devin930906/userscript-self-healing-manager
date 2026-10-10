@@ -33,17 +33,21 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  // SQLite table-valued PRAGMAs support bound index names, not interpolated SQL.
  const indexes=db.prepare(`SELECT name,"unique" AS isUnique,partial
   FROM pragma_index_list('scripts')`).all() as {name:string;isUnique:number;partial:number}[];
- const indexColumns=db.prepare('SELECT name FROM pragma_index_info(?)');
+ // index_info() does not expose collation. A NOCASE path UNIQUE would
+ // reject distinct case-sensitive source paths despite looking structurally
+ // identical to v1. index_xinfo() includes collations and key-column flags.
+ const indexColumns=db.prepare('SELECT name,coll,key FROM pragma_index_xinfo(?)');
  const uniqueFields=indexes.map(index=>{
   if(index.isUnique!==1||index.partial!==0)return null;
-  const fields=indexColumns.all(index.name) as {name:string|null}[];
-  return fields.length===1?fields[0]?.name:null;
+  const fields=indexColumns.all(index.name) as {name:string|null;coll:string;key:number}[];
+  const keyColumns=fields.filter(field=>field.key===1);
+  return keyColumns.length===1&&keyColumns[0]?.coll==='BINARY'?keyColumns[0]?.name:null;
  });
- // The v1 table has exactly two unique constraints: id PRIMARY KEY and
- // path UNIQUE. An additional UNIQUE index can silently reject valid future
- // imports even when the version and column names look compatible.
+ // The v1 table has exactly two BINARY unique constraints: id PRIMARY KEY
+ // and path UNIQUE. NOCASE would collapse distinct Unix source paths; an
+ // extra UNIQUE index could silently reject otherwise valid imports.
  if(uniqueFields.length!==2||!uniqueFields.includes('id')||!uniqueFields.includes('path'))
-  throw new Error('Incompatible scripts schema: unexpected or missing unique index');
+  throw new Error('Incompatible scripts schema: unexpected unique index or collation');
  // No triggers belong to the v1 registry schema. A database that otherwise
  // has correct columns and indexes may still carry an unexpected trigger
  // which deletes or rewrites user records on the next normal upsert.
