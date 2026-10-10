@@ -23,6 +23,16 @@ export function resolveDataRoot(input: DataRootInput): string {
   const base = input.distributionMode === 'portable-exe' ? input.portableExternalDirectory : input.exeDirectory;
   if (!base && input.distributionMode === 'portable-exe') throw new Error('PORTABLE_EXECUTABLE_DIR is unavailable; portable data directory cannot be determined');
   if (!base || !pathModule(base).isAbsolute(base)) throw new Error('Portable data root must be absolute');
+  if (input.distributionMode === 'portable-exe') {
+    // Compare Windows path aliases using Windows semantics even on non-Windows CI.
+    // The external launcher directory must never resolve to the unpacked EXE dir.
+    const external = win32.normalize(base).toLowerCase();
+    const unpacked = input.exeDirectory;
+    if (unpacked && win32.isAbsolute(unpacked) &&
+        external === win32.normalize(unpacked).toLowerCase()) {
+      throw new Error('PORTABLE_EXECUTABLE_DIR matches unpacked executable directory; refusing temporary data root');
+    }
+  }
   return pathModule(base).join(base, 'Data');
 }
 
