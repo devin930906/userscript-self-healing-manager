@@ -1,7 +1,8 @@
 import {createHash} from 'node:crypto';
 import {constants,createReadStream} from 'node:fs';
-import {copyFile,lstat,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {copyFile,lstat,mkdir,writeFile} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
+import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {DatabaseSync} from 'node:sqlite';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {assertRegistryV1SnapshotSchema} from '../../persistence/src/index.ts';
@@ -16,6 +17,12 @@ const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
 async function safeDirectory(folder:string){
  const info=await lstat(folder);
  if(!info.isDirectory()||info.isSymbolicLink())throw new Error('Unsafe offline recovery directory');
+}
+async function readBoundedManifest(path:string):Promise<Buffer>{
+ const info=await lstat(path);
+ if(!info.isFile()||info.isSymbolicLink()||info.size>1024*1024)
+  throw new Error('Unsafe offline recovery manifest');
+ return readPinnedRegularFile(path,{maxBytes:1024*1024,expected:info});
 }
 async function copyChecked(source:string,destination:string,expected:HashedFile){
  const before=await lstat(source);
@@ -64,9 +71,7 @@ export async function stageCoreRecoveryForOfflineReview({
  await assertRecoveryDestinationOutsideSource(active,target);
  // Full integrity and schema validation happens BEFORE any destination write.
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
- const manifestBytes=await readFile(join(source,'manifest.json'));
- if(manifestBytes.byteLength>1024*1024)
-  throw new Error('Oversized recovery source manifest');
+ const manifestBytes=await readBoundedManifest(join(source,'manifest.json'));
  const sourceManifestSha256=digest(manifestBytes);
  const core=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(manifestBytes)) as {
   files:HashedFile[];
@@ -76,9 +81,8 @@ export async function stageCoreRecoveryForOfflineReview({
     core.files[1]?.path!=='diagnosis-journal.sqlite'||
     core.files[2]?.path!=='managed-recovery/manifest.json')
   throw new Error('Unexpected core recovery snapshot inventory');
- const managedBytes=await readFile(join(source,'managed-recovery','manifest.json'));
- if(managedBytes.byteLength>1024*1024||
-    digest(managedBytes)!==core.files[2].sha256)
+ const managedBytes=await readBoundedManifest(join(source,'managed-recovery','manifest.json'));
+ if(digest(managedBytes)!==core.files[2].sha256)
   throw new Error('Changed nested managed recovery manifest');
  const nested=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(managedBytes)) as {
   files:HashedFile[];
@@ -86,11 +90,15 @@ export async function stageCoreRecoveryForOfflineReview({
  if(!Array.isArray(nested.files)||nested.files.length>5000)
   throw new Error('Invalid managed recovery file inventory');
  const files=nested.files;
+ let totalManagedBytes=0;
  for(const item of files){
   if(!item||typeof item.path!=='string'||!managedPath.test(item.path)||
      typeof item.sha256!=='string'||!hex.test(item.sha256)||
      !Number.isSafeInteger(item.bytes)||item.bytes<0||item.bytes>512*1024)
    throw new Error('Unsafe managed recovery file entry');
+  totalManagedBytes+=item.bytes;
+  if(totalManagedBytes>256*1024*1024)
+   throw new Error('Managed offline recovery data exceeds size budget');
  }
  await mkdir(target,{recursive:false,mode:0o700});
  for(const item of core.files.slice(0,2)){
@@ -129,7 +137,7 @@ export async function stageCoreRecoveryForOfflineReview({
  // If a source file changed during copying, its manifest audit must no longer
  // be trusted. Do not mark a partial or moving snapshot as complete.
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
- if(digest(await readFile(join(source,'manifest.json')))!==sourceManifestSha256)
+ if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
   throw new Error('Source recovery manifest changed while staging');
  const record={
   kind:'usshm-core-offline-stage-v1',
