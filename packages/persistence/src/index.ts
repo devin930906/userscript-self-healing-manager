@@ -135,6 +135,15 @@ export async function backupVerifiedSqliteSnapshot(
   // SQLite's backup API includes committed changes still held in the WAL.
   // Raw fs.copyFile of registry.sqlite is never a consistent online snapshot.
   await backup(db,staging);
+  // The source can use WAL, but a portable backup must be a standalone
+  // main SQLite file. Switch the private snapshot to rollback-journal mode
+  // BEFORE hashing/publication; SQLite checkpoints/cleans its own WAL.
+  const standalone=new DatabaseSync(staging);
+  try{
+   const mode=standalone.prepare('PRAGMA journal_mode=DELETE').get() as {journal_mode?:unknown}|undefined;
+   if(mode?.journal_mode!=='delete')
+    throw new Error('Could not normalize SQLite backup to standalone journal mode');
+  }finally{standalone.close();}
   const staged=await lstat(staging);
   if(staged.isSymbolicLink()||!staged.isFile()||staged.size<512||staged.size>512*1024*1024)
    throw new Error('Invalid SQLite backup file size or type');
@@ -152,9 +161,14 @@ export async function backupVerifiedSqliteSnapshot(
   await link(staging,destination);
   return Object.freeze({path:destination,sha256,bytes:staged.size});
  }finally{
-  await unlink(staging).catch((error:NodeJS.ErrnoException)=>{
-   if(error.code!=='ENOENT')throw error;
-  });
+  // These paths are exclusively owned by the UUID staging snapshot. SQLite
+  // sometimes leaves -wal/-shm sidecars after a read-only verification open;
+  // they must never leak into completed recovery directories.
+  for(const temporary of [staging,staging+'-wal',staging+'-shm']){
+   await unlink(temporary).catch((error:NodeJS.ErrnoException)=>{
+    if(error.code!=='ENOENT')throw error;
+   });
+  }
  }
 }
 
