@@ -72,3 +72,11 @@ test('Windows PR gate executes release unit tests only; installer job remains ma
  assert.match(workflow,/--test tests\/integration\/windows-release-evidence\.test\.ts/);
  assert.match(workflow,/USSHM_BUILD_SHA:\s*\$\{\{ github\.sha \}\}/);
 });
+
+test('PowerShell fallback packager must authorize the real final tag before writing its ZIP',async()=>{
+ const script=await readFile('scripts/package-windows.ps1','utf8');
+ const auth=script.indexOf('final-build-authorization.mjs');
+ const mutation=script.indexOf('Set-Content -NoNewline');
+ assert.ok(auth>=0 && mutation>auth,'Standalone packager must invoke final tag guard before touching unpacked files');
+ assert.match(script,/LASTEXITCODE/,'Nonzero authorization must stop PowerShell independently');
+});
