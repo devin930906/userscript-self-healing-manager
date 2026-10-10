@@ -28,6 +28,8 @@ jobs:
         run: npm run typecheck
       - name: Build renderer and Electron entrypoint
         run: npm run build
+      - name: Independently reject synthetic CDP execution in compiled Electron bundles
+        run: node scripts/production-boundary.mjs dist
       - name: Ensure locked Electron runtime exists for GUI smoke
         run: node node_modules/electron/install.js
       - name: Real built Electron GUI launch (isolated Data; no installers)
