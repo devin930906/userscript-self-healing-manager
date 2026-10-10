@@ -161,3 +161,47 @@ test('Stable executable gate verifies PE signature and x64 architecture, not jus
  assert.equal(isWindowsX64Pe(executable.subarray(0,0x80+25)),false);
  assert.equal(isWindowsX64Pe(executable.subarray(0,0x80+26)),true);
 });
+
+test('final release gate creates a missing SHA256SUMS and preserves an existing equivalent manifest',async()=>{
+ const {mkdtemp,readFile,writeFile,rm}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');
+ const root=await mkdtemp(join(tmpdir(),'usshm-final-manifest-'));
+ const file=join(root,'SHA256SUMS.txt');
+ const hashes=good.artifactNames.map((name,i)=>String(i+1).repeat(64)+'  '+name);
+ try{
+  const gate=await import('../../../scripts/windows-release-gate.mjs');
+  const preserve=(gate as any).writeOrVerifyChecksumManifest;
+  assert.equal(typeof preserve,'function','Stable release gate must safely verify existing manifests');
+  assert.equal(await preserve(file,hashes),'created');
+  assert.equal(await readFile(file,'utf8'),hashes.join('\n')+'\n');
+  const equivalent='\ufeff'+[...hashes].reverse().join('\r\n')+'\r\n';
+  await writeFile(file,equivalent);
+  assert.equal(await preserve(file,hashes),'verified');
+  assert.equal(await readFile(file,'utf8'),equivalent,'never overwrite an already valid signed checksum list');
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('final release gate rejects tampered, duplicate and extra checksum entries without overwriting',async()=>{
+ const {mkdtemp,readFile,writeFile,rm}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');
+ const root=await mkdtemp(join(tmpdir(),'usshm-manifest-tamper-'));
+ const file=join(root,'SHA256SUMS.txt');
+ const hashes=good.artifactNames.map((name,i)=>String(i+1).repeat(64)+'  '+name);
+ try{
+  const gate=await import('../../../scripts/windows-release-gate.mjs');
+  const preserve=(gate as any).writeOrVerifyChecksumManifest;
+  assert.equal(typeof preserve,'function','Stable release gate must verify existing manifests');
+  for(const attack of [
+   [hashes[0]!.replace(/^1{64}/,'f'.repeat(64)),hashes[1]!,hashes[2]!].join('\n')+'\n',
+   [hashes[0]!,hashes[0]!,hashes[2]!].join('\n')+'\n',
+   hashes.join('\n')+'\n'+'0'.repeat(64)+'  unexpected.exe\n',
+   hashes.join('\n').replace('  ',' *')+'\n',
+  ]){
+   await writeFile(file,attack);
+   await assert.rejects(preserve(file,hashes),/checksum|manifest|mismatch|unexpected|duplicate|invalid/i);
+   assert.equal(await readFile(file,'utf8'),attack,'reject without overwriting manifest');
+  }
+ }finally{await rm(root,{recursive:true,force:true});}
+});
