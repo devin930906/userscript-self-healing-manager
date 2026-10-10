@@ -85,13 +85,19 @@ export function migrateDatabase(db:DatabaseHandle):void{
 }
 export function createScriptRepository(db:DatabaseHandle){
  const update=db.prepare(`INSERT INTO scripts(id,path,display_name,sha256,health_status,metadata_json,created_at,updated_at)
- VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET path=excluded.path,display_name=excluded.display_name,
- sha256=excluded.sha256,health_status=excluded.health_status,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at`);
+ VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name,
+ sha256=excluded.sha256,health_status=excluded.health_status,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at
+ WHERE scripts.path=excluded.path`);
  const fetch=db.prepare(`SELECT id,path,display_name AS displayName,sha256,health_status AS healthStatus,
  metadata_json AS metadataJson,created_at AS createdAt,updated_at AS updatedAt FROM scripts ORDER BY created_at,id`);
  const findPath=db.prepare('SELECT id FROM scripts WHERE path = ?');
  return {
-  upsert(script:ScriptRecord):void{update.run(script.id,script.path,script.displayName,script.sha256,script.healthStatus,script.metadataJson,script.createdAt,script.updatedAt);},
+  upsert(script:ScriptRecord):void{
+   // The ID is tied to the original source path; never reassign it to a new
+   // source when same-named scripts exist. The SQL WHERE check is atomic.
+   const result=update.run(script.id,script.path,script.displayName,script.sha256,script.healthStatus,script.metadataJson,script.createdAt,script.updatedAt);
+   if(result.changes!==1)throw new Error('Script ID/path identity conflict: refusing to rebind a source path');
+  },
   list():ScriptRecord[]{return fetch.all() as unknown as ScriptRecord[];},
   findIdByPath(path:string):string|undefined{return (findPath.get(path) as {id:string}|undefined)?.id;}
  };
@@ -115,6 +121,27 @@ export interface RegistryBackupReceipt{
  * no existing target (including symlinks) can ever be overwritten. Filesystems
  * without same-directory hard-link support fail closed.
  */
+/**
+ * Refuse a backup whose destination is reached through any linked directory,
+ * not only an immediately linked parent. Check root-to-leaf so a junction is
+ * noticed before accessing filesystem entries underneath it.
+ * This does not replace OS-level directory-handle pinning against races.
+ */
+async function assertUnlinkedBackupDirectory(directory:string):Promise<void>{
+ const components:string[]=[];
+ for(let current=directory;;){
+  components.push(current);
+  const parent=dirname(current);
+  if(current===parent)break;
+  current=parent;
+ }
+ for(const component of components.reverse()){
+  const info=await lstat(component);
+  if(info.isSymbolicLink()||!info.isDirectory())
+   throw new Error('Unsafe SQLite backup directory: symlink or non-directory component');
+ }
+}
+
 export async function backupVerifiedSqliteSnapshot(
  db:DatabaseHandle,destination:string,verify:(copy:DatabaseHandle)=>void,
 ):Promise<RegistryBackupReceipt>{
@@ -123,9 +150,7 @@ export async function backupVerifiedSqliteSnapshot(
     !/\.sqlite$/i.test(destination)||basename(destination).length>200)
   throw new Error('An absolute .sqlite backup destination is required');
  const parent=dirname(destination);
- const parentInfo=await lstat(parent);
- if(!parentInfo.isDirectory()||parentInfo.isSymbolicLink())
-  throw new Error('Unsafe SQLite backup parent directory');
+ await assertUnlinkedBackupDirectory(parent);
  try{
   await lstat(destination);
   throw new Error('Backup destination already exists; refusing overwrite');
@@ -161,6 +186,9 @@ export async function backupVerifiedSqliteSnapshot(
   const sha256=digest.digest('hex');
   // Publication is exclusive on both POSIX and Windows. Ordinary rename()
   // could replace an existing backup during a check/write race.
+  // A best-effort second guard catches a parent changed after the initial
+  // validation; publication itself remains exclusive (no overwrite).
+  await assertUnlinkedBackupDirectory(parent);
   await link(staging,destination);
   return Object.freeze({path:destination,sha256,bytes:staged.size});
  }finally{
