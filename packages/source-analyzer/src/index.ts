@@ -106,7 +106,10 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   for(const member of name.elements)if(ts.isBindingElement(member))
    collectNames(member.name,owner);
  };
+ // A class static block owns its `var` bindings; they must not mask a
+ // userscript manager API reference in the containing function/module.
  const isFunctionScope=(node:ts.Node):boolean=>ts.isSourceFile(node)||
+  ts.isClassStaticBlockDeclaration(node)||
   ts.isFunctionDeclaration(node)||ts.isFunctionExpression(node)||
   ts.isArrowFunction(node)||ts.isMethodDeclaration(node)||
   ts.isConstructorDeclaration(node)||ts.isGetAccessorDeclaration(node)||
