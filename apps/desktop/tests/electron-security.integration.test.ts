@@ -36,10 +36,17 @@ async function connectCdp(url: string): Promise<{
   close(): void;
 }> {
   const ws = new WebSocket(url);
-  await Promise.race([new Promise<void>((done, fail) => {
-    ws.addEventListener('open', () => done(), { once: true });
-    ws.addEventListener('error', () => fail(new Error('CDP WebSocket failed')), { once: true });
-  }), new Promise<never>((_, fail) => setTimeout(() => { ws.close(); fail(new Error('CDP WebSocket open timed out')); }, 5000))]);
+  await new Promise<void>((done, fail) => {
+    const timer = setTimeout(() => {
+      ws.close();
+      fail(new Error('CDP WebSocket open timed out'));
+    }, 5000);
+    const succeed = () => { clearTimeout(timer); done(); };
+    const reject = () => { clearTimeout(timer); fail(new Error('CDP WebSocket failed')); };
+    ws.addEventListener('open', succeed, { once: true });
+    ws.addEventListener('error', reject, { once: true });
+    ws.addEventListener('close', reject, { once: true });
+  });
   let seq = 0;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (reason: Error) => void; timer: NodeJS.Timeout }>();
   const events: string[] = [];
