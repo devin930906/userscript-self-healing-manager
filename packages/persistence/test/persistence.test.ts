@@ -155,3 +155,24 @@ test('registry hot-backup refuses non-absolute and non-sqlite destinations befor
   }finally{db.close();}
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('v1 SQLite schema with unrecognized mutating triggers is rejected before future upserts',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-triggered-db-'));
+ const file=join(dir,'registry.sqlite');
+ try{
+  const db=openDatabase(file);
+  migrateDatabase(db);
+  db.exec("CREATE TRIGGER purge_scripts AFTER INSERT ON scripts BEGIN DELETE FROM scripts; END");
+  db.close();
+  const reopened=openDatabase(file);
+  try{assert.throws(()=>migrateDatabase(reopened),/trigger|schema|unsafe|unknown/i);}
+  finally{reopened.close();}
+  const {DatabaseSync}=await import('node:sqlite');
+  const inspect=new DatabaseSync(file);
+  try{
+   assert.equal(inspect.prepare("SELECT count(*) AS c FROM sqlite_master WHERE type='trigger' AND name='purge_scripts'").get()?.c,1,
+    'reject unknown trigger without silently deleting or rewriting the database');
+  }finally{inspect.close();}
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
