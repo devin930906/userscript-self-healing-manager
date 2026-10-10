@@ -127,3 +127,42 @@ test('folder discovery includes only case-insensitive .user.js suffixes, while e
   assert.equal(repo.list().length,3);
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
+
+
+test('transient registry lookup and write errors retain causes without fabricated imports or blocking siblings',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-error-diagnostics-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const paths=['lookup.user.js','write.user.js','success.user.js'].map(name=>join(root,name));
+  for(const [index,path] of paths.entries())
+   await writeFile(path,`// ==UserScript==\n// @name Case ${index}\n// ==/UserScript==\nconst value = ${index};\n`);
+  const originals=await Promise.all(paths.map(path=>readFile(path)));
+  const actual=createScriptRepository(db);
+  const failures={
+   ...actual,
+   findIdByPath(path:string):string|undefined{
+    if(path===paths[0])throw new Error('SQLITE_BUSY: lookup root cause 001');
+    return actual.findIdByPath(path);
+   },
+   upsert(record:ScriptRecord):void{
+    if(record.path===paths[1])throw new Error('SQLITE_READONLY: write root cause 002');
+    actual.upsert(record);
+   },
+  };
+  const results=await importPaths({paths,recursive:false,repository:failures});
+  assert.deepEqual(results.map(result=>result.status),['unreadable','unreadable','imported']);
+  assert.match(results[0]?.message??'',/registry lookup failed.*SQLITE_BUSY.*lookup root cause 001/i);
+  assert.match(results[1]?.message??'',/registry write failed.*SQLITE_READONLY.*write root cause 002/i);
+  for(const index of [0,1]){
+   assert.equal(results[index]?.scriptId,undefined,'failed import must not expose a fabricated script ID');
+   assert.equal(results[index]?.analysis,undefined,'failed import must not expose an analysis as imported');
+  }
+  assert.ok(results[2]?.scriptId,'later successful import retains a real script ID');
+  assert.ok(results[2]?.analysis,'later successful import retains its analysis');
+  assert.deepEqual(actual.list().map(record=>record.path),[paths[2]]);
+  for(const [index,path] of paths.entries())assert.deepEqual(await readFile(path),originals[index]);
+  const retried=await importPaths({paths:paths.slice(0,2),recursive:false,repository:actual});
+  assert.deepEqual(retried.map(result=>result.status),['imported','imported']);
+  assert.equal(actual.list().length,3);
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
