@@ -59,9 +59,16 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   if(ids.has(task.id))throw new Error('Duplicate repair task identity');
   ids.add(task.id);
  }
+ // Snapshot the reviewed identity and executable callback at construction.
+ // Keep the original object ONLY as an additional revocation source. Changing
+ // its operation, id or script reference can never authorize a different write.
+ const planned=tasks.map(task=>Object.freeze({
+  id:task.id,scriptId:task.scriptId,approved:task.approved,
+  execute:task.execute,permissionSource:task,
+ }));
  const gate=new BatchPauseGate();
  let active=false,stopped=false;
- const rows:RepairTaskRow[]=tasks.map(t=>({
+ const rows:RepairTaskRow[]=planned.map(t=>({
   id:t.id,scriptId:t.scriptId,status:t.approved?'queued':'blocked',
   attempts:0,errorCode:null,
  }));
@@ -84,14 +91,14 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   if(active)throw new Error('Repair queue is already running');
   active=true;emit();
   try{
-   for(let i=0;i<tasks.length;i++){
+   for(let i=0;i<planned.length;i++){
     if(stopped)break;
     if(rows[i]!.status!=='queued')continue;
     if(!(await gate.waitUntilReady())||stopped)break;
-    const task=tasks[i]!;
+    const task=planned[i]!;
     // The caller cannot mutate the approval field after a queue starts:
     // however, approval is re-checked before every dispatch.
-    if(task.approved!==true){update(i,'blocked');continue;}
+    if(task.approved!==true||task.permissionSource.approved!==true){update(i,'blocked');continue;}
     update(i,'running',rows[i]!.attempts+1);
     try{
      await task.execute();
@@ -110,7 +117,8 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
  const retryFailed=async():Promise<RepairTaskSnapshot>=>{
   if(stopped)throw new Error('Cancelled repair queue cannot be retried');
   if(active)throw new Error('Cannot retry while queue is running');
-  for(let i=0;i<tasks.length;i++)if(rows[i]!.status==='failed'&&tasks[i]!.approved===true)
+  for(let i=0;i<planned.length;i++)if(rows[i]!.status==='failed'&&
+   planned[i]!.approved===true&&planned[i]!.permissionSource.approved===true)
    update(i,'queued',rows[i]!.attempts);
   return run();
  };
