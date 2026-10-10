@@ -50,7 +50,7 @@ test('stable pinned DOM identity + clear direct blockers + direct click listener
  assert.equal(x.managerVerified,false);
  assert.equal(x.samples,2);
  assert.equal(x.directClickListeners,1);
- assert.deepEqual(d.calls.filter(v=>v==='probe'),['probe','probe']);
+ assert.deepEqual(d.calls.filter(v=>v==='probe'),['probe','probe','probe','probe']);
  assert.equal(d.calls.filter(v=>v==='visibility').length,2);
  assert.equal(d.calls.filter(v=>v==='listeners').length,2);
  assert.ok(d.calls.filter(v=>v==='confirm').length>=8);
