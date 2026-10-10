@@ -83,3 +83,24 @@ test('DOM exports preserve legitimate unchecked review-only evidence',()=>{
  const markdown=serializeDomBatchReport(report,'markdown','2026-10-10T06:15:00.000Z');
  assert.match(markdown,/needs-review.*0.*0.*0.*3.*passed.*blocked/);
 });
+
+
+test('DOM exports never turn an unconfirmed result into a V1 failure or skipped verdict',()=>{
+ const bad=[
+  {status:'error' as const,checked:0,found:0,missing:0,needsReview:0,V1:'failed' as const},
+  {status:'needs-review' as const,checked:0,found:0,missing:0,needsReview:2,V1:'failed' as const},
+  {status:'dom-present' as const,checked:1,found:1,missing:0,needsReview:0,V1:'skipped' as const},
+ ];
+ for(const value of bad){
+  const payload={...sample,items:[{...sample.items[0],status:value.status,
+   checked:value.checked,found:value.found,missing:value.missing,
+   needsReview:value.needsReview,
+   verification:{...sample.items[0]!.verification,V1:value.V1},
+  }]};
+  for(const format of ['json','markdown'] as const){
+   assert.throws(()=>serializeDomBatchReport(payload as BatchDomResult,format,'2026-10-10T06:20:00.000Z'),
+    /invalid|unsupported|contradict|inconsistent|verification/i,
+    'V1 '+value.V1+' cannot describe '+value.status);
+  }
+ }
+});
