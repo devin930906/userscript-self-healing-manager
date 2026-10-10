@@ -245,3 +245,55 @@ test('ZIP central-directory gate rejects Unix symlinks and encrypted entries inv
   }
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('ZIP central directory denies bomb-size claims, unsupported compression and POSIX special files',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');
+ const {inspectReleaseZipEntryTypes}=await import('../../../scripts/windows-release-gate.mjs');
+ const folder=await mkdtemp(join(tmpdir(),'usshm-zip-bomb-'));
+ const path=join(folder,'test.zip');
+ const zip=(options:{method?:number;compressed?:number;uncompressed?:number;unixMode?:number;diskStart?:number}={})=>{
+  const name=Buffer.from('resources/app.asar');
+  const central=Buffer.alloc(46+name.length);
+  central.writeUInt32LE(0x02014b50,0);
+  central.writeUInt16LE(options.unixMode?(3<<8)|20:20,4);
+  central.writeUInt16LE(20,6);
+  central.writeUInt16LE(options.method??8,10);
+  central.writeUInt32LE(options.compressed??100,20);
+  central.writeUInt32LE(options.uncompressed??200,24);
+  central.writeUInt16LE(name.length,28);
+  central.writeUInt16LE(options.diskStart??0,34);
+  central.writeUInt32LE(options.unixMode?((options.unixMode*65536)>>>0):0x20,38);
+  name.copy(central,46);
+  const end=Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50,0);
+  end.writeUInt16LE(1,8);end.writeUInt16LE(1,10);
+  end.writeUInt32LE(central.length,12);
+  return Buffer.concat([central,end]);
+ };
+ try{
+  await writeFile(path,zip());
+  const baseline=await inspectReleaseZipEntryTypes(path);
+  assert.equal(baseline.entryCount,1);
+  assert.equal(baseline.totalUncompressedBytes,200);
+  for(const attack of [
+   {method:99},
+   {method:12},
+   {uncompressed:0xffffffff},
+   {compressed:0xffffffff},
+   {uncompressed:3_000_000_000,compressed:3_000_000_000},
+   {uncompressed:50_000_000,compressed:1},
+   {uncompressed:50_000_000,compressed:0},
+   {unixMode:0o010644},
+   {unixMode:0o060644},
+   {unixMode:0o020644},
+   {diskStart:1},
+  ]){
+   await writeFile(path,zip(attack));
+   await assert.rejects(inspectReleaseZipEntryTypes(path),
+    /ZIP|archive|compression|budget|bomb|volume|special|device|size|unsupported|unsafe/i,
+    JSON.stringify(attack));
+  }
+ }finally{await rm(folder,{recursive:true,force:true});}
+});
