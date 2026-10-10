@@ -27,6 +27,7 @@ const api={
  exportManagedRecovery:()=>ipcRenderer.invoke('usshm:export-managed-recovery'),
  createCoreRecovery:()=>ipcRenderer.invoke('usshm:create-core-recovery'),
  verifyCoreRecovery:()=>ipcRenderer.invoke('usshm:verify-core-recovery'),
+ stageCoreRecovery:()=>ipcRenderer.invoke('usshm:stage-core-recovery'),
  pickFiles:():Promise<string[]>=>ipcRenderer.invoke('usshm:pick-files'),
  pickDirectory:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-directory'),
  onTrustedDrop:(listener:TrustedDropListener):(()=>void)=>{
