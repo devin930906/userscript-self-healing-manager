@@ -1,5 +1,14 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+# Standalone packaging must obey the SAME tag/checkout authorization as CI.
+# Fail before changing the unpacked directory, creating a ZIP or writing hashes.
+Push-Location $projectRoot
+try {
+  & node (Join-Path $PSScriptRoot 'final-build-authorization.mjs')
+  if ($LASTEXITCODE -ne 0) { throw 'Windows release packaging refused by final tag authorization' }
+} finally {
+  Pop-Location
+}
 $releaseDir = Join-Path $projectRoot 'release'
 $unpacked = Join-Path $releaseDir 'win-unpacked'
 $manifest = Join-Path $releaseDir 'SHA256SUMS.txt'
