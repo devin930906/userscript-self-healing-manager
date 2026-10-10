@@ -80,3 +80,18 @@ test('PowerShell fallback packager must authorize the real final tag before writ
  assert.ok(auth>=0 && mutation>auth,'Standalone packager must invoke final tag guard before touching unpacked files');
  assert.match(script,/LASTEXITCODE/,'Nonzero authorization must stop PowerShell independently');
 });
+
+test('PowerShell fallback validates the created ZIP and all three artifacts before reporting success',async()=>{
+ const script=await readFile('scripts/package-windows.ps1','utf8');
+ const created=script.indexOf('ZipFile]::CreateFromDirectory');
+ const gate=script.indexOf("'windows-release-gate.mjs'");
+ const success=script.indexOf("Write-Host 'Generated");
+ assert.ok(created>=0&&gate>created&&success>gate,
+  'Standalone fallback must invoke the actual Windows ZIP/privacy/SHA gate after ZIP creation');
+ assert.match(script,/&\s+node\s+\(Join-Path\s+\$PSScriptRoot\s+'windows-release-gate\.mjs'\)\s+\$version\s+\$releaseDir/,
+  'The fallback must validate the same release directory and package version');
+ assert.match(script.slice(gate,success),/if\s*\(\s*\$LASTEXITCODE\s*-ne\s*0\s*\)\s*\{\s*throw/i,
+  'A failed inventory/ZIP/privacy/SHA check must stop the fallback');
+ assert.doesNotMatch(script.slice(created,gate),/\|\s*Set-Content\s+-Path\s+\$manifest/,
+  'No checksum manifest should be written before final release validation');
+});
