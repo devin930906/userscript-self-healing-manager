@@ -5,13 +5,54 @@ import {lstat,link,unlink} from 'node:fs/promises';
 import {isAbsolute,dirname,basename,join} from 'node:path';
 import type {ScriptHealth} from '../../contracts/src/index.ts';
 
+export type DatabaseErrorCode =
+ 'DATABASE_BUSY'|'DATABASE_PERMISSION_DENIED'|'DATABASE_INVALID_PATH'|
+ 'DATABASE_IO_ERROR'|'DATABASE_SCHEMA_UNSUPPORTED'|'DATABASE_UNKNOWN_ERROR';
+export class DatabasePersistenceError extends Error {
+ readonly code:DatabaseErrorCode;
+ readonly rollbackError?:unknown;
+ readonly cleanupError?:unknown;
+ constructor(code:DatabaseErrorCode,cause:unknown,details?:{rollbackError?:unknown;cleanupError?:unknown}){
+  super(cause instanceof Error?cause.message:String(cause),{cause});
+  this.name='DatabasePersistenceError';
+  this.code=code;
+  this.rollbackError=details?.rollbackError;
+  this.cleanupError=details?.cleanupError;
+ }
+}
+/** Never infer a native SQLite classification from its free-form message. */
+export function classifyDatabaseError(error:unknown,details?:{rollbackError?:unknown;cleanupError?:unknown}):DatabasePersistenceError {
+ const native=error && typeof error==='object'?error as {code?:unknown;errcode?:unknown}:null;
+ let code:DatabaseErrorCode='DATABASE_UNKNOWN_ERROR';
+ if(native?.code==='EACCES'||native?.code==='EPERM')code='DATABASE_PERMISSION_DENIED';
+ else if(native?.code==='ENOENT'||native?.code==='ENOTDIR'||native?.code==='EISDIR')code='DATABASE_INVALID_PATH';
+ else if(native?.code==='ERR_SQLITE_ERROR'&&typeof native.errcode==='number'){
+  switch(native.errcode&255){
+   case 5:case 6:code='DATABASE_BUSY';break;
+   case 8:code='DATABASE_PERMISSION_DENIED';break;
+   case 10:code='DATABASE_IO_ERROR';break;
+   case 14:code='DATABASE_INVALID_PATH';break;
+  }
+ }
+ return new DatabasePersistenceError(code,error,details);
+}
 export interface ScriptRecord {
   id:string; path:string;displayName:string;sha256:string;healthStatus:ScriptHealth;
   metadataJson:string; createdAt:string;updatedAt:string;
 }
 export type DatabaseHandle=DatabaseSync;
 export function openDatabase(path:string):DatabaseHandle{
- const db=new DatabaseSync(path); db.exec('PRAGMA journal_mode = WAL');db.exec('PRAGMA foreign_keys = ON');return db;
+ let db:DatabaseSync;
+ try{db=new DatabaseSync(path);}catch(error){throw classifyDatabaseError(error);}
+ try{
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
+  return db;
+ }catch(error){
+  let cleanupError:unknown;
+  try{db.close();}catch(closeError){cleanupError=closeError;}
+  throw classifyDatabaseError(error,{cleanupError});
+ }
 }
 /**
  * No version marker means a fresh database only if there is no pre-existing
@@ -57,7 +98,7 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
 export function migrateDatabase(db:DatabaseHandle):void{
  // Claim a SQLite write transaction BEFORE inspecting or changing the schema.
  // A newer app's Data must never be "partially migrated" by an older binary.
- db.exec('BEGIN IMMEDIATE');
+ try{db.exec('BEGIN IMMEDIATE');}catch(error){throw classifyDatabaseError(error);}
  try{
   const marker=db.prepare("SELECT type FROM sqlite_master WHERE name='schema_version' LIMIT 1").get() as {type:string}|undefined;
   const existingScripts=db.prepare("SELECT type FROM sqlite_master WHERE name='scripts' LIMIT 1").get() as {type:string}|undefined;
@@ -83,8 +124,12 @@ export function migrateDatabase(db:DatabaseHandle):void{
   assertRegistryV1SnapshotSchema(db);
   db.exec('COMMIT');
  }catch(error){
-  db.exec('ROLLBACK');
-  throw error;
+  let rollbackError:unknown;
+  try{db.exec('ROLLBACK');}catch(cleanupError){rollbackError=cleanupError;}
+  // Schema rejection is an explicit version boundary, not a guessed SQLite error.
+  const classification=error instanceof Error&&/^(Unsupported database schema version|Unknown unversioned scripts database|Invalid database schema version marker|Missing or incompatible scripts table|Incompatible scripts|Incompatible registry|Invalid registry snapshot|Backup database has an unsupported schema version|Unsafe SQLite v1 schema)/.test(error.message)
+   ?'DATABASE_SCHEMA_UNSUPPORTED':undefined;
+  throw classification?new DatabasePersistenceError(classification,error,{rollbackError}):classifyDatabaseError(error,{rollbackError});
  }
 }
 export function createScriptRepository(db:DatabaseHandle){
