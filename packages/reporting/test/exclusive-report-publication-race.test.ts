@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,readFile,readdir,rm,unlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {writeExclusiveReport} from '../src/exclusive-report.ts';
@@ -26,4 +26,33 @@ test('a staged report changed after the first verification is never left visible
    await rm(root,{recursive:true,force:true});
   }
  }
+});
+
+test('an invalid hard-linked publication is rolled back after the final link',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-report-after-link-'));
+ try{
+  const destinationPath=join(root,'report.json');
+  await assert.rejects(writeExclusiveReport({
+   destinationPath,content:'{"original":true}',
+   afterPublish:async()=>{await writeFile(destinationPath,'{"mutated":true}');},
+  }),/changed|SHA-256|mismatch|verification/i);
+  await assert.rejects(readFile(destinationPath),{code:'ENOENT'});
+  assert.deepEqual(await readdir(root),[]);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('rollback never removes a different file installed after linking',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-report-foreign-dest-'));
+ try{
+  const destinationPath=join(root,'report.json');
+  await assert.rejects(writeExclusiveReport({
+   destinationPath,content:'{"original":true}',
+   afterPublish:async()=>{
+    await unlink(destinationPath);
+    await writeFile(destinationPath,'independent file');
+   },
+  }),error=>error instanceof AggregateError&&/rollback/i.test(error.message));
+  assert.equal(await readFile(destinationPath,'utf8'),'independent file');
+  assert.deepEqual(await readdir(root),['report.json']);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
