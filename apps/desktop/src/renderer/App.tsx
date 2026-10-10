@@ -58,6 +58,8 @@ declare global {interface Window{ussm:{
  prepareVerifiedPreview:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedPreviewResult>;
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
+ proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>Promise<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {oldSelector:string;newSelector:string}[];preview:string}>;
+ applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string}>;
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
@@ -148,6 +150,7 @@ function App(){
  const probeGeneration=useRef(new LatestRequestGate());
  const probeActive=useRef(false);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
+ const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {oldSelector:string;newSelector:string}[];preview:string}|null>(null);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
@@ -168,6 +171,7 @@ function App(){
  // Switching site or script revokes a previously granted read-only health watch.
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
+ useEffect(()=>{setBatchRepairProposal(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;batchPauseGate.current?.cancel();batchPauseGate.current=null;setBatchPaused(false);if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
@@ -569,6 +573,36 @@ function App(){
    setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));
   }finally{if(bulkGeneration.current.isCurrent(token)){bulkActive.current=false;setBusy(false);}}
  }
+ async function proposeBatchRepair(){
+  if(!result||focused===null||!bulkRepairResults||busy)return;
+  const changes=bulkRepairResults.items.filter(x=>x.candidates.length===1).slice(0,8)
+   .map(x=>({selectorIndex:x.selectorIndex,newSelector:x.candidates[0]!.expression}));
+  if(changes.length<2){setMessage('至少需要两个已唯一验证的 DOM 候选才能准备批量修复；目前没有执行任何写入。');return;}
+  setBusy(true);setError('');setBatchRepairProposal(null);
+  try{
+   const reviewed=await window.ussm.proposeBatchRepair({
+    scanId:result.scanId,itemIndex:focused,changes,
+   });
+   setBatchRepairProposal(reviewed);
+   setMessage('已生成 '+reviewed.changes.length+' 处选择器的批量修复预览，尚未保存任何修订。V2/V3/V4 未验证。');
+  }catch{setError('批量修复预览失败：源文件或已有受管修订可能发生变化，请重新扫描并检查候选。');}
+  finally{setBusy(false);}
+ }
+ async function applyBatchRepair(){
+  if(!result||focused===null||!batchRepairProposal||busy)return;
+  setBusy(true);setError('');
+  try{
+   const receipt=await window.ussm.applyBatchRepair({
+    scanId:result.scanId,itemIndex:focused,proposalId:batchRepairProposal.proposalId,
+    approved:true,
+   });
+   setManagedActive({hash:receipt.hash,activePath:receipt.managedPath});
+   setManagedRevisions(null);setRepairApplied(null);
+   setBatchRepairProposal(null);setBulkRepairResults(null);
+   setMessage('已批准保存多处选择器至同一份受管修订：'+receipt.hash+'。原始脚本未修改，也未自动安装至 Tampermonkey；V2/V3/V4 未验证。');
+  }catch{setError('批量修复保存失败：预览已失效、源文件被修改或存在并发修订；不会自动覆盖原始脚本。');}
+  finally{setBusy(false);}
+ }
  async function suggestRepair(){if(focused===null||!targetId||!result||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
   try{const candidates=await window.ussm.suggestRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true});setRepairCandidates(candidates);setMessage(candidates.length?'取得 '+candidates.length+' 个 DOM 匹配的候选；候选不代表功能验证通过。':'当前网页没有足够可靠的唯一候选，请手动输入新选择器。');}
@@ -886,10 +920,19 @@ function App(){
      <label>旧选择器<select aria-label="选择需要替换的静态定位器" value={repairIndex} onChange={e=>{setRepairIndex(Number(e.target.value));setRepairProposal(null);setRepairCandidates(null);setRepairNew('');}}>{details.analysis?.selectorRecords.map((s,i)=><option key={i} value={i} disabled={s.runtimeRequired}>{s.method} · {s.expression.slice(0,90)}{s.runtimeRequired?'（动态，不可直接补丁）':''}</option>)}</select></label>
      <label>新的方法参数<input aria-label="输入新选择器" value={repairNew} onChange={e=>{setRepairNew(e.target.value);setRepairProposal(null);}} placeholder={getRepairInputHint(details.analysis?.selectorRecords[repairIndex]?.method)} /></label>
      <button type="button" disabled={busy||!targetId||!details.analysis} onClick={()=>void suggestBulkRepairs()}>批量生成修复候选（最多 8 处）</button>
+      <button type="button" disabled={busy||!bulkRepairResults||bulkRepairResults.items.filter(x=>x.candidates.length===1).length<2} onClick={()=>void proposeBatchRepair()}>生成批量修复预览（最多 8 处）</button>
      <button disabled={busy||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void suggestRepair()}>生成候选定位器（只读）</button>
      <button disabled={busy||!result||focused===null||!targetId||!pageProbe||pageProbe.probe.targetId!==targetId||pageProbe.probe.checks[repairIndex]?.status!=='missing'} onClick={()=>void prepareVerifiedPreview()}>自动准备唯一候选的受管修复预览</button>
      <button disabled={busy||!repairNew.trim()||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired} onClick={()=>void proposeRepair()}>生成修复预览</button>
     </div>
+    {batchRepairProposal&&<div className="notice">
+     <b>批量修复预览 · {batchRepairProposal.changes.length} 处</b>
+     <p>一次归档并激活受管修订；原脚本不会覆盖，需单独批准。仅静态 AST 替换，V2/V3/V4 尚未验证。</p>
+     <div className="dim">基础 SHA-256：{batchRepairProposal.baseHash} · 预期修订 SHA-256：{batchRepairProposal.proposedHash}</div>
+     {batchRepairProposal.changes.map((x,i)=><p key={i}><code>{x.oldSelector}</code> → <code>{x.newSelector}</code></p>)}
+     <pre>{batchRepairProposal.preview}</pre>
+     <button type="button" disabled={busy} onClick={()=>void applyBatchRepair()}>批准保存批量修复（受管副本）</button>
+    </div>}
     {bulkRepairResults&&<div className="notice">
      <p><b>批量缺失选择器建议</b>：当前前 50 个定位器中可检查的缺失 {bulkRepairResults.totalMissing} 处；已处理 {bulkRepairResults.checkedMissing} 处{bulkRepairResults.remainingMissing>0?`，还有 ${bulkRepairResults.remainingMissing} 处未检查`:''}。仅为 DOM 证据，不自动修改代码。</p>
      {bulkRepairResults.items.map(row=><div className="selector" key={row.selectorIndex}>
