@@ -3,6 +3,20 @@ import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-cli
 import type {VerifiedCandidate,MissingLocator} from '../../candidate-engine/src/workflow.ts';
 import type {ProposalReceipt} from './index.ts';
 import type {SelectorLocation} from '../../patch-engine/src/index.ts';
+import {isSafeLocatorToken} from '../../candidate-engine/src/index.ts';
+
+/** A raw DOM API argument and the independently observed CSS locator must
+ * describe the same element, never a different alias or unrelated selector. */
+function matchesCandidateLocatorEvidence(method:string,expression:string,cssSelector:string):boolean{
+ if(method==='querySelector')return expression===cssSelector;
+ if(!isSafeLocatorToken(expression))return false;
+ switch(method){
+  case 'getElementById':return cssSelector==='#'+expression;
+  case 'getElementsByName':return cssSelector==='[name="'+expression+'"]';
+  case 'getElementsByClassName':return cssSelector==='.'+expression;
+  default:return false;
+ }
+}
 
 /** Preview orchestration only. Neither code execution nor managed-source write
  * is allowed by this module; applying still requires a separate approval IPC.
@@ -75,6 +89,7 @@ export async function prepareVerifiedRepairPreview({approved,target,locator,sour
     typeof chosen.expression!=='string'||chosen.expression.length<1||chosen.expression.length>1024||
     chosen.expression===locator.expression||typeof chosen.cssSelector!=='string'||
     !chosen.cssSelector||chosen.cssSelector.length>1024||
+    !matchesCandidateLocatorEvidence(locator.method,chosen.expression,chosen.cssSelector)||
     !Number.isSafeInteger(chosen.confidenceScore)||chosen.confidenceScore<0||chosen.confidenceScore>100)
   throw new Error('Untrusted or unverified DOM candidate evidence');
  await deps.verifySource();
