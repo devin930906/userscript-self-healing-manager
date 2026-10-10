@@ -956,3 +956,12 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **GREEN #2：** [Node Contracts #38032479105](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032479105) **682/682 PASS**；[Windows Development CI #38032479099](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032479099) SUCCESS，包括 Electron GUI/SQLite 和 Chrome155 CDP 受控自动化验证。
 - **启动前防御 RED→GREEN：** 已存在 V1 诊断日志中的未知 SQLite `UPDATE` 触发器可在重启的 `running→interrupted` 操作中删除历史行。 [RED Node Contracts #38032598887](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032598887) **683 tests / 682 pass / 1 expected fail**；[cd0e684](https://github.com/devin930906/userscript-self-healing-manager/commit/cd0e684d6e321d4096ffd21b23dbcf3d6ec10313) 在启动写入前与备份阶段核对两张表及禁止触发器，出现异常拒绝操作，不删除现场证据。[GREEN #38032648061](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032648061) **683/683 PASS**；同提交 Windows [Development CI #38032647446](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032647446)（以最终运行结论为准）。
 - **发布边界：** 这两种 SQLite 快照依然只是 `registry.sqlite` 与 `diagnosis-journal.sqlite` 的各自独立备份，不构成一致性全 Data/、受管脚本 revision/backup、浏览器 Profile 或密钥的完整迁移/灾难恢复。真实 Tampermonkey/GM_* V4、受控生产 V2/V3、BYO AI、长期持久队列、Windows 10 + 用户指定 Chrome 155.0.8059.40 便携发行、最终三包、签名及 RG-01～09 尚未达标。继续 `0.1.0-alpha.5` + Draft PR；不触发中途安装包、不合并、不标记 Stable。
+
+
+### 2026-10-10 · 诊断历史 V1 failed/skipped 的持久化一致性（684 项）
+
+- **根因：** JSON/Markdown 导出器已拒绝不支持的 `V1 failed` / `V1 skipped`，但 SQLite `recordPage` 只严格校验 `V1 passed`，允许 `error` 或动态待复核记录被存成已验证失败，或已匹配记录被写成跳过。
+- **RED：** [Node Contracts #38032793344](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032793344) **684 tests / 683 pass / 1 expected fail**，实际证明伪造 `V1 failed` 被入库。
+- **修复：** [05ba6f6](https://github.com/devin930906/userscript-self-healing-manager/commit/05ba6f6ab5be6fdfa377bfc314249145a5e40cbd) 在 SQLite 事务开始前要求 `failed` 只能来自经检查的 `locator-missing`，`skipped` 只能来自 `skipped` 或 `out-of-scope`；不一致页不得产生任何历史记录，不掩盖 `needs-review`。
+- **GREEN：** [Node Contracts #38032844114](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032844114) **684/684 PASS, 0 FAIL**；[Windows Development CI #38032844113](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38032844113) 是同提交的 Win/Chrome155 回归验证（以 GitHub 最终状态为准）。
+- **Release 状态不变：** 尚未满足真实 GM_* V4、生产 V2/V3、完整 Data/ 原子备份与恢复、持久批量自愈、用户指定便携 Chrome 实机、三种发行包及 RG-01～09。继续 Draft 与 `0.1.0-alpha.5`；不合并或发布 Stable。
