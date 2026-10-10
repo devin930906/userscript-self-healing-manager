@@ -112,7 +112,10 @@ export interface RegistryBackupReceipt{
  * no existing target (including symlinks) can ever be overwritten. Filesystems
  * without same-directory hard-link support fail closed.
  */
-export async function backupRegistryDatabase(db:DatabaseHandle,destination:string):Promise<RegistryBackupReceipt>{
+export async function backupVerifiedSqliteSnapshot(
+ db:DatabaseHandle,destination:string,verify:(copy:DatabaseHandle)=>void,
+):Promise<RegistryBackupReceipt>{
+ if(typeof verify!=='function')throw new Error('Trusted backup verification required');
  if(!(db instanceof DatabaseSync)||typeof destination!=='string'||!isAbsolute(destination)||
     !/\.sqlite$/i.test(destination)||basename(destination).length>200)
   throw new Error('An absolute .sqlite backup destination is required');
@@ -139,10 +142,7 @@ export async function backupRegistryDatabase(db:DatabaseHandle,destination:strin
   try{
    const check=copy.prepare('PRAGMA integrity_check').get() as {integrity_check?:unknown}|undefined;
    if(check?.integrity_check!=='ok')throw new Error('SQLite backup integrity check failed');
-   const rows=copy.prepare('SELECT version FROM schema_version LIMIT 2').all();
-   if(rows.length!==1||rows[0]?.version!==1)
-    throw new Error('Backup database has an unsupported schema version');
-   assertV1ScriptsTable(copy);
+   verify(copy);
   }finally{copy.close();}
   const digest=createHash('sha256');
   for await(const block of createReadStream(staging))digest.update(block);
@@ -156,4 +156,14 @@ export async function backupRegistryDatabase(db:DatabaseHandle,destination:strin
    if(error.code!=='ENOENT')throw error;
   });
  }
+}
+
+/** A registry snapshot also requires the exact v1 registry schema. */
+export async function backupRegistryDatabase(db:DatabaseHandle,destination:string):Promise<RegistryBackupReceipt>{
+ return backupVerifiedSqliteSnapshot(db,destination,copy=>{
+  const rows=copy.prepare('SELECT version FROM schema_version LIMIT 2').all();
+  if(rows.length!==1||rows[0]?.version!==1)
+   throw new Error('Backup database has an unsupported schema version');
+  assertV1ScriptsTable(copy);
+ });
 }
