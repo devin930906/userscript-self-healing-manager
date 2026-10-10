@@ -164,3 +164,58 @@ test('database error classification uses exact native codes and retains causes',
  const permission=Object.assign(new Error('opaque'),{code:'EACCES'});
  assert.equal(classifyDatabaseError(permission).code,'DATABASE_PERMISSION_DENIED');
 });
+
+
+test('future schema version is classified explicitly without mutating user tables',()=>{
+ const db=openDatabase(':memory:');
+ try{
+  db.exec("CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(999); CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES('untouched')");
+  assert.throws(()=>migrateDatabase(db),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   const wrapped=error as Error & {code?:string;cause?:unknown;rollbackError?:unknown};
+   assert.equal(wrapped.code,'DATABASE_SCHEMA_UNSUPPORTED');
+   assert.ok(wrapped.cause instanceof Error);
+   assert.match(wrapped.cause.message,/unsupported database schema version/i);
+   assert.equal(wrapped.rollbackError,undefined);
+   return true;
+  });
+  assert.equal(db.prepare('SELECT value FROM future_data').get()?.value,'untouched');
+  db.exec('BEGIN IMMEDIATE; ROLLBACK');
+ }finally{db.close();}
+});
+
+test('successful rollback preserves exact original migration cause and allows the next transaction',()=>{
+ const db=openDatabase(':memory:');
+ const exec=db.exec.bind(db);
+ const underlying=new Error('simulated schema validation root cause');
+ try{
+  db.exec=(sql:string)=>{
+   if(sql.includes('CREATE TABLE IF NOT EXISTS schema_version'))throw underlying;
+   return exec(sql);
+  };
+  assert.throws(()=>migrateDatabase(db),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   const wrapped=error as Error & {cause?:unknown;rollbackError?:unknown};
+   assert.equal(wrapped.cause,underlying);
+   assert.equal(wrapped.rollbackError,undefined);
+   return true;
+  });
+  exec('BEGIN IMMEDIATE; ROLLBACK');
+  assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='schema_version'").get()?.n,0);
+ }finally{db.close();}
+});
+
+test('extended SQLite busy and locked codes use primary code and invalid errcodes stay unknown',()=>{
+ for(const primary of [5,6]){
+  for(const extended of [primary,primary | (2<<8),primary | (7<<8)]){
+   const native=Object.assign(new Error('opaque'),{code:'ERR_SQLITE_ERROR',errcode:extended});
+   const wrapped=classifyDatabaseError(native);
+   assert.equal(wrapped.code,'DATABASE_BUSY');
+   assert.equal(wrapped.cause,native);
+  }
+ }
+ for(const errcode of [undefined,NaN,Infinity,5.25,-1,'5',null]){
+  const native=Object.assign(new Error('database is locked'),{code:'ERR_SQLITE_ERROR',errcode});
+  assert.equal(classifyDatabaseError(native).code,'DATABASE_UNKNOWN_ERROR');
+ }
+});
