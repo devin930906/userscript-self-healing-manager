@@ -149,3 +149,30 @@ test('uninspected dynamic or iframe locators remain valid review-only journal ev
   }
  }finally{journal.close();}
 }));
+
+
+test('consistent journal backup includes committed WAL rows, integrity and SHA-256 without replacing previous backups',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ try{
+  const snapshot=(journal as unknown as {backupSnapshot?:(destination:string)=>Promise<{path:string;sha256:string;bytes:number}>}).backupSnapshot;
+  assert.equal(typeof snapshot,'function','journal backup API must be present');
+  const destination=join(path,'..','history-backup.sqlite');
+  const expected=journal.recordPage({scanId,targetId,total:1,offset:0,page:page(0,1)});
+  const output=await snapshot!(destination);
+  assert.equal(output.path,destination);
+  assert.match(output.sha256,/^[a-f0-9]{64}$/);
+  assert.ok(output.bytes>512);
+  const backupDb=new DatabaseSync(destination,{readOnly:true});
+  try{
+   assert.equal(backupDb.prepare('PRAGMA integrity_check').get()?.integrity_check,'ok');
+   assert.equal(backupDb.prepare('PRAGMA user_version').get()?.user_version,1);
+   assert.equal(backupDb.prepare('SELECT run_id FROM journal_runs LIMIT 1').get()?.run_id,expected.runId);
+   assert.equal(backupDb.prepare('SELECT COUNT(*) AS c FROM journal_items').get()?.c,1);
+  }finally{backupDb.close();}
+  const {createHash}=await import('node:crypto');
+  assert.equal(createHash('sha256').update(await readFile(destination)).digest('hex'),output.sha256);
+  await assert.rejects(snapshot!(destination),/exist|overwrite|already|refus/i);
+  await assert.rejects(snapshot!('relative.sqlite'),/absolute|invalid|destination/i);
+  assert.equal(journal.listRecent()[0]?.runId,expected.runId);
+ }finally{journal.close();}
+}));
