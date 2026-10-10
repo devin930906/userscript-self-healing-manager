@@ -298,3 +298,20 @@ test('SiteAdapter V1 never accepts contradictory ambiguous querySelectorAll evid
   assert.equal(result.functionalVerified,false);
  }
 });
+
+test('iframe role refuses V1 certification without a private child URL identity fingerprint',async()=>{
+ let observed=0;
+ const deps={...makeDeps([0]),
+  confirm:async()=>({...identity,subframeCount:1,
+   soleSameOriginSubframe:{frameId:'child-1',loaderId:'child-loader-a'}}),
+  probeIframe:async()=>{
+   observed++;
+   return status({'#frame-send':1}) as LocatorProbeResult;
+  },
+ };
+ const result=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,
+  roleId:'chat.frameButton',declaredStateId:'ready',deps});
+ assert.equal(result.status,'blocked-context');
+ assert.equal(result.evidenceLevel,'none');
+ assert.equal(observed,0,'no child CDP probe without a private URL identity');
+});
