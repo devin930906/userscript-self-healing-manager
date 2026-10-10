@@ -41,6 +41,11 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  });
  if(!pathUnique)
   throw new Error('Incompatible scripts schema: missing unique path constraint');
+ // No triggers belong to the v1 registry schema. A database that otherwise
+ // has correct columns and indexes may still carry an unexpected trigger
+ // which deletes or rewrites user records on the next normal upsert.
+ const unexpectedTrigger=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('scripts','schema_version') LIMIT 1").get();
+ if(unexpectedTrigger)throw new Error('Unsafe SQLite v1 schema: unrecognized mutating trigger');
 }
 export function migrateDatabase(db:DatabaseHandle):void{
  // Claim a SQLite write transaction BEFORE inspecting or changing the schema.
