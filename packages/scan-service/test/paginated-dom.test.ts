@@ -198,3 +198,44 @@ test('Electron error wrapping never makes arbitrary handlers or identity changes
   assert.equal(count,1,msg);
  }
 });
+
+test('a cancelled pause gate cannot return an incomplete read-only batch as completed when the separate callback is stale',async()=>{
+ for(const whilePaused of [false,true]){
+  const gate=new BatchPauseGate();
+  const requested:number[]=[];
+  const progress:number[]=[];
+  let waiting!:()=>void;
+  const checkpoint=new Promise<void>(resolve=>{waiting=resolve;});
+  const work=collectPagedDomDiagnosis({
+   total:51,targetId,pauseGate:gate,
+   isCancelled:()=>false,
+   requestPage:async offset=>{requested.push(offset);return page(offset);},
+   onProgress:state=>{
+    progress.push(state.totalItems);
+    if(state.totalItems===25){
+     if(whilePaused){gate.pause();waiting();}
+     else gate.cancel();
+    }
+   },
+  });
+  if(whilePaused){await checkpoint;gate.cancel();}
+  const outcome=await work;
+  assert.deepEqual(requested,[0]);
+  assert.deepEqual(progress,[25]);
+  assert.equal(outcome.totalItems,25);
+  assert.equal(outcome.remainingItems,26);
+  assert.equal(outcome.cancelled,true,
+   'cooperative gate refusal is cancellation, not a completed 25-of-51 diagnosis');
+ }
+});
+
+test('a final-page progress callback cancelling the gate must never report successful completion',async()=>{
+ const gate=new BatchPauseGate();
+ const outcome=await collectPagedDomDiagnosis({
+  total:25,targetId,pauseGate:gate,isCancelled:()=>false,
+  requestPage:async offset=>page(offset,25),
+  onProgress:()=>gate.cancel(),
+ });
+ assert.equal(outcome.items.length,25);
+ assert.equal(outcome.cancelled,true,'final callback cancelled before report completion');
+});
