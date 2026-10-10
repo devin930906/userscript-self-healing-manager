@@ -38,15 +38,19 @@ export function parseUserscriptMetadata(source:string):MetadataParseResult {
  // Metadata keys are untrusted; inherited names such as __proto__/constructor
  // must never select Object.prototype methods or setters.
  const raw:Record<string,string[]>=Object.create(null) as Record<string,string[]>;
+ let closed=false;
  if(start>=0)for(let i=start+1;i<lines.length;i++){
    const line=lines[i]!;
-   if(/^\s*\/\/\s*==\/UserScript==/.test(line))break;
+   if(/^\s*\/\/\s*==\/UserScript==\s*$/.test(line)){closed=true;break;}
    if(!line.trim())continue;
    // A blank line is legal in metadata; executable content is not metadata.
    if(!/^\s*\/\//.test(line))break;
    const m=line.match(/^\s*\/\/\s*@([\w-]+)\s*(.*?)\s*$/);if(m&&m[1]) (raw[m[1]]??=[]).push(m[2]??'');
  }
- return {name:raw.name?.[0]??null,match:raw.match??[],include:raw.include??[],grant:raw.grant??[],runAt:raw['run-at']?.[0]??null,raw};
+ // Unclosed or forged marker blocks script activation; preserve separate AST
+ // analysis so users can still diagnose a malformed script without authorizing CDP.
+ const validated=closed?raw:Object.create(null) as Record<string,string[]>;
+ return {name:validated.name?.[0]??null,match:validated.match??[],include:validated.include??[],grant:validated.grant??[],runAt:validated['run-at']?.[0]??null,raw:validated};
 }
 const METHODS=new Set(['querySelector','querySelectorAll','getElementById','getElementsByClassName','getElementsByName','closest','matches']);
 function selectorOf(node:ts.Expression):{expression:string;dynamicKind:DynamicKind}{
