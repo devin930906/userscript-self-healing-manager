@@ -226,3 +226,22 @@ test('CDP resolved non-node object without subtype cannot masquerade as a DOM li
   ]);
  }
 });
+
+test('a valid remote handle returned for a non-node is released without inspecting its listeners',async()=>{
+ const socket=new FakeSocket({
+  'DOM.getDocument':()=>({root:{nodeId:3}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[17]}),
+  'DOM.resolveNode':()=>({object:{type:'object',subtype:'array',objectId:'remote-non-node'}}),
+  'DOMDebugger.getEventListeners':()=>{throw new Error('Non-node must not be inspected');},
+  'Runtime.releaseObject':()=>({}),
+ });
+ const evidence=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
+ assert.equal(evidence.status,'unknown');
+ assert.equal(evidence.listenerCount,null);
+ assert.equal(evidence.V2,'blocked');
+ assert.deepEqual(socket.sent.map(command=>command.method),[
+  'DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode','Runtime.releaseObject',
+ ]);
+ assert.deepEqual(socket.sent.at(-1)?.params,{objectId:'remote-non-node'});
+ assert.ok(!JSON.stringify(evidence).includes('remote-non-node'));
+});
