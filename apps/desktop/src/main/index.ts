@@ -107,6 +107,18 @@ async function bootstrap():Promise<void>{
   const receipt=await backupRegistryDatabase(db,save.filePath);
   return {canceled:false,...receipt};
  });
+ ipcMain.handle('usshm:backup-journal',async event=>{
+  assertSender(event);
+  // Only the native Save dialog chooses a NEW destination; renderer cannot
+  // supply an arbitrary file path, read private journal rows or overwrite.
+  const save=await dialog.showSaveDialog(mainWindow,{
+   defaultPath:join(app.getPath('documents'),'USSHM-diagnosis-history-'+new Date().toISOString().slice(0,10)+'.sqlite'),
+   filters:[{name:'SQLite diagnosis history backup',extensions:['sqlite']}],
+  });
+  if(save.canceled||!save.filePath)return {canceled:true};
+  const receipt=await journal.backupSnapshot(save.filePath);
+  return {canceled:false,...receipt};
+ });
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
  ipcMain.handle('usshm:pick-directory',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openDirectory']});if(x.canceled)return null;
