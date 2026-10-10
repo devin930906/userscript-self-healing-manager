@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {EventEmitter} from 'node:events';
-import {probePageLocators} from '../src/locator-probe.ts';
+import {probePageLocators,asCss} from '../src/locator-probe.ts';
 class ProtocolSocket extends EventEmitter{
  readonly sent:Array<{id:number;method:string;params:any}>=[];
  private readonly handlers:Record<string,(params:any)=>any>;
@@ -291,4 +291,24 @@ test('iframe-document never falls back when child is missing, ambiguous or frame
  }
  await assert.rejects(probePageLocators(page,[],{rootScope:'iframe-document'}),/frame/i);
  await assert.rejects(probePageLocators(page,[],{rootScope:'iframe-document',expectedFrameId:'bad!!'}),/frame/i);
+});
+
+test('native id and class APIs escape lone hyphens and hyphen-digit prefixes as valid CSS identifiers',async()=>{
+ const cases=[
+  {method:'getElementById',expression:'-1',selector:'#-\\31 '},
+  {method:'getElementById',expression:'-',selector:'#\\-'},
+  {method:'getElementsByClassName',expression:'-2',selector:'.-\\32 '},
+  {method:'getElementsByClassName',expression:'-',selector:'.\\-'},
+ ];
+ for(const entry of cases){
+  const locator={method:entry.method,expression:entry.expression,runtimeRequired:false};
+  assert.equal(asCss(locator),entry.selector,entry.method+' '+entry.expression);
+  const socket=new ProtocolSocket({
+   'DOM.getDocument':()=>({root:{nodeId:8}}),
+   'DOM.querySelectorAll':({selector})=>({nodeIds:selector===entry.selector?[12]:[]}),
+  });
+  const result=await probePageLocators(page,[locator],{socketFactory:()=>socket});
+  assert.equal(result.checks[0]?.status,'found',entry.method+' '+entry.expression);
+  assert.equal(socket.sent.find(s=>s.method==='DOM.querySelectorAll')?.params.selector,entry.selector);
+ }
 });
