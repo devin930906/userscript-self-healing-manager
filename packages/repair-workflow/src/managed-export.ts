@@ -102,3 +102,86 @@ export async function exportManagedRecovery(input:{
  });
  return {path:target,files:Object.freeze(files)};
 }
+
+
+/**
+ * Read-only offline integrity audit of a managed recovery directory.
+ * This is not a restore operation, and the manifest hashes are corruption
+ * checks, not signatures establishing who created the backup.
+ */
+export async function verifyManagedRecovery({snapshotDirectory}:{
+ snapshotDirectory:string;
+}):Promise<{files:number;bytes:number}>{
+ if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory))
+  throw new Error('Managed recovery path must be absolute');
+ const root=resolve(snapshotDirectory);
+ if(!(await safeDir(root)))throw new Error('Unsafe or missing managed recovery directory');
+ const manifestPath=join(root,'manifest.json'),manifestInfo=await lstat(manifestPath);
+ if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>2*1024*1024)
+  throw new Error('Unsafe managed recovery manifest');
+ const bytes=await readPinnedRegularFile(manifestPath,{maxBytes:2*1024*1024,expected:manifestInfo});
+ let parsed:unknown;
+ try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
+ catch{throw new Error('Invalid managed recovery manifest');}
+ if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))
+  throw new Error('Invalid managed recovery manifest');
+ const manifest=parsed as {kind?:unknown;complete?:unknown;files?:unknown};
+ if(manifest.kind!=='usshm-managed-recovery-v1'||manifest.complete!==true||
+   !Array.isArray(manifest.files)||manifest.files.length>LIMIT_FILES)
+  throw new Error('Incomplete or invalid managed recovery manifest');
+ const expected=new Set<string>(),archives=new Map<string,Set<string>>();
+ let total=0;
+ for(const candidate of manifest.files){
+  if(!candidate||typeof candidate!=='object'||Array.isArray(candidate))
+   throw new Error('Invalid managed recovery manifest entry');
+  const item=candidate as {path?:unknown;sha256?:unknown;bytes?:unknown};
+  if(typeof item.path!=='string'||typeof item.sha256!=='string'||
+     !/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/.test(item.path)||
+     !/^[a-f0-9]{64}$/.test(item.sha256)||
+     !Number.isSafeInteger(item.bytes)||(item.bytes as number)<0||(item.bytes as number)>LIMIT_EACH||
+     expected.has(item.path))
+   throw new Error('Unsafe managed recovery manifest entry or path');
+  expected.add(item.path);
+  total+=item.bytes as number;
+  if(total>LIMIT_TOTAL)throw new Error('Managed recovery manifest exceeds size limit');
+  const pieces=item.path.split('/'),scriptId=pieces[1]!,name=pieces[2]!;
+  if(!(await safeDir(join(root,'managed')))||
+     !(await safeDir(join(root,'managed',scriptId))))
+   throw new Error('Unsafe managed recovery directory or symlink');
+  const absolute=join(root,...pieces),info=await lstat(absolute);
+  if(info.isSymbolicLink()||!info.isFile()||info.size!==item.bytes)
+   throw new Error('Managed recovery size or type mismatch');
+  const file=await readPinnedRegularFile(absolute,{maxBytes:LIMIT_EACH,expected:info});
+  if(hash(file)!==item.sha256)throw new Error('Managed recovery SHA-256 hash mismatch');
+  const match=ARCHIVE.exec(name);
+  if(match){
+   if(match[2]!==item.sha256)throw new Error('Managed archive name and hash mismatch');
+   const set=archives.get(scriptId)??new Set<string>();
+   set.add(item.sha256);archives.set(scriptId,set);
+  }
+ }
+ // Reject files excluded from the manifest: a backup is trustworthy for
+ // integrity checking only when its inventory is complete and unambiguous.
+ const rootNames=(await readdir(root)).sort();
+ const expectedRoot=expected.size?['managed','manifest.json']:['manifest.json'];
+ if(JSON.stringify(rootNames)!==JSON.stringify(expectedRoot.sort()))
+  throw new Error('Unexpected root file in managed recovery snapshot');
+ if(expected.size){
+  const scriptIds=(await readdir(join(root,'managed'))).sort();
+  if(scriptIds.length>1000||scriptIds.some(id=>!ID.test(id)))
+   throw new Error('Unsafe snapshot script directory');
+  const listedIds=[...new Set([...expected].map(p=>p.split('/')[1]!))].sort();
+  if(JSON.stringify(scriptIds)!==JSON.stringify(listedIds))
+   throw new Error('Unlisted managed recovery directories');
+  for(const id of scriptIds){
+   const actual=(await readdir(join(root,'managed',id))).sort();
+   const expectedNames=[...expected].filter(p=>p.startsWith('managed/'+id+'/')).map(p=>p.split('/')[2]!).sort();
+   if(JSON.stringify(actual)!==JSON.stringify(expectedNames))
+    throw new Error('Unlisted managed recovery revision file');
+   const current=manifest.files.find((v:{path:string})=>v.path==='managed/'+id+'/current.user.js') as {sha256:string}|undefined;
+   if(current&&!archives.get(id)?.has(current.sha256))
+    throw new Error('Unarchived current revision in managed recovery');
+  }
+ }
+ return {files:expected.size,bytes:total};
+}
