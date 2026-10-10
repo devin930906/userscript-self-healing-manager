@@ -26,7 +26,7 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
    throw new Error('Recovery file changed before pinned read');
   const digest=createHash('sha256');
   let count=0;
-  for await(const block of handle.createReadStream()){
+  for await(const block of handle.createReadStream({autoClose:false})){
    count+=(block as Buffer).byteLength;
    if(count>limit)throw new Error('Recovery file grew past size budget');
    digest.update(block);
