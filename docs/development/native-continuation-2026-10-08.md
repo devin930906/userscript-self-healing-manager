@@ -893,3 +893,12 @@ CI 运行器不是用户真实 Windows 10 + 指定便携 Chrome 155；实际 Tam
 - **修复提交：** [5b9a9f8](https://github.com/devin930906/userscript-self-healing-manager/commit/5b9a9f80e1ed9173505da1fbbbfafc4033e9218c) 在最终 dispatch 边界二次等待暂停门禁，同时为每次暂停引入短生命周期 `pauseEpoch`。一旦 `beforeDispatch` await 期间暂停，即使随后立即 resume，必须重新调用 Main-owned 前置审核；异常/拒绝继续 fail-closed，取消与撤销权限不能执行写入。
 - **GREEN 证据：** [Node Contracts #38029077256](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38029077256) **665/665 tests PASS、0 FAIL**；[Windows Development CI #38029077278](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38029077278) verify / Chrome for Testing 155 jobs SUCCESS，包括 TypeScript、Electron GUI/SQLite 与真实 Chrome CDP smoke。没有触发中途安装包。
 - **准确状态：** 此安全补丁仍只是独立的 in-memory queue foundation，不意味着已完成持久多脚本自动修复调度、真实 Tampermonkey/GM_* V4、生产 V2/V3、指定 Windows10 + Chrome 155.0.8059.40 portable、最终三包发行或 RG-01～09。继续 0.1.0-alpha.5 / Draft；不得以 Stable 名义发布。
+
+
+## 2026-10-10 · SQLite 诊断记录的证据数量完整性（666 项）
+
+- **故障根因：** `openDiagnosisJournal().recordPage()` 原先逐项检查 found/missing/needsReview 范围，但没有要求三者合计严格等于 checked；也未拒绝与统计不符的 `dom-present` / `locator-missing` 标签。矛盾状态可能污染历史趋势和后续报告。
+- **TDD RED：** [Node Contracts #38029269041](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38029269041)，**666 tests / 665 pass / 1 expected fail**，真实复现 `checked=1, found=1, missing=1` 被错误接收。
+- **修复：** [3f33ae9](https://github.com/devin930906/userscript-self-healing-manager/commit/3f33ae9283c043eeb9dc0e2d079cb523adc0cc1a) 校验 `found+missing+needsReview===checked`，并拒绝 `dom-present` 无全数命中、`locator-missing` 没有缺失项的自相矛盾状态。新测试还确认发生校验失败时不会写入 SQLite run。
+- **GREEN：** [Node Contracts #38029323580](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38029323580) **666/666 tests PASS、0 FAIL**；Windows [Development CI #38029321164](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38029321164) SUCCESS（实际各 job 可在 run 中核对）。
+- **非 Stable：** 本次只加强原有安全边界与持久证据准确性，没有补齐 Tampermonkey/GM_* V4、真实业务 V2/V3、指定 Win10/portable Chrome155.0.8059.40、三包实际正式发行与 RG-01～09。继续保持 Draft；没有制作预览安装包或修改用户实际原文件。
