@@ -97,3 +97,112 @@ export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,e
  await persistImmutableSnapshot({archivePath:managedPath,bytes:proposedBytes});
  return {backupPath,managedPath,hash:draft.proposedHash};
 }
+
+
+/**
+ * Draft 2–8 independently identified AST selector literal replacements as
+ * ONE all-or-nothing, in-memory edit. Never execute or write a userscript.
+ *
+ * Every call is pinned to its original AST call start and optionally the
+ * exact reviewed literal byte range. Changing string lengths cannot shift
+ * subsequent call identities because edits are applied right-to-left.
+ */
+export interface BatchSelectorChange {
+ readonly oldSelector:string;
+ readonly newSelector:string;
+ readonly selectorLocation:SelectorLocation;
+ readonly expectedSourceRange?:Readonly<{start:number;end:number}>|undefined;
+}
+export interface BatchLiteralPatchDraft {
+ readonly baseHash:string;
+ readonly proposedHash:string;
+ readonly proposedSource:string;
+ readonly changes:readonly {
+  readonly oldSelector:string;
+  readonly newSelector:string;
+  readonly sourceRange:{readonly start:number;readonly end:number};
+ }[];
+}
+export function proposeLiteralPatchBatch({
+ sourceBytes,changes,
+}:{
+ sourceBytes:Uint8Array;
+ changes:readonly BatchSelectorChange[];
+}):BatchLiteralPatchDraft{
+ if(!(sourceBytes instanceof Uint8Array)||sourceBytes.byteLength>512*1024)
+  throw new Error('Invalid batch source size or bytes');
+ if(!Array.isArray(changes)||changes.length<2||changes.length>8)
+  throw new Error('Batch requires between 2 and 8 selector changes');
+ const hasBom=sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191;
+ let original:string;
+ try{original=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);}
+ catch{throw new Error('Batch source is not valid UTF-8');}
+ const file=ts.createSourceFile('script.user.js',original,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+ const parseErrors=(file as ts.SourceFile&{parseDiagnostics?:readonly ts.Diagnostic[]}).parseDiagnostics;
+ if(parseErrors?.length)throw new Error('Cannot draft batch patch from JavaScript syntax errors');
+ const literals:ts.StringLiteralLike[]=[];
+ function visit(node:ts.Node):void{
+  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&
+     ['querySelector','querySelectorAll','closest','matches','getElementById',
+      'getElementsByName','getElementsByClassName'].includes(node.expression.name.text)&&
+     node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0]))
+   literals.push(node.arguments[0]);
+  ts.forEachChild(node,visit);
+ }
+ visit(file);
+ const selected:{
+  oldSelector:string;newSelector:string;sourceRange:{start:number;end:number};
+ }[]=[];
+ const seen=new Set<number>();
+ for(const change of changes){
+  if(!change||typeof change.oldSelector!=='string'||typeof change.newSelector!=='string'||
+     !change.oldSelector||!change.newSelector||
+     change.oldSelector===change.newSelector||
+     change.oldSelector.length>1024||change.newSelector.length>1024)
+   throw new Error('Invalid or unchanged batch selector');
+  const loc=change.selectorLocation;
+  if(!loc||!['querySelector','querySelectorAll','closest','matches','getElementById',
+     'getElementsByName','getElementsByClassName'].includes(loc.method)||
+     !Number.isSafeInteger(loc.line)||loc.line<1||
+     !Number.isSafeInteger(loc.column)||loc.column<1)
+   throw new Error('Invalid batch selector AST location');
+  const exact=change.expectedSourceRange;
+  if(exact&&(!Number.isSafeInteger(exact.start)||!Number.isSafeInteger(exact.end)||
+     exact.start<0||exact.end<=exact.start))
+   throw new Error('Invalid pinned batch source range');
+  const matches=literals.filter(literal=>{
+   if(literal.text!==change.oldSelector)return false;
+   const call=literal.parent;
+   if(!ts.isCallExpression(call)||!ts.isPropertyAccessExpression(call.expression)||
+      call.expression.name.text!==loc.method)return false;
+   const pos=file.getLineAndCharacterOfPosition(call.getStart(file));
+   return pos.line+1===loc.line&&pos.character+1===loc.column&&
+    (!exact||(literal.getStart(file)===exact.start&&literal.getEnd()===exact.end));
+  });
+  if(matches.length!==1)
+   throw new Error('Expected exactly one pinned AST selector for each batch change');
+  const literal=matches[0]!,start=literal.getStart(file),end=literal.getEnd();
+  if(seen.has(start))throw new Error('Duplicate batch AST selector target');
+  seen.add(start);
+  selected.push({
+   oldSelector:change.oldSelector,newSelector:change.newSelector,
+   sourceRange:{start,end},
+  });
+ }
+ const descending=[...selected].sort((a,b)=>b.sourceRange.start-a.sourceRange.start);
+ let changed=original;
+ let previousStart=original.length+1;
+ for(const entry of descending){
+  if(entry.sourceRange.end>previousStart)
+   throw new Error('Overlapping batch selector ranges');
+  changed=changed.slice(0,entry.sourceRange.start)+
+   JSON.stringify(entry.newSelector)+changed.slice(entry.sourceRange.end);
+  previousStart=entry.sourceRange.start;
+ }
+ const proposedSource=(hasBom?'\ufeff':'')+changed;
+ const outputBytes=new TextEncoder().encode(proposedSource);
+ if(outputBytes.byteLength>512*1024)
+  throw new Error('Batch patched script exceeds safe size');
+ return {baseHash:sha(sourceBytes),proposedHash:sha(outputBytes),
+  proposedSource,changes:selected};
+}
