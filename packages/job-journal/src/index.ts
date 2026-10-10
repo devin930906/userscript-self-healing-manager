@@ -119,8 +119,14 @@ export function openDiagnosisJournal(file:string){
     for(const count of [row.checked,row.found,row.missing,row.needsReview]){
      if(!Number.isSafeInteger(count)||count<0||count>10000)throw new Error('Invalid diagnosis item counts');
     }
-    if(row.checked>50||row.found>row.checked||row.missing>row.checked)
-     throw new Error('Invalid diagnosis checked count');
+    if(row.checked>50||row.found+row.missing+row.needsReview!==row.checked)
+     throw new Error('Invalid or contradictory diagnosis checked counts');
+    // Persisted trends cannot rely on a label contradicted by its evidence.
+    if(row.status==='dom-present'&&(row.checked===0||row.found!==row.checked||
+       row.missing!==0||row.needsReview!==0))
+     throw new Error('Contradictory DOM-present diagnosis status');
+    if(row.status==='locator-missing'&&row.missing===0)
+     throw new Error('Contradictory missing-locator diagnosis status');
     if(v.V1==='passed'&&(row.status!=='dom-present'||row.checked===0||
        row.found!==row.checked||row.missing!==0||row.needsReview!==0))
      throw new Error('Unverified DOM status cannot claim V1 passed');
