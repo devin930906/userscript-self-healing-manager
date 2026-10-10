@@ -57,9 +57,6 @@ function assertPageIdentity(target:ChromeTarget,evidence:{targetId:string;confir
  if(evidence.targetId!==target.id||(evidence.confirmedUrl??evidence.url)!==target.url)
   throw new Error('CDP page identity or live frame URL changed during batch diagnosis');
 }
-function errorMessage(error:unknown):string {
- return error instanceof Error?error.message.slice(0,250):'CDP diagnosis failed';
-}
 /**
  * No scripts run and no files are modified. All CDP calls are read-only, bounded,
  * scoped to explicit @match/@include rules and fenced by live top-frame checks.
@@ -122,10 +119,13 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   await checkIdentity();
   let evidence:LocatorProbeResult;
   try{evidence=await deps.probe(target,locators);}
-  catch(error){
+  catch{
    // Even a failed request may have raced with a navigation; do not accept stale batch context.
    await checkIdentity();
-   results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:errorMessage(error)});
+   // CDP exceptions may contain selector expressions, URLs, local paths,
+   // credentials or site-owned private data. Never return raw text over IPC.
+   results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,
+    reason:'CDP locator probe failed'});
    continue;
   }
   await checkIdentity();
