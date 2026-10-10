@@ -59,10 +59,10 @@ declare global {interface Window{ussm:{
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>Promise<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string}>;
- applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
- applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:string}>;
- applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
- applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string}>;
+ applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:stringactivePath:string}>;
+ applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:stringactivePath:string}>;
+ applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:stringactivePath:string}>;
+ applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:stringactivePath:string}>;
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
@@ -597,7 +597,7 @@ function App(){
     scanId:result.scanId,itemIndex:focused,proposalId:batchRepairProposal.proposalId,
     approved:true,
    });
-   setManagedActive({hash:receipt.hash,activePath:receipt.managedPath});
+   setManagedActive({hash:receipt.hash,activePath:receipt.activePath});
    setManagedRevisions(null);setRepairApplied(null);
    setBatchRepairProposal(null);setBulkRepairResults(null);
    setMessage('已批准保存多处选择器至同一份受管修订：'+receipt.hash+'。原始脚本未修改，也未自动安装至 Tampermonkey；V2/V3/V4 未验证。');
@@ -615,7 +615,7 @@ function App(){
    setBatchRepairProposal(null);setBulkRepairResults(null);setManagedRevisions(null);
    setRepairApplied(null);setManagedActive(null);
    if(evidence.status==='retained-v1'){
-    setManagedActive({hash:evidence.appliedHash,activePath:evidence.managedPath});
+    setManagedActive({hash:evidence.appliedHash,activePath:evidence.activePath});
     setMessage('批量修复已保存：共 '+evidence.verifiedIndexes.length+' 处经过双次、唯一节点 V1 核验；只是 DOM 证据，V2/V3/V4 未通过，也没有安装至 Tampermonkey。');
    }else if(evidence.status==='rolled-back-v1'){
     setMessage('批量修复中至少一处未满足 V1 条件，已把整份受管修订回滚到前一哈希 '+evidence.activeHash+'。原始脚本未修改。');
@@ -653,7 +653,7 @@ function App(){
  }
  async function applyRepair(){if(!repairProposal||!result)return;
   setWatchEnabled(false);setBusy(true);setError('');
-  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.managedPath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
+  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.activePath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
  }
  async function applyRepairGuarded(){
