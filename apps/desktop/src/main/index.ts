@@ -32,6 +32,7 @@ import {createBatchRepairWorkflow} from '../../../../packages/repair-workflow/sr
 import {prepareVerifiedRepairPreview} from '../../../../packages/repair-workflow/src/verified-preview.ts';
 import {readVerifiedManagedLocator} from '../../../../packages/repair-workflow/src/managed-locator.ts';
 import {guardAppliedManagedRevision} from '../../../../packages/repair-workflow/src/guarded-v1.ts';
+import {guardAppliedManagedBatchRevision} from '../../../../packages/repair-workflow/src/guarded-batch-v1.ts';
 import {ProposalApprovalGate} from '../../../../packages/repair-workflow/src/proposal-approval.ts';
 import {listManagedRevisions} from '../../../../packages/repair-workflow/src/history.ts';
 import {inspectManagedIntegrity} from '../../../../packages/repair-workflow/src/managed-health.ts';
@@ -834,6 +835,77 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   try{return await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
   finally{pendingApprovals.consume(q.proposalId);}
+ });
+ ipcMain.handle('usshm:apply-batch-repair-guarded',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;
+   proposalId?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     typeof q.proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(q.proposalId)||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit pinned batch V1 approval and CDP page required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  const trusted=batchRepairs.inspectPending(q.proposalId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!trusted||!item?.analysis||!item.scriptId||!withinAuthorized(item.path)||
+     trusted.scriptId!==item.scriptId)
+   throw new Error('Unrelated or stale approved batch repair');
+  const info=await lstat(item.path);
+  if(!info.isFile()||info.isSymbolicLink())throw new Error('Unsafe original source');
+  const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info});
+  if(createHash('sha256').update(source).digest('hex')!==item.analysis.sourceSha256)
+   throw new Error('Original source changed after batch approval');
+  const chrome=await getVerifiedChromeStatus({port:9223});
+  scanSessions.assertCurrent(scanSnapshot);
+  const selected=chrome.pages.find(p=>p.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome page not available');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Script does not match the approved target Chrome webpage');
+  const originalDocument=await confirmPageIdentity(selected);
+  scanSessions.assertCurrent(scanSnapshot);
+  let applied:Awaited<ReturnType<typeof batchRepairs.applyBatch>>;
+  try{applied=await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
+  finally{pendingApprovals.consume(q.proposalId);}
+  const safety=await guardAppliedManagedBatchRevision({
+   approved:true,scriptId:item.scriptId,appliedHash:applied.hash,
+   previousHash:trusted.previousHash,selectorIndexes:trusted.selectorIndexes,
+   verify:async(index)=>{
+    if(applied.hash!==trusted.proposedHash)
+     throw new Error('Approved batch revision hash changed unexpectedly');
+    scanSessions.assertCurrent(scanSnapshot);
+    assertStablePageDocument(originalDocument,await confirmPageIdentity(selected));
+    const before=await readVerifiedManagedLocator({
+     managedRoot:dataRoot,scriptId:item.scriptId!,revisionHash:applied.hash,selectorIndex:index,
+    });
+    const verdict=await runReadOnlyDomContract({
+     approved:true,target:selected,caseId:'BATCH:'+item.scriptId+':IDX_'+index,
+     locator:{method:before.method,expression:before.expression,runtimeRequired:false},
+     expectation:'unique',
+     deps:{
+      confirm:confirmPageIdentity,
+      probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+      summarize:captureDomSummary,
+      wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
+     },
+    });
+    const after=await readVerifiedManagedLocator({
+     managedRoot:dataRoot,scriptId:item.scriptId!,revisionHash:applied.hash,selectorIndex:index,
+    });
+    if(after.method!==before.method||after.expression!==before.expression)
+     throw new Error('Managed batch selector changed during V1 verification');
+    assertStablePageDocument(originalDocument,await confirmPageIdentity(selected));
+    scanSessions.assertCurrent(scanSnapshot);
+    return verdict;
+   },
+   restore:hash=>batchRepairs.restore({
+    scriptId:item.scriptId!,hash,approved:true,expectedCurrentHash:applied.hash,
+   }),
+  });
+  return {...safety,backupPath:applied.backupPath,managedPath:applied.managedPath};
  });
  ipcMain.handle('usshm:apply-repair-guarded',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId?:unknown;proposalId?:unknown;approved?:unknown;
