@@ -136,3 +136,31 @@ test('cross-origin, multiple or missing-loader subframes never receive trusted i
   assert.equal(got.soleSameOriginSubframe,undefined);
  }
 });
+
+test('same-loader iframe SPA navigation invalidates evidence without exposing the private child URL',async()=>{
+ let childUrl='https://example.test/account?private=ALPHA_TOKEN';
+ const socketFactory=()=>new (class extends EventEmitter{
+  constructor(){super();queueMicrotask(()=>this.emit('open'));}
+  addEventListener(name:string,cb:(x:any)=>void){this.on(name,cb);}
+  removeEventListener(name:string,cb:(x:any)=>void){this.off(name,cb);}
+  send(message:string){
+   const q=JSON.parse(message);
+   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+    id:q.id,result:{frameTree:{frame:{id:'top',loaderId:'top-load',url:page.url},
+     childFrames:[{frame:{id:'child',loaderId:'unchanged-loader',url:childUrl}}]}},
+   })}));
+  }
+  close(){this.emit('close');}
+ })();
+ const before=await confirmPageIdentity(page,{socketFactory});
+ childUrl='https://example.test/settings?private=BETA_TOKEN';
+ const after=await confirmPageIdentity(page,{socketFactory});
+ assert.equal(before.soleSameOriginSubframe?.frameId,'child');
+ assert.equal(before.soleSameOriginSubframe?.loaderId,'unchanged-loader');
+ assert.equal(after.soleSameOriginSubframe?.loaderId,'unchanged-loader');
+ assert.match(before.soleSameOriginSubframe?.urlFingerprint??'',/^[a-f0-9]{64}$/);
+ assert.match(after.soleSameOriginSubframe?.urlFingerprint??'',/^[a-f0-9]{64}$/);
+ assert.notEqual(before.soleSameOriginSubframe?.urlFingerprint,after.soleSameOriginSubframe?.urlFingerprint);
+ assert.doesNotMatch(JSON.stringify([before,after]),/ALPHA_TOKEN|BETA_TOKEN|\/account|\/settings/);
+ assert.throws(()=>assertStablePageDocument(before,after),/document|navigation|frame|identity/i);
+});
