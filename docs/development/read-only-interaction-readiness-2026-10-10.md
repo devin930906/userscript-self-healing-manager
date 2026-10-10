@@ -78,3 +78,32 @@ validated **final** Windows release packages and RG-01..09 are not complete.
 
 The PR therefore remains **Draft**, version remains
 `0.1.0-alpha.5`, with no preview installers or premature Stable release.
+
+## 2026-10-10 follow-up: in-sample DOM replacement guard
+
+A two-sample check previously compared node fingerprints *between* samples but
+could accidentally assemble CSS and listener evidence from a different DOM node
+if the page replaced the selector target during one sample without a
+navigation/loader change. That could produce misleading `potentially-ready`
+read-only metadata (though V2/V3/V4 remained blocked).
+
+The workflow now performs a second bounded, DOM-only fingerprint probe **after**
+collecting CSS and click-listener evidence for **each** sample. Every positive
+sample must have the same opaque backend-node HMAC before and after the
+independent CDP operations, as well as stable target/page document identity.
+A lost, changed, absent or contradictory post-metadata node returns
+`needs-review`, never a positive readiness hint. Two positive samples now
+require four successful node-identity probes. No Input, Runtime.evaluate,
+userscript execution, website click, or extension installation was added.
+
+### TDD evidence
+
+- RED regression tests: [Node 24 #38042416078](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38042416078) — three intentionally failing tests before the fix demonstrated the missing re-pin and an in-sample node replacement being accepted.
+- GREEN code/fixtures: [commit `3f4b976f`](https://github.com/devin930906/userscript-self-healing-manager/commit/3f4b976fba9f62608e907a02eab1ede298eee10f).
+- [Windows Development CI #38042545731](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38042545731) — **769 tests / 768 passed / 1 skipped / 0 failed**, TypeScript, Electron build and production execution-safety gate, real Windows GUI/SQLite, real Chrome CDP, pinned Chrome for Testing 155.0.8059.39 and isolated MV3 extension fixture all passed.
+- [Node contract CI #38042545745](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38042545745) also passed.
+
+**Boundary:** Re-pinning narrows temporal evidence mixing but is not an
+atomic snapshot of the DOM, does not prove overlays/ancestor conditions or
+click success, and cannot certify Tampermonkey GM APIs or V2/V3/V4. No
+preview installers, release artifacts or Stable release were produced.
