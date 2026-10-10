@@ -104,3 +104,28 @@ test('starting a fresh static scan can mark every abandoned live history entry i
  assert.equal(journal.listItems(old.runId).length,25);
  journal.close();
 }));
+
+
+test('diagnosis journal rejects contradictory per-item totals and status before any SQLite write',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ try{
+  const baseline=page(0,1);
+  const contradictions=[
+   {status:'needs-review' as const,checked:1,found:1,missing:1,needsReview:0},
+   {status:'needs-review' as const,checked:2,found:1,missing:0,needsReview:0},
+   {status:'locator-missing' as const,checked:1,found:1,missing:0,needsReview:0},
+   {status:'dom-present' as const,checked:1,found:0,missing:0,needsReview:1},
+  ];
+  for(const bad of contradictions){
+   const row={...baseline.items[0]!,...bad,
+    verification:{...baseline.items[0]!.verification,
+     V1:'blocked' as const,highestVerified:'V0' as const}};
+   const corrupted={...baseline,items:[row]};
+   assert.throws(()=>journal.recordPage({
+    scanId,targetId,total:1,offset:0,page:corrupted,
+   }),/invalid|count|status|evidence|contradict/i,
+   'refuse contradictory evidence: '+JSON.stringify(bad));
+   assert.equal(journal.listRecent().length,0,'an invalid page must leave no persisted run');
+  }
+ }finally{journal.close();}
+}));
