@@ -161,6 +161,65 @@ export async function writeOrVerifyChecksumManifest(path,expectedLines){
  return 'verified';
 }
 
+/**
+ * Read ZIP central-directory attributes without extracting any archive data.
+ * Filename-only tar listings do not expose Unix symlink file types or ZIP
+ * encryption. This checks metadata safety, not full archive decompression.
+ */
+export async function inspectReleaseZipEntryTypes(path){
+ const handle=await open(path,'r');
+ try{
+  const stat=await handle.stat();
+  if(!stat.isFile()||stat.size<22)throw new Error('Invalid release ZIP archive');
+  const tailSize=Math.min(stat.size,65557);
+  const tail=Buffer.alloc(tailSize);
+  if((await handle.read(tail,0,tailSize,stat.size-tailSize)).bytesRead!==tailSize)
+   throw new Error('Incomplete ZIP end-of-directory read');
+  let eocd=-1;
+  for(let offset=tailSize-22;offset>=0;offset--){
+   if(tail.readUInt32LE(offset)===0x06054b50&&
+      offset+22+tail.readUInt16LE(offset+20)===tailSize){
+    eocd=offset;break;
+   }
+  }
+  if(eocd<0)throw new Error('Missing ZIP central-directory terminator');
+  const disk=tail.readUInt16LE(eocd+4),cdDisk=tail.readUInt16LE(eocd+6);
+  const countDisk=tail.readUInt16LE(eocd+8),count=tail.readUInt16LE(eocd+10);
+  const size=tail.readUInt32LE(eocd+12),start=tail.readUInt32LE(eocd+16);
+  // ZIP64/multi-volume archives are not part of the x64 desktop release.
+  if(disk||cdDisk||countDisk!==count||count===0||count===0xffff||
+     count>ENTRY_MAX||size===0xffffffff||start===0xffffffff||
+     size===0||size>32*1024*1024)
+   throw new Error('Unsupported ZIP64, split or oversized ZIP archive');
+  const eocdPosition=stat.size-tailSize+eocd;
+  if(start+size>eocdPosition)throw new Error('Invalid ZIP central-directory bounds');
+  const central=Buffer.alloc(size);
+  if((await handle.read(central,0,size,start)).bytesRead!==size)
+   throw new Error('Incomplete ZIP central-directory read');
+  let offset=0;
+  for(let index=0;index<count;index++){
+   if(offset+46>size||central.readUInt32LE(offset)!==0x02014b50)
+    throw new Error('Invalid ZIP central-directory entry');
+   const flags=central.readUInt16LE(offset+8);
+   const nameLength=central.readUInt16LE(offset+28);
+   const extraLength=central.readUInt16LE(offset+30);
+   const commentLength=central.readUInt16LE(offset+32);
+   const attrs=central.readUInt32LE(offset+38);
+   if(flags&0x41)throw new Error('Encrypted ZIP entries are forbidden in Stable archives');
+   // External attributes' top word carries POSIX mode. Reject links even
+   // if a malicious archive forges a Windows "version made by" field.
+   const mode=(attrs>>>16)&0o170000;
+   if(mode===0o120000||(attrs&0x400)!==0)
+    throw new Error('ZIP symlink or Windows reparse-point entry forbidden');
+   if(!nameLength||nameLength>1024||offset+46+nameLength+extraLength+commentLength>size)
+    throw new Error('Invalid ZIP central-directory path budget');
+   offset+=46+nameLength+extraLength+commentLength;
+  }
+  if(offset!==size)throw new Error('ZIP central-directory count or length mismatch');
+  return Object.freeze({entryCount:count});
+ }finally{await handle.close();}
+}
+
 async function digest(path){
  const hash=createHash('sha256');
  for await(const data of createReadStream(path))hash.update(data);
@@ -216,6 +275,9 @@ async function runFinalArtifactInventory(){
  if(listed.status!==0||listed.error)throw new Error('ZIP entry enumeration failed');
  const entries=listed.stdout.split(/\r?\n/).filter(Boolean);
  const verified=validateWindowsReleaseLayout({version,artifactNames:found,zipEntries:entries});
+ const inspected=await inspectReleaseZipEntryTypes(zip);
+ if(inspected.entryCount!==verified.zipEntryCount)
+  throw new Error('ZIP central-directory entry count differs from archive filename inventory');
  const checksums=[];
  for(const [i,name] of names.entries()){
   const full=join(folder,name),info=await lstat(full);
