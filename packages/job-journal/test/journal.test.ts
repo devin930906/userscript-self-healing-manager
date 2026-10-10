@@ -176,3 +176,20 @@ test('consistent journal backup includes committed WAL rows, integrity and SHA-2
   assert.equal(journal.listRecent()[0]?.runId,expected.runId);
  }finally{journal.close();}
 }));
+
+
+test('journal rejects unexpected SQLite triggers before startup interruption mutates evidence',async()=>withJournal(async path=>{
+ let journal=openDiagnosisJournal(path);
+ const before=journal.recordPage({scanId,targetId,total:26,offset:0,page:page(0)});
+ journal.close();
+ const raw=new DatabaseSync(path);
+ raw.exec("CREATE TRIGGER erase_evidence BEFORE UPDATE ON journal_runs BEGIN DELETE FROM journal_items; END");
+ raw.close();
+ assert.throws(()=>openDiagnosisJournal(path),/trigger|unsafe|schema/i);
+ const verify=new DatabaseSync(path,{readOnly:true});
+ try{
+  assert.equal(verify.prepare('SELECT COUNT(*) AS c FROM journal_items').get()?.c,25);
+  assert.equal(verify.prepare('SELECT status FROM journal_runs WHERE run_id=?').get(before.runId)?.status,'running');
+  assert.equal(verify.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='trigger' AND name='erase_evidence'").get()?.c,1);
+ }finally{verify.close();}
+}));
