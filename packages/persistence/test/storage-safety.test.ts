@@ -219,3 +219,11 @@ test('extended SQLite busy and locked codes use primary code and invalid errcode
   assert.equal(classifyDatabaseError(native).code,'DATABASE_UNKNOWN_ERROR');
  }
 });
+
+test('persistence TypeScript source parses without escaped-newline token corruption',async()=>{
+ const ts=await import('typescript');
+ const {readFile}=await import('node:fs/promises');
+ const source=await readFile(new URL('../src/index.ts',import.meta.url),'utf8');
+ const parsed=ts.createSourceFile('persistence-index.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+ assert.deepEqual(parsed.parseDiagnostics.map(d=>ts.flattenDiagnosticMessageText(d.messageText,'\n')),[]);
+});
