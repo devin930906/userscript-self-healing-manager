@@ -144,3 +144,28 @@ test('revoking approval on a queued repair before dispatch blocks it without rea
  assert.equal(called,0);
  assert.equal(result.items[0]?.status,'blocked');
 });
+
+test('cancelling in the queued-to-running transition cannot start an unapproved write',async()=>{
+ let called=0;
+ let queue!:ReturnType<typeof createRepairTaskQueue>;
+ queue=createRepairTaskQueue([
+  {id:'one',scriptId:'one',approved:true,execute:async()=>{called++;}},
+ ],{onProgress:state=>{
+  if(state.items[0]?.status==='running')queue.cancel();
+ }});
+ const outcome=await queue.run();
+ assert.equal(called,0);
+ assert.equal(outcome.cancelled,true);
+ assert.equal(outcome.items[0]?.status,'cancelled');
+});
+
+test('revoking approval during progress notification blocks dispatch before callback invocation',async()=>{
+ let called=0;
+ const original={id:'one',scriptId:'one',approved:true,execute:async()=>{called++;}};
+ const queue=createRepairTaskQueue([original],{onProgress:state=>{
+  if(state.items[0]?.status==='running')original.approved=false;
+ }});
+ const outcome=await queue.run();
+ assert.equal(called,0);
+ assert.equal(outcome.items[0]?.status,'blocked');
+});
