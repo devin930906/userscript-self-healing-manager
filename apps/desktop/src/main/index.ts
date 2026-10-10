@@ -4,7 +4,8 @@ import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
 import {lstat} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinned-file.ts';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
+import {exportManagedRecovery,verifyManagedRecovery} from '../../../../packages/repair-workflow/src/managed-export.ts';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
@@ -118,6 +119,21 @@ async function bootstrap():Promise<void>{
   if(save.canceled||!save.filePath)return {canceled:true};
   const receipt=await journal.backupSnapshot(save.filePath);
   return {canceled:false,...receipt};
+ });
+ ipcMain.handle('usshm:export-managed-recovery',async event=>{
+  assertSender(event);
+  // Renderer supplies no filesystem paths. The native picker authorizes only
+  // a parent directory; we claim an unpredictable NEW child without overwrite.
+  const picker=await dialog.showOpenDialog(mainWindow,{properties:['openDirectory','createDirectory']});
+  if(picker.canceled||!picker.filePaths[0])return {canceled:true};
+  const folder='USSHM-managed-recovery-'+new Date().toISOString().slice(0,10)+'-'+randomUUID();
+  const destination=join(picker.filePaths[0],folder);
+  const receipt=await exportManagedRecovery({managedRoot:dataRoot,destination});
+  // Independently read back the output before declaring backup success.
+  const verified=await verifyManagedRecovery({snapshotDirectory:receipt.path});
+  if(verified.files!==receipt.files.length)
+   throw new Error('Managed recovery audit did not match export receipt');
+  return {canceled:false,path:receipt.path,files:verified.files,bytes:verified.bytes};
  });
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
