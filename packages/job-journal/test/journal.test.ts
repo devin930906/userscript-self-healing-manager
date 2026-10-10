@@ -193,3 +193,23 @@ test('journal rejects unexpected SQLite triggers before startup interruption mut
   assert.equal(verify.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='trigger' AND name='erase_evidence'").get()?.c,1);
  }finally{verify.close();}
 }));
+
+
+test('persistent diagnosis rejects fabricated V1 failed and skipped grades before any SQLite write',async()=>withJournal(async path=>{
+ const journal=openDiagnosisJournal(path);
+ try{
+  const baseline=page(0,1);
+  for(const bad of [
+   {status:'error' as const,checked:0,found:0,missing:0,needsReview:0,grade:'failed' as const},
+   {status:'needs-review' as const,checked:0,found:0,missing:0,needsReview:1,grade:'failed' as const},
+   {status:'dom-present' as const,checked:1,found:1,missing:0,needsReview:0,grade:'skipped' as const},
+  ]){
+   const row={...baseline.items[0]!,status:bad.status,checked:bad.checked,found:bad.found,
+    missing:bad.missing,needsReview:bad.needsReview,
+    verification:{...baseline.items[0]!.verification,V1:bad.grade,highestVerified:'V0' as const}};
+   assert.throws(()=>journal.recordPage({scanId,targetId,total:1,offset:0,page:{...baseline,items:[row]}}),
+    /verification|v1|invalid|grade|status|evidence/i);
+   assert.equal(journal.listRecent().length,0,'false V1 outcome must never reach persistent history');
+  }
+ }finally{journal.close();}
+}));
