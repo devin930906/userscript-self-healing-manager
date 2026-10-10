@@ -111,7 +111,7 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
       // CDP must have resolved an actual object. Primitive/function/null
       // remote values are not trustworthy DOM listener inspection targets.
       if(resolved?.type!=='object'||
-         (resolved?.subtype!==undefined&&resolved.subtype!=='node')||
+         resolved?.subtype!=='node'||
          typeof remote!=='string'||!/^[^\x00-\x1f\x7f]{1,1024}$/.test(remote)){
        end(undefined,result('unknown'));break;
       }
