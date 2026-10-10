@@ -8,6 +8,7 @@ import {collectPagedDomDiagnosis} from '../../../../packages/scan-service/src/pa
 import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.ts';
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
+import {summarizeSafeDesktopError} from './safe-error.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
 import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
@@ -156,14 +157,14 @@ function App(){
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
- useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+String(error)));},[]);
- useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(String(e)));},[]);
+ useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
+ useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth()])
   .then(([items,health])=>{
    setBrowserProfiles(items);
    setBrowserProfileHealth(health.status);
    setSelectedBrowserProfileId(items.find(item=>item.isDefault)?.id??items[0]?.id??'');
-  }).catch(e=>setError('无法读取浏览器配置：'+String(e)));},[]);
+  }).catch(e=>setError('无法读取浏览器配置：'+summarizeSafeDesktopError(e)));},[]);
  const filtered=useMemo(()=>result?.items.map((item,index)=>({...item,index})).filter(item=>item.path.toLowerCase().includes(search.toLowerCase()))??[],[result,search]);
  const siteTrends=useMemo(()=>diagnosisHistory?summarizeSiteTrends(diagnosisHistory):[],[diagnosisHistory]);
  const selectedAdapter=adapterLibrary?.find(a=>a.siteId===adapterSelectedSiteId)??null;
@@ -198,7 +199,7 @@ function App(){
     setWatchCheckedAt(new Date().toLocaleString());
     setWatchError('');
    }catch(error){
-    if(!cancelled){setWatchError('巡检暂停校验：'+String(error));setWatchStatus(null);}
+    if(!cancelled){setWatchError('巡检暂停校验：'+summarizeSafeDesktopError(error));setWatchStatus(null);}
    }finally{watchRunning.current=false;}
   }
   void poll();
@@ -206,14 +207,14 @@ function App(){
   return ()=>{cancelled=true;clearInterval(interval);};
  },[watchEnabled,focused,targetId,result]);
 
- async function chooseFiles(){try{const selected=await window.ussm.pickFiles();setPaths(old=>[...new Set([...old,...selected])]);setError('');}catch(e){setError(String(e));}}
- async function chooseDirectory(){try{const selected=await window.ussm.pickDirectory();if(selected)setPaths(old=>[...new Set([...old,selected])]);setError('');}catch(e){setError(String(e));}}
+ async function chooseFiles(){try{const selected=await window.ussm.pickFiles();setPaths(old=>[...new Set([...old,...selected])]);setError('');}catch(e){setError(summarizeSafeDesktopError(e));}}
+ async function chooseDirectory(){try{const selected=await window.ussm.pickDirectory();if(selected)setPaths(old=>[...new Set([...old,selected])]);setError('');}catch(e){setError(summarizeSafeDesktopError(e));}}
  function onDrop(event:React.DragEvent<HTMLDivElement>){event.preventDefault();setDragging(false);}
  useEffect(()=>window.ussm.onTrustedDrop(allowed=>{
   setPaths(old=>[...new Set([...old,...allowed])]);
   setError('');setMessage('已接收 '+allowed.length+' 个系统拖放的脚本文件');
  }),[]);
- async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function scan(){if(!paths.length)return;setBusy(true);setError('');setMessage('');try{const report=await window.ussm.scan({paths,recursive:true});setResult(report);setFocused(null);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setHistory(await window.ussm.listScripts());setMessage(`已分析 ${report.processedCount} 项 · 不代表网页功能正常`);}catch(e){setError(summarizeSafeDesktopError(e));}finally{setBusy(false);}}
  async function backupRegistry(){
   if(busy)return;
   setBusy(true);setError('');
@@ -291,8 +292,8 @@ function App(){
    setError('离线暂存核心备份失败：源文件可能不完整、已更改，或目标不是安全的新目录。不会覆盖当前 Data；不完整的新目录不会自动删除。');
   }finally{setBusy(false);}
  }
- async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
- async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
+ async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(summarizeSafeDesktopError(e));}}
+ async function exportDomReport(format:'json'|'markdown'){if(!result||!batchResult||batchRunning)return;try{const saved=await window.ussm.exportDomReport({scanId:result.scanId,targetId:batchResult.pageTargetId,format});if(!saved.canceled)setMessage(`只读 DOM 报告已保存：${saved.path}`);}catch(e){setError(summarizeSafeDesktopError(e));}}
  async function stageSiteAdapterImport(){
   if(adapterBusy)return;
   setAdapterBusy(true);const prior=adapterPreview;setAdapterPreview(null);setError('');
@@ -300,7 +301,7 @@ function App(){
    if(prior)await window.ussm.discardSiteAdapterPreview({previewId:prior.previewId});
    const preview=await window.ussm.previewSiteAdapterImport();
    if(preview){setAdapterPreview(preview);setMessage('规则文件已解析，仅为预览；需要单独确认才会保存在本机。');}
-  }catch(error){setError('SiteAdapter JSON 预览失败：'+String(error));}
+  }catch(error){setError('SiteAdapter JSON 预览失败：'+summarizeSafeDesktopError(error));}
   finally{setAdapterBusy(false);}
  }
  async function approveSiteAdapterImport(){
@@ -312,14 +313,14 @@ function App(){
    setAdapterLibrary(await window.ussm.listSiteAdapters());
    setMessage('已导入本地规则 '+receipt.siteId+' v'+receipt.version+'；未经过真实脚本运行或功能验证。');
    setAdapterPreview(null);
-  }catch(error){setAdapterPreview(null);setError('SiteAdapter 导入失败（需重新预览）：'+String(error));}
+  }catch(error){setAdapterPreview(null);setError('SiteAdapter 导入失败（需重新预览）：'+summarizeSafeDesktopError(error));}
   finally{setAdapterBusy(false);}
  }
  async function cancelSiteAdapterImport(){
   if(adapterBusy||!adapterPreview)return;
   const previewId=adapterPreview.previewId;setAdapterPreview(null);
   try{await window.ussm.discardSiteAdapterPreview({previewId});}
-  catch(error){setError('取消 SiteAdapter 预览失败：'+String(error));}
+  catch(error){setError('取消 SiteAdapter 预览失败：'+summarizeSafeDesktopError(error));}
  }
  async function inspectSiteAdapterRole(){
   if(!targetId||!selectedAdapter||!adapterSelectedRoleId||!adapterDeclaredStateId||adapterRoleBusy)return;
@@ -332,7 +333,7 @@ function App(){
    });
    adapterRoleGeneration.current.commit(token,()=>setAdapterRoleCheck(receipt));
   }catch(error){
-   adapterRoleGeneration.current.commit(token,()=>setError('SiteAdapter 角色只读核验失败：'+String(error)));
+   adapterRoleGeneration.current.commit(token,()=>setError('SiteAdapter 角色只读核验失败：'+summarizeSafeDesktopError(error)));
   }finally{
    adapterRoleGeneration.current.commit(token,()=>setAdapterRoleBusy(false));
   }
@@ -351,7 +352,7 @@ function App(){
    });
    adapterRepairGeneration.current.commit(token,()=>setAdapterRepairCandidates(suggested));
   }catch(error){
-   adapterRepairGeneration.current.commit(token,()=>setError('SiteAdapter 限定候选检查失败：'+String(error)));
+   adapterRepairGeneration.current.commit(token,()=>setError('SiteAdapter 限定候选检查失败：'+summarizeSafeDesktopError(error)));
   }finally{
    adapterRepairGeneration.current.commit(token,()=>setAdapterRepairBusy(false));
   }
@@ -375,7 +376,7 @@ function App(){
    setBrowserProfileName('');
    setMessage('浏览器配置已保存；未启动浏览器，也未复制或修改已有资料目录。');
    setError('');
-  }catch(error){setError('保存浏览器配置失败：'+String(error));}
+  }catch(error){setError('保存浏览器配置失败：'+summarizeSafeDesktopError(error));}
  }
  async function renameSelectedBrowserProfile(){
   if(!selectedBrowserProfileId)return;
@@ -384,7 +385,7 @@ function App(){
    await refreshBrowserProfiles(selectedBrowserProfileId);
    setBrowserProfileName('');
    setMessage('浏览器配置名称已更新。');setError('');
-  }catch(error){setError('重命名配置失败：'+String(error));}
+  }catch(error){setError('重命名配置失败：'+summarizeSafeDesktopError(error));}
  }
  async function setSelectedBrowserProfileDefault(){
   if(!selectedBrowserProfileId)return;
@@ -392,7 +393,7 @@ function App(){
    await window.ussm.defaultBrowserProfile({profileId:selectedBrowserProfileId});
    await refreshBrowserProfiles(selectedBrowserProfileId);
    setMessage('默认浏览器配置已保存；不会自动启动 Chrome。');setError('');
-  }catch(error){setError('设置默认配置失败：'+String(error));}
+  }catch(error){setError('设置默认配置失败：'+summarizeSafeDesktopError(error));}
  }
  async function deleteSelectedBrowserProfile(){
   if(!selectedBrowserProfileId)return;
@@ -403,7 +404,7 @@ function App(){
     setMessage('仅删除了浏览器配置记录；保留原有浏览器、扩展及配置资料目录。');
    }
    setError('');
-  }catch(error){setError('删除配置记录失败：'+String(error));}
+  }catch(error){setError('删除配置记录失败：'+summarizeSafeDesktopError(error));}
  }
  async function launchSelectedBrowserProfile(){
   if(!selectedBrowserProfileId)return;
@@ -412,15 +413,15 @@ function App(){
    setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);
    setMessage('指定的独立 Chrome 配置已通过 CDP 握手；请检查当前网页列表。');
    setError('');
-  }catch(error){setError('启动浏览器配置失败：'+String(error));}
+  }catch(error){setError('启动浏览器配置失败：'+summarizeSafeDesktopError(error));}
  }
- async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(String(e));}}
- async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(String(e));}}
- async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 的 CDP 握手已验证；独立资料目录不包含原有登录信息和扩展。点击「检查 CDP 连接」刷新网页列表。');}catch(e){setError(String(e));}}
- async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${String(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
+ async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(summarizeSafeDesktopError(e));}}
+ async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
+ async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 的 CDP 握手已验证；独立资料目录不包含原有登录信息和扩展。点击「检查 CDP 连接」刷新网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
+ async function checkCdp(){try{setCdp(await window.ussm.getCdpStatus());setPageProbe(null);setRepairCandidates(null);setError('');}catch(e){setCdp(null);setError(`CDP 握手失败：${summarizeSafeDesktopError(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}}
  async function loadDiagnosisHistory(){
   try{setDiagnosisHistory(await window.ussm.listDiagnosisHistory());}
-  catch(error){setError('读取本地诊断历史失败：'+String(error));}
+  catch(error){setError('读取本地诊断历史失败：'+summarizeSafeDesktopError(error));}
  }
  async function batchDiagnose(){
   if(!targetId||!result||batchRunning||busy)return;
@@ -452,7 +453,7 @@ function App(){
    if(batchGeneration.current.isCurrent(token)){
     // Never display a partial result after inconsistent URL or page evidence.
     setBatchResult(null);setBatchProgress(0);
-    setError('批量网页诊断失败，已清除不完整结果：'+String(error));
+    setError('批量网页诊断失败，已清除不完整结果：'+summarizeSafeDesktopError(error));
    }
   }finally{gate.cancel();if(batchPauseGate.current===gate)batchPauseGate.current=null;if(batchGeneration.current.isCurrent(token)){batchActive.current=false;setBatchPaused(false);setBatchRunning(false);setBusy(false);}}
  }
@@ -466,7 +467,7 @@ function App(){
     setPageProbe(evidence);setMessage('只读页面定位器核验完成；不代表油猴脚本功能通过。');
    }
   }catch(error){
-   if(probeGeneration.current.isCurrent(token))setError('页面定位器核验失败：'+String(error));
+   if(probeGeneration.current.isCurrent(token))setError('页面定位器核验失败：'+summarizeSafeDesktopError(error));
   }finally{if(probeGeneration.current.isCurrent(token)){probeActive.current=false;setBusy(false);}}
  }
  async function inspectElementVisibility(){
@@ -483,7 +484,7 @@ function App(){
     setMessage('只读 CSS 可见性采样完成；不能证明元素可点击、脚本功能或 GM API 通过。');
    }
   }catch(error){
-   if(visibilityGeneration.current.isCurrent(token))setError('CSS 可见性检查失败：'+String(error));
+   if(visibilityGeneration.current.isCurrent(token))setError('CSS 可见性检查失败：'+summarizeSafeDesktopError(error));
   }finally{
    if(visibilityGeneration.current.isCurrent(token)){visibilityActive.current=false;setBusy(false);}
   }
@@ -502,7 +503,7 @@ function App(){
     setMessage('已检查直接 click 监听器；不能证明实际点击或 GM 功能。V2/V3/V4 尚未通过。');
    }
   }catch(error){
-   if(listenerGeneration.current.isCurrent(token))setError('事件监听器检查失败：'+String(error));
+   if(listenerGeneration.current.isCurrent(token))setError('事件监听器检查失败：'+summarizeSafeDesktopError(error));
   }finally{
    if(listenerGeneration.current.isCurrent(token)){listenerActive.current=false;setBusy(false);}
   }
@@ -547,7 +548,7 @@ function App(){
     setMessage('双次 DOM 合约核验完成；只证明指定定位器的当前 DOM 状态，不代表脚本业务功能通过。');
    }
   }catch(error){
-   if(contractGeneration.current.isCurrent(token))setError('DOM 合约核验失败：'+String(error));
+   if(contractGeneration.current.isCurrent(token))setError('DOM 合约核验失败：'+summarizeSafeDesktopError(error));
   }finally{
    if(contractGeneration.current.isCurrent(token)){contractActive.current=false;setBusy(false);}
   }
@@ -571,7 +572,7 @@ function App(){
    setMessage('批量候选只基于当前 DOM 的唯一匹配结果；不会执行脚本或自动写入补丁。');
   }catch(error){
    if(!bulkGeneration.current.isCurrent(token))return;
-   setBulkRepairResults(null);setError('批量候选检查失败：'+String(error));
+   setBulkRepairResults(null);setError('批量候选检查失败：'+summarizeSafeDesktopError(error));
   }finally{if(bulkGeneration.current.isCurrent(token)){bulkActive.current=false;setBusy(false);}}
  }
  async function proposeBatchRepair(){
@@ -629,7 +630,7 @@ function App(){
  async function suggestRepair(){if(focused===null||!targetId||!result||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
   try{const candidates=await window.ussm.suggestRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true});setRepairCandidates(candidates);setMessage(candidates.length?'取得 '+candidates.length+' 个 DOM 匹配的候选；候选不代表功能验证通过。':'当前网页没有足够可靠的唯一候选，请手动输入新选择器。');}
-  catch(e){setError('候选定位器提取失败：'+String(e));}finally{setBusy(false);}
+  catch(e){setError('候选定位器提取失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  async function prepareVerifiedPreview(){
   if(focused===null||!targetId||!result||busy||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
@@ -643,18 +644,18 @@ function App(){
    }else{
     setMessage('没有唯一可靠的 DOM 候选：需要人工复核，未创建修复预览，未写入文件。');
    }
-  }catch(error){setError('自动准备修复预览失败：'+String(error));}
+  }catch(error){setError('自动准备修复预览失败：'+summarizeSafeDesktopError(error));}
   finally{setBusy(false);}
  }
  async function proposeRepair(){if(focused===null||!result||!repairNew.trim())return;
   setWatchEnabled(false);setBusy(true);setError('');setRepairProposal(null);setRepairApplied(null);
   try{const r=await window.ussm.proposeRepair({scanId:result.scanId,itemIndex:focused,selectorIndex:repairIndex,newSelector:repairNew.trim()});setRepairProposal(r);setMessage('修复预览已生成；尚未写入任何文件。');}
-  catch(e){setError('生成预览失败：'+String(e));}finally{setBusy(false);}
+  catch(e){setError('生成预览失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  async function applyRepair(){if(!repairProposal||!result)return;
   setWatchEnabled(false);setBusy(true);setError('');
   try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.activePath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
-  catch(e){setError('修复保存失败：'+String(e));}finally{setBusy(false);}
+  catch(e){setError('修复保存失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  async function applyRepairGuarded(){
   if(!repairProposal||!result||focused===null||!targetId||busy)return;
@@ -677,7 +678,7 @@ function App(){
     setRepairApplied(null);setManagedActive(null);
     setError('自动复核后回滚受阻（rollback-blocked）：未确认当前受管版本；请先检查修订历史和外部编辑，原始脚本保持不变。');
    }
-  }catch(error){setError('受管补丁安全保存和 V1 自动复核失败：'+String(error));}
+  }catch(error){setError('受管补丁安全保存和 V1 自动复核失败：'+summarizeSafeDesktopError(error));}
   finally{setBusy(false);}
  }
  async function verifyManagedDom(){
@@ -690,31 +691,31 @@ function App(){
    });
    setMessage('受管修订选择器只读复核 V1：'+resultV1.status+'；'+resultV1.reason+
     '。这是保存的脚本修订在当前网页的 DOM 证据；V2/V3/V4 未验证，不表示 Tampermonkey 已安装或功能正常。');
-  }catch(error){setError('受管修订 V1 检查失败：'+String(error));}
+  }catch(error){setError('受管修订 V1 检查失败：'+summarizeSafeDesktopError(error));}
   finally{setBusy(false);}
  }
  async function inspectManagedHealth(){if(focused===null||!result||busy)return;
   setBusy(true);setError('');setManagedHealth(null);
   try{setManagedHealth(await window.ussm.inspectManagedIntegrity({scanId:result.scanId,itemIndex:focused}));}
-  catch(error){setError('检查受管资料完整性失败：'+String(error));}
+  catch(error){setError('检查受管资料完整性失败：'+summarizeSafeDesktopError(error));}
   finally{setBusy(false);}
  }
  async function showManagedHistory(){if(focused===null||!result)return;
   setBusy(true);setError('');
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
-  catch(e){setError('加载修订历史失败：'+String(e));}finally{setBusy(false);}
+  catch(e){setError('加载修订历史失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  async function exportManaged(){if(focused===null||!result)return;
   setBusy(true);setError('');
   try{const exported=await window.ussm.exportManaged({scanId:result.scanId,itemIndex:focused});
    if(!exported.canceled)setMessage('已安全导出受管脚本：'+exported.path+'。仍需在 Tampermonkey 导入并验证实际功能。');
-  }catch(error){setError('导出受管脚本失败：'+String(error));}
+  }catch(error){setError('导出受管脚本失败：'+summarizeSafeDesktopError(error));}
   finally{setBusy(false);}
  }
  async function rollbackManaged(hash:string){if(focused===null||!result)return;
   setBusy(true);setError('');setRepairProposal(null);
   try{const restored=await window.ussm.rollbackManaged({scanId:result.scanId,itemIndex:focused,hash,approved:true});setManagedActive(restored);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
-  catch(e){setError('恢复受管副本失败：'+String(e));}finally{setBusy(false);}
+  catch(e){setError('恢复受管副本失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  const details=focused===null?null:result?.items[focused];
  return <div className="shell">
@@ -755,7 +756,7 @@ function App(){
     </div><span className="pill">定义级 · 只读</span></div>
     <div className="toolbar">
      <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>void stageSiteAdapterImport()}>预览 SiteAdapter JSON</button>
-     <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError(String(error)))}>刷新本地规则</button>
+     <button type="button" className="secondary" disabled={adapterBusy} onClick={()=>void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError(summarizeSafeDesktopError(error)))}>刷新本地规则</button>
      <span className="dim">同站点已存在版本禁止直接覆盖；升级仍需要完整依赖影响审查。</span>
     </div>
     {adapterPreview&&<div className="notice">
@@ -842,7 +843,7 @@ function App(){
      <p className="dim">如 Chrome 136+ 的现有资料目录禁用远程调试，可主动使用隔离模式；资料保存在本软件 Data/Chrome-CDP-Profile。不会使用原有 Chrome 的登录状态或扩展，需要自行安装 Tampermonkey 与测试脚本。</p>
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
-    <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{const active=batchPauseGate.current;if(!active)return;if(batchPaused){active.resume();setBatchPaused(false);}else if(active.pause())setBatchPaused(true);}}>{batchPaused?'继续检查':'暂停后续检查'}</button>}{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;batchPauseGate.current?.cancel();setBatchPaused(false);if(result&&targetId)void window.ussm.cancelDiagnosis({scanId:result.scanId,targetId}).catch(error=>setError('取消诊断请求失败：'+String(error)));}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。{batchPaused?'已暂停下一批调度；当前请求完成后生效。':''}</span></div>
+    <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{const active=batchPauseGate.current;if(!active)return;if(batchPaused){active.resume();setBatchPaused(false);}else if(active.pause())setBatchPaused(true);}}>{batchPaused?'继续检查':'暂停后续检查'}</button>}{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;batchPauseGate.current?.cancel();setBatchPaused(false);if(result&&targetId)void window.ussm.cancelDiagnosis({scanId:result.scanId,targetId}).catch(error=>setError('取消诊断请求失败：'+summarizeSafeDesktopError(error)));}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。{batchPaused?'已暂停下一批调度；当前请求完成后生效。':''}</span></div>
     <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。临时 CDP 通信超时最多重试一次，导航、身份变化及安全校验失败绝不重试。</p>
     <div className="toolbar"><button className="secondary" onClick={()=>void loadDiagnosisHistory()}>最近批量诊断历史</button><span className="dim">保存在本机独立 SQLite，重启可查看历史进度；不会自动重连旧网页或恢复旧任务。</span></div>
     {diagnosisHistory&&<div className="table-wrapper"><table><thead><tr><th>时间</th><th>站点</th><th>状态</th><th>进度</th><th>匹配</th><th>缺失</th><th>需复核</th><th>错误</th></tr></thead><tbody>
