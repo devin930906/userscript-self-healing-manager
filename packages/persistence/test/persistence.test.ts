@@ -74,3 +74,31 @@ test('versioned database with incompatible scripts columns is rejected without d
   finally{verify.close();}
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('version 1 migration rejects missing unique script path constraint without deleting duplicate legacy rows',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-nonunique-v1-'));
+ const file=join(dir,'registry.sqlite');
+ try{
+  const {DatabaseSync}=await import('node:sqlite');
+  const old=new DatabaseSync(file);
+  old.exec(`CREATE TABLE schema_version(version INTEGER NOT NULL);
+   INSERT INTO schema_version VALUES (1);
+   CREATE TABLE scripts(
+    id TEXT PRIMARY KEY,path TEXT NOT NULL,display_name TEXT NOT NULL,
+    sha256 TEXT NOT NULL,health_status TEXT NOT NULL,metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+   );`);
+  old.prepare('INSERT INTO scripts VALUES (?,?,?,?,?,?,?,?)').run('one','/shared/file.user.js','a','a','parsed','{}','date','date');
+  old.prepare('INSERT INTO scripts VALUES (?,?,?,?,?,?,?,?)').run('two','/shared/file.user.js','b','b','parsed','{}','date','date');
+  old.close();
+  const db=openDatabase(file);
+  try{assert.throws(()=>migrateDatabase(db),/unique|constraint|schema|incompatible/i);}
+  finally{db.close();}
+  const inspect=new DatabaseSync(file);
+  try{
+   assert.equal(inspect.prepare("SELECT count(*) AS count FROM scripts WHERE path='/shared/file.user.js'").get()?.count,2);
+   assert.equal(inspect.prepare('SELECT version FROM schema_version').get()?.version,1);
+  }finally{inspect.close();}
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
