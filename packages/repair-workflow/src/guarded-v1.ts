@@ -20,15 +20,18 @@ export interface GuardedV1Result {
 }
 export interface GuardedV1Deps {
  verify:()=>Promise<unknown>;
+ /** Trusted, fresh on-disk current hash check after asynchronous CDP proof. */
+ confirmActiveHash:()=>Promise<string|null>;
  restore:(previousHash:string)=>Promise<{hash:string;activePath:string}>;
 }
-export async function guardAppliedManagedRevision({approved,scriptId,appliedHash,previousHash,verify,restore}:{
+export async function guardAppliedManagedRevision({approved,scriptId,appliedHash,previousHash,verify,confirmActiveHash,restore}:{
  approved:boolean;scriptId:string;appliedHash:string;previousHash:string;
 } & GuardedV1Deps):Promise<GuardedV1Result>{
  if(approved!==true||typeof scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(scriptId)||
     typeof appliedHash!=='string'||!/^[a-f0-9]{64}$/.test(appliedHash)||
     typeof previousHash!=='string'||!/^[a-f0-9]{64}$/.test(previousHash)||
-    previousHash===appliedHash||typeof verify!=='function'||typeof restore!=='function')
+    previousHash===appliedHash||typeof verify!=='function'||
+    typeof confirmActiveHash!=='function'||typeof restore!=='function')
   throw new Error('Invalid approved managed V1 safety guard or revision hash');
  const base={
   appliedHash,V2:'blocked' as const,V3:'not-configured' as const,V4:'not-configured' as const,
@@ -41,8 +44,13 @@ export async function guardAppliedManagedRevision({approved,scriptId,appliedHash
      evidence.matchCount===1&&
      evidence.V2==='blocked'&&evidence.V3==='not-configured'&&
      evidence.V4==='not-configured'&&evidence.functionalVerified===false&&
-     evidence.managerVerified===false)
-   return {...base,status:'retained-v1',activeHash:appliedHash};
+     evidence.managerVerified===false){
+   // A separate process or local editor may have changed current.user.js
+   // during the awaited browser observations. DOM-only proof cannot retain
+   // a revision without a fresh trusted disk/lock/archive check.
+   if(await confirmActiveHash()===appliedHash)
+    return {...base,status:'retained-v1',activeHash:appliedHash};
+  }
  }catch{
   // Loss of Chrome connectivity is NOT permission to keep a patch as verified.
  }
