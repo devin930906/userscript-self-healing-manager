@@ -30,6 +30,7 @@ import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapt
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
 import {createRepairWorkflow} from '../packages/repair-workflow/src/index.ts';
+import {createBatchRepairWorkflow} from '../packages/repair-workflow/src/batch.ts';
 import {readVerifiedManagedLocator} from '../packages/repair-workflow/src/managed-locator.ts';
 import {guardAppliedManagedRevision} from '../packages/repair-workflow/src/guarded-v1.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
@@ -702,6 +703,49 @@ try{
  assert.equal(original,SYNTHETIC_LIFECYCLE_SOURCES.baseline);
  assert.equal(partialRevision,SYNTHETIC_LIFECYCLE_SOURCES.partial);
  assert.equal(combinedRevision,SYNTHETIC_LIFECYCLE_SOURCES.repaired);
+ // Genuine real-Chrome test of one APPROVED managed revision containing
+ // two exact AST selector changes. Separate from the single-change lifecycle.
+ const batchSource=join(profile,'batch-fixture.user.js');
+ await writeFile(batchSource,original,'utf8');
+ const batchLine=original.split('\n')[4];
+ assert.ok(batchLine);
+ const buttonCall=batchLine.indexOf('document.querySelector("#old-heal-button")')+1;
+ const paneCall=batchLine.indexOf('document.querySelector(".old-target-pane")')+1;
+ assert.ok(buttonCall>1&&paneCall>buttonCall);
+ const batchFlow=createBatchRepairWorkflow({managedRoot:profile});
+ const batchProposal=await batchFlow.proposeBatch({
+  sourcePath:batchSource,scriptId:'chrome-batch-fixture',
+  changes:[
+   {oldSelector:'#old-heal-button',newSelector:'#heal-button',
+    selectorLocation:{method:'querySelector',line:5,column:buttonCall}},
+   {oldSelector:'.old-target-pane',newSelector:'.target-pane',
+    selectorLocation:{method:'querySelector',line:5,column:paneCall}},
+  ],
+ });
+ assert.equal(batchProposal.changes.length,2);
+ assert.match(batchProposal.preview,/#heal-button/);
+ assert.match(batchProposal.preview,/\.target-pane/);
+ assert.equal(await readFile(batchSource,'utf8'),original);
+ const batchApplied=await batchFlow.applyBatch({
+  proposalId:batchProposal.proposalId,approved:true,
+ });
+ assert.equal(batchApplied.hash,batchProposal.proposedHash);
+ const batchCurrent=join(profile,'managed','chrome-batch-fixture','current.user.js');
+ const batchWorking=await readFile(batchCurrent,'utf8');
+ assert.equal(await runIsolatedFixtureBehavior({
+  target:selected,fixtureUrl,source:batchWorking,
+ }),true,'both batch AST changes must produce the fixture business effect');
+ assert.equal(await readFile(batchSource,'utf8'),original,
+  'batch managed repair must preserve original userscript');
+ const batchRolled=await activateManagedRevision({
+  managedRoot:profile,scriptId:'chrome-batch-fixture',
+  hash:batchProposal.baseHash,approved:true,
+  expectedCurrentHash:batchApplied.hash,
+ });
+ assert.equal(await runIsolatedFixtureBehavior({
+  target:selected,fixtureUrl,source:await readFile(batchRolled.activePath,'utf8'),
+ }),false,'rollback must undo both batch changes together');
+ console.log('PASS real Chrome approved atomic 2-selector batch repair: failure → single managed revision success → rollback failure.');
  // The fixture script creates a real about:srcdoc iframe. A top-level document
  // miss does not prove that a userscript which can run in frames is broken.
  await delay(400);
