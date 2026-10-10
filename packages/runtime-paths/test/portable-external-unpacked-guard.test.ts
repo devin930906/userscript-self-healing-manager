@@ -90,3 +90,21 @@ test('portable EXE fails closed for Windows trailing-dot aliases', () => {
     portableExternalDirectory: 'C:\\Temp\\App',
   }), /PORTABLE_EXECUTABLE_DIR.*(unpacked|ambiguous)/i);
 });
+
+test('portable EXE fails closed on possible Windows 8.3 short-name aliases', () => {
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\Application Long Name',
+    portableExternalDirectory: 'C:\\Temp\\APPLIC~1',
+  }), /PORTABLE_EXECUTABLE_DIR.*ambiguous/i);
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\APPLIC~1',
+    portableExternalDirectory: 'D:\\真实 便携目录',
+  }), /PORTABLE_EXECUTABLE_DIR.*ambiguous/i);
+});
+
+test('ordinary literal tilde names are not presumed to be 8.3 aliases', () => {
+  assert.equal(resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App',
+    portableExternalDirectory: 'D:\\Tools\\release~candidate',
+  }), 'D:\\Tools\\release~candidate\\Data');
+});
