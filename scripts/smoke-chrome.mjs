@@ -35,6 +35,7 @@ import {readVerifiedManagedLocator} from '../packages/repair-workflow/src/manage
 import {guardAppliedManagedRevision} from '../packages/repair-workflow/src/guarded-v1.ts';
 import {guardAppliedManagedBatchRevision} from '../packages/repair-workflow/src/guarded-batch-v1.ts';
 import {activateManagedRevision} from '../packages/repair-workflow/src/history.ts';
+import {inspectManagedIntegrity} from '../packages/repair-workflow/src/managed-health.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
 import {runIsolatedFixtureInteraction} from './local-fixture-interaction.ts';
@@ -52,6 +53,12 @@ for(const path of candidates){try{await access(path);executable=path;break;}catc
 if(!executable)throw new Error('Chrome is not installed in the Windows runner; cannot claim browser CDP smoke PASS');
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
+// Mirror trusted Main's final on-disk revision check, not a mocked SHA:
+// real Chrome proof must never retain a patch after a concurrent edit/lock.
+const verifiedManagedCurrentHash=async(scriptId)=>{
+ const state=await inspectManagedIntegrity({managedRoot:profile,scriptId});
+ return state.status==='healthy'?state.activeHash:null;
+};
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
 <button id="fixture-safe-click" type="button">Safe synthetic interaction</button>
@@ -628,6 +635,7 @@ try{
  const autoGuard=await guardAppliedManagedRevision({
   approved:true,scriptId:'chrome-smoke-fixture',appliedHash:temporaryApplied.hash,
   previousHash:applied.hash,
+  confirmActiveHash:()=>verifiedManagedCurrentHash('chrome-smoke-fixture'),
   verify:async()=>{
    const changed=await readVerifiedManagedLocator({managedRoot:profile,
     scriptId:'chrome-smoke-fixture',revisionHash:temporaryApplied.hash,selectorIndex:0});
@@ -744,6 +752,7 @@ try{
  const batchV1=await guardAppliedManagedBatchRevision({
   approved:true,scriptId:'chrome-batch-fixture',appliedHash:batchApplied.hash,
   previousHash:trustedBatch.previousHash,selectorIndexes:trustedBatch.selectorIndexes,
+  confirmActiveHash:()=>verifiedManagedCurrentHash('chrome-batch-fixture'),
   verify:async(index)=>{
    const locator=await readVerifiedManagedLocator({
     managedRoot:profile,scriptId:'chrome-batch-fixture',
@@ -802,6 +811,7 @@ try{
   approved:true,scriptId:'chrome-batch-fixture',
   appliedHash:partialApplied.hash,previousHash:partialTrusted.previousHash,
   selectorIndexes:partialTrusted.selectorIndexes,
+  confirmActiveHash:()=>verifiedManagedCurrentHash('chrome-batch-fixture'),
   verify:async(index)=>{
    const locator=await readVerifiedManagedLocator({
     managedRoot:profile,scriptId:'chrome-batch-fixture',
