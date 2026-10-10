@@ -119,6 +119,23 @@ test('Task 5 static analyzer never executes top-level calls or side-effect senti
   assert.equal(Object.getOwnPropertyDescriptor(globalThis,key),undefined,'analyzer executed userscript');
 });
 
+test('Task 5 fixture inventory totals match the manually inspected synthetic source',()=>{
+  // Phase 1 Task 5 Step 4: guard against silently missing or duplicated calls.
+  // static: querySelector, getElementById, closest (all literals).
+  // dynamic: template, concatenation, wrapper argument (all runtime-required).
+  // invalid: no selector calls; its syntax error is asserted separately.
+  for(const [name,expectedCount,expectedRuntime] of [
+    ['static',3,0],
+    ['dynamic',3,3],
+    ['invalid',0,0],
+  ] as const){
+    const analysis=analyzeSource({scriptId:`counts-${name}`,sourceBytes:fixture(name)});
+    assert.equal(analysis.selectorRecords.length,expectedCount,`${name}: selector count`);
+    assert.equal(analysis.selectorRecords.filter(record=>record.runtimeRequired).length,
+      expectedRuntime,`${name}: runtime-required count`);
+  }
+});
+
 test('Task 5 invalid fixture: parser returns diagnostics instead of executing code',()=>{
   const bytes=fixture('invalid');
   const result=analyzeSource({scriptId:'fixture-invalid',sourceBytes:bytes});
