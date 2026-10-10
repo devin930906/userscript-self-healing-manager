@@ -39,3 +39,14 @@ test('Windows packaging workflow enforces tag guard before npm ci, build and ele
  assert.match(workflow,/USSHM_BUILD_REF:\s*\$\{\{ github\.ref \}\}/);
  assert.match(workflow,/USSHM_BUILD_EVENT:\s*\$\{\{ github\.event_name \}\}/);
 });
+
+
+test('tagged release must verify three real files, ZIP safety and SHA256 checksums before artifacts are uploaded',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const checksum=workflow.indexOf('name: Generate SHA256 manifest');
+ const finalGate=workflow.indexOf('node scripts/windows-release-gate.mjs');
+ const upload=workflow.indexOf('uses: actions/upload-artifact@v4');
+ assert.ok(checksum>=0&&finalGate>checksum&&upload>finalGate,
+  'An unverified installer/ZIP must never reach the final artifact upload step');
+ assert.match(workflow,/Release inventory|Verify final (?:three|Windows)|final release inventory/i);
+});
