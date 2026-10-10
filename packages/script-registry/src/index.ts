@@ -29,6 +29,12 @@ async function containsLinkedComponent(input:string):Promise<boolean>{
  return false;
 }
 
+// Match the final userscript suffix only. Sharing this predicate between
+// selected-file import and folder discovery prevents inconsistent filtering.
+function isUserscriptPath(path:string):boolean{
+ return path.toLowerCase().endsWith('.user.js');
+}
+
 export async function enumerateScripts({paths,recursive,followSymlinks,maxEntries=Number.MAX_SAFE_INTEGER}:{paths:string[];recursive:boolean;followSymlinks:false;maxEntries?:number}):Promise<EnumeratedScript[]>{
  if(!Number.isSafeInteger(maxEntries)||maxEntries<0)throw new Error('limit-exceeded');
  const output:EnumeratedScript[]=[];const visited=new Set<string>();
@@ -55,7 +61,7 @@ export async function enumerateScripts({paths,recursive,followSymlinks,maxEntrie
     if(stat?.isDirectory()&&!recursive)continue;
     await walk(target);
    }
-  } else if(info.isFile() && absolute.endsWith('.user.js'))append({path:absolute,status:'found'});
+  } else if(info.isFile() && isUserscriptPath(absolute))append({path:absolute,status:'found'});
  }
  for(const path of paths)await walk(path);
  return output;
@@ -84,7 +90,7 @@ export async function importPaths({paths,recursive,repository,maxFiles=Number.MA
  for(const entry of candidates){
   const path=entry.path;
   if(entry.status!=='found'){output.push({path,status:entry.status,message:entry.message});continue;}
-  if(!path.toLowerCase().endsWith('.user.js')){output.push({path,status:'invalid-extension'});continue;}
+  if(!isUserscriptPath(path)){output.push({path,status:'invalid-extension'});continue;}
   if(seen.has(path)){output.push({path,status:'duplicate-path'});continue;}seen.add(path);
   let data:Uint8Array;
   try{
