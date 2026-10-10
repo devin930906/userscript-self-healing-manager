@@ -97,8 +97,7 @@ export async function runReadOnlyInteractionReadiness({
  const sample=async():Promise<
   {kind:'ready';value:Sample}|
   {kind:'blocked';reason:string}|
-  {kind:'review';reason:string}
- >=>{
+  {kind:'review';reason:string}> => {
   await guard();
   let p:LocatorProbeResult;
   try{p=await deps.probe(target,[locator]);}
