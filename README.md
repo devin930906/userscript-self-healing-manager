@@ -18,6 +18,7 @@
 - [2026-10-10：单项／批量 V1 审核后的受管 current 哈希最终复核与并发改写安全保护](docs/development/guarded-current-integrity-2026-10-10.md)
 - [2026-10-10：隔离 Chrome 合成测试的输入前导航复核与重复 CDP 回应保护（不属于生产 V2）](docs/development/synthetic-fixture-preinput-guard-2026-10-10.md)
 - [2026-10-10：正式发行标签专用 Windows 打包门禁、三包 ZIP／哈希上传前校验（Alpha 拒绝打包）](docs/development/final-tag-only-build-gate-2026-10-10.md)
+- [2026-10-10：桌面 UI 的 42 处异常原文显示统一脱敏（本地路径、私人 URL、CDP/SQLite 消息）](docs/development/renderer-safe-error-redaction-2026-10-10.md)
 
 ## 目前可以做什么
 
