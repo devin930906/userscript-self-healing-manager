@@ -96,6 +96,24 @@ export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){
     changes:draft.changes.map(x=>({oldSelector:x.oldSelector,newSelector:x.newSelector})),
     preview:draft.proposedSource.slice(0,600)};
   },
+  async restore({scriptId,hash,approved,expectedCurrentHash}:{
+   scriptId:string;hash:string;approved:boolean;expectedCurrentHash:string;
+  }):Promise<{hash:string;activePath:string}>{
+   if(approved!==true||typeof scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(scriptId)||
+      typeof hash!=='string'||!/^[a-f0-9]{64}$/.test(hash)||
+      typeof expectedCurrentHash!=='string'||!/^[a-f0-9]{64}$/.test(expectedCurrentHash))
+    throw new Error('Invalid approved batch rollback identity');
+   if(applying.has(scriptId))throw new Error('Another managed batch operation in progress');
+   applying.add(scriptId);
+   try{
+    const restored=await activateManagedRevision({
+     managedRoot,scriptId,hash,approved:true,expectedCurrentHash,
+    });
+    epochs.set(scriptId,(epochs.get(scriptId)??0)+1);
+    discardScript(scriptId);
+    return restored;
+   }finally{applying.delete(scriptId);}
+  },
   async applyBatch({proposalId,approved}:{proposalId:string;approved:boolean}){
    if(approved!==true)throw new Error('Explicit batch approval required');
    if(typeof proposalId!=='string'||!/^[0-9a-f-]{36}$/i.test(proposalId))
