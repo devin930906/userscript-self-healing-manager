@@ -59,10 +59,10 @@ declare global {interface Window{ussm:{
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>Promise<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string}>;
- applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:stringactivePath:string}>;
- applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:stringactivePath:string}>;
- applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:stringactivePath:string}>;
- applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:stringactivePath:string}>;
+ applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
+ applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:string;activePath:string}>;
+ applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
+ applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string;activePath:string}>;
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
