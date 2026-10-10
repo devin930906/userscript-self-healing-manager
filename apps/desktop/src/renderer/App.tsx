@@ -119,6 +119,8 @@ function App(){
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
  const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
  const [managerTargetReport,setManagerTargetReport]=useState<UserscriptManagerTargetReport|null>(null);
+ const [managerBusy,setManagerBusy]=useState(false);
+ const managerTargetGeneration=useRef(new LatestRequestGate());
  const [targetId,setTargetId]=useState('');
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
@@ -160,6 +162,7 @@ function App(){
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
+ useEffect(()=>{managerTargetGeneration.current.invalidate();setManagerTargetReport(null);},[cdp,chromePath]);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth()])
@@ -419,7 +422,7 @@ function App(){
   }catch(error){setError('启动浏览器配置失败：'+summarizeSafeDesktopError(error));}
  }
  async function pickChrome(){try{const p=await window.ussm.pickChrome();if(p)setChromePath(p);setError('');}catch(e){setError(summarizeSafeDesktopError(e));}}
- async function startChrome(){try{await window.ussm.launchChrome();setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
+ async function startChrome(){try{await window.ussm.launchChrome();setCdp(null);setMessage('选定 Chrome 的 CDP 握手已验证；点击「检查 CDP 连接」刷新可检查的网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
  async function startIsolatedChrome(){try{await window.ussm.launchIsolatedChrome();setCdp(null);setTargetId('');setPageProbe(null);setRepairCandidates(null);setMessage('隔离 Chrome 的 CDP 握手已验证；独立资料目录不包含原有登录信息和扩展。点击「检查 CDP 连接」刷新网页列表。');}catch(e){setError(summarizeSafeDesktopError(e));}}
  async function checkCdp(){
   setManagerTargetReport(null);
@@ -427,14 +430,16 @@ function App(){
   catch(e){setCdp(null);setError(`CDP 握手失败：${summarizeSafeDesktopError(e)}。Chrome 136+ 对默认资料目录的调试开关有限制。`);}
  }
  async function inspectManagerTargets(){
-  if(!cdp||busy)return;
-  setBusy(true);setError('');setManagerTargetReport(null);
+  if(!cdp||busy||managerBusy)return;
+  const token=managerTargetGeneration.current.begin();
+  setManagerBusy(true);setError('');setManagerTargetReport(null);
   try{
    const observed=await window.ussm.getManagerTargets({approved:true});
-   setManagerTargetReport(observed);
-   setMessage('已检查当前 Chrome 的扩展后台运行目标；未观察到不代表未安装，V4 与 GM_* 行为仍未验证。');
-  }catch(error){setError('管理器扩展目标检查失败：'+summarizeSafeDesktopError(error));}
-  finally{setBusy(false);}
+   managerTargetGeneration.current.commit(token,()=>setManagerTargetReport(observed));
+   managerTargetGeneration.current.commit(token,()=>setMessage('已检查当前 Chrome 的扩展后台运行目标；未观察到不代表未安装，V4 与 GM_* 行为仍未验证。'));
+  }catch(error){
+   managerTargetGeneration.current.commit(token,()=>setError('管理器扩展目标检查失败：'+summarizeSafeDesktopError(error)));
+  }finally{setManagerBusy(false);}
  }
  async function loadDiagnosisHistory(){
   try{setDiagnosisHistory(await window.ussm.listDiagnosisHistory());}
@@ -834,7 +839,7 @@ function App(){
     <p className="dim">所有兼容规则仅为候选定义，未经过真实脚本运行或功能验证。V3／V4 未配置，尚不能认定 Tampermonkey 或 GM_* 功能正常。</p>
    </section>
    <section className="panel"><div className="panel-head"><div><h2>Chrome CDP 浏览器连接</h2><p>仅连接本机 127.0.0.1:9223；可进行人工授权的只读 DOM 快照和定位器匹配，不执行用户脚本。</p></div><span className="pill">受控连接</span></div>
-    <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}><button className="secondary" onClick={()=>void pickChrome()}>选择 Chrome</button><button className="secondary" disabled={!chromePath} onClick={()=>void startChrome()}>启动浏览器调试</button><button className="secondary" disabled={!chromePath} onClick={()=>void startIsolatedChrome()}>启动隔离调试 Chrome</button><button onClick={()=>void checkCdp()}>检查 CDP 连接</button><button className="secondary" disabled={!cdp||busy} onClick={()=>void inspectManagerTargets()}>检查油猴管理器扩展目标（只读）</button></div>
+    <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}><button className="secondary" onClick={()=>void pickChrome()}>选择 Chrome</button><button className="secondary" disabled={!chromePath} onClick={()=>void startChrome()}>启动浏览器调试</button><button className="secondary" disabled={!chromePath} onClick={()=>void startIsolatedChrome()}>启动隔离调试 Chrome</button><button onClick={()=>void checkCdp()}>检查 CDP 连接</button><button className="secondary" disabled={!cdp||busy||managerBusy} onClick={()=>void inspectManagerTargets()}>检查油猴管理器扩展目标（只读）</button></div>
     {managerTargetReport&&<div className="notice">
      <p><b>扩展运行目标观察（不是安装或 V4 证明）</b></p>
      <p>Tampermonkey Stable：{managerTargetReport.observed.includes('tampermonkey-stable')?'观察到后台运行目标':'没有观察到运行目标（不代表未安装）'}；
