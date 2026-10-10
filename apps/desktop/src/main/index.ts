@@ -42,6 +42,7 @@ import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/sr
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
+import {runReadOnlyInteractionReadiness} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
@@ -554,6 +555,44 @@ async function bootstrap():Promise<void>{
     return {...observed,status:'unknown',listenerCount:null};
   }
   return observed;
+ });
+ ipcMain.handle('usshm:read-only-interaction-readiness',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
+   targetId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit read-only interaction evidence approval required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex as number];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Readiness requires an authorized scanned userscript');
+  const record=item.analysis.selectorRecords[q.selectorIndex as number];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('A static top-document selector is required');
+  const cdp=await getVerifiedChromeStatus({port:9223});
+  const selected=cdp.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome CDP target is not available');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Script scope does not authorize inspecting this page');
+  const report=await runReadOnlyInteractionReadiness({
+   approved:true,target:selected,
+   caseId:'READINESS:'+item.scriptId.slice(0,56),
+   locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+   deps:{
+    confirm:confirmPageIdentity,
+    probe:(target,locators)=>probePageLocators(target,locators,{includeNodeFingerprints:true}),
+    inspectVisibility:(target,locator)=>inspectReadOnlyElementVisibility(target,locator),
+    inspectListeners:(target,locator)=>inspectReadOnlyEventListeners(target,locator),
+    wait:()=>new Promise<void>(resolve=>setTimeout(resolve,125)),
+   },
+  });
+  scanSessions.assertCurrent(scanSnapshot);
+  return report;
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
