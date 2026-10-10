@@ -107,3 +107,23 @@ userscript execution, website click, or extension installation was added.
 atomic snapshot of the DOM, does not prove overlays/ancestor conditions or
 click success, and cannot certify Tampermonkey GM APIs or V2/V3/V4. No
 preview installers, release artifacts or Stable release were produced.
+
+### Follow-up: blocked controls must also preserve node identity
+
+A hidden, disabled, read-only or pointer-blocked CSS observation previously
+returned `blocked` before checking whether a dynamic page had replaced the
+originally pinned node. This could misattribute a blocker from a replacement
+element to the original selector target. The blocked branch now repeats a
+bounded DOM-only fingerprint probe after CSS observation, confirms the same
+page document, and returns `needs-review` if the node changed or cannot be
+reconfirmed. Unchanged blocked nodes still return `blocked`. No listener
+metadata is collected when a directly blocked control is confirmed.
+
+- RED [Node 24 #38042697030](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38042697030) shows that stale blocker test assertions fail before the implementation.
+- GREEN [Windows Development CI #38042759119](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38042759119): **771 tests / 770 passed / 1 skipped / 0 failed**; TypeScript, Electron/SQLite Windows GUI smoke, compiled execution-safety gate, real Chrome CDP smoke, Chrome 155.0.8059.39 isolated extension fixture all passed.
+- [Node contracts #38042759128](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38042759128) passed.
+- Implementation: [commit `a644e88c`](https://github.com/devin930906/userscript-self-healing-manager/commit/a644e88cedfac35ff8e859bb976e2b0e2b67649f).
+
+This remains read-only control metadata, not production V2 interaction,
+V3 business behavior or V4 real Tampermonkey/GM_* verification. The branch
+remains Alpha/Draft; no intermediate installers or releases were generated.
