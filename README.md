@@ -9,6 +9,7 @@
 - [本轮执行/质量证据](docs/development/native-continuation-2026-10-08.md)
 - [Superpowers 总体实施计划](docs/superpowers/plans/2026-10-08-phase-1-offline-desktop-implementation.md)
 - [Windows 三格式发行合同](docs/distribution/windows-three-editions.md)
+- [2026-10-10：离线核心备份核验与安全暂存执行证据](docs/development/offline-core-recovery-2026-10-10.md)
 
 ## 目前可以做什么
 
