@@ -15,6 +15,7 @@ import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locat
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyEventListenerEvidence} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
+import type {ReadOnlyInteractionReadinessResult} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
@@ -47,6 +48,7 @@ declare global {interface Window{ussm:{
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
+ inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique';approved:true})=>Promise<ReadOnlyDomContractResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
@@ -136,6 +138,9 @@ function App(){
  const [listenerEvidence,setListenerEvidence]=useState<{selectorIndex:number;result:ReadOnlyEventListenerEvidence}|null>(null);
  const listenerGeneration=useRef(new LatestRequestGate());
  const listenerActive=useRef(false);
+ const [readinessEvidence,setReadinessEvidence]=useState<{selectorIndex:number;result:ReadOnlyInteractionReadinessResult}|null>(null);
+ const readinessGeneration=useRef(new LatestRequestGate());
+ const readinessActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -168,6 +173,7 @@ function App(){
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{visibilityGeneration.current.invalidate();if(visibilityActive.current){visibilityActive.current=false;setBusy(false);}setVisibilityEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{readinessGeneration.current.invalidate();if(readinessActive.current){readinessActive.current=false;setBusy(false);}setReadinessEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -494,6 +500,28 @@ function App(){
    if(listenerGeneration.current.isCurrent(token))setError('事件监听器检查失败：'+String(error));
   }finally{
    if(listenerGeneration.current.isCurrent(token)){listenerActive.current=false;setBusy(false);}
+  }
+ }
+ async function inspectInteractionReadiness(){
+  if(focused===null||!result||!targetId||busy)return;
+  const selector=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!selector||selector.runtimeRequired||selector.receiver!=='document')return;
+  const token=readinessGeneration.current.begin();
+  const itemIndex=focused,selectorIndex=repairIndex,scanId=result.scanId,target=targetId;
+  readinessActive.current=true;setBusy(true);setError('');setReadinessEvidence(null);
+  try{
+   const evidence=await window.ussm.inspectInteractionReadiness({
+    scanId,itemIndex,selectorIndex,targetId:target,approved:true,
+   });
+   if(readinessGeneration.current.isCurrent(token)){
+    setReadinessEvidence({selectorIndex,result:evidence});
+    setMessage('双次只读交互条件评估完成，仅用于确定后续核查优先级；V2 未验证，V3/V4 未配置。没有点击页面或执行油猴脚本。');
+   }
+  }catch{
+   if(readinessGeneration.current.isCurrent(token))
+    setError('双次交互条件评估失败：页面状态、授权或浏览器证据可能已变化。');
+  }finally{
+   if(readinessGeneration.current.isCurrent(token)){readinessActive.current=false;setBusy(false);}
   }
  }
  async function runDomContract(){
@@ -839,6 +867,18 @@ function App(){
     <b>直接 click 监听器：</b>{listenerEvidence.result.status==='registered'?'发现直接监听器':listenerEvidence.result.status==='none-observed'?'未观察到直接监听器（不等于没有功能）':listenerEvidence.result.status==='missing'?'顶层 DOM 未匹配':listenerEvidence.result.status==='ambiguous'?'选择器匹配多个元素':'证据不足'}
     · 数量 {listenerEvidence.result.listenerCount??'未知'}
     · V2 未验证；不能证明实际点击或 GM 功能，也不能证明业务操作成功。
+   </div>}
+   <div className="toolbar">
+    <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
+     onClick={()=>void inspectInteractionReadiness()}>双次交互条件评估（只读）</button>
+    <span className="dim">关联同一个 DOM 节点的唯一指纹、可见性、直接禁用属性和 click 监听器。仅提示潜在条件；不派发事件、不执行脚本、V2 未验证。</span>
+   </div>
+   {readinessEvidence&&readinessEvidence.selectorIndex===repairIndex&&<div className="notice">
+    <b>交互前置条件：</b>{readinessEvidence.result.status==='potentially-ready'?'只读条件可能具备（非点击成功）':readinessEvidence.result.status==='blocked'?'已观察到控件阻断条件':'证据不完整／条件需要复核'}
+    · 连续采样 {readinessEvidence.result.samples} 次
+    · 直接 click 监听器 {readinessEvidence.result.directClickListeners??'未知'}
+    · V2 未验证 · V3/V4 未配置
+    <small>{readinessEvidence.result.reason}。不代表用户脚本已注入、控件实际可交互或任何业务操作成功。</small>
    </div>}
    <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
