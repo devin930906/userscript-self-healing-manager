@@ -18,7 +18,8 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -35,34 +36,44 @@ async function connectCdp(url: string): Promise<{
   close(): void;
 }> {
   const ws = new WebSocket(url);
-  await new Promise<void>((done, fail) => {
+  await Promise.race([new Promise<void>((done, fail) => {
     ws.addEventListener('open', () => done(), { once: true });
     ws.addEventListener('error', () => fail(new Error('CDP WebSocket failed')), { once: true });
-  });
+  }), new Promise<never>((_, fail) => setTimeout(() => { ws.close(); fail(new Error('CDP WebSocket open timed out')); }, 5000))]);
   let seq = 0;
-  const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (reason: Error) => void }>();
+  const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (reason: Error) => void; timer: NodeJS.Timeout }>();
+  const events: string[] = [];
   ws.addEventListener('message', (event) => {
-    const msg = JSON.parse(String(event.data)) as CdpReply;
+    const msg = JSON.parse(String(event.data)) as CdpReply & { method?: string; params?: Record<string, unknown> };
+    if (msg.method?.startsWith('Page.frame')) events.push(JSON.stringify({ method: msg.method, params: msg.params }));
     if (msg.id === undefined) return;
     const entry = pending.get(msg.id);
     if (!entry) return;
     pending.delete(msg.id);
+    clearTimeout(entry.timer);
     if (msg.error) entry.reject(new Error(msg.error.message));
     else entry.resolve(msg.result ?? {});
   });
   ws.addEventListener('close', () => {
-    for (const entry of pending.values()) entry.reject(new Error('CDP disconnected'));
+    for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(new Error('CDP disconnected')); }
     pending.clear();
   });
   return {
+    events,
     call(method, params = {}) {
       const id = ++seq;
       return new Promise((resolveCall, rejectCall) => {
-        pending.set(id, { resolve: resolveCall, reject: rejectCall });
+        const timer = setTimeout(() => { pending.delete(id); rejectCall(new Error('CDP call timed out: ' + method)); }, 5000);
+        pending.set(id, { resolve: resolveCall, reject: rejectCall, timer });
         ws.send(JSON.stringify({ id, method, params }));
       });
     },
-    close: () => ws.close(),
+    close: async () => {
+      if (ws.readyState === WebSocket.CLOSED) return;
+      const closed = new Promise<void>(resolve => ws.addEventListener('close', () => resolve(), { once: true }));
+      ws.close();
+      await Promise.race([closed, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('CDP close timeout')), 5000))]);
+    },
   };
 }
 
@@ -81,12 +92,25 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   let cdp: Awaited<ReturnType<typeof connectCdp>> | undefined;
   let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
   let stderr = '';
+  let exitConfirmed = false;
+  const marker = 'USSHM_EXISTING_HTML_44';
+  const alternateFile = join(temporary, 'alternate-existing.html');
+  const requests = { initial: 0, redirected: 0 };
   try {
+    await writeFile(alternateFile, '<!doctype html><title>' + marker + '</title>', 'utf8');
+    await access(alternateFile);
     await mkdir(join(temporary, 'Roaming'), { recursive: true });
     await mkdir(join(temporary, 'Local'), { recursive: true });
-    redirectServer = createServer((_request, response) => {
-      response.writeHead(302, { Location: 'http://127.0.0.1:1/never-open' });
-      response.end();
+    redirectServer = createServer((request, response) => {
+      if (request.url === '/redirect') {
+        requests.initial++;
+        response.writeHead(302, { Location: '/destination' });
+        response.end();
+      } else if (request.url === '/destination') {
+        requests.redirected++;
+        response.writeHead(200, { 'Content-Type': 'text/html' });
+        response.end('<!doctype html><title>' + marker + '</title>');
+      } else { response.writeHead(404); response.end(); }
     });
     await new Promise<void>((done, fail) => {
       redirectServer!.once('error', fail);
@@ -108,7 +132,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       cwd: process.cwd(), env, windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'],
     });
-    child.on('exit', (code, signal) => { exit = { code, signal }; });
+    child.on('exit', (code, signal) => { exit = { code, signal }; exitConfirmed = true; });
     child.stderr?.on('data', (data: Buffer) => { stderr = (stderr + String(data)).slice(-8000); });
 
     // Chrome chooses a free debugging port; parse its stderr endpoint.
@@ -139,6 +163,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     const trustedUrl = target.url!;
     cdp = await connectCdp(target.webSocketDebuggerUrl);
     await cdp.call('Runtime.enable');
+    await cdp.call('Page.enable');
 
     async function evaluate<T>(expression: string): Promise<T> {
       const response = await cdp!.call('Runtime.evaluate', {
@@ -162,53 +187,70 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       assert.equal(state.generic, 'undefined');
     });
 
-    await t.test('subframe cannot forge main-frame bridge access', async () => {
-      const result = await evaluate<{ bridge: string; ipc: string; require: string }>(`(async () => {
-        const frame = document.createElement('iframe');
-        frame.srcdoc = '<!doctype html><title>local synthetic untrusted frame</title>';
+    await t.test('iframe load, sentinel and JS execution must all succeed before checking bridge', async () => {
+      const result = await evaluate<{loaded: boolean; marker: string; executed: string; bridge: string; ipc: string; require: string}>(`(async()=>{
+        const frame=document.createElement('iframe');
+        frame.srcdoc='<!doctype html><html><body><span id="proof">FRAME_MARKER_44</span><script>document.body.dataset.executed="yes"<\/script></body></html>';
+        const loaded=new Promise((resolve,reject)=>{
+          frame.addEventListener('load',()=>resolve(true),{once:true});
+          frame.addEventListener('error',()=>reject(new Error('iframe failed to load')),{once:true});
+          setTimeout(()=>reject(new Error('iframe load/CSP timeout')),3000);
+        });
         document.body.append(frame);
-        await new Promise(resolve => { frame.onload = resolve; setTimeout(resolve, 800); });
-        const value = {
-          bridge: typeof frame.contentWindow.ussm,
-          ipc: typeof frame.contentWindow.ipcRenderer,
-          require: typeof frame.contentWindow.require
-        };
-        frame.remove();
-        return value;
+        try {
+          await loaded;
+          if(!frame.contentWindow||!frame.contentDocument)throw new Error('iframe execution context unavailable');
+          const marker=frame.contentDocument.getElementById('proof')?.textContent;
+          const executed=frame.contentDocument.body.dataset.executed;
+          if(marker!=='FRAME_MARKER_44'||executed!=='yes')throw new Error('iframe content or script execution blocked');
+          return {loaded:true,marker,executed,bridge:typeof frame.contentWindow.ussm,
+            ipc:typeof frame.contentWindow.ipcRenderer,require:typeof frame.contentWindow.require};
+        } finally {frame.remove();}
       })()`);
-      assert.deepEqual(result, { bridge: 'undefined', ipc: 'undefined', require: 'undefined' });
+      assert.equal(result.loaded,true);
+      assert.equal(result.marker,'FRAME_MARKER_44');
+      assert.equal(result.executed,'yes');
+      assert.deepEqual([result.bridge,result.ipc,result.require],['undefined','undefined','undefined']);
     });
 
-    await t.test('cross-document file navigation is blocked and trusted IPC remains bound', async () => {
-      await evaluate(`(() => {
-        const link = document.createElement('a');
-        link.href = 'file:///C:/__usshm_security_denied__/different.html';
-        document.body.append(link);
-        link.click();
-        link.remove();
-      })()`);
-      await delay(500);
-      assert.equal(await evaluate('location.href'), trustedUrl);
-      assert.equal(typeof (await evaluate('window.ussm.getAppInfo()')).version, 'string');
+    await t.test('existing alternate local HTML is blocked (sentinel would load without guard)', async () => {
+      const before=cdp!.events.length;
+      await evaluate(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(pathToFileURL(alternateFile).href)};document.body.append(a);a.click();a.remove();return true})()`);
+      await delay(650);
+      assert.equal(await evaluate('location.href'),trustedUrl);
+      assert.equal(cdp!.events.slice(before).some(e=>e.includes('Page.frameNavigated')&&e.includes(marker)),false);
+      assert.equal(typeof (await evaluate('window.ussm.getAppInfo()')).version,'string');
     });
 
-    await t.test('HTTP redirect navigation is denied before leaving the app document', async () => {
-      await evaluate(`(() => {
-        const link = document.createElement('a');
-        link.href = ${JSON.stringify(localRedirect)};
-        document.body.append(link);
-        link.click();
-        link.remove();
-      })()`);
-      await delay(500);
-      assert.equal(await evaluate('location.href'), trustedUrl);
-      assert.equal(typeof (await evaluate('window.ussm.getAppInfo()')).version, 'string');
+    await t.test('HTTP 302 initial/redirect destinations are both unreachable', async () => {
+      const before=cdp!.events.length;
+      await evaluate(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(localRedirect)};document.body.append(a);a.click();a.remove();return true})()`);
+      await delay(650);
+      assert.equal(await evaluate('location.href'),trustedUrl);
+      assert.equal(requests.initial,0,'navigation guard absent: HTTP 302 was requested');
+      assert.equal(requests.redirected,0,'redirect target unexpectedly requested');
+      assert.equal(cdp!.events.slice(before).some(e=>e.includes('Page.frameNavigated')&&e.includes('/destination')),false);
+      assert.equal(typeof (await evaluate('window.ussm.getAppInfo()')).version,'string');
     });
   } finally {
-    cdp?.close();
-    await new Promise<void>((done) => redirectServer?.close(() => done()) ?? done());
-    if (child?.pid) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'],
-      { timeout: 15000, stdio: 'ignore' });
-    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    const failures: Error[] = [];
+    try { await cdp?.close(); } catch(e) { failures.push(new Error('CDP cleanup: '+String(e))); }
+    if (child?.pid && !exitConfirmed) {
+      const ended = new Promise<void>(resolve=>child!.once('exit',()=>resolve()));
+      const killed = spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],
+        {stdio:'pipe',encoding:'utf8',timeout:10000,windowsHide:true});
+      if(killed.error||killed.status!==0) failures.push(new Error('taskkill failed: '+String(killed.error??killed.stderr)));
+      try { await Promise.race([ended,new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Electron exit timed out')),10000))]); }
+      catch(e) { failures.push(e as Error); }
+    }
+    if(redirectServer?.listening) {
+      try { await Promise.race([new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())),
+        new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('HTTP close timed out')),10000))]); }
+      catch(e) { failures.push(e as Error); }
+    }
+    if(child && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
+    else { try { await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200}); }
+      catch(e) { failures.push(new Error('Temporary directory cleanup: '+String(e))); } }
+    if(failures.length) throw new AggregateError(failures,'Electron security cleanup failed');
   }
 });
