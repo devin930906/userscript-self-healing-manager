@@ -107,3 +107,19 @@ test('a registry identity lookup failure isolates its file and a later retry suc
   assert.equal(await readFile(fail,'utf8'),'const a=1;');
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('folder enumeration and import accept case-insensitive .user.js extensions consistently',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-extension-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const path=join(root,'CASE.USER.JS'),bytes=Buffer.from('// ==UserScript==\\n// @name Upper extension\\n// ==/UserScript==\\nconst a=1;\\n'.replaceAll('\\n','\n'));
+  await writeFile(path,bytes);
+  const entries=await enumerateScripts({paths:[root],recursive:true,followSymlinks:false});
+  assert.deepEqual(entries.filter(x=>x.status==='found').map(x=>x.path),[path]);
+  const repo=createScriptRepository(db);
+  const items=await importPaths({paths:[root],recursive:true,repository:repo});
+  assert.deepEqual(items.map(x=>x.status),['imported']);
+  assert.equal(repo.list().length,1);
+  assert.deepEqual(await readFile(path),bytes);
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
