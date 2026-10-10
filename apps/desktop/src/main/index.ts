@@ -20,6 +20,7 @@ import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-re
 import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive-report.ts';
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getVerifiedChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
+import {inspectKnownUserscriptManagerTargets} from '../../../../packages/cdp-client/src/manager-targets.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefaultBrowserProfile,removeBrowserProfile,resolveBrowserProfileForLaunch,inspectBrowserProfileRegistry} from '../../../../packages/cdp-client/src/browser-profiles.ts';
 import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -388,6 +389,20 @@ async function bootstrap():Promise<void>{
   return {started:true,port:9223,isolated:true};
  });
  ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getVerifiedChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
+ ipcMain.handle('usshm:manager-targets',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).length!==1||
+     q.approved!==true)
+   throw new Error('Explicit approval required for read-only extension target observation');
+  // Re-authenticate the browser itself before every request. Never trust a
+  // renderer-provided debugger URL, manager extension ID or target inventory.
+  const browser=await getVerifiedChromeStatus({port:9223});
+  if(!browser.browserSocket)throw new Error('Verified Chrome browser socket unavailable');
+  return inspectKnownUserscriptManagerTargets({
+   approved:true,browserEndpoint:browser.browserSocket,expectedProduct:browser.browser,
+  });
+ });
  ipcMain.handle('usshm:probe-locators',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;targetId:string;approved:true}|null;
   if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||typeof q.targetId!=='string'||q.targetId.length>128)throw new Error('Explicit target and consent required');
