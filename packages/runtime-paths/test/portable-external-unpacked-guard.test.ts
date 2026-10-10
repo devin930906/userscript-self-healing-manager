@@ -50,3 +50,43 @@ test('installed and portable ZIP retain their independent data root policies', (
     osUserDataDirectory: 'C:\\Users\\测试 用户\\AppData\\Roaming\\USSHM',
   }), 'D:\\解压 目录\\USSHM\\Data');
 });
+
+test('portable EXE rejects Data inside unpacked directory subtree', () => {
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App',
+    portableExternalDirectory: 'C:\\Temp\\App\\Data',
+  }), /PORTABLE_EXECUTABLE_DIR.*unpacked/i);
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App',
+    portableExternalDirectory: 'C:\\Temp\\App\\nested\\Data',
+  }), /PORTABLE_EXECUTABLE_DIR.*unpacked/i);
+});
+
+test('portable EXE accepts a sibling sharing only the path prefix', () => {
+  assert.equal(resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App',
+    portableExternalDirectory: 'C:\\Temp\\Application',
+  }), 'C:\\Temp\\Application\\Data');
+});
+
+test('portable EXE fails closed for extended-length device alias paths', () => {
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App',
+    portableExternalDirectory: '\\\\?\\C:\\Temp\\App',
+  }), /PORTABLE_EXECUTABLE_DIR.*(unpacked|ambiguous)/i);
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: '\\\\?\\C:\\Temp\\App',
+    portableExternalDirectory: 'C:\\Temp\\App',
+  }), /PORTABLE_EXECUTABLE_DIR.*(unpacked|ambiguous)/i);
+});
+
+test('portable EXE fails closed for Windows trailing-dot aliases', () => {
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App',
+    portableExternalDirectory: 'C:\\Temp\\App.',
+  }), /PORTABLE_EXECUTABLE_DIR.*(unpacked|ambiguous)/i);
+  assert.throws(() => resolveDataRoot({
+    ...common, exeDirectory: 'C:\\Temp\\App.',
+    portableExternalDirectory: 'C:\\Temp\\App',
+  }), /PORTABLE_EXECUTABLE_DIR.*(unpacked|ambiguous)/i);
+});
