@@ -908,6 +908,18 @@ async function bootstrap():Promise<void>{
     scanSessions.assertCurrent(scanSnapshot);
     return verdict;
    },
+   confirmActiveHash:async()=>{
+    // Browser V1 evidence alone cannot prove the managed revision stayed
+    // active while CDP readbacks were in flight. Never trust a hash/path
+    // supplied by the renderer. Verify the actual archived disk copy and
+    // reject any writer lock, orphan stage, corruption or external edit.
+    scanSessions.assertCurrent(scanSnapshot);
+    assertStablePageDocument(originalDocument,await confirmPageIdentity(selected));
+    const integrity=await inspectManagedIntegrity({managedRoot:dataRoot,scriptId:item.scriptId!});
+    scanSessions.assertCurrent(scanSnapshot);
+    assertStablePageDocument(originalDocument,await confirmPageIdentity(selected));
+    return integrity.status==='healthy'?integrity.activeHash:null;
+   },
    restore:hash=>batchRepairs.restore({
     scriptId:item.scriptId!,hash,approved:true,expectedCurrentHash:applied.hash,
    }),
@@ -989,6 +1001,14 @@ async function bootstrap():Promise<void>{
     assertStablePageDocument(documentBefore,await confirmPageIdentity(selected));
     scanSessions.assertCurrent(scanSnapshot);
     return verdict;
+   },
+   confirmActiveHash:async()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    assertStablePageDocument(documentBefore,await confirmPageIdentity(selected));
+    const integrity=await inspectManagedIntegrity({managedRoot:dataRoot,scriptId:item.scriptId!});
+    scanSessions.assertCurrent(scanSnapshot);
+    assertStablePageDocument(documentBefore,await confirmPageIdentity(selected));
+    return integrity.status==='healthy'?integrity.activeHash:null;
    },
    restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
