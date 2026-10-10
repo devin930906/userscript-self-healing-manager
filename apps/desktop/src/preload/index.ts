@@ -69,6 +69,7 @@ const api={
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>ipcRenderer.invoke('usshm:propose-repair',input),
  proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>ipcRenderer.invoke('usshm:propose-batch-repair',input),
  applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-batch-repair',input),
+ applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-batch-repair-guarded',input),
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair',input),
  applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair-guarded',input),
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>ipcRenderer.invoke('usshm:verify-managed-dom',input),
