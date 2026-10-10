@@ -219,3 +219,48 @@ test('pre-dispatch callback is pinned against caller mutation and cannot broaden
  assert.equal(executed,0);
  assert.equal(result.items[0]?.status,'blocked');
 });
+
+
+test('pausing in running progress event must prevent the write until explicitly resumed',async()=>{
+ let executed=0;
+ let q!:ReturnType<typeof createRepairTaskQueue>;
+ let pausedOnce=false;
+ q=createRepairTaskQueue([{id:'a',scriptId:'a',approved:true,execute:async()=>{executed++;}}],{
+  onProgress:state=>{
+   if(state.items[0]?.status==='running'&&!pausedOnce){pausedOnce=true;q.pause();}
+  },
+ });
+ const pending=q.run();
+ await new Promise<void>(resolve=>setImmediate(resolve));
+ assert.equal(q.snapshot().paused,true);
+ assert.equal(executed,0,'a pause at the last synchronous boundary must gate execution');
+ q.resume();
+ const end=await pending;
+ assert.equal(executed,1);
+ assert.equal(end.items[0]?.status,'completed');
+});
+
+test('pausing during asynchronous preflight waits for resume and reruns the file safety gate',async()=>{
+ let enter!:()=>void,release!:()=>void;
+ const started=new Promise<void>(resolve=>{enter=resolve;});
+ const held=new Promise<void>(resolve=>{release=resolve;});
+ let checks=0,executed=0;
+ const q=createRepairTaskQueue([{id:'a',scriptId:'a',approved:true,
+  execute:async()=>{executed++;},
+ }],{beforeDispatch:async()=>{
+  checks++;
+  if(checks===1){enter();await held;}
+  return true;
+ }});
+ const pending=q.run();
+ await started;
+ q.pause();
+ release();
+ await new Promise<void>(resolve=>setImmediate(resolve));
+ assert.equal(executed,0,'a pause while verifying the original hash must not dispatch');
+ q.resume();
+ const result=await pending;
+ assert.equal(checks,2,'a paused verification becomes stale and must be repeated before write');
+ assert.equal(executed,1);
+ assert.equal(result.items[0]?.status,'completed');
+});
