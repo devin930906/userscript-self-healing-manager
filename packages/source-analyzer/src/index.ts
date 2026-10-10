@@ -70,9 +70,15 @@ function functionScope(node:ts.Node):{name:string|null;scope:string[]}{
  return {name:scope.at(-1)??null,scope};
 }
 function getAlternates(node:ts.CallExpression):string[]{
- const parent=node.parent;
+ // Grouping parentheses must not hide either side of a literal fallback.
+ let child:ts.Node=node;
+ let parent:ts.Node|undefined=node.parent;
+ while(parent&&ts.isParenthesizedExpression(parent)){
+  child=parent;parent=parent.parent;
+ }
  if(ts.isBinaryExpression(parent)&&parent.operatorToken.kind===ts.SyntaxKind.BarBarToken){
-   const alternative=parent.left===node?parent.right:parent.left;
+   let alternative:ts.Expression=parent.left===child?parent.right:parent.left;
+   while(ts.isParenthesizedExpression(alternative))alternative=alternative.expression;
    if(ts.isCallExpression(alternative)&&alternative.arguments[0])return [selectorOf(alternative.arguments[0]).expression];
  }
  return [];
