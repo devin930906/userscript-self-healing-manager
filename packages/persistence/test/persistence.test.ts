@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../src/index.ts';
@@ -174,5 +174,31 @@ test('v1 SQLite schema with unrecognized mutating triggers is rejected before fu
    assert.equal(inspect.prepare("SELECT count(*) AS c FROM sqlite_master WHERE type='trigger' AND name='purge_scripts'").get()?.c,1,
     'reject unknown trigger without silently deleting or rewriting the database');
   }finally{inspect.close();}
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('online SQLite registry backup publishes a self-contained file with no persistent WAL or staging sidecars',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-backup-sidecars-'));
+ try{
+  const source=join(dir,'registry.sqlite'),destination=join(dir,'export.sqlite');
+  const db=openDatabase(source);migrateDatabase(db);
+  try{
+   const receipt=await persistence.backupRegistryDatabase(db,destination);
+   assert.equal(receipt.path,destination);
+   const names=await readdir(dir);
+   assert.ok(names.includes('export.sqlite'));
+   assert.equal(names.filter(name=>
+    name==='export.sqlite-wal'||name==='export.sqlite-shm'||
+    /^\.usshm-backup-.*\.tmp(?:-wal|-shm)?$/.test(name)).length,0,
+    'backed-up SQLite file must not require sidecars or leave staging data');
+   const {DatabaseSync}=await import('node:sqlite');
+   const detached=new DatabaseSync(destination,{readOnly:true});
+   try{
+    assert.equal(detached.prepare('PRAGMA journal_mode').get()?.journal_mode,'delete');
+    assert.equal(detached.prepare('PRAGMA integrity_check').get()?.integrity_check,'ok');
+   }finally{detached.close();}
+   assert.equal((await readdir(dir)).filter(name=>name.startsWith('export.sqlite-')).length,0);
+  }finally{db.close();}
  }finally{await rm(dir,{recursive:true,force:true});}
 });
