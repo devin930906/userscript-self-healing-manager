@@ -201,3 +201,45 @@ test('malformed CDP response envelope fails closed before any synthetic Input ev
   /invalid|CDP|envelope/i);
  assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
 });
+
+
+test('fixture must re-attest page identity immediately before the first mouse input',async()=>{
+ let socket!:FixtureSocket,calls=0;
+ const result=await runIsolatedFixtureInteraction({
+  approved:true,target,fixtureUrl:url,
+  confirm:async()=>{calls++;return identity;},
+  socketFactory:()=>{socket=new FixtureSocket();return socket;},
+ });
+ assert.equal(result.observed,true);
+ assert.ok(calls>=3,'initial, pre-input and post-input document checks are required');
+ assert.deepEqual(socket.methods.filter(m=>m.startsWith('Input.')),
+  ['Input.dispatchMouseEvent','Input.dispatchMouseEvent']);
+});
+test('same-URL navigation after button geometry was read must block all synthetic mouse input',async()=>{
+ let socket!:FixtureSocket,calls=0;
+ await assert.rejects(runIsolatedFixtureInteraction({
+  approved:true,target,fixtureUrl:url,
+  confirm:async()=>{
+   calls++;
+   return calls===1?identity:{...identity,loaderId:'unexpected-new-loader'};
+  },
+  socketFactory:()=>{socket=new FixtureSocket();return socket;},
+ }),/document|identity|navigation|reload|changed/i);
+ assert.ok(calls>=2,'pre-click navigation must be checked, not just eventual post-click state');
+ assert.deepEqual(socket.methods.filter(m=>m.startsWith('Input.')),[]);
+ assert.ok(socket.methods.includes('DOM.getBoxModel'));
+});
+test('a different frame or URL at pre-click gate refuses Input even when the selected button looks valid',async()=>{
+ for(const identityChange of [
+  {...identity,frameId:'different-main-frame'},
+  {...identity,confirmedUrl:'https://other.example/fixture'},
+ ]){
+  let socket!:FixtureSocket,calls=0;
+  await assert.rejects(runIsolatedFixtureInteraction({
+   approved:true,target,fixtureUrl:url,
+   confirm:async()=>++calls===1?identity:identityChange,
+   socketFactory:()=>{socket=new FixtureSocket();return socket;},
+  }),/identity|document|navigation|changed/i);
+  assert.ok(!socket.methods.some(method=>method.startsWith('Input.')));
+ }
+});
