@@ -34,13 +34,16 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  const indexes=db.prepare(`SELECT name,"unique" AS isUnique,partial
   FROM pragma_index_list('scripts')`).all() as {name:string;isUnique:number;partial:number}[];
  const indexColumns=db.prepare('SELECT name FROM pragma_index_info(?)');
- const pathUnique=indexes.some(index=>{
-  if(index.isUnique!==1||index.partial!==0)return false;
+ const uniqueFields=indexes.map(index=>{
+  if(index.isUnique!==1||index.partial!==0)return null;
   const fields=indexColumns.all(index.name) as {name:string|null}[];
-  return fields.length===1&&fields[0]?.name==='path';
+  return fields.length===1?fields[0]?.name:null;
  });
- if(!pathUnique)
-  throw new Error('Incompatible scripts schema: missing unique path constraint');
+ // The v1 table has exactly two unique constraints: id PRIMARY KEY and
+ // path UNIQUE. An additional UNIQUE index can silently reject valid future
+ // imports even when the version and column names look compatible.
+ if(uniqueFields.length!==2||!uniqueFields.includes('id')||!uniqueFields.includes('path'))
+  throw new Error('Incompatible scripts schema: unexpected or missing unique index');
  // No triggers belong to the v1 registry schema. A database that otherwise
  // has correct columns and indexes may still carry an unexpected trigger
  // which deletes or rewrites user records on the next normal upsert.
@@ -62,7 +65,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
    const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
    if(versions.length!==1||versions[0]?.version!==1)
     throw new Error('Unsupported database schema version; newer or uninitialized Data must not be downgraded');
-   assertV1ScriptsTable(db);
+   assertRegistryV1SnapshotSchema(db);
   }
   db.exec(`CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
    CREATE TABLE IF NOT EXISTS scripts(
@@ -73,7 +76,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
   const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
   if(versions.length!==1||versions[0]?.version!==1)
    throw new Error('Unsupported database schema version');
-  assertV1ScriptsTable(db);
+  assertRegistryV1SnapshotSchema(db);
   db.exec('COMMIT');
  }catch(error){
   db.exec('ROLLBACK');
@@ -183,6 +186,13 @@ export function assertRegistryV1SnapshotSchema(db:DatabaseHandle):void{
   .get() as {type:string}|undefined;
  if(marker?.type!=='table')
   throw new Error('Invalid registry snapshot schema marker');
+ const columns=db.prepare('PRAGMA table_info(schema_version)').all() as {
+  name:string;type:string;notnull:number;pk:number;
+ }[];
+ if(columns.length!==1||columns[0]?.name!=='version'||
+    columns[0].type.toUpperCase()!=='INTEGER'||columns[0].notnull!==1||
+    columns[0].pk!==0||db.prepare('PRAGMA index_list(schema_version)').all().length)
+  throw new Error('Incompatible registry schema version marker layout');
  const rows=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
  if(rows.length!==1||rows[0]?.version!==1)
   throw new Error('Backup database has an unsupported schema version');
