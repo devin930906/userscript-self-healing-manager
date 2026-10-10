@@ -118,6 +118,11 @@ jobs:
             $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)"
           } | Set-Content release/SHA256SUMS.txt
+      - name: Verify final three-edition release inventory, ZIP and SHA256 checksums
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          node scripts/windows-release-gate.mjs $version release
       - name: Upload tag-only artifacts for independent RG audit (not automatically Stable)
         uses: actions/upload-artifact@v4
         with:
