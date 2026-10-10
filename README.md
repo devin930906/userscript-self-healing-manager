@@ -15,6 +15,7 @@
 - [2026-10-10：双次只读交互条件评估（非 V2 功能通过）](docs/development/read-only-interaction-readiness-2026-10-10.md)
 - [2026-10-10：2～8 处选择器的一次受管批量修复与整批回滚](docs/development/batch-repair-2026-10-10.md)
 - [2026-10-10：整批 V1 安全验证、完整修改预览、限时批准与正确受管路径](docs/development/guarded-batch-v1-and-review-hardening-2026-10-10.md)
+- [2026-10-10：单项／批量 V1 审核后的受管 current 哈希最终复核与并发改写安全保护](docs/development/guarded-current-integrity-2026-10-10.md)
 
 ## 目前可以做什么
 
