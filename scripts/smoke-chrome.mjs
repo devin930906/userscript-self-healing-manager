@@ -781,6 +781,55 @@ try{
  assert.equal(await runIsolatedFixtureBehavior({
   target:selected,fixtureUrl,source:await readFile(batchRolled.activePath,'utf8'),
  }),false,'rollback must undo both batch changes together');
+ // Negative real-Chrome control: exactly one repaired selector passes and
+ // the other is still missing. The guarded batch must roll the WHOLE
+ // revision back, rather than treating the first passing selector as enough.
+ const partialProposal=await batchFlow.proposeBatch({
+  sourcePath:batchSource,scriptId:'chrome-batch-fixture',
+  changes:[
+   {oldSelector:'#old-heal-button',newSelector:'#heal-button',
+    selectorLocation:{method:'querySelector',line:5,column:buttonCall}},
+   {oldSelector:'.old-target-pane',newSelector:'.intentionally-missing-pane',
+    selectorLocation:{method:'querySelector',line:5,column:paneCall}},
+  ],
+ });
+ const partialTrusted=batchFlow.inspectPending(partialProposal.proposalId);
+ assert.ok(partialTrusted);
+ const partialApplied=await batchFlow.applyBatch({
+  proposalId:partialProposal.proposalId,approved:true,
+ });
+ const partialSafety=await guardAppliedManagedBatchRevision({
+  approved:true,scriptId:'chrome-batch-fixture',
+  appliedHash:partialApplied.hash,previousHash:partialTrusted.previousHash,
+  selectorIndexes:partialTrusted.selectorIndexes,
+  verify:async(index)=>{
+   const locator=await readVerifiedManagedLocator({
+    managedRoot:profile,scriptId:'chrome-batch-fixture',
+    revisionHash:partialApplied.hash,selectorIndex:index,
+   });
+   return runReadOnlyDomContract({
+    approved:true,target:selected,caseId:'BATCH:chrome-batch-fixture:IDX_'+index,
+    locator:{method:locator.method,expression:locator.expression,runtimeRequired:false},
+    expectation:'unique',
+    deps:{
+     confirm:confirmPageIdentity,
+     probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+     summarize:captureDomSummary,wait:()=>delay(125),
+    },
+   });
+  },
+  restore:hash=>batchFlow.restore({
+   scriptId:'chrome-batch-fixture',hash,approved:true,
+   expectedCurrentHash:partialApplied.hash,
+  }),
+ });
+ assert.equal(partialSafety.status,'rolled-back-v1');
+ assert.equal(partialSafety.activeHash,partialProposal.baseHash);
+ assert.deepEqual(await readFile(batchCurrent,'utf8'),original);
+ assert.equal(await runIsolatedFixtureBehavior({
+  target:selected,fixtureUrl,source:await readFile(batchCurrent,'utf8'),
+ }),false);
+ console.log('PASS real Chrome guarded batch negative: partial one-selector success cannot retain batch; entire managed revision restored.');
  console.log('PASS real Chrome approved atomic 2-selector batch repair: failure → single managed revision success → rollback failure.');
  // The fixture script creates a real about:srcdoc iframe. A top-level document
  // miss does not prove that a userscript which can run in frames is broken.
