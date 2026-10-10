@@ -87,9 +87,9 @@ test('malformed, oversized or ambiguous target inventories never certify an exte
 });
 test('an arbitrary web page with a claimed extension ID or a malformed extension URL is ignored',async()=>{
  const s=new BrowserSocket(product,[
-  {...target('dhdgffkkebhmkfjojejmpbldmpobfkfo'),type:'page'},
-  {...target('dhdgffkkebhmkfjojejmpbldmpobfkfo'),url:'https://example.org/path'},
-  {...target('dhdgffkkebhmkfjojejmpbldmpobfkfo'),url:'chrome-extension://dhdgffkkebhmkfjojejmpbldmpobfkfo.evil/background.js'},
+  {...target('dhdgffkkebhmkfjojejmpbldmpobfkfo'),targetId:'ignored-page',type:'page'},
+  {...target('dhdgffkkebhmkfjojejmpbldmpobfkfo'),targetId:'ignored-web',url:'https://example.org/path'},
+  {...target('dhdgffkkebhmkfjojejmpbldmpobfkfo'),targetId:'ignored-lookalike',url:'chrome-extension://dhdgffkkebhmkfjojejmpbldmpobfkfo.evil/background.js'},
  ]);
  assert.deepEqual((await run(s)).observed,[]);
 });
