@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
 import {test} from 'node:test';
 import {mkdtemp,mkdir,rm,symlink,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase,type ScriptRecord} from '../src/index.ts';
+import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase,type ScriptRecord,classifyDatabaseError} from '../src/index.ts';
 
 const makeRecord=(id:string,path:string):ScriptRecord=>({
  id,path,displayName:'duplicate.user.js',sha256:'1'.repeat(64),
@@ -96,4 +97,70 @@ test('normal v1 registry retains distinct paths differing only by case',()=>{
   assert.equal(repo.findIdByPath('/scripts/case.user.js'),'lower');
   assert.equal(repo.list().length,2);
  }finally{db.close();}
+});
+
+
+test('migration rollback failure preserves schema failure as cause and exposes rollback failure',()=>{
+ const db=openDatabase(':memory:');
+ const execute=db.exec.bind(db);
+ const rollbackFailure=new Error('forced rollback cleanup failure');
+ try{
+  execute('CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(999)');
+  db.exec=(sql:string)=>{
+   if(sql==='ROLLBACK')throw rollbackFailure;
+   return execute(sql);
+  };
+  assert.throws(()=>migrateDatabase(db),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   const cause=(error as Error & {cause?:unknown}).cause;
+   assert.ok(cause instanceof Error);
+   assert.match(cause.message,/unsupported database schema version/i);
+   assert.equal((error as Error & {rollbackError?:unknown}).rollbackError,rollbackFailure);
+   return true;
+  });
+ }finally{
+  execute('ROLLBACK');
+  db.close();
+ }
+});
+
+test('openDatabase initialization failure closes the database and preserves failed cleanup',()=>{
+ const originalExec=DatabaseSync.prototype.exec;
+ const originalClose=DatabaseSync.prototype.close;
+ const initializationFailure=new Error('forced WAL initialization failure');
+ const cleanupFailure=new Error('forced close failure');
+ let attempts=0;
+ try{
+  DatabaseSync.prototype.exec=function(sql:string){
+   if(sql==='PRAGMA journal_mode = WAL')throw initializationFailure;
+   return originalExec.call(this,sql);
+  };
+  DatabaseSync.prototype.close=function(){
+   attempts++;
+   originalClose.call(this);
+   throw cleanupFailure;
+  };
+  assert.throws(()=>openDatabase(':memory:'),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   assert.equal((error as Error & {cause?:unknown}).cause,initializationFailure);
+   assert.equal((error as Error & {cleanupError?:unknown}).cleanupError,cleanupFailure);
+   return true;
+  });
+  assert.equal(attempts,1);
+ }finally{
+  DatabaseSync.prototype.exec=originalExec;
+  DatabaseSync.prototype.close=originalClose;
+ }
+});
+
+test('database error classification uses exact native codes and retains causes',()=>{
+ const busy=Object.assign(new Error('opaque native failure'),{code:'ERR_SQLITE_ERROR',errcode:5});
+ const thrown=classifyDatabaseError(busy);
+ assert.equal(thrown.code,'DATABASE_BUSY');
+ assert.equal(thrown.cause,busy);
+ const unknown=Object.assign(new Error('database is locked'),{code:'ERR_SQLITE_ERROR'});
+ assert.equal(classifyDatabaseError(unknown).code,'DATABASE_UNKNOWN_ERROR');
+ assert.equal(classifyDatabaseError(unknown).cause,unknown);
+ const permission=Object.assign(new Error('opaque'),{code:'EACCES'});
+ assert.equal(classifyDatabaseError(permission).code,'DATABASE_PERMISSION_DENIED');
 });
