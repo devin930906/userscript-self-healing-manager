@@ -50,7 +50,7 @@ test('one repository write failure is reported per-file and later imports contin
    }
   };
   const results=await importPaths({paths,recursive:false,repository:failing});
-  assert.deepEqual(results.map(x=>x.status),['imported','storage-error','imported']);
+  assert.deepEqual(results.map(x=>x.status),['imported','unreadable','imported']);
   assert.equal(results[1]?.scriptId,undefined);
   assert.equal(actual.list().length,2);
   const retry=await importPaths({paths:[paths[1]!],recursive:false,repository:actual});
