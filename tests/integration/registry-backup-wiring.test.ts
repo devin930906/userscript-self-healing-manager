@@ -28,3 +28,17 @@ test('diagnosis history online backup uses a trusted native save dialog without 
  assert.match(renderer,/诊断历史.*备份/);
  assert.match(renderer,/不包含.*受管修订|仅备份.*诊断历史/);
 });
+
+
+test('managed recovery export requires trusted Electron IPC and directory selection; no renderer paths',async()=>{
+ const main=await readFile(new URL('../../apps/desktop/src/main/index.ts',import.meta.url),'utf8');
+ const preload=await readFile(new URL('../../apps/desktop/src/preload/index.ts',import.meta.url),'utf8');
+ const renderer=await readFile(new URL('../../apps/desktop/src/renderer/App.tsx',import.meta.url),'utf8');
+ assert.match(main,/ipcMain\.handle\('usshm:export-managed-recovery',async event=>\{\s*assertSender\(event\)/);
+ assert.match(main,/exportManagedRecovery\(\{managedRoot:dataRoot,destination:/);
+ assert.match(main,/verifyManagedRecovery\(\{snapshotDirectory:receipt\.path\}\)/);
+ assert.match(preload,/exportManagedRecovery:\(\)=>ipcRenderer\.invoke\('usshm:export-managed-recovery'\)/);
+ assert.match(renderer,/window\.ussm\.exportManagedRecovery\(\)/);
+ assert.match(renderer,/导出受管修订.*恢复备份|备份受管修订/);
+ assert.match(renderer,/不包含.*(SQLite|数据库)|不等于完整.*恢复/);
+});
