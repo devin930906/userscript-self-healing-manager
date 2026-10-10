@@ -323,3 +323,16 @@ test('className conversion preserves non-ASCII whitespace as literal class-name 
   assert.equal(asCss({method:'getElementsByClassName',expression:name,runtimeRequired:false}),expected);
  }
 });
+
+test('native DOM ID and class lookups reject NUL instead of accidentally matching CSS replacement characters',async()=>{
+ for(const locator of [
+  {method:'getElementById',expression:'\u0000',runtimeRequired:false},
+  {method:'getElementById',expression:'safe\u0000name',runtimeRequired:false},
+  {method:'getElementsByClassName',expression:'safe\u0000name',runtimeRequired:false},
+ ]){
+  assert.equal(asCss(locator),null,'CSS converts NUL into U+FFFD and must not attest a different native DOM ID');
+  const result=await probePageLocators(page,[locator]);
+  assert.equal(result.checks[0]?.status,'unverified');
+  assert.equal(result.checks[0]?.matchCount,null);
+ }
+});
