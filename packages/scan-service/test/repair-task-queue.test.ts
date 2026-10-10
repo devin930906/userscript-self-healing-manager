@@ -199,7 +199,8 @@ test('cancellation during asynchronous pre-dispatch verification never calls the
   execute:async()=>{executed++;},
  }],{beforeDispatch:async()=>{entered();await held;return true;}});
  const work=q.run();
- await ready;
+ await Promise.race([ready,new Promise<void>((_,reject)=>
+  setTimeout(()=>reject(new Error('Before-dispatch verification was not invoked')),150))]);
  q.cancel();release();
  const outcome=await work;
  assert.equal(executed,0);
