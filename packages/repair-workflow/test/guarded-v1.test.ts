@@ -8,6 +8,7 @@ function fixture(outcome:unknown|Error){
  const input={
   approved:true,scriptId:'fixture-script',appliedHash:applied,previousHash:original,
   verify:async()=>{verified++;if(outcome instanceof Error)throw outcome;return outcome;},
+  confirmActiveHash:async()=>applied,
   restore:async(hash:string)=>{rollbacks.push(hash);return {hash,activePath:'C:/Data/managed/fixture-script/current.user.js'};},
  };
  return {input,stats:()=>({verified,rollbacks})};
@@ -87,4 +88,42 @@ test('guarded V1 retention requires one continuously identified unique locator r
   assert.equal(result.status,'rolled-back-v1','non-unique DOM evidence must not retain an unproven patch');
   assert.deepEqual(f.stats().rollbacks,[original]);
  }
+});
+
+test('a clean DOM-only verification cannot retain a managed revision that changed during CDP observation',async()=>{
+ const f=fixture(passed);
+ let confirmed=0;
+ f.input.confirmActiveHash=async()=>{confirmed++;return original;};
+ f.input.restore=async()=>{throw Error('CAS conflict: external actor changed the current revision');};
+ const result=await guardAppliedManagedRevision(f.input);
+ assert.equal(confirmed,1,'Read-only hash confirmation must run after V1 verification');
+ assert.equal(result.status,'rollback-blocked','external revision must not be called retained or reverted');
+ assert.equal(result.activeHash,null);
+ assert.equal(result.V2,'blocked');
+ assert.equal(result.functionalVerified,false);
+});
+
+test('failed or missing post-verification active-revision inspection cannot return retained-v1',async()=>{
+ for(const confirm of [
+  async()=>null,
+  async()=>{throw Error('private-local-path');},
+  async()=> 'wrong-hash',
+ ]){
+  const f=fixture(passed);
+  f.input.confirmActiveHash=confirm;
+  const result=await guardAppliedManagedRevision(f.input);
+  assert.equal(result.status,'rolled-back-v1');
+  assert.deepEqual(f.stats().rollbacks,[original]);
+  assert.ok(!JSON.stringify(result).includes('private-local-path'));
+ }
+});
+
+test('post-verify active inspection is never called for a failed DOM contract and is required before side effects',async()=>{
+ const f=fixture({...passed,status:'needs-review'});
+ f.input.confirmActiveHash=async()=>{throw Error('must not reach active inspection');};
+ assert.equal((await guardAppliedManagedRevision(f.input)).status,'rolled-back-v1');
+ const invalid=fixture(passed);
+ // Untrusted/undefined post-check dependencies must fail prior to disk or CDP.
+ await assert.rejects(guardAppliedManagedRevision({...invalid.input,confirmActiveHash:undefined} as any),/invalid|confirm|guard/i);
+ assert.deepEqual(invalid.stats(),{verified:0,rollbacks:[]});
 });
