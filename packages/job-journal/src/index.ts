@@ -42,6 +42,15 @@ function originOf(url:string):string{
   throw new Error('Invalid diagnosis URL origin');
  return parsed.origin;
 }
+/** A versioned journal cannot safely run startup UPDATE against unknown triggers. */
+function assertJournalSchemaSafety(db:DatabaseSync):void{
+ for(const name of ['journal_runs','journal_items']){
+  const row=db.prepare("SELECT type FROM sqlite_master WHERE name=? LIMIT 1").get(name) as {type?:string}|undefined;
+  if(row?.type!=='table')throw new Error('Missing diagnosis journal schema table');
+ }
+ const trigger=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('journal_runs','journal_items') LIMIT 1").get();
+ if(trigger)throw new Error('Unsafe diagnosis journal schema: unrecognized trigger');
+}
 /** Opens a separate, local-only database; never mutates the script registry database. */
 export function openDiagnosisJournal(file:string){
  if(!isAbsolute(file))throw new Error('Diagnosis journal path must be absolute');
@@ -49,6 +58,7 @@ export function openDiagnosisJournal(file:string){
  try{
   const v=(db.prepare('PRAGMA user_version').get() as {user_version:number}).user_version;
   if(v!==0&&v!==1)throw new Error('Unsupported diagnosis journal schema version');
+  if(v===1)assertJournalSchemaSafety(db);
   db.exec('PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;');
   if(v===0){
    try{
@@ -74,6 +84,7 @@ export function openDiagnosisJournal(file:string){
     db.exec('COMMIT');
    }catch(error){db.exec('ROLLBACK');throw error;}
   }
+  assertJournalSchemaSafety(db);
   // An obsolete browser session must never be silently resumed on startup.
   db.prepare("UPDATE journal_runs SET status='interrupted',updated_at=? WHERE status='running'")
    .run(new Date().toISOString());
@@ -204,6 +215,7 @@ export function openDiagnosisJournal(file:string){
      const exists=copy.prepare("SELECT type FROM sqlite_master WHERE name=?").get(table) as {type?:string}|undefined;
      if(exists?.type!=='table')throw new Error('Incomplete diagnosis journal backup schema');
     }
+    assertJournalSchemaSafety(copy);
     const problems=copy.prepare('PRAGMA foreign_key_check').all();
     if(problems.length)throw new Error('Diagnosis journal backup foreign key mismatch');
    });
