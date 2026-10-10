@@ -6,6 +6,7 @@ import {lstat} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinned-file.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {exportManagedRecovery,verifyManagedRecovery} from '../../../../packages/repair-workflow/src/managed-export.ts';
+import {createCoreRecoveryBundle,verifyCoreRecoveryBundle} from '../../../../packages/repair-workflow/src/core-recovery.ts';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
@@ -134,6 +135,17 @@ async function bootstrap():Promise<void>{
   if(verified.files!==receipt.files.length)
    throw new Error('Managed recovery audit did not match export receipt');
   return {canceled:false,path:receipt.path,files:verified.files,bytes:verified.bytes};
+ });
+ ipcMain.handle('usshm:create-core-recovery',async event=>{
+  assertSender(event);
+  // Native OS chooses the parent. No untrusted renderer paths or overwrites.
+  const picker=await dialog.showOpenDialog(mainWindow,{properties:['openDirectory','createDirectory']});
+  if(picker.canceled||!picker.filePaths[0])return {canceled:true};
+  const destination=join(picker.filePaths[0],
+   'USSHM-core-recovery-'+new Date().toISOString().slice(0,10)+'-'+randomUUID());
+  const receipt=await createCoreRecoveryBundle({dataRoot,destination,registry:db,journal});
+  const checked=await verifyCoreRecoveryBundle({snapshotDirectory:receipt.path});
+  return {canceled:false,...receipt,verified:checked.valid,files:checked.files};
  });
  ipcMain.handle('usshm:pick-files',async event=>{assertSender(event);const x=await dialog.showOpenDialog(mainWindow,{properties:['openFile','multiSelections'],filters:[{name:'UserScript',extensions:['js']} ]});
  if(x.canceled)return [];for(const path of x.filePaths)authorizedRoots.add(resolve(path));return x.filePaths;});
