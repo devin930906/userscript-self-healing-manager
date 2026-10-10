@@ -1,4 +1,8 @@
-import {DatabaseSync} from 'node:sqlite';
+import {DatabaseSync,backup} from 'node:sqlite';
+import {createHash,randomUUID} from 'node:crypto';
+import {createReadStream} from 'node:fs';
+import {lstat,link,unlink} from 'node:fs/promises';
+import {isAbsolute,dirname,basename,join} from 'node:path';
 import type {ScriptHealth} from '../../contracts/src/index.ts';
 
 export interface ScriptRecord {
@@ -85,3 +89,66 @@ export function createScriptRepository(db:DatabaseHandle){
  };
 }
 export type ScriptRepository=ReturnType<typeof createScriptRepository>;
+
+
+export interface RegistryBackupReceipt{
+ readonly path:string;
+ readonly sha256:string;
+ readonly bytes:number;
+}
+
+/**
+ * Take a consistent, committed SQLite registry snapshot while its WAL database
+ * remains open. This backs up registry.sqlite ONLY, not the separate diagnosis
+ * journal, managed script revisions, browser profiles, or encrypted secrets.
+ *
+ * The destination must be an explicitly chosen, NEW .sqlite path. A hidden
+ * staging file is verified before using an exclusive hard-link publication:
+ * no existing target (including symlinks) can ever be overwritten. Filesystems
+ * without same-directory hard-link support fail closed.
+ */
+export async function backupRegistryDatabase(db:DatabaseHandle,destination:string):Promise<RegistryBackupReceipt>{
+ if(!(db instanceof DatabaseSync)||typeof destination!=='string'||!isAbsolute(destination)||
+    !/\.sqlite$/i.test(destination)||basename(destination).length>200)
+  throw new Error('An absolute .sqlite backup destination is required');
+ const parent=dirname(destination);
+ const parentInfo=await lstat(parent);
+ if(!parentInfo.isDirectory()||parentInfo.isSymbolicLink())
+  throw new Error('Unsafe SQLite backup parent directory');
+ try{
+  await lstat(destination);
+  throw new Error('Backup destination already exists; refusing overwrite');
+ }catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+ }
+ // Opaque, unpredictable staging name in the SAME destination directory.
+ const staging=join(parent,`.usshm-backup-${randomUUID()}.tmp`);
+ try{
+  // SQLite's backup API includes committed changes still held in the WAL.
+  // Raw fs.copyFile of registry.sqlite is never a consistent online snapshot.
+  await backup(db,staging);
+  const staged=await lstat(staging);
+  if(staged.isSymbolicLink()||!staged.isFile()||staged.size<512||staged.size>512*1024*1024)
+   throw new Error('Invalid SQLite backup file size or type');
+  const copy=new DatabaseSync(staging,{readOnly:true});
+  try{
+   const check=copy.prepare('PRAGMA integrity_check').get() as {integrity_check?:unknown}|undefined;
+   if(check?.integrity_check!=='ok')throw new Error('SQLite backup integrity check failed');
+   const rows=copy.prepare('SELECT version FROM schema_version LIMIT 2').all();
+   if(rows.length!==1||rows[0]?.version!==1)
+    throw new Error('Backup database has an unsupported schema version');
+   assertV1ScriptsTable(copy);
+  }finally{copy.close();}
+  const digest=createHash('sha256');
+  for await(const block of createReadStream(staging))digest.update(block);
+  const sha256=digest.digest('hex');
+  // Publication is exclusive on both POSIX and Windows. Ordinary rename()
+  // could replace an existing backup during a check/write race.
+  await link(staging,destination);
+  return Object.freeze({path:destination,sha256,bytes:staged.size});
+ }finally{
+  await unlink(staging).catch((error:NodeJS.ErrnoException)=>{
+   if(error.code!=='ENOENT')throw error;
+  });
+ }
+}
