@@ -3,6 +3,7 @@ import type {ScanItemResult} from './index.ts';
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
 import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
+import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 import {checkUserscriptPageScope} from '../../candidate-engine/src/page-scope.ts';
 import {summarizeLiveLocatorCheck} from './health.ts';
 import {projectVerificationLevels,type VerificationProjection} from './verification-levels.ts';
@@ -80,7 +81,11 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
 }):Promise<BatchDomResult> {
  if(consent!==true)throw new Error('Explicit user consent required for batch page inspection');
  if(items.length>25)throw new Error('Batch safety limit exceeded: maximum 25 scripts per operation');
- if(!target.id||!target.webSocketDebuggerUrl||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP page target');
+ if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||target.id.length>128||
+    typeof target.url!=='string'||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP page target');
+ // Authentication must precede even the first page-identity callback: a
+ // future scan adapter must never receive a remote or mismatched debugger.
+ validateCdpPageSocket(target);
  // Page identity must be authenticated even if all scripts are out of scope
  // or have only dynamic locators. Observe nested frames without storing URLs.
  let nestedFramesSeen=false;
