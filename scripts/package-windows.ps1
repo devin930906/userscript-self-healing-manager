@@ -25,9 +25,8 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (Test-Path $zip) { throw 'Release ZIP already exists; preserve it and use a clean release directory' }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($unpacked,$zip)
 if (-not (Test-Path $zip)) { throw 'ZIP did not materialize' }
-@($exeSetup,$exePortable,$zip) | ForEach-Object {
-  $file=Get-Item $_
-  $digest=(Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
-  "$digest  $($file.Name)"
-} | Set-Content -Path $manifest -Encoding utf8
+# Share the CI's fail-closed three-format/ZIP privacy/PE/SHA256 validator.
+# It creates and verifies SHA256SUMS.txt; never claim completion on a bad ZIP.
+& node (Join-Path $PSScriptRoot 'windows-release-gate.mjs') $version $releaseDir
+if ($LASTEXITCODE -ne 0) { throw 'Windows release packaging refused by ZIP, privacy or SHA256 verification' }
 Write-Host 'Generated Setup.exe, Portable.exe, extracted-application ZIP and SHA256SUMS.txt.'
