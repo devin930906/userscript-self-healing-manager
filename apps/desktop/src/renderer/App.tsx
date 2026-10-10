@@ -58,7 +58,7 @@ declare global {interface Window{ussm:{
  prepareVerifiedPreview:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<VerifiedPreviewResult>;
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
- proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>Promise<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {oldSelector:string;newSelector:string}[];preview:string}>;
+ proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>Promise<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string}>;
  applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
  applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string}>;
@@ -151,7 +151,7 @@ function App(){
  const probeGeneration=useRef(new LatestRequestGate());
  const probeActive=useRef(false);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
- const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {oldSelector:string;newSelector:string}[];preview:string}|null>(null);
+ const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string}|null>(null);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
@@ -952,7 +952,7 @@ function App(){
      <b>批量修复预览 · {batchRepairProposal.changes.length} 处</b>
      <p>一次归档并激活受管修订；原脚本不会覆盖，需单独批准。仅静态 AST 替换，V2/V3/V4 尚未验证。</p>
      <div className="dim">基础 SHA-256：{batchRepairProposal.baseHash} · 预期修订 SHA-256：{batchRepairProposal.proposedHash}</div>
-     {batchRepairProposal.changes.map((x,i)=><p key={i}><code>{x.oldSelector}</code> → <code>{x.newSelector}</code></p>)}
+     {batchRepairProposal.changes.map((x,i)=><p key={i}>源码选择器 #{x.selectorIndex+1} · 第 {x.line} 行、第 {x.column} 列 · {x.method}：<code>{x.oldSelector}</code> → <code>{x.newSelector}</code></p>)}
      <pre>{batchRepairProposal.preview}</pre>
      <button type="button" disabled={busy} onClick={()=>void applyBatchRepair()}>批准保存批量修复（受管副本）</button>
      <button type="button" disabled={busy||!targetId||!cdp} onClick={()=>void applyBatchRepairGuarded()}>批准保存并双次核验批量修复（V1）</button>
