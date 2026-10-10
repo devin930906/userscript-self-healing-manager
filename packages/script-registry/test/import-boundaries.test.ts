@@ -1,0 +1,168 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {mkdtemp,mkdir,rm,readFile,writeFile,symlink,stat} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {basename,join} from 'node:path';
+import {enumerateScripts,importPaths} from '../src/index.ts';
+import {openDatabase,migrateDatabase,createScriptRepository,type ScriptRecord} from '../../persistence/src/index.ts';
+
+test('a selected source underneath a symlinked ancestor never crosses into the linked directory',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-parent-link-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const outside=join(root,'outside'),shortcut=join(root,'shortcut');
+  await mkdir(outside);
+  const original=join(outside,'same.user.js');
+  const bytes=Buffer.from('// ==UserScript==\n// @name Protected\n// ==/UserScript==\nconst a = 1;\n');
+  await writeFile(original,bytes);
+  try {await symlink(outside,shortcut,process.platform==='win32'?'junction':'dir');}
+  catch(e){
+   if(['EPERM','EACCES','ENOTSUP'].includes((e as NodeJS.ErrnoException).code??'')){
+    t.skip('Directory links unavailable on this runner');return;
+   }
+   throw e;
+  }
+  const selected=join(shortcut,'same.user.js');
+  const results=await importPaths({paths:[selected],recursive:false,repository:createScriptRepository(db)});
+  assert.deepEqual(results.map(x=>x.status),['symlink-skipped']);
+  assert.equal(results[0]?.analysis,undefined);
+  const scanned=await enumerateScripts({paths:[selected],recursive:true,followSymlinks:false});
+  assert.deepEqual(scanned.map(x=>x.status),['symlink-skipped']);
+  assert.deepEqual(createScriptRepository(db).list(),[]);
+  assert.deepEqual(await readFile(original),bytes);
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('one repository write failure is reported per-file and later imports continue without touching source files',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-write-retry-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const filenames=['one.user.js','failing.user.js','three.user.js'];
+  const paths=filenames.map(name=>join(root,name));
+  for(const [i,path] of paths.entries())await writeFile(path,`// ==UserScript==\n// @name Test ${i}\n// ==/UserScript==\nconst n = ${i};\n`);
+  const before=await Promise.all(paths.map(async path=>({bytes:await readFile(path),mtime:(await stat(path)).mtimeMs})));
+  const actual=createScriptRepository(db);
+  const failing={
+   ...actual,
+   upsert(record:ScriptRecord):void{
+    if(record.path===paths[1])throw new Error('simulated SQLITE_BUSY (recoverable)');
+    actual.upsert(record);
+   }
+  };
+  const results=await importPaths({paths,recursive:false,repository:failing});
+  assert.deepEqual(results.map(x=>x.status),['imported','unreadable','imported']);
+  assert.equal(results[1]?.scriptId,undefined);
+  assert.equal(actual.list().length,2);
+  const retry=await importPaths({paths:[paths[1]!],recursive:false,repository:actual});
+  assert.equal(retry[0]?.status,'imported');
+  assert.equal(actual.list().length,3);
+  for(const [i,path] of paths.entries()){
+   assert.deepEqual(await readFile(path),before[i]?.bytes);
+   assert.equal((await stat(path)).mtimeMs,before[i]?.mtime);
+  }
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('Unicode siblings with identical names retain distinct IDs and repeated exact paths reuse their IDs',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-identity-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const first=join(root,'中文'),second=join(root,'latin');
+  await mkdir(first);await mkdir(second);
+  const one=join(first,'script.user.js'),two=join(second,'script.user.js');
+  await writeFile(one,'const a=1;');await writeFile(two,'const b=2;');
+  const repo=createScriptRepository(db);
+  const initial=await importPaths({paths:[one,two],recursive:false,repository:repo});
+  assert.equal(initial[0]?.status,'imported');assert.equal(initial[1]?.status,'imported');
+  assert.notEqual(initial[0]?.scriptId,initial[1]?.scriptId);
+  const repeat=await importPaths({paths:[one,one,two],recursive:false,repository:repo});
+  assert.deepEqual(repeat.map(x=>x.status),['imported','duplicate-path','imported']);
+  assert.equal(repeat[0]?.scriptId,initial[0]?.scriptId);
+  assert.equal(repeat[2]?.scriptId,initial[1]?.scriptId);
+  assert.equal(repo.list().length,2);
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('a registry identity lookup failure isolates its file and a later retry succeeds',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-lookup-retry-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const fail=join(root,'fail.user.js'),ok=join(root,'good.user.js');
+  await writeFile(fail,'const a=1;');await writeFile(ok,'const b=2;');
+  const actual=createScriptRepository(db);
+  const temporaryFailure={
+   ...actual,
+   findIdByPath(path:string):string|undefined{
+    if(path===fail)throw new Error('simulated temporary registry read failure');
+    return actual.findIdByPath(path);
+   }
+  };
+  const first=await importPaths({paths:[fail,ok],recursive:false,repository:temporaryFailure});
+  assert.deepEqual(first.map(x=>x.status),['unreadable','imported']);
+  assert.match(first[0]?.message??'',/registry lookup failed/i);
+  assert.equal(actual.list().length,1);
+  const second=await importPaths({paths:[fail],recursive:false,repository:actual});
+  assert.equal(second[0]?.status,'imported');
+  assert.equal(actual.list().length,2);
+  assert.equal(await readFile(fail,'utf8'),'const a=1;');
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('folder discovery includes only case-insensitive .user.js suffixes, while explicitly selected non-userscripts are rejected',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-extension-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const accepted=['lower.user.js','MIXED.User.Js','UPPER.USER.JS'];
+  const rejected=['ordinary.js','lookalike.user.jsx','backup.user.js.bak','almostuser.js','noextension','user.js.txt'];
+  for(const filename of [...accepted,...rejected])await writeFile(join(root,filename),'const example=1;');
+  const entries=await enumerateScripts({paths:[root],recursive:true,followSymlinks:false});
+  assert.deepEqual(entries.filter(x=>x.status==='found').map(x=>basename(x.path)).sort(),accepted.slice().sort());
+  const repo=createScriptRepository(db);
+  const results=await importPaths({paths:[root],recursive:true,repository:repo});
+  assert.deepEqual(results.map(x=>x.status),['imported','imported','imported']);
+  assert.equal(repo.list().length,3);
+  assert.deepEqual(repo.list().map(x=>x.displayName).sort(),accepted.slice().sort());
+  const explicit=await importPaths({paths:rejected.map(x=>join(root,x)),recursive:false,repository:repo});
+  assert.deepEqual(explicit.map(x=>x.status),rejected.map(()=>'invalid-extension'));
+  assert.equal(repo.list().length,3);
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
+
+
+test('transient registry lookup and write errors retain causes without fabricated imports or blocking siblings',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-error-diagnostics-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const paths=['lookup.user.js','write.user.js','success.user.js'].map(name=>join(root,name));
+  for(const [index,path] of paths.entries())
+   await writeFile(path,`// ==UserScript==\n// @name Case ${index}\n// ==/UserScript==\nconst value = ${index};\n`);
+  const originals=await Promise.all(paths.map(path=>readFile(path)));
+  const actual=createScriptRepository(db);
+  const failures={
+   ...actual,
+   findIdByPath(path:string):string|undefined{
+    if(path===paths[0])throw new Error('SQLITE_BUSY: lookup root cause 001');
+    return actual.findIdByPath(path);
+   },
+   upsert(record:ScriptRecord):void{
+    if(record.path===paths[1])throw new Error('SQLITE_READONLY: write root cause 002');
+    actual.upsert(record);
+   },
+  };
+  const results=await importPaths({paths,recursive:false,repository:failures});
+  assert.deepEqual(results.map(result=>result.status),['unreadable','unreadable','imported']);
+  assert.match(results[0]?.message??'',/registry lookup failed.*SQLITE_BUSY.*lookup root cause 001/i);
+  assert.match(results[1]?.message??'',/registry write failed.*SQLITE_READONLY.*write root cause 002/i);
+  for(const index of [0,1]){
+   assert.equal(results[index]?.scriptId,undefined,'failed import must not expose a fabricated script ID');
+   assert.equal(results[index]?.analysis,undefined,'failed import must not expose an analysis as imported');
+  }
+  assert.ok(results[2]?.scriptId,'later successful import retains a real script ID');
+  assert.ok(results[2]?.analysis,'later successful import retains its analysis');
+  assert.deepEqual(actual.list().map(record=>record.path),[paths[2]]);
+  for(const [index,path] of paths.entries())assert.deepEqual(await readFile(path),originals[index]);
+  const retried=await importPaths({paths:paths.slice(0,2),recursive:false,repository:actual});
+  assert.deepEqual(retried.map(result=>result.status),['imported','imported']);
+  assert.equal(actual.list().length,3);
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});

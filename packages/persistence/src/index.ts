@@ -5,13 +5,58 @@ import {lstat,link,unlink} from 'node:fs/promises';
 import {isAbsolute,dirname,basename,join} from 'node:path';
 import type {ScriptHealth} from '../../contracts/src/index.ts';
 
+class UnsupportedRegistrySchemaError extends Error {
+ readonly schemaUnsupported = true;
+}
+export type DatabaseErrorCode =
+ 'DATABASE_BUSY'|'DATABASE_PERMISSION_DENIED'|'DATABASE_INVALID_PATH'|
+ 'DATABASE_IO_ERROR'|'DATABASE_SCHEMA_UNSUPPORTED'|'DATABASE_UNKNOWN_ERROR';
+export class DatabasePersistenceError extends Error {
+ readonly code:DatabaseErrorCode;
+ readonly rollbackError?:unknown;
+ readonly cleanupError?:unknown;
+ constructor(code:DatabaseErrorCode,cause:unknown,details?:{rollbackError?:unknown;cleanupError?:unknown}){
+  super(cause instanceof Error?cause.message:String(cause),{cause});
+  this.name='DatabasePersistenceError';
+  this.code=code;
+  this.rollbackError=details?.rollbackError;
+  this.cleanupError=details?.cleanupError;
+ }
+}
+/** Never infer a native SQLite classification from its free-form message. */
+export function classifyDatabaseError(error:unknown,details?:{rollbackError?:unknown;cleanupError?:unknown}):DatabasePersistenceError {
+ const native=error && typeof error==='object'?error as {code?:unknown;errcode?:unknown}:null;
+ let code:DatabaseErrorCode='DATABASE_UNKNOWN_ERROR';
+ if(error instanceof UnsupportedRegistrySchemaError)code='DATABASE_SCHEMA_UNSUPPORTED';
+ else if(native?.code==='EACCES'||native?.code==='EPERM')code='DATABASE_PERMISSION_DENIED';
+ else if(native?.code==='ENOENT'||native?.code==='ENOTDIR'||native?.code==='EISDIR')code='DATABASE_INVALID_PATH';
+ else if(native?.code==='ERR_SQLITE_ERROR'&&typeof native.errcode==='number'&&Number.isSafeInteger(native.errcode)&&native.errcode>=0){
+  switch(native.errcode&255){
+   case 5:case 6:code='DATABASE_BUSY';break;
+   case 8:code='DATABASE_PERMISSION_DENIED';break;
+   case 10:code='DATABASE_IO_ERROR';break;
+   case 14:code='DATABASE_INVALID_PATH';break;
+  }
+ }
+ return new DatabasePersistenceError(code,error,details);
+}
 export interface ScriptRecord {
   id:string; path:string;displayName:string;sha256:string;healthStatus:ScriptHealth;
   metadataJson:string; createdAt:string;updatedAt:string;
 }
 export type DatabaseHandle=DatabaseSync;
 export function openDatabase(path:string):DatabaseHandle{
- const db=new DatabaseSync(path); db.exec('PRAGMA journal_mode = WAL');db.exec('PRAGMA foreign_keys = ON');return db;
+ let db:DatabaseSync;
+ try{db=new DatabaseSync(path);}catch(error){throw classifyDatabaseError(error);}
+ try{
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
+  return db;
+ }catch(error){
+  let cleanupError:unknown;
+  try{db.close();}catch(closeError){cleanupError=closeError;}
+  throw classifyDatabaseError(error,{cleanupError});
+ }
 }
 /**
  * No version marker means a fresh database only if there is no pre-existing
@@ -33,17 +78,21 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  // SQLite table-valued PRAGMAs support bound index names, not interpolated SQL.
  const indexes=db.prepare(`SELECT name,"unique" AS isUnique,partial
   FROM pragma_index_list('scripts')`).all() as {name:string;isUnique:number;partial:number}[];
- const indexColumns=db.prepare('SELECT name FROM pragma_index_info(?)');
+ // index_info() does not expose collation. A NOCASE path UNIQUE would
+ // reject distinct case-sensitive source paths despite looking structurally
+ // identical to v1. index_xinfo() includes collations and key-column flags.
+ const indexColumns=db.prepare('SELECT name,coll,key FROM pragma_index_xinfo(?)');
  const uniqueFields=indexes.map(index=>{
   if(index.isUnique!==1||index.partial!==0)return null;
-  const fields=indexColumns.all(index.name) as {name:string|null}[];
-  return fields.length===1?fields[0]?.name:null;
+  const fields=indexColumns.all(index.name) as {name:string|null;coll:string;key:number}[];
+  const keyColumns=fields.filter(field=>field.key===1);
+  return keyColumns.length===1&&keyColumns[0]?.coll==='BINARY'?keyColumns[0]?.name:null;
  });
- // The v1 table has exactly two unique constraints: id PRIMARY KEY and
- // path UNIQUE. An additional UNIQUE index can silently reject valid future
- // imports even when the version and column names look compatible.
+ // The v1 table has exactly two BINARY unique constraints: id PRIMARY KEY
+ // and path UNIQUE. NOCASE would collapse distinct Unix source paths; an
+ // extra UNIQUE index could silently reject otherwise valid imports.
  if(uniqueFields.length!==2||!uniqueFields.includes('id')||!uniqueFields.includes('path'))
-  throw new Error('Incompatible scripts schema: unexpected or missing unique index');
+  throw new Error('Incompatible scripts schema: unexpected unique index or collation');
  // No triggers belong to the v1 registry schema. A database that otherwise
  // has correct columns and indexes may still carry an unexpected trigger
  // which deletes or rewrites user records on the next normal upsert.
@@ -53,7 +102,7 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
 export function migrateDatabase(db:DatabaseHandle):void{
  // Claim a SQLite write transaction BEFORE inspecting or changing the schema.
  // A newer app's Data must never be "partially migrated" by an older binary.
- db.exec('BEGIN IMMEDIATE');
+ try{db.exec('BEGIN IMMEDIATE');}catch(error){throw classifyDatabaseError(error);}
  try{
   const marker=db.prepare("SELECT type FROM sqlite_master WHERE name='schema_version' LIMIT 1").get() as {type:string}|undefined;
   const existingScripts=db.prepare("SELECT type FROM sqlite_master WHERE name='scripts' LIMIT 1").get() as {type:string}|undefined;
@@ -64,7 +113,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
   if(marker){
    const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
    if(versions.length!==1||versions[0]?.version!==1)
-    throw new Error('Unsupported database schema version; newer or uninitialized Data must not be downgraded');
+    throw new UnsupportedRegistrySchemaError('Unsupported database schema version; newer or uninitialized Data must not be downgraded');
    assertRegistryV1SnapshotSchema(db);
   }
   db.exec(`CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
@@ -75,23 +124,30 @@ export function migrateDatabase(db:DatabaseHandle):void{
    INSERT INTO schema_version(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);`);
   const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
   if(versions.length!==1||versions[0]?.version!==1)
-   throw new Error('Unsupported database schema version');
+   throw new UnsupportedRegistrySchemaError('Unsupported database schema version');
   assertRegistryV1SnapshotSchema(db);
   db.exec('COMMIT');
  }catch(error){
-  db.exec('ROLLBACK');
-  throw error;
+  let rollbackError:unknown;
+  try{db.exec('ROLLBACK');}catch(cleanupError){rollbackError=cleanupError;}
+  throw classifyDatabaseError(error,{rollbackError});
  }
 }
 export function createScriptRepository(db:DatabaseHandle){
  const update=db.prepare(`INSERT INTO scripts(id,path,display_name,sha256,health_status,metadata_json,created_at,updated_at)
- VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET path=excluded.path,display_name=excluded.display_name,
- sha256=excluded.sha256,health_status=excluded.health_status,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at`);
+ VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name,
+ sha256=excluded.sha256,health_status=excluded.health_status,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at
+ WHERE scripts.path=excluded.path`);
  const fetch=db.prepare(`SELECT id,path,display_name AS displayName,sha256,health_status AS healthStatus,
  metadata_json AS metadataJson,created_at AS createdAt,updated_at AS updatedAt FROM scripts ORDER BY created_at,id`);
  const findPath=db.prepare('SELECT id FROM scripts WHERE path = ?');
  return {
-  upsert(script:ScriptRecord):void{update.run(script.id,script.path,script.displayName,script.sha256,script.healthStatus,script.metadataJson,script.createdAt,script.updatedAt);},
+  upsert(script:ScriptRecord):void{
+   // The ID is tied to the original source path; never reassign it to a new
+   // source when same-named scripts exist. The SQL WHERE check is atomic.
+   const result=update.run(script.id,script.path,script.displayName,script.sha256,script.healthStatus,script.metadataJson,script.createdAt,script.updatedAt);
+   if(result.changes!==1)throw new Error('Script ID/path identity conflict: refusing to rebind a source path');
+  },
   list():ScriptRecord[]{return fetch.all() as unknown as ScriptRecord[];},
   findIdByPath(path:string):string|undefined{return (findPath.get(path) as {id:string}|undefined)?.id;}
  };
@@ -103,6 +159,27 @@ export interface RegistryBackupReceipt{
  readonly path:string;
  readonly sha256:string;
  readonly bytes:number;
+}
+
+/**
+ * Refuse a backup whose destination is reached through any linked directory,
+ * not only an immediately linked parent. Check root-to-leaf so a junction is
+ * noticed before accessing filesystem entries underneath it.
+ * This does not replace OS-level directory-handle pinning against races.
+ */
+async function assertUnlinkedBackupDirectory(directory:string):Promise<void>{
+ const components:string[]=[];
+ for(let current=directory;;){
+  components.push(current);
+  const parent=dirname(current);
+  if(current===parent)break;
+  current=parent;
+ }
+ for(const component of components.reverse()){
+  const info=await lstat(component);
+  if(info.isSymbolicLink()||!info.isDirectory())
+   throw new Error('Unsafe SQLite backup directory: symlink or non-directory component');
+ }
 }
 
 /**
@@ -123,9 +200,7 @@ export async function backupVerifiedSqliteSnapshot(
     !/\.sqlite$/i.test(destination)||basename(destination).length>200)
   throw new Error('An absolute .sqlite backup destination is required');
  const parent=dirname(destination);
- const parentInfo=await lstat(parent);
- if(!parentInfo.isDirectory()||parentInfo.isSymbolicLink())
-  throw new Error('Unsafe SQLite backup parent directory');
+ await assertUnlinkedBackupDirectory(parent);
  try{
   await lstat(destination);
   throw new Error('Backup destination already exists; refusing overwrite');
@@ -161,6 +236,9 @@ export async function backupVerifiedSqliteSnapshot(
   const sha256=digest.digest('hex');
   // Publication is exclusive on both POSIX and Windows. Ordinary rename()
   // could replace an existing backup during a check/write race.
+  // A best-effort second guard catches a parent changed after the initial
+  // validation; publication itself remains exclusive (no overwrite).
+  await assertUnlinkedBackupDirectory(parent);
   await link(staging,destination);
   return Object.freeze({path:destination,sha256,bytes:staged.size});
  }finally{
