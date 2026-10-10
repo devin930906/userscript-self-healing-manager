@@ -239,7 +239,7 @@ test('no shadow probe dependency cannot promote an open-shadow role to V1',async
 });
 
 test('same-origin single iframe role certifies two samples of the same child loader and nodes as V1 only',async()=>{
- const sub={frameId:'child-1',loaderId:'child-loader-a'};
+ const sub={frameId:'child-1',loaderId:'child-loader-a',urlFingerprint:'a'.repeat(64)};
  let checked=0;
  const deps={...makeDeps([0]),confirm:async()=>({...identity,subframeCount:1,soleSameOriginSubframe:sub}),
   probeIframe:async(_target:ChromeTarget,locators:readonly LiteralLocator[],frameId:string)=>{
@@ -269,7 +269,7 @@ test('iframe child loader replacing while top URL and loader stay stable cannot 
  let times=0;
  const deps={...makeDeps([0]),confirm:async()=>{
   times++;
-  return {...identity,subframeCount:1,soleSameOriginSubframe:{frameId:'child-1',loaderId:times<4?'child-loader-a':'child-loader-b'}};
+  return {...identity,subframeCount:1,soleSameOriginSubframe:{frameId:'child-1',loaderId:times<4?'child-loader-a':'child-loader-b',urlFingerprint:'a'.repeat(64)}};
  },probeIframe:async()=>status({'#frame-send':1}) as LocatorProbeResult};
  await assert.rejects(runSiteAdapterRoleDomCheck({approved:true,target,adapter,
   roleId:'chat.frameButton',declaredStateId:'ready',deps}),/frame|loader|identity|navigation/i);
