@@ -32,8 +32,9 @@ interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
 
 async function connectCdp(url: string): Promise<{
+  events: string[];
   call(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
-  close(): void;
+  close(): Promise<void>;
 }> {
   const ws = new WebSocket(url);
   await new Promise<void>((done, fail) => {
@@ -100,6 +101,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
   let stderr = '';
   let exitConfirmed = false;
+  let spawnError: Error | undefined;
   const marker = 'USSHM_EXISTING_HTML_44';
   const alternateFile = join(temporary, 'alternate-existing.html');
   const requests = { initial: 0, redirected: 0 };
@@ -139,17 +141,20 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       cwd: process.cwd(), env, windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'],
     });
+    child.on('error', (error: Error) => { spawnError = error; });
     child.on('exit', (code, signal) => { exit = { code, signal }; exitConfirmed = true; });
     child.stderr?.on('data', (data: Buffer) => { stderr = (stderr + String(data)).slice(-8000); });
 
     // Chrome chooses a free debugging port; parse its stderr endpoint.
     let endpoint: string | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
+      if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
       endpoint = stderr.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)/)?.[1];
       if (endpoint) break;
       if (exit) throw new Error('Electron exited before CDP became available: ' + JSON.stringify(exit));
       await delay(200);
     }
+    if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
     assert.ok(endpoint, 'Electron did not expose a loopback CDP endpoint: ' + stderr);
     const browserWs = new URL(endpoint);
     const origin = `http://127.0.0.1:${browserWs.port}`;
@@ -250,6 +255,9 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   } finally {
     const failures: Error[] = [];
     try { await cdp?.close(); } catch(e) { failures.push(new Error('CDP cleanup: '+String(e))); }
+    if (child && !child.pid) {
+      failures.push(new Error('Electron spawn produced no PID: ' + (spawnError?.message ?? 'unknown launch failure')));
+    }
     if (child?.pid && !exitConfirmed) {
       const ended = new Promise<void>(resolve=>child!.once('exit',()=>resolve()));
       const killed = spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],
@@ -263,7 +271,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
         new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('HTTP close timed out')),10000))]); }
       catch(e) { failures.push(e as Error); }
     }
-    if(child && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
+    if(child?.pid && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
     else { try { await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200}); }
       catch(e) { failures.push(new Error('Temporary directory cleanup: '+String(e))); } }
     if(failures.length) throw new AggregateError(failures,'Electron security cleanup failed');
