@@ -25,6 +25,7 @@ import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-c
 import {createBrowserProfile,listBrowserProfiles,setDefaultBrowserProfile,resolveBrowserProfileForLaunch} from '../packages/cdp-client/src/browser-profiles.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
+import {runReadOnlyInteractionReadiness} from '../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
@@ -254,6 +255,40 @@ try{
  const listenerAfter=await confirmPageIdentity(selected);
  assertStablePageDocument(listenerBaseline,listenerAfter);
  console.log('PASS real Chrome direct listener inspection: registered vs none-observed, read-only V2 blocked.');
+
+ // Composite read-only control metadata needs two pinned node identity
+ // observations. It is NEVER an action dispatch or production V2 pass.
+ const readOnlyReadiness=await runReadOnlyInteractionReadiness({
+  approved:true,target:selected,caseId:'SYNTHETIC:READINESS:CLICK',
+  locator:{method:'querySelector',expression:'#fixture-safe-click',runtimeRequired:false},
+  deps:{
+   confirm:confirmPageIdentity,
+   probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+   inspectVisibility:inspectReadOnlyElementVisibility,
+   inspectListeners:inspectReadOnlyEventListeners,
+   wait:()=>delay(125),
+  },
+ });
+ assert.equal(readOnlyReadiness.status,'potentially-ready');
+ assert.equal(readOnlyReadiness.samples,2);
+ assert.equal(readOnlyReadiness.directClickListeners,1);
+ assert.equal(readOnlyReadiness.V2,'blocked');
+ assert.equal(readOnlyReadiness.interactionVerified,false);
+ const disabledReadiness=await runReadOnlyInteractionReadiness({
+  approved:true,target:selected,caseId:'SYNTHETIC:READINESS:DISABLED',
+  locator:{method:'querySelector',expression:'#disabled-demo',runtimeRequired:false},
+  deps:{
+   confirm:confirmPageIdentity,
+   probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+   inspectVisibility:inspectReadOnlyElementVisibility,
+   inspectListeners:inspectReadOnlyEventListeners,
+   wait:()=>delay(125),
+  },
+ });
+ assert.equal(disabledReadiness.status,'blocked');
+ assert.equal(disabledReadiness.V2,'blocked');
+ console.log('PASS real Chrome read-only interaction readiness: two pinned samples plus disabled blocker; no V2 certification.');
+
 
  // This isolated fixture is the ONLY CDP Input target in our suite. Verify a
  // real browser click and observable local side effect without running scripts
