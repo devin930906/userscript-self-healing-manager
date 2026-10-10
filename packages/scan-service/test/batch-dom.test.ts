@@ -229,3 +229,17 @@ test('recheck transport failure cannot certify a missing locator',async()=>{
  assert.equal(result.items[0]?.missing,0);
  assert.match(result.items[0]?.reason??'',/recheck|retry|unverified/i);
 });
+
+test('absent Shadow DOM context provider cannot certify top-document missing locator as failed',async()=>{
+ const outcome=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:0}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  // Deliberately NO summarize provider: unknown Shadow DOM is not absent Shadow DOM.
+ }});
+ assert.equal(outcome.items[0]?.status,'needs-review');
+ assert.equal(outcome.items[0]?.missing,0);
+ assert.equal(outcome.items[0]?.needsReview,1);
+ assert.equal(outcome.items[0]?.verification?.V1,'blocked');
+ assert.match(outcome.items[0]?.reason??'',/shadow|context/i);
+});
