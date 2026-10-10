@@ -118,7 +118,7 @@ test('malformed remote DOM objects never enter event-listener inspection',async(
   assert.equal(got.listenerCount,null);
   const released=typeof object.objectId==='string'&&
    object.objectId.length>0&&object.objectId.length<=1024&&
-   !/[\\x00-\\x1f\\x7f]/.test(object.objectId);
+   !/[\x00-\x1f\x7f]/.test(object.objectId);
   assert.deepEqual(s.sent.map(x=>x.method),[
    'DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode',
    ...(released?['Runtime.releaseObject']:[]),
