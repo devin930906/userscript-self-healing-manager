@@ -42,12 +42,50 @@ function originOf(url:string):string{
   throw new Error('Invalid diagnosis URL origin');
  return parsed.origin;
 }
-/** A versioned journal cannot safely run startup UPDATE against unknown triggers. */
-function assertJournalSchemaSafety(db:DatabaseSync):void{
- for(const name of ['journal_runs','journal_items']){
+/**
+ * Shared v1 journal schema gate for startup, new snapshot publication and
+ * independent core recovery audit. A well-formed SQLite file and matching
+ * unkeyed manifest hash do not prove the expected table/constraint layout.
+ */
+export function assertJournalSchemaSafety(db:DatabaseSync):void{
+ const expected:Record<string,readonly (readonly [string,string,number,number])[]>={
+  journal_runs:[
+   ['run_id','TEXT',0,1],['session_key','TEXT',1,0],
+   ['page_origin','TEXT',1,0],['document_key','TEXT',1,0],
+   ['total_items','INTEGER',1,0],['processed_items','INTEGER',1,0],
+   ['dom_present','INTEGER',1,0],['locator_missing','INTEGER',1,0],
+   ['needs_review','INTEGER',1,0],['errors','INTEGER',1,0],
+   ['status','TEXT',1,0],['started_at','TEXT',1,0],
+   ['updated_at','TEXT',1,0],
+  ],
+  journal_items:[
+   ['run_id','TEXT',1,1],['item_index','INTEGER',1,2],
+   ['status','TEXT',1,0],['checked','INTEGER',1,0],
+   ['found','INTEGER',1,0],['missing','INTEGER',1,0],
+   ['needs_review','INTEGER',1,0],['verification_v0','TEXT',1,0],
+   ['verification_v1','TEXT',1,0],
+  ],
+ };
+ for(const [name,columns] of Object.entries(expected)){
   const row=db.prepare("SELECT type FROM sqlite_master WHERE name=? LIMIT 1").get(name) as {type?:string}|undefined;
   if(row?.type!=='table')throw new Error('Missing diagnosis journal schema table');
+  // Names below are code-owned constants, not imported data or SQL parameters.
+  const actual=db.prepare(`PRAGMA table_info(${name})`).all() as {
+   name:string;type:string;notnull:number;pk:number;
+  }[];
+  if(actual.length!==columns.length||actual.some((c,i)=>{
+   const expectedColumn=columns[i]!;
+   return c.name!==expectedColumn[0]||c.type.toUpperCase()!==expectedColumn[1]||
+     c.notnull!==expectedColumn[2]||c.pk!==expectedColumn[3];
+  }))throw new Error('Incompatible diagnosis journal schema columns');
  }
+ const foreignKeys=db.prepare('PRAGMA foreign_key_list(journal_items)').all() as {
+  table:string;from:string;to:string;on_delete:string;
+ }[];
+ if(foreignKeys.length!==1||foreignKeys[0]?.table!=='journal_runs'||
+    foreignKeys[0]?.from!=='run_id'||foreignKeys[0]?.to!=='run_id'||
+    foreignKeys[0]?.on_delete!=='CASCADE')
+  throw new Error('Incompatible diagnosis journal foreign key schema');
  const trigger=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('journal_runs','journal_items') LIMIT 1").get();
  if(trigger)throw new Error('Unsafe diagnosis journal schema: unrecognized trigger');
 }
