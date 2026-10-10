@@ -106,8 +106,9 @@ export async function runSiteAdapterRoleDomCheck({
   throw new Error('CDP page identity not verified for SiteAdapter');
  const iframe=baseline.soleSameOriginSubframe;
  if(role.rootScope==='iframe-document'&&
-    ((baseline.subframeCount??0)!==1||!iframe?.frameId||!iframe.loaderId))
-  return result('blocked-context','Exactly one same-origin child frame with a pinned loader is required');
+    ((baseline.subframeCount??0)!==1||!iframe?.frameId||!iframe.loaderId||
+     !/^[0-9a-f]{64}$/.test(iframe.urlFingerprint??'')))
+  return result('blocked-context','Exactly one same-origin child frame with a pinned loader and private URL identity is required');
  let subframes=(baseline.subframeCount??0)>0;
  const guard=async()=>{
   const current=await deps.confirm(target);
