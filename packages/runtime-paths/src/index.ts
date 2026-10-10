@@ -30,7 +30,8 @@ export function resolveDataRoot(input: DataRootInput): string {
     const unpacked = input.exeDirectory;
     const ambiguous = (value: string) =>
       /^[\\\\/]{2}[?.][\\\\/]/.test(value) ||
-      value.split(/[\\\\/]+/).some(part => part !== '.' && part !== '..' && /[. ]$/.test(part));
+      value.split(/[\\/]+/).some(part => part !== '.' && part !== '..' &&
+        (/[. ]$/.test(part) || /^[^\\/.]{1,6}~[1-9][0-9]*(?:\.[^\\/.]{0,3})?$/.test(part)));
     if (!unpacked || !win32.isAbsolute(unpacked) || !win32.isAbsolute(base) ||
         ambiguous(unpacked) || ambiguous(base)) {
       throw new Error('PORTABLE_EXECUTABLE_DIR has ambiguous Windows path identity; refusing unpacked data root');
