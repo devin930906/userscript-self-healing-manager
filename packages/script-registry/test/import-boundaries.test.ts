@@ -82,3 +82,28 @@ test('Unicode siblings with identical names retain distinct IDs and repeated exa
   assert.equal(repo.list().length,2);
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('a registry identity lookup failure isolates its file and a later retry succeeds',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-lookup-retry-'));
+ const db=openDatabase(':memory:');migrateDatabase(db);
+ try{
+  const fail=join(root,'fail.user.js'),ok=join(root,'good.user.js');
+  await writeFile(fail,'const a=1;');await writeFile(ok,'const b=2;');
+  const actual=createScriptRepository(db);
+  const temporaryFailure={
+   ...actual,
+   findIdByPath(path:string):string|undefined{
+    if(path===fail)throw new Error('simulated temporary registry read failure');
+    return actual.findIdByPath(path);
+   }
+  };
+  const first=await importPaths({paths:[fail,ok],recursive:false,repository:temporaryFailure});
+  assert.deepEqual(first.map(x=>x.status),['unreadable','imported']);
+  assert.match(first[0]?.message??'',/registry lookup failed/i);
+  assert.equal(actual.list().length,1);
+  const second=await importPaths({paths:[fail],recursive:false,repository:actual});
+  assert.equal(second[0]?.status,'imported');
+  assert.equal(actual.list().length,2);
+  assert.equal(await readFile(fail,'utf8'),'const a=1;');
+ }finally{db.close();await rm(root,{recursive:true,force:true});}
+});
