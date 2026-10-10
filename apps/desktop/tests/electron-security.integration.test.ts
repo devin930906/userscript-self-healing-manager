@@ -56,6 +56,19 @@ function exitFailure(status: {code: number | null; signal: NodeJS.Signals | null
     'Electron exited with signal ' + (status.signal ?? 'unknown');
 }
 
+function mayDeleteTestRoot(childPid: number | undefined, exitConfirmed: boolean): boolean {
+  return childPid === undefined || exitConfirmed;
+}
+
+test('cleanup retains data for unconfirmed PID, but removes data after confirmed abnormal exit', () => {
+  assert.equal(mayDeleteTestRoot(4242, false), false, 'live or unconfirmed child must retain test data');
+  assert.equal(mayDeleteTestRoot(4242, true), true, 'confirmed exited child allows test-data removal');
+  assert.equal(mayDeleteTestRoot(undefined, false), true, 'spawn with no PID permits test-data removal');
+  const abnormal = exitFailure({ code: 7, signal: null });
+  assert.match(abnormal ?? '', /code 7/, 'nonzero exit still fails despite safe deletion');
+  assert.equal(mayDeleteTestRoot(4242, true), true);
+});
+
 interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
 
@@ -334,13 +347,17 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       try { await withTimeout(new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())), 10000, 'HTTP close'); }
       catch(e) { failures.push(e as Error); }
     }
-    if(child?.pid && !exitConfirmed) failures.push(new Error('Electron exit unconfirmed; temporary data retained: '+temporary));
-    if(exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError) {
-      // Unexpected early shutdown must never disappear behind later cleanup.
+    if (!mayDeleteTestRoot(child?.pid, exitConfirmed)) {
+      failures.push(new Error('Electron exit unconfirmed; temporary data retained: ' + temporary));
+    }
+    if (exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError) {
+      // Report an abnormal exit even when deleting the test-only directory is safe.
       failures.push(new Error(exitFailure(exit) ?? 'Electron exited unexpectedly'));
     }
-    else { try { await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200}); }
-      catch(e) { failures.push(new Error('Temporary directory cleanup: '+String(e))); } }
+    if (mayDeleteTestRoot(child?.pid, exitConfirmed)) {
+      try { await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+      catch (e) { failures.push(new Error('Temporary directory cleanup: ' + String(e))); }
+    }
     if(failures.length) throw new AggregateError(failures,'Electron security cleanup failed');
   }
 });
