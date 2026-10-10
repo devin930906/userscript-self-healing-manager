@@ -1,0 +1,302 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {diagnoseScriptsOnPage} from '../src/batch-dom.ts';
+
+const meta=(match:string[])=>({match,include:[],raw:{}});
+const analysis=(m=meta(['https://example.org/*']),records:any[]=[
+ {method:'querySelector',expression:'#missing',runtimeRequired:false,receiver:'document'},
+])=>({metadata:m,selectorRecords:records});
+const items:any[]=[
+ {path:'one.user.js',scriptId:'one',status:'parsed',analysis:analysis()},
+ {path:'two.user.js',scriptId:'two',status:'parsed',analysis:analysis(meta(['https://other.example/*']))},
+ {path:'three.user.js',scriptId:'three',status:'parsed',analysis:analysis(meta(['https://example.org/*']),[{method:'querySelector',expression:'#dynamic',runtimeRequired:true,receiver:'document'}])},
+ {path:'broken.user.js',status:'parse-error',diagnostics:['Invalid expression']},
+];
+const page={type:'page',id:'p1',url:'https://example.org/page',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/p1'};
+
+test('batch uses metadata page scope and never probes out-of-scope or invalid scripts',async()=>{
+ const called:string[]=[];let identities=0;
+ const result=await diagnoseScriptsOnPage({items,target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+  confirm:async()=>{identities++;return {targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'};},
+  probe:async(_target,locators)=>{called.push(locators[0]?.expression??'');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing',matchCount:0}))};},
+ }});
+ assert.equal(result.validationLevel,'dom-only');
+ assert.equal(result.totalItems,4);
+ assert.deepEqual(result.items.map(x=>x.status),['locator-missing','out-of-scope','needs-review','skipped']);
+ assert.deepEqual(called,['#missing']);
+ assert.equal(result.items[0]?.missing,1);
+ assert.equal(result.items[1]?.checked,0);
+ assert.equal(result.items[2]?.needsReview,1);
+ assert.equal(identities,5,'validate page at operation boundaries, on both sides of each CDP probe, and after Shadow DOM context evidence');
+});
+
+test('batch isolates a failed script probe but refuses to treat navigation as success',async()=>{
+ const cases:any[]=[{path:'a',scriptId:'a',analysis:analysis()},{path:'b',scriptId:'b',analysis:analysis()}];
+ let number=0;
+ const result=await diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+  probe:async()=>{if(number++===0)throw new Error('one script failed');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:[{method:'querySelector',expression:'#missing',status:'missing',matchCount:0}]};}
+ }});
+ assert.deepEqual(result.items.map(x=>x.status),['error','locator-missing']);
+ assert.equal(result.items[0]?.reason,'CDP locator probe failed');
+ await assert.rejects(diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:'https://other.example'}),
+  probe:async()=>{throw new Error('must not call');}
+ }}),/identity|navigation|page URL/i);
+});
+
+test('strict consent, bounded batch size, bounded selectors and identity reject unsafe evidence',async()=>{
+ const deps:any={confirm:async()=>({targetId:'p1',confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),probe:async()=>({targetId:'wrong-page',url:page.url,checks:[]})};
+ await assert.rejects(diagnoseScriptsOnPage({items,target:page,consent:false,deps}),/consent|approval/i);
+ await assert.rejects(diagnoseScriptsOnPage({items:Array.from({length:26},()=>items[0]),target:page,consent:true,deps}),/limit/i);
+ const tooMany=Array.from({length:51},(_,i)=>({method:'querySelector',expression:'#'+i,runtimeRequired:false,receiver:'document'}));
+ const out=await diagnoseScriptsOnPage({items:[{path:'c',scriptId:'c',analysis:analysis(meta(['https://example.org/*']),tooMany)}] as any,target:page,consent:true,deps});
+ assert.equal(out.items[0]?.status,'error');
+ assert.equal(out.items[0]?.checked,0);
+ assert.equal(out.items[0]?.reason,'Selector count exceeds batch safety limit');
+ const failed=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps});
+ assert.equal(failed.items[0]?.status,'error');
+ assert.match(failed.items[0]?.reason??'',/identity/i);
+});
+
+test('read-only batch never trusts stale page identity even when all scripts are out of scope',async()=>{
+ let probed=0;
+ await assert.rejects(diagnoseScriptsOnPage({
+  items:[items[1]],target:page,consent:true,deps:{
+   confirm:async()=>{throw new Error('CDP page navigated before scope evaluation');},
+   probe:async()=>{probed++;throw new Error('not called');},
+  },
+ }),/navigated/);
+ assert.equal(probed,0);
+});
+test('read-only batch performs final identity recheck when all scripts have no static selectors',async()=>{
+ let checks=0;
+ await assert.rejects(diagnoseScriptsOnPage({
+  items:[items[2]],target:page,consent:true,deps:{
+   confirm:async()=>{checks++;return {targetId:page.id,confirmedUrl:checks===1?page.url:'https://other.example',frameId:'main',loaderId:'stable'};},
+   probe:async()=>{throw new Error('no static locators');},
+  },
+ }),/identity/i);
+ assert.equal(checks,2);
+});
+
+test('unsupported scope metadata remains needs-review, never falsely out-of-scope',async()=>{
+ const cases:any[]=[
+  {path:'no-rule.user.js',scriptId:'no-rule',status:'parsed',analysis:analysis(meta([]))},
+  {path:'regex-rule.user.js',scriptId:'regex',status:'parsed',analysis:analysis(meta([],))},
+  {path:'unknown-exclude.user.js',scriptId:'exclude',status:'parsed',analysis:analysis({
+   match:['https://example.org/*'],include:[],raw:{'exclude':['/example\\.org/']},
+  })},
+ ];
+ let probes=0;
+ const result=await diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+  probe:async()=>{probes++;throw new Error('must not inspect unsupported scopes');},
+ }});
+ assert.deepEqual(result.items.map(row=>row.status),['needs-review','needs-review','needs-review']);
+ assert.ok(result.items.every(row=>row.needsReview>=1));
+ assert.equal(probes,0);
+});
+
+test('unverified iframe contexts prevent a false missing or out-of-scope verdict for the whole userscript',async()=>{
+ const result=await diagnoseScriptsOnPage({items:[items[0],items[1]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:2}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+ }});
+ assert.deepEqual(result.items.map(x=>x.status),['needs-review','needs-review']);
+ assert.ok(result.items.every(x=>(x.reason??'').includes('iframe')));
+ assert.ok(result.items.every(x=>x.needsReview>=1));
+ assert.equal(result.items[0]?.missing,0);
+});
+
+test('@noframes metadata retains definitive top-document verdict even if the page embeds iframes',async()=>{
+ const withNoFrames={match:['https://example.org/*'],include:[],raw:{noframes:['']}};
+ const nested=[{path:'top-only.user.js',scriptId:'top-only',status:'parsed',analysis:analysis(withNoFrames)},
+  {path:'top-only-other.user.js',scriptId:'other',status:'parsed',analysis:analysis({...withNoFrames,match:['https://other.example/*']})}] as any[];
+ const out=await diagnoseScriptsOnPage({items:nested,target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:1}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+ }});
+ assert.deepEqual(out.items.map(x=>x.status),['locator-missing','out-of-scope']);
+});
+
+test('same-URL reload invalidates a batch even when no scripts need DOM probes',async()=>{
+ const target={id:'same-url',type:'page',url:'https://example.com/app',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/same-url'};
+ let call=0;
+ await assert.rejects(diagnoseScriptsOnPage({
+  items:[],target,consent:true,
+  deps:{
+   confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'root',loaderId:++call===1?'loader-a':'loader-b'}),
+   probe:async()=>{throw new Error('No probes expected');},
+  },
+ }),/document|loader|navigation|identity/i);
+});
+
+test('an author Shadow Tree makes a top-document locator miss inconclusive even with @noframes',async()=>{
+ const frameRestricted={match:['https://example.org/*'],include:[],raw:{noframes:['']}};
+ const targetScript={path:'shadow.user.js',scriptId:'shadow',status:'parsed',analysis:analysis(frameRestricted)};
+ const result=await diagnoseScriptsOnPage({items:[targetScript] as any,target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:2}),
+ }});
+ assert.equal(result.items[0]?.status,'needs-review');
+ assert.equal(result.items[0]?.missing,0);
+ assert.ok(result.items[0]?.needsReview>=1);
+ assert.match(result.items[0]?.reason??'',/shadow/i);
+});
+test('confirmed absence of author Shadow DOM preserves the top-document verdict',async()=>{
+ const data=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+ }});
+ assert.equal(data.items[0]?.status,'locator-missing');
+});
+test('a failed shadow context read cannot be used to certify a missing locator',async()=>{
+ const data=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  summarize:async()=>{throw new Error('Shadow DOM evidence unavailable');},
+ }});
+ assert.equal(data.items[0]?.status,'needs-review');
+ assert.match(data.items[0]?.reason??'',/shadow|unavailable/i);
+});
+
+test('read-only matched DOM is recorded only as V1 evidence, never a V3/V4 pass',async()=>{
+ const tested=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'f',loaderId:'l'}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'found' as const,matchCount:1}))}),
+ }});
+ assert.equal(tested.items[0]?.verification?.V0,'passed');
+ assert.equal(tested.items[0]?.verification?.V1,'passed');
+ assert.equal(tested.items[0]?.verification?.V2,'blocked');
+ assert.equal(tested.items[0]?.verification?.V3,'not-configured');
+ assert.equal(tested.items[0]?.verification?.V4,'not-configured');
+ assert.equal(tested.items[0]?.verification?.functionalVerified,false);
+});
+
+test('delayed read-only recheck recovers a locator which appears after initial DOM inspection',async()=>{
+ let probes=0,waits=0;
+ const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  waitBeforeMissingRecheck:async()=>{waits++;},
+  probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:probes===1?'missing' as const:'found' as const,matchCount:probes===1?0:1}))};},
+ }});
+ assert.equal(probes,2);assert.equal(waits,1);
+ assert.equal(result.items[0]?.status,'dom-present');
+ assert.equal(result.items[0]?.verification?.V1,'passed');
+});
+test('two independent missing samples remain DOM-only missing, never a V3 business failure',async()=>{
+ let probes=0;
+ const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  waitBeforeMissingRecheck:async()=>{},
+  probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))};},
+ }});
+ assert.equal(probes,2);
+ assert.equal(result.items[0]?.status,'locator-missing');
+ assert.equal(result.items[0]?.verification?.V3,'not-configured');
+});
+test('navigation during bounded recheck rejects all outdated DOM evidence',async()=>{
+ let loader='before',probes=0;
+ await assert.rejects(diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:loader}),
+  waitBeforeMissingRecheck:async()=>{loader='after';},
+  probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))};},
+ }}),/document|loader|navigation|identity/i);
+ assert.equal(probes,1,'do not run second probe on another Chrome document');
+});
+test('recheck transport failure cannot certify a missing locator',async()=>{
+ let probes=0;
+ const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
+  waitBeforeMissingRecheck:async()=>{},
+  probe:async(_target,locators)=>{probes++;if(probes===2)throw new Error('CDP disconnected');
+   return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))};},
+ }});
+ assert.equal(result.items[0]?.status,'needs-review');
+ assert.equal(result.items[0]?.missing,0);
+ assert.match(result.items[0]?.reason??'',/recheck|retry|unverified/i);
+});
+
+test('absent Shadow DOM context provider cannot certify top-document missing locator as failed',async()=>{
+ const outcome=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:0}),
+  probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
+   checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
+  // Deliberately NO summarize provider: unknown Shadow DOM is not absent Shadow DOM.
+ }});
+ assert.equal(outcome.items[0]?.status,'needs-review');
+ assert.equal(outcome.items[0]?.missing,0);
+ assert.equal(outcome.items[0]?.needsReview,1);
+ assert.equal(outcome.items[0]?.verification?.V1,'blocked');
+ assert.match(outcome.items[0]?.reason??'',/shadow|context/i);
+});
+
+
+test('batch CDP errors are redacted before results reach renderer or reports',async()=>{
+ const secret='https://example.org/private?session=DO_NOT_LEAK_TOKEN';
+ const sourcePath='C:\\\\Users\\\\Private\\\\sensitive.user.js';
+ const output=await diagnoseScriptsOnPage({
+  items:[items[0],items[0]],target:page,consent:true,deps:{
+   confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+   probe:async()=>{throw new Error('CDP selector failed: '+secret+' '+sourcePath);},
+  },
+ });
+ assert.deepEqual(output.items.map(row=>row.status),['error','error']);
+ assert.deepEqual(output.items.map(row=>row.reason),[
+  'CDP locator probe failed','CDP locator probe failed',
+ ]);
+ const serialized=JSON.stringify(output);
+ assert.doesNotMatch(serialized,/DO_NOT_LEAK_TOKEN|Private|sensitive\\.user\\.js|session=/);
+ assert.equal(output.items[0]?.verification?.V1,'blocked');
+ assert.equal(output.items[0]?.verification?.V3,'not-configured');
+});
+
+
+test('malformed per-script CDP response is isolated and cannot abort later authorized scripts',async()=>{
+ const malformed=[
+  null,
+  {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:null},
+  {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:[null]},
+  {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:{length:1}},
+ ];
+ for(const broken of malformed){
+  let calls=0;
+  const outcome=await diagnoseScriptsOnPage({
+   items:[items[0],items[0]],target:page,consent:true,deps:{
+    confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
+    probe:async(_target,locators)=>{
+     calls++;
+     if(calls===1)return broken as any;
+     return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
+      checks:locators.map(x=>({method:x.method,expression:x.expression,status:'found' as const,matchCount:1}))};
+    },
+   },
+  });
+  assert.equal(calls,2,'subsequent independent script must still be diagnosed');
+  assert.deepEqual(outcome.items.map(x=>x.status),['error','dom-present']);
+  assert.equal(outcome.items[0]?.reason,'CDP evidence identity or shape mismatch');
+  assert.equal(outcome.items[0]?.verification?.V1,'blocked');
+  assert.equal(outcome.items[1]?.verification?.V1,'passed');
+ }
+});

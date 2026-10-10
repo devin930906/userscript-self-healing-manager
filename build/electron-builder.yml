@@ -1,0 +1,30 @@
+appId: com.devin.usshm
+productName: Userscript Self-Healing Manager
+asar: true
+npmRebuild: false
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - node_modules/typescript/**/*
+  - '!**/*.map'
+  - '!**/*.{md,ts,tsx}'
+  - '!**/test/**'
+win:
+  executableName: Userscript-Self-Healing-Manager
+  # ZIP is the complete unpacked Electron app, not a wrapper around Portable.exe.
+  artifactName: Userscript-Self-Healing-Manager-${version}-win-${arch}.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Userscript-Self-Healing-Manager-Setup-${version}-win-${arch}.${ext}
+portable:
+  artifactName: Userscript-Self-Healing-Manager-Portable-${version}-win-${arch}.${ext}
