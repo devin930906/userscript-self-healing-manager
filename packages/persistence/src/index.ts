@@ -112,16 +112,6 @@ export interface RegistryBackupReceipt{
 }
 
 /**
- * Take a consistent, committed SQLite registry snapshot while its WAL database
- * remains open. This backs up registry.sqlite ONLY, not the separate diagnosis
- * journal, managed script revisions, browser profiles, or encrypted secrets.
- *
- * The destination must be an explicitly chosen, NEW .sqlite path. A hidden
- * staging file is verified before using an exclusive hard-link publication:
- * no existing target (including symlinks) can ever be overwritten. Filesystems
- * without same-directory hard-link support fail closed.
- */
-/**
  * Refuse a backup whose destination is reached through any linked directory,
  * not only an immediately linked parent. Check root-to-leaf so a junction is
  * noticed before accessing filesystem entries underneath it.
@@ -142,6 +132,16 @@ async function assertUnlinkedBackupDirectory(directory:string):Promise<void>{
  }
 }
 
+/**
+ * Take a consistent, committed SQLite registry snapshot while its WAL database
+ * remains open. This backs up registry.sqlite ONLY, not the separate diagnosis
+ * journal, managed script revisions, browser profiles, or encrypted secrets.
+ *
+ * The destination must be an explicitly chosen, NEW .sqlite path. A hidden
+ * staging file is verified before using an exclusive hard-link publication:
+ * no existing target (including symlinks) can ever be overwritten. Filesystems
+ * without same-directory hard-link support fail closed.
+ */
 export async function backupVerifiedSqliteSnapshot(
  db:DatabaseHandle,destination:string,verify:(copy:DatabaseHandle)=>void,
 ):Promise<RegistryBackupReceipt>{
