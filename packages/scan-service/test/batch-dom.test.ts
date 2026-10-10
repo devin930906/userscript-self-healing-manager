@@ -17,6 +17,8 @@ const page={type:'page',id:'p1',url:'https://example.org/page',webSocketDebugger
 test('batch uses metadata page scope and never probes out-of-scope or invalid scripts',async()=>{
  const called:string[]=[];let identities=0;
  const result=await diagnoseScriptsOnPage({items,target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
   confirm:async()=>{identities++;return {targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'};},
   probe:async(_target,locators)=>{called.push(locators[0]?.expression??'');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing',matchCount:0}))};},
  }});
@@ -34,6 +36,8 @@ test('batch isolates a failed script probe but refuses to treat navigation as su
  const cases:any[]=[{path:'a',scriptId:'a',analysis:analysis()},{path:'b',scriptId:'b',analysis:analysis()}];
  let number=0;
  const result=await diagnoseScriptsOnPage({items:cases,target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
   confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable'}),
   probe:async()=>{if(number++===0)throw new Error('one script failed');return {targetId:page.id,url:page.url,validationLevel:'dom-only',checks:[{method:'querySelector',expression:'#missing',status:'missing',matchCount:0}]};}
  }});
@@ -115,6 +119,8 @@ test('@noframes metadata retains definitive top-document verdict even if the pag
  const nested=[{path:'top-only.user.js',scriptId:'top-only',status:'parsed',analysis:analysis(withNoFrames)},
   {path:'top-only-other.user.js',scriptId:'other',status:'parsed',analysis:analysis({...withNoFrames,match:['https://other.example/*']})}] as any[];
  const out=await diagnoseScriptsOnPage({items:nested,target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
   confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'main',loaderId:'stable',subframeCount:1}),
   probe:async(_target,locators)=>({targetId:page.id,url:page.url,validationLevel:'dom-only',
    checks:locators.map(x=>({method:x.method,expression:x.expression,status:'missing' as const,matchCount:0}))}),
@@ -197,6 +203,8 @@ test('delayed read-only recheck recovers a locator which appears after initial D
 test('two independent missing samples remain DOM-only missing, never a V3 business failure',async()=>{
  let probes=0;
  const result=await diagnoseScriptsOnPage({items:[items[0]],target:page,consent:true,deps:{
+  // This test attests a true top-document miss only after proving no author Shadow DOM.
+  summarize:async()=>({targetId:page.id,url:page.url,authorShadowTreeNodes:0}),
   confirm:async()=>({targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'stable'}),
   waitBeforeMissingRecheck:async()=>{},
   probe:async(_target,locators)=>{probes++;return {targetId:page.id,url:page.url,validationLevel:'dom-only' as const,
