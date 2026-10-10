@@ -84,3 +84,30 @@ test('managed recovery export rejects symlink, write lock, and destination insid
   await assert.rejects(exportManagedRecovery({managedRoot:dataRoot,destination:join(dir,'linked')}),/symlink|unsafe|unexpected/i);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('managed recovery verification rejects modified archive and traversal manifest without restore',async()=>{
+ const api=await import('../../packages/repair-workflow/src/managed-export.ts');
+ const verify=(api as unknown as {verifyManagedRecovery?:(
+  input:{snapshotDirectory:string}
+ )=>Promise<{files:number;bytes:number}>}).verifyManagedRecovery;
+ assert.equal(typeof verify,'function','read-only managed archive verification API must exist');
+ const dir=await mkdtemp(join(tmpdir(),'usshm-managed-verify-'));
+ try{
+  const root=join(dir,'Data');await mkdir(root);
+  const f=await fixture(root);
+  const folder=join(dir,'backup');
+  await (await exporter())({managedRoot:root,destination:folder});
+  assert.deepEqual(await verify!({snapshotDirectory:folder}),{
+   files:3,bytes:f.original.length+f.patched.length*2
+  });
+  await writeFile(join(folder,'managed',f.scriptId,'current.user.js'),'tampered backup');
+  await assert.rejects(verify!({snapshotDirectory:folder}),/hash|mismatch|tamper|integrity/i);
+  // Restore the byte-for-byte archive, then attack the JSON path.
+  await writeFile(join(folder,'managed',f.scriptId,'current.user.js'),f.patched);
+  const manifest=JSON.parse(await readFile(join(folder,'manifest.json'),'utf8'));
+  manifest.files[0].path='../outside.user.js';
+  await writeFile(join(folder,'manifest.json'),JSON.stringify(manifest));
+  await assert.rejects(verify!({snapshotDirectory:folder}),/path|unsafe|traversal|manifest/i);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
