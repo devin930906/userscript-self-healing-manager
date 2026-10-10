@@ -119,7 +119,14 @@ export function openDiagnosisJournal(file:string){
     for(const count of [row.checked,row.found,row.missing,row.needsReview]){
      if(!Number.isSafeInteger(count)||count<0||count>10000)throw new Error('Invalid diagnosis item counts');
     }
-    if(row.checked>50||row.found+row.missing+row.needsReview!==row.checked)
+    // When scope is unknown or every locator requires runtime context,
+    // the batch records pending review candidates without probing the DOM.
+    // Such a row legitimately has checked=0 and needsReview>0. Once any
+    // locator was probed, the observed outcomes must partition checked.
+    const uncheckedReview=row.checked===0&&row.found===0&&row.missing===0&&
+      row.status==='needs-review'&&row.needsReview>0;
+    if(row.checked>50||(!uncheckedReview&&
+       row.found+row.missing+row.needsReview!==row.checked))
      throw new Error('Invalid or contradictory diagnosis checked counts');
     // Persisted trends cannot rely on a label contradicted by its evidence.
     if(row.status==='dom-present'&&(row.checked===0||row.found!==row.checked||
