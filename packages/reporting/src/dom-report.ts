@@ -26,7 +26,19 @@ export function serializeDomBatchReport(
   for(const [field,cap] of [['checked',50],['found',50],['missing',50],['needsReview',10000]] as const){
    if(!Number.isSafeInteger(row[field])||row[field]<0||row[field]>cap)throw new Error('Invalid DOM diagnosis counts');
   }
-  if(row.found>row.checked||row.missing>row.checked)throw new Error('Inconsistent DOM diagnosis counts');
+  // Reviewed-but-not-probed dynamic/iframe selectors are legitimate:
+  // checked=0, needsReview>0. Any actually checked selector, however, must
+  // belong to exactly one found/missing/review bucket. Never export a forged
+  // V1 result from contradictory raw counts.
+  const uncheckedReview=row.checked===0&&row.found===0&&row.missing===0&&
+   row.status==='needs-review'&&row.needsReview>0;
+  if(!uncheckedReview&&row.found+row.missing+row.needsReview!==row.checked)
+   throw new Error('Inconsistent DOM diagnosis counts');
+  if(row.status==='dom-present'&&(row.checked===0||row.found!==row.checked||
+     row.missing!==0||row.needsReview!==0))
+   throw new Error('Contradictory DOM-present status');
+  if(row.status==='locator-missing'&&row.missing===0)
+   throw new Error('Contradictory locator-missing status');
   const v=row.verification;
   if(!v||!validationStates.has(v.V0)||!validationStates.has(v.V1)||
    v.V2!=='blocked'||v.V3!=='not-configured'||v.V4!=='not-configured'||
