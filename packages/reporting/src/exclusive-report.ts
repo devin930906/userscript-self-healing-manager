@@ -15,12 +15,14 @@ type ChunkWriter=(file:FileHandle,chunk:Uint8Array,offset:number)=>Promise<numbe
  * No rename/copy fallback: filesystems lacking safe hard links are blocked.
  * Not a cross-process snapshot lock for the diagnostic evidence itself.
  */
-export async function writeExclusiveReport({destinationPath,content,writeChunk,beforePublish}:{
+export async function writeExclusiveReport({destinationPath,content,writeChunk,beforePublish,afterPublish}:{
  destinationPath:string;content:string;
  /** Test-only fault injection; never provided by renderer IPC. */
  writeChunk?:ChunkWriter;
  /** Test-only race injection; never provided by renderer IPC. */
  beforePublish?:()=>Promise<void>;
+ /** Test-only fault injection immediately after exclusive linking. */
+ afterPublish?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof destinationPath!=='string'||!isAbsolute(destinationPath)||
     !/\.(?:json|md)$/i.test(destinationPath)||
@@ -91,7 +93,10 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
     throw new Error('Destination filesystem cannot safely publish report without overwrite (hard links required)',{cause:error});
    throw error;
   }
-  try{await verify(destinationPath);}
+  try{
+   if(afterPublish)await afterPublish();
+   await verify(destinationPath);
+  }
   catch(error){
    // The hard link is already visible. Best-effort rollback is restricted
    // to the inode we published, never a different destination file.
