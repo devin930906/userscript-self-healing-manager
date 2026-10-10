@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveDataRoot } from '../src/index.ts';
+import { resolveDataRoot, ensureWritableDataRoot } from '../src/index.ts';
+import { mkdtemp, mkdir, readFile, readdir, lstat, symlink, unlink, rmdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 
 const common = {
   distributionMode: 'portable-exe' as const,
@@ -107,4 +111,46 @@ test('ordinary literal tilde names are not presumed to be 8.3 aliases', () => {
     ...common, exeDirectory: 'C:\\Temp\\App',
     portableExternalDirectory: 'D:\\Tools\\release~candidate',
   }), 'D:\\Tools\\release~candidate\\Data');
+});
+
+test('Windows junction cannot redirect portable Data writes outside its selected directory', {
+  skip: process.platform !== 'win32' ? 'Windows junction behavior requires a real Windows filesystem' : false,
+}, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'usshm-junction-boundary-'));
+  const link = join(workspace, 'external-junction');
+  const realTarget = join(workspace, 'real-target');
+  const marker = join(realTarget, 'existing-settings.txt');
+  let junctionCreated = false;
+  try {
+    await mkdir(realTarget);
+    await writeFile(marker, 'unchanged source data', 'utf8');
+
+    // A Windows directory junction is a real reparse point, not a string alias.
+    // On Windows, setup errors MUST fail this test (no permission-based skip).
+    await symlink(realTarget, link, 'junction');
+    junctionCreated = true;
+    assert.equal((await lstat(link)).isSymbolicLink(), true, 'fixture must be a real directory reparse point');
+
+    await assert.rejects(
+      ensureWritableDataRoot(join(link, 'Data')),
+      /symlink|reparse|junction/i,
+      'a Junction ancestor must be rejected before any Data directory or probe is written',
+    );
+    assert.equal(await readFile(marker, 'utf8'), 'unchanged source data');
+    assert.deepEqual(await readdir(realTarget), ['existing-settings.txt'],
+      'real target must contain neither a Data directory nor a write probe');
+  } finally {
+    // Never recursively delete through a junction. Remove ONLY the link itself
+    // before cleaning the dedicated temporary parent and target directory.
+    if (junctionCreated) {
+      try {
+        await unlink(link);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EPERM' &&
+            (error as NodeJS.ErrnoException).code !== 'EISDIR') throw error;
+        await rmdir(link); // Junction entry only; never pass recursive:true.
+      }
+    }
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
