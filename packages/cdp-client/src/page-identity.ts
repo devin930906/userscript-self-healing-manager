@@ -1,3 +1,4 @@
+import {createHmac,randomBytes} from 'node:crypto';
 import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
 import type {SocketLike} from './snapshot.ts';
@@ -5,7 +6,9 @@ import type {SocketLike} from './snapshot.ts';
 export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number;frameId?:string;loaderId?:string;
  /** Only exactly one same-origin child with a verified loader may be inspected.
   * Child URLs must not be exposed in UI or reports. */
- soleSameOriginSubframe?:Readonly<{frameId:string;loaderId:string}>}
+ soleSameOriginSubframe?:Readonly<{frameId:string;loaderId:string;urlFingerprint?:string}>}
+// Process-private key: never expose, persist or log child browsing-context URLs.
+const CHILD_URL_KEY=randomBytes(32);
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
@@ -13,7 +16,8 @@ export function assertStablePageDocument(before:ConfirmedPageIdentity,after:Conf
     before.frameId!==after.frameId||before.loaderId!==after.loaderId||
     before.subframeCount!==after.subframeCount||
     before.soleSameOriginSubframe?.frameId!==after.soleSameOriginSubframe?.frameId||
-    before.soleSameOriginSubframe?.loaderId!==after.soleSameOriginSubframe?.loaderId)
+    before.soleSameOriginSubframe?.loaderId!==after.soleSameOriginSubframe?.loaderId||
+    before.soleSameOriginSubframe?.urlFingerprint!==after.soleSameOriginSubframe?.urlFingerprint)
   throw new Error('CDP main-frame document identity changed during inspection (same-URL navigation or reload)');
 }
 
@@ -81,7 +85,7 @@ export async function confirmPageIdentity(
     // identified unambiguously without a user-supplied frame selector.
     // Its loader is pinned alongside the main document before both CDP samples.
     // about:blank/srcdoc and cross-origin children are deliberately unsupported.
-    let soleSameOriginSubframe:Readonly<{frameId:string;loaderId:string}>|undefined;
+    let soleSameOriginSubframe:Readonly<{frameId:string;loaderId:string;urlFingerprint?:string}>|undefined;
     if(nestedFrames===1&&Array.isArray(frameTree.childFrames)&&frameTree.childFrames.length===1){
      const child=frameTree.childFrames[0]?.frame;
      const childId=child?.id,childLoader=child?.loaderId,childUrl=child?.url;
@@ -91,7 +95,9 @@ export async function confirmPageIdentity(
       try{
        const parsedChild=new URL(childUrl);
        if(['http:','https:'].includes(parsedChild.protocol)&&parsedChild.origin===expected.origin)
-        soleSameOriginSubframe={frameId:childId,loaderId:childLoader};
+        soleSameOriginSubframe={frameId:childId,loaderId:childLoader,
+         urlFingerprint:createHmac('sha256',CHILD_URL_KEY)
+          .update('usshm-iframe-url-v1:').update(childUrl).digest('hex')};
       }catch{/* Invalid or opaque nested URLs do not authorize iframe reads. */}
      }
     }
