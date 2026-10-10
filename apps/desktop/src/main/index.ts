@@ -833,6 +833,8 @@ async function bootstrap():Promise<void>{
   if(createHash('sha256').update(bytes).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Original script changed since the scan');
   scanSessions.assertCurrent(scanSnapshot);
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  scanSessions.assertCurrent(scanSnapshot);
   try{return await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
   finally{pendingApprovals.consume(q.proposalId);}
  });
@@ -866,6 +868,8 @@ async function bootstrap():Promise<void>{
   if(scope.status!=='allowed')
    throw new Error('Script does not match the approved target Chrome webpage');
   const originalDocument=await confirmPageIdentity(selected);
+  scanSessions.assertCurrent(scanSnapshot);
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
   let applied:Awaited<ReturnType<typeof batchRepairs.applyBatch>>;
   try{applied=await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
@@ -940,6 +944,8 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   // Only Main owns the original/proposed hashes. The renderer supplies neither
   // rollback target nor replacement selector, even with IPC tampering.
+  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  scanSessions.assertCurrent(scanSnapshot);
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
   try{applied=await repairs.apply({proposalId:q.proposalId,approved:true});}
   finally{pendingApprovals.consume(q.proposalId);}
