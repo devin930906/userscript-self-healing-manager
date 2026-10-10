@@ -149,6 +149,12 @@ export function openDiagnosisJournal(file:string){
     if(v.V1==='passed'&&(row.status!=='dom-present'||row.checked===0||
        row.found!==row.checked||row.missing!==0||row.needsReview!==0))
      throw new Error('Unverified DOM status cannot claim V1 passed');
+    // Persisted evidence must enforce the same bidirectional V1 gate as
+    // JSON/Markdown export: an inconclusive result is never a verified fail.
+    if(v.V1==='failed'&&(row.status!=='locator-missing'||row.checked<1||row.missing<1))
+     throw new Error('Unverified diagnosis cannot claim V1 failed');
+    if(v.V1==='skipped'&&row.status!=='skipped'&&row.status!=='out-of-scope')
+     throw new Error('Unverified diagnosis cannot claim V1 skipped');
    }
    const now=new Date().toISOString();
    let runId:string;
