@@ -147,3 +147,15 @@ test('a forged closing marker with extra text does not authorize userscript meta
  ].join('\n');
  assert.deepEqual(parseUserscriptMetadata(source).match,[]);
 });
+
+test('parenthesized logical-OR DOM calls retain symmetric fallback selector inventory',()=>{
+ const src=[
+  "const choice = ((document.querySelector('#primary'))) || ((document.querySelector('#fallback')));",
+  "const unrelated = (document.querySelector('.left')) && (document.querySelector('.right'));",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'grouped-fallback',sourceBytes:encoder.encode(src)}).selectorRecords;
+ assert.deepEqual(records.map(record=>record.expression),['#primary','#fallback','.left','.right']);
+ assert.deepEqual(records.map(record=>record.alternateSelectors),[
+  ['#fallback'],['#primary'],[],[],
+ ]);
+});
