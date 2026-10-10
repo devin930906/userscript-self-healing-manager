@@ -140,3 +140,24 @@ test('a transient replacement in the second sample must invalidate otherwise sta
  assert.equal(result.V2,'blocked');
  assert.equal(result.functionalVerified,false);
 });
+
+test('a stale disabled/hidden observation after DOM replacement must not claim the pinned node was blocked',async()=>{
+ for(const visibility of [{status:'hidden'},{controlBlocker:'aria-disabled'},{pointerBlocked:true}]){
+  const d=deps({fingerprints:[digest,'b'.repeat(64)],visibility});
+  const result=await runReadOnlyInteractionReadiness(request(d));
+  assert.equal(result.status,'needs-review',JSON.stringify(visibility));
+  assert.equal(result.samples,1);
+  assert.equal(d.calls.filter(method=>method==='probe').length,2);
+  assert.equal(d.calls.filter(method=>method==='listeners').length,0);
+  assert.equal(d.calls.filter(method=>method==='wait').length,0);
+ }
+});
+test('a genuine pinned blocked control still reports the blocker without clicking or collecting listeners',async()=>{
+ const d=deps({fingerprints:[digest,digest],visibility:{controlBlocker:'disabled-attribute'}});
+ const result=await runReadOnlyInteractionReadiness(request(d));
+ assert.equal(result.status,'blocked');
+ assert.equal(result.samples,1);
+ assert.equal(d.calls.filter(method=>method==='probe').length,2);
+ assert.equal(d.calls.filter(method=>method==='listeners').length,0);
+ assert.equal(result.V2,'blocked');
+});
