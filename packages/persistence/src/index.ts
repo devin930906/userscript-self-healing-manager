@@ -5,7 +5,7 @@ import {lstat,link,unlink} from 'node:fs/promises';
 import {isAbsolute,dirname,basename,join} from 'node:path';
 import type {ScriptHealth} from '../../contracts/src/index.ts';
 
-export type DatabaseErrorCode =
+class UnsupportedRegistrySchemaError extends Error {\n readonly schemaUnsupported = true;\n}\nexport type DatabaseErrorCode =
  'DATABASE_BUSY'|'DATABASE_PERMISSION_DENIED'|'DATABASE_INVALID_PATH'|
  'DATABASE_IO_ERROR'|'DATABASE_SCHEMA_UNSUPPORTED'|'DATABASE_UNKNOWN_ERROR';
 export class DatabasePersistenceError extends Error {
@@ -24,9 +24,9 @@ export class DatabasePersistenceError extends Error {
 export function classifyDatabaseError(error:unknown,details?:{rollbackError?:unknown;cleanupError?:unknown}):DatabasePersistenceError {
  const native=error && typeof error==='object'?error as {code?:unknown;errcode?:unknown}:null;
  let code:DatabaseErrorCode='DATABASE_UNKNOWN_ERROR';
- if(native?.code==='EACCES'||native?.code==='EPERM')code='DATABASE_PERMISSION_DENIED';
+ if(error instanceof UnsupportedRegistrySchemaError)code='DATABASE_SCHEMA_UNSUPPORTED';\n else if(native?.code==='EACCES'||native?.code==='EPERM')code='DATABASE_PERMISSION_DENIED';
  else if(native?.code==='ENOENT'||native?.code==='ENOTDIR'||native?.code==='EISDIR')code='DATABASE_INVALID_PATH';
- else if(native?.code==='ERR_SQLITE_ERROR'&&typeof native.errcode==='number'){
+ else if(native?.code==='ERR_SQLITE_ERROR'&&typeof native.errcode==='number'&&Number.isSafeInteger(native.errcode)&&native.errcode>=0){
   switch(native.errcode&255){
    case 5:case 6:code='DATABASE_BUSY';break;
    case 8:code='DATABASE_PERMISSION_DENIED';break;
@@ -109,7 +109,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
   if(marker){
    const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
    if(versions.length!==1||versions[0]?.version!==1)
-    throw new Error('Unsupported database schema version; newer or uninitialized Data must not be downgraded');
+    throw new UnsupportedRegistrySchemaError('Unsupported database schema version; newer or uninitialized Data must not be downgraded');
    assertRegistryV1SnapshotSchema(db);
   }
   db.exec(`CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
@@ -120,7 +120,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
    INSERT INTO schema_version(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);`);
   const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
   if(versions.length!==1||versions[0]?.version!==1)
-   throw new Error('Unsupported database schema version');
+   throw new UnsupportedRegistrySchemaError('Unsupported database schema version');
   assertRegistryV1SnapshotSchema(db);
   db.exec('COMMIT');
  }catch(error){
