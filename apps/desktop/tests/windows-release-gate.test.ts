@@ -297,3 +297,55 @@ test('ZIP central directory denies bomb-size claims, unsupported compression and
   }
  }finally{await rm(folder,{recursive:true,force:true});}
 });
+
+test('final ZIP release gate requires local-file headers to agree with central directory',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');
+ const {inspectReleaseZipEntryTypes}=await import('../../../scripts/windows-release-gate.mjs');
+ const folder=await mkdtemp(join(tmpdir(),'usshm-local-zip-'));
+ const path=join(folder,'release.zip');
+ const makeZip=(options:{
+  localName?:string;centralName?:string;localMethod?:number;
+  centralMethod?:number;localFlags?:number;centralFlags?:number;localOffset?:number
+ }={})=>{
+  const localName=Buffer.from(options.localName??'resources/app.asar');
+  const centralName=Buffer.from(options.centralName??'resources/app.asar');
+  const local=Buffer.alloc(30+localName.length);
+  local.writeUInt32LE(0x04034b50,0);
+  local.writeUInt16LE(20,4);
+  local.writeUInt16LE(options.localFlags??0,6);
+  local.writeUInt16LE(options.localMethod??0,8);
+  local.writeUInt16LE(localName.length,26);
+  localName.copy(local,30);
+  const central=Buffer.alloc(46+centralName.length);
+  central.writeUInt32LE(0x02014b50,0);
+  central.writeUInt16LE(20,4);central.writeUInt16LE(20,6);
+  central.writeUInt16LE(options.centralFlags??0,8);
+  central.writeUInt16LE(options.centralMethod??0,10);
+  central.writeUInt16LE(centralName.length,28);
+  central.writeUInt32LE(options.localOffset??0,42);
+  centralName.copy(central,46);
+  const end=Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50,0);
+  end.writeUInt16LE(1,8);end.writeUInt16LE(1,10);
+  end.writeUInt32LE(central.length,12);
+  end.writeUInt32LE(local.length,16);
+  return Buffer.concat([local,central,end]);
+ };
+ try{
+  await writeFile(path,makeZip());
+  assert.equal((await inspectReleaseZipEntryTypes(path,{verifyLocalHeaders:true})).entryCount,1);
+  for(const invalid of [
+   {localName:'../escape.user.js'},
+   {localMethod:8},
+   {localFlags:1},
+   {localOffset:8},
+   {localOffset:0xffffffff},
+  ]){
+   await writeFile(path,makeZip(invalid));
+   await assert.rejects(inspectReleaseZipEntryTypes(path,{verifyLocalHeaders:true}),
+    /ZIP|header|mismatch|invalid|archive|local|encrypted/i,JSON.stringify(invalid));
+  }
+ }finally{await rm(folder,{recursive:true,force:true});}
+});
