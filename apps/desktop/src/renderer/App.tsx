@@ -39,6 +39,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
+ backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
@@ -208,6 +209,18 @@ function App(){
   }catch{
    // Do not print raw SQLite/OS errors: they may contain private local paths.
    setError('SQLite 索引备份失败：请选择新的、可写入的 .sqlite 文件名；不会覆盖已有备份。');
+  }finally{setBusy(false);}
+ }
+ async function backupJournal(){
+  if(busy)return;
+  setBusy(true);setError('');
+  try{
+   const saved=await window.ussm.backupJournal();
+   if(!saved.canceled)setMessage('诊断历史 SQLite 备份成功：'+saved.path+' · SHA-256：'+saved.sha256+
+    '。仅备份诊断历史，不包含脚本索引和受管修订。');
+  }catch{
+   // Database and OS errors may include private directory names.
+   setError('诊断历史备份失败：请另选新的、可写入的 .sqlite 路径。现有备份不会被覆盖。');
   }finally{setBusy(false);}
  }
  async function exportReport(format:'json'|'markdown'){try{const saved=await window.ussm.exportReport(format);if(!saved.canceled)setMessage(`报告已保存：${saved.path}`);}catch(e){setError(String(e));}}
@@ -574,6 +587,9 @@ function App(){
      <p>仅备份 SQLite 脚本索引 registry.sqlite，使用一致性 WAL 快照及 SHA-256 校验。不包含受管修订、诊断历史、Chrome 配置和其他 Data/ 文件；不能代替完整恢复包。</p>
     </div><span className="pill">安全不覆盖</span></div>
     <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void backupRegistry()}>另存 SQLite 索引备份</button></div>
+    <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void backupJournal()}>另存诊断历史 SQLite 备份</button>
+     <p className="dim">仅备份诊断历史数据库，不包含受管修订、浏览器配置或完整 Data/ 资料。</p>
+    </div>
    </section>
    <section className="panel import"><div className="panel-head"><div><h2>导入并扫描脚本</h2><p>仅静态检查，不运行 JavaScript，不修改原件。</p></div><span className="pill">安全只读</span></div>
    <div className={'drop '+(dragging?'dragging':'')} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{void onDrop(e);}}>
