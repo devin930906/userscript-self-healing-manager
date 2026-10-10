@@ -306,6 +306,67 @@ async function magic(path,expected){
  }finally{await handle.close();}
 }
 
+
+/**
+ * Compare the COMPLETE source application tree to the actual extracted ZIP
+ * byte-for-byte. Only call after central-directory safety checks. No uploads.
+ */
+export async function verifyExtractedWindowsZip({sourceDirectory,extractedDirectory}={}){
+ if(typeof sourceDirectory!=='string'||!sourceDirectory||
+    typeof extractedDirectory!=='string'||!extractedDirectory||
+    resolve(sourceDirectory)===resolve(extractedDirectory))
+  throw new Error('ZIP source and extraction directories must be distinct');
+ async function snapshot(root){
+  const info=await lstat(root);
+  if(info.isSymbolicLink()||!info.isDirectory())
+   throw new Error('Unsafe ZIP root: symbolic link or non-directory');
+  const entries=new Map();
+  const paths=new Set();
+  let totalBytes=0;
+  async function walk(folder,prefix,depth){
+   if(depth>32)throw new Error('ZIP extracted tree is too deep');
+   for(const child of await readdir(folder,{withFileTypes:true})){
+    const name=prefix+child.name;
+    const safeName=normalizedZipEntry(name);
+    const key=safeName.toLowerCase();
+    if(paths.has(key))throw new Error('ZIP extracted tree has colliding Windows names');
+    paths.add(key);
+    if(paths.size>ENTRY_MAX)throw new Error('ZIP extracted tree exceeds entry budget');
+    const file=join(folder,child.name),stat=await lstat(file);
+    if(stat.isSymbolicLink())throw new Error('Unsafe extracted ZIP symbolic link');
+    if(stat.isDirectory()){
+     await walk(file,name+'/',depth+1);
+    }else if(stat.isFile()){
+     totalBytes+=stat.size;
+     if(stat.size>2*1024**3||totalBytes>8*1024**3)
+      throw new Error('ZIP extracted size budget exceeded');
+     entries.set(key,{name,bytes:stat.size,hash:await digest(file)});
+    }else throw new Error('Unsafe ZIP entry is not a regular file');
+   }
+  }
+  await walk(resolve(root),'',0);
+  return entries;
+ }
+ const [source,extracted]=await Promise.all([snapshot(sourceDirectory),snapshot(extractedDirectory)]);
+ if(source.size!==extracted.size)throw new Error('Extracted ZIP inventory mismatch: extra or missing files');
+ for(const [key,value] of source){
+  const found=extracted.get(key);
+  if(!found||found.bytes!==value.bytes||found.hash!==value.hash)
+   throw new Error('Extracted ZIP content hash mismatch or missing: '+value.name);
+ }
+ const exe=source.get((PREFIX+'.exe').toLowerCase());
+ const asar=source.get('resources/app.asar');
+ const marker=source.get('.usshm-portable');
+ if(!exe||!asar||!marker)
+  throw new Error('Extracted ZIP lacks app EXE, app.asar or portable marker');
+ if(await readFile(join(resolve(extractedDirectory),'.usshm-portable'),'utf8')!=='zip-portable-v1')
+  throw new Error('Extracted ZIP has invalid portable distribution marker');
+ if(![...source.keys()].some(x=>x.startsWith('locales/')&&x.endsWith('.pak'))||
+    ![...source.keys()].some(x=>x.endsWith('.dll')))
+  throw new Error('Extracted ZIP lacks required Electron runtime resources');
+ return Object.freeze({fileCount:extracted.size,appAsarSha256:asar.hash});
+}
+
 /** Fail-closed release-stage CLI, intentionally NOT wired to dev/test CI. */
 async function runFinalArtifactInventory(){
  if(process.platform!=='win32')throw new Error('Windows release gate requires a real Windows build runner');
@@ -339,7 +400,13 @@ async function runFinalArtifactInventory(){
 }
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- runFinalArtifactInventory().catch(error=>{
+ const task=process.argv[2]==='--verify-extracted'
+  ? (process.argv.length===5
+     ? verifyExtractedWindowsZip({sourceDirectory:process.argv[3],extractedDirectory:process.argv[4]})
+       .then(result=>process.stdout.write('Extracted ZIP integrity verified: '+JSON.stringify(result)+'\\n'))
+     : Promise.reject(new Error('Usage: --verify-extracted SOURCE_DIRECTORY EXTRACTED_DIRECTORY')))
+  : runFinalArtifactInventory();
+ task.catch(error=>{
   process.stderr.write('Release blocked: '+(error instanceof Error?error.message:'unknown failure')+'\n');
   process.exitCode=1;
  });

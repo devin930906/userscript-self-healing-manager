@@ -3,6 +3,8 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseDir = Join-Path $projectRoot 'release'
 $unpacked = Join-Path $releaseDir 'win-unpacked'
 $manifest = Join-Path $releaseDir 'SHA256SUMS.txt'
+if (Test-Path -LiteralPath (Join-Path $unpacked 'Data')) { throw 'Refuse to ZIP private Data directory' }
+if (Test-Path -LiteralPath $manifest) { throw 'Existing checksum manifest cannot be overwritten' }
 if (-not (Test-Path (Join-Path $unpacked 'resources/app.asar'))) { throw 'Missing app.asar: Windows bundle not created' }
 $version = (Get-Content (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
 $exeSetup = Join-Path $releaseDir "Userscript-Self-Healing-Manager-Setup-$version-win-x64.exe"
