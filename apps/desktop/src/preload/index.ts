@@ -24,6 +24,7 @@ const api={
  getAppInfo:()=>ipcRenderer.invoke('usshm:app-info'),
  backupRegistry:()=>ipcRenderer.invoke('usshm:backup-registry'),
  backupJournal:()=>ipcRenderer.invoke('usshm:backup-journal'),
+ exportManagedRecovery:()=>ipcRenderer.invoke('usshm:export-managed-recovery'),
  pickFiles:():Promise<string[]>=>ipcRenderer.invoke('usshm:pick-files'),
  pickDirectory:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-directory'),
  onTrustedDrop:(listener:TrustedDropListener):(()=>void)=>{
