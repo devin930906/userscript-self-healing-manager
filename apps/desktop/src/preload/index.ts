@@ -22,6 +22,7 @@ window.addEventListener('drop',(event:DragEvent)=>{
 },true);
 const api={
  getAppInfo:()=>ipcRenderer.invoke('usshm:app-info'),
+ backupRegistry:()=>ipcRenderer.invoke('usshm:backup-registry'),
  pickFiles:():Promise<string[]>=>ipcRenderer.invoke('usshm:pick-files'),
  pickDirectory:():Promise<string|null>=>ipcRenderer.invoke('usshm:pick-directory'),
  onTrustedDrop:(listener:TrustedDropListener):(()=>void)=>{
