@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {DatabaseSync} from 'node:sqlite';
@@ -51,6 +51,9 @@ test('core recovery bundle preserves two committed SQLite WAL snapshots and hash
     assert.equal(restored.prepare('SELECT id FROM scripts').get()?.id,'one');
     assert.equal(restored.prepare('PRAGMA integrity_check').get()?.integrity_check,'ok');
    }finally{restored.close();}
+   assert.deepEqual((await readdir(destination)).sort(),[
+    'registry.sqlite','diagnosis-journal.sqlite','managed-recovery','manifest.json'
+   ].sort(),'a core bundle must not leak unmanifested SQLite WAL/SHM files');
    assert.deepEqual(await api.verifyCoreRecoveryBundle!({snapshotDirectory:destination}),{files:3,valid:true});
    await assert.rejects(api.createCoreRecoveryBundle!({dataRoot,destination,registry:db,journal}),/exist|overwrite|refus/i);
   }finally{journal.close();db.close();}
@@ -66,6 +69,9 @@ test('core bundle integrity verification detects changed SQLite data without res
   try{
    const api=await loadBundle();
    await api.createCoreRecoveryBundle!({dataRoot,destination,registry:db,journal});
+   assert.deepEqual((await readdir(destination)).sort(),[
+    'registry.sqlite','diagnosis-journal.sqlite','managed-recovery','manifest.json'
+   ].sort(),'core backup must have exactly four claimed entries before tampering');
    await writeFile(join(destination,'registry.sqlite'),'invalid replacement');
    await assert.rejects(api.verifyCoreRecoveryBundle!({snapshotDirectory:destination}),/hash|mismatch|integrity|size/i);
    assert.equal(db.prepare('SELECT version FROM schema_version').get()?.version,1);
