@@ -91,10 +91,23 @@ export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){
    const proposalId=randomUUID();
    pending.set(proposalId,{scriptId,sourcePath,workingPath,originalHash,kind,draft,
     selectorIndexes:Object.freeze([...selectorIndexes].sort((a,b)=>a-b))});
+   // The entire patch must be reviewable even when the affected selectors
+   // are thousands of characters after the source header. Each row keeps its
+   // original scanned AST identity; do not leak unrelated source text.
+   const reviewedChanges=draft.changes.map((x,i)=>({
+    selectorIndex:selectorIndexes[i]!,
+    method:changes[i]!.selectorLocation.method,
+    line:changes[i]!.selectorLocation.line,
+    column:changes[i]!.selectorLocation.column,
+    oldSelector:x.oldSelector,newSelector:x.newSelector,
+   }));
+   const preview=reviewedChanges.map(change=>
+    '行 '+change.line+' · 列 '+change.column+' · #'+(change.selectorIndex+1)+
+    ' · '+change.method+' '+JSON.stringify(change.oldSelector)+
+    ' → '+JSON.stringify(change.newSelector)).join('\n');
    return {proposalId,scriptId,originalHash,baseHash:draft.baseHash,
     proposedHash:draft.proposedHash,
-    changes:draft.changes.map(x=>({oldSelector:x.oldSelector,newSelector:x.newSelector})),
-    preview:draft.proposedSource.slice(0,600)};
+    changes:reviewedChanges,preview};
   },
   async restore({scriptId,hash,approved,expectedCurrentHash}:{
    scriptId:string;hash:string;approved:boolean;expectedCurrentHash:string;
