@@ -1,6 +1,7 @@
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
 import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
+import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 
 export type ReadOnlyDomExpectation='exists'|'unique';
 export type ReadOnlyDomVerdict='passed'|'failed'|'needs-review';
@@ -56,6 +57,23 @@ function readUniqueIdentity(evidence:LocatorProbeResult,target:ChromeTarget,loca
  const digest=check.nodeFingerprint;
  return typeof digest==='string'&&/^[0-9a-f]{64}$/.test(digest)?digest:null;
 }
+/** Match the bounded frame/loader evidence accepted at the batch scan boundary.
+ * Never promote a malformed injected confirmation to a V1 locator verdict. */
+function assertBoundedFrameIdentity(identity:ConfirmedPageIdentity):void {
+ if(!identity||typeof identity.frameId!=='string'||!identity.frameId||
+    identity.frameId.length>256||typeof identity.loaderId!=='string'||
+    !identity.loaderId||identity.loaderId.length>256)
+  throw new Error('Unverified CDP document identity: invalid frame or loader');
+ const count=identity.subframeCount;
+ if(count!==undefined&&(!Number.isSafeInteger(count)||count<0||count>64))
+  throw new Error('Unverified CDP document identity: invalid frame count');
+ const child=identity.soleSameOriginSubframe;
+ if(child!==undefined&&
+    (count!==1||!child||typeof child.frameId!=='string'||!child.frameId||
+     child.frameId.length>256||child.frameId===identity.frameId||
+     typeof child.loaderId!=='string'||!child.loaderId||child.loaderId.length>256))
+  throw new Error('Unverified CDP document identity: invalid child frame');
+}
 /** A named, non-destructive locator-level assertion, never functional userscript validation. */
 export async function runReadOnlyDomContract({approved,target,caseId,locator,expectation,deps}:{
  readonly approved:boolean;
@@ -66,8 +84,11 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
  readonly deps:ReadOnlyDomContractDeps;
 }):Promise<ReadOnlyDomContractResult>{
  if(approved!==true)throw new Error('Explicit DOM contract approval required');
- if(!target||typeof target.id!=='string'||!target.id||target.id.length>128||
-    !target.webSocketDebuggerUrl||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP target');
+ if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||target.id.length>128||
+    typeof target.url!=='string'||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP target');
+ // The contract is a public orchestration boundary: do not assume an
+ // injected confirm/probe adapter checked the CDP target before being called.
+ validateCdpPageSocket(target);
  if(typeof caseId!=='string'||!/^[A-Za-z0-9_.:-]{1,100}$/.test(caseId))
   throw new Error('Invalid DOM test case id');
  if(expectation!=='exists'&&expectation!=='unique')throw new Error('Unsupported DOM contract');
@@ -83,8 +104,9 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
   functionalVerified:false,managerVerified:false,
  });
  const baseline=await deps.confirm(target);
- if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
-  !baseline.frameId||!baseline.loaderId)throw new Error('Unverified CDP document identity');
+ assertBoundedFrameIdentity(baseline);
+ if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url)
+  throw new Error('Unverified CDP document identity');
  let nestedFramesSeen=(baseline.subframeCount??0)>0;
  const guard=async()=>{
   const confirmed=await deps.confirm(target);
