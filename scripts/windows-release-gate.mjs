@@ -196,27 +196,44 @@ export async function inspectReleaseZipEntryTypes(path){
   const central=Buffer.alloc(size);
   if((await handle.read(central,0,size,start)).bytesRead!==size)
    throw new Error('Incomplete ZIP central-directory read');
-  let offset=0;
+  let offset=0,totalUncompressedBytes=0;
   for(let index=0;index<count;index++){
    if(offset+46>size||central.readUInt32LE(offset)!==0x02014b50)
     throw new Error('Invalid ZIP central-directory entry');
    const flags=central.readUInt16LE(offset+8);
+   const compression=central.readUInt16LE(offset+10);
+   const compressedBytes=central.readUInt32LE(offset+20);
+   const uncompressedBytes=central.readUInt32LE(offset+24);
    const nameLength=central.readUInt16LE(offset+28);
    const extraLength=central.readUInt16LE(offset+30);
    const commentLength=central.readUInt16LE(offset+32);
+   const startingDisk=central.readUInt16LE(offset+34);
    const attrs=central.readUInt32LE(offset+38);
    if(flags&0x41)throw new Error('Encrypted ZIP entries are forbidden in Stable archives');
-   // External attributes' top word carries POSIX mode. Reject links even
-   // if a malicious archive forges a Windows "version made by" field.
+   if(startingDisk!==0||compressedBytes===0xffffffff||uncompressedBytes===0xffffffff)
+    throw new Error('Unsupported multi-volume or ZIP64 entry in release archive');
+   if(compression!==0&&compression!==8)throw new Error('Unsupported ZIP compression method');
+   if(compression===0&&compressedBytes!==uncompressedBytes)
+    throw new Error('Invalid stored ZIP entry size mismatch');
+   // Budget is based on uncompressed bytes, not archive file size.
+   // A high-ratio member is suspicious even when its overall ZIP is small.
+   if(uncompressedBytes>2*1024**3||
+      (uncompressedBytes>1024**2&&(compressedBytes===0||uncompressedBytes>compressedBytes*1000)))
+    throw new Error('ZIP archive decompression budget or compression ratio exceeded');
+   totalUncompressedBytes+=uncompressedBytes;
+   if(totalUncompressedBytes>8*1024**3)
+    throw new Error('ZIP archive total decompressed size budget exceeded');
+   // Reject symlinks, FIFO, sockets and device nodes even if the creator OS
+   // field lies; ordinary regular files and directories remain supported.
    const mode=(attrs>>>16)&0o170000;
-   if(mode===0o120000||(attrs&0x400)!==0)
-    throw new Error('ZIP symlink or Windows reparse-point entry forbidden');
+   if((mode!==0&&mode!==0o100000&&mode!==0o040000)||(attrs&0x400)!==0)
+    throw new Error('Unsafe special ZIP entry type or Windows reparse point');
    if(!nameLength||nameLength>1024||offset+46+nameLength+extraLength+commentLength>size)
     throw new Error('Invalid ZIP central-directory path budget');
    offset+=46+nameLength+extraLength+commentLength;
   }
   if(offset!==size)throw new Error('ZIP central-directory count or length mismatch');
-  return Object.freeze({entryCount:count});
+  return Object.freeze({entryCount:count,totalUncompressedBytes});
  }finally{await handle.close();}
 }
 
