@@ -14,6 +14,11 @@ export interface ManagedRecoveryReceipt {
  readonly files:readonly ManagedRecoveryFile[];
 }
 const hash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
+function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
+ return !!value&&typeof value==='object'&&!Array.isArray(value)&&
+  Object.keys(value).length===keys.length&&
+  keys.every(k=>Object.prototype.hasOwnProperty.call(value,k));
+}
 const ARCHIVE=/^(original|revision)-([a-f0-9]{64})\.user\.js$/;
 const ID=/^[A-Za-z0-9_-]{1,64}$/;
 const LIMIT_FILES=5000, LIMIT_TOTAL=256*1024*1024, LIMIT_EACH=512*1024;
@@ -125,14 +130,15 @@ export async function verifyManagedRecovery({snapshotDirectory}:{
  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))
   throw new Error('Invalid managed recovery manifest');
  const manifest=parsed as {kind?:unknown;complete?:unknown;files?:unknown};
- if(manifest.kind!=='usshm-managed-recovery-v1'||manifest.complete!==true||
+ if(!hasOnlyKeys(manifest,['kind','complete','files'])||
+   manifest.kind!=='usshm-managed-recovery-v1'||manifest.complete!==true||
    !Array.isArray(manifest.files)||manifest.files.length>LIMIT_FILES)
   throw new Error('Incomplete or invalid managed recovery manifest');
  const expected=new Set<string>(),archives=new Map<string,Set<string>>();
  let total=0;
  for(const candidate of manifest.files){
-  if(!candidate||typeof candidate!=='object'||Array.isArray(candidate))
-   throw new Error('Invalid managed recovery manifest entry');
+  if(!hasOnlyKeys(candidate,['path','sha256','bytes']))
+   throw new Error('Invalid managed recovery manifest entry fields');
   const item=candidate as {path?:unknown;sha256?:unknown;bytes?:unknown};
   if(typeof item.path!=='string'||typeof item.sha256!=='string'||
      !/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/.test(item.path)||
