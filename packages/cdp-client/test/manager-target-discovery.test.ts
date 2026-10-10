@@ -12,9 +12,12 @@ const target=(id:string,type='service_worker')=>({
 class BrowserSocket extends EventEmitter{
  readonly sent:string[]=[];
  closed=false;
- constructor(private readonly version:string=product,private readonly targets:unknown[]=[],
-             private readonly rawResponse?:unknown){
-  super();queueMicrotask(()=>this.emit('open'));
+ private readonly version:string;
+ private readonly targets:unknown[];
+ private readonly rawResponse:unknown;
+ constructor(version:string=product,targets:unknown[]=[],rawResponse?:unknown){
+  super();this.version=version;this.targets=targets;this.rawResponse=rawResponse;
+  queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(k:string,f:(event:any)=>void){this.on(k,f);}
  removeEventListener(k:string,f:(event:any)=>void){this.off(k,f);}
