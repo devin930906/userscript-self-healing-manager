@@ -121,6 +121,46 @@ export function assertStablePackageVersion(version,packageVersion){
  return true;
 }
 
+/**
+ * Development builds may already create SHA256SUMS. Verify every digest,
+ * and never rewrite an existing checksum manifest.
+ * This does not prove Authenticode signatures or executable provenance.
+ */
+export async function writeOrVerifyChecksumManifest(path,expectedLines){
+ if(!Array.isArray(expectedLines)||expectedLines.length!==3)
+  throw new Error('Invalid release checksum manifest expectations');
+ const row=/^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]{0,254}\.(?:exe|zip))$/;
+ const expected=new Map();
+ for(const line of expectedLines){
+  if(typeof line!=='string')throw new Error('Invalid release checksum line');
+  const match=row.exec(line);
+  if(!match||expected.has(match[2]))throw new Error('Invalid or duplicate expected checksum entry');
+  expected.set(match[2],match[1]);
+ }
+ let info;
+ try{info=await lstat(path);}
+ catch(error){
+  if(error?.code!=='ENOENT')throw error;
+  // wx prevents overwriting a manifest created in an existence-check race.
+  await writeFile(path,expectedLines.join('\n')+'\n',{flag:'wx'});
+  return 'created';
+ }
+ if(info.isSymbolicLink()||!info.isFile()||info.size>8192||info.size<100)
+  throw new Error('Unsafe existing checksum manifest path or file size');
+ const current=await readFile(path,'utf8');
+ const lines=(current.startsWith('\uFEFF')?current.slice(1):current).split(/\r?\n/);
+ if(lines.at(-1)==='')lines.pop();
+ if(lines.length!==expected.size)throw new Error('Release checksum manifest entry count mismatch');
+ const observed=new Set();
+ for(const line of lines){
+  const match=row.exec(line);
+  if(!match||observed.has(match[2])||expected.get(match[2])!==match[1])
+   throw new Error('Invalid, duplicate or mismatched release checksum manifest entry');
+  observed.add(match[2]);
+ }
+ return 'verified';
+}
+
 async function digest(path){
  const hash=createHash('sha256');
  for await(const data of createReadStream(path))hash.update(data);
@@ -184,9 +224,9 @@ async function runFinalArtifactInventory(){
    throw new Error('Invalid Windows x64 PE executable or ZIP signature: '+name);
   checksums.push(`${await digest(full)}  ${name}`);
  }
- // Never overwrite an existing signed or published manifest.
- await writeFile(join(folder,'SHA256SUMS.txt'),checksums.join('\n')+'\n',{flag:'wx'});
- process.stdout.write(`Release inventory passed: ${verified.version}, ${verified.zipEntryCount} ZIP entries; SHA256SUMS written.\n`);
+ // Verify a pre-existing build manifest or create one without overwriting.
+ const manifestState=await writeOrVerifyChecksumManifest(join(folder,'SHA256SUMS.txt'),checksums);
+ process.stdout.write(`Release inventory passed: ${verified.version}, ${verified.zipEntryCount} ZIP entries; SHA256SUMS ${manifestState}.\n`);
  process.stdout.write('WARNING: This is inventory validation only; remaining RG gates still require independent evidence.\n');
 }
 
