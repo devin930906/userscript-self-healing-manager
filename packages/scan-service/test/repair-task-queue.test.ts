@@ -118,3 +118,29 @@ test('repair queue rejects duplicate identities, invalid task budgets and concur
  await assert.rejects(queue.run(),/running|concurrent|active/i);
  release();await task;
 });
+
+test('queue pins reviewed repair operations and script identities before asynchronous dispatch',async()=>{
+ const invoked:string[]=[];
+ const tasks=[{
+  id:'approved-original',scriptId:'script-A',approved:true,
+  execute:async()=>{invoked.push('reviewed');},
+ }];
+ const queue=createRepairTaskQueue(tasks);
+ const original=queue.snapshot();
+ tasks[0]!.execute=async()=>{invoked.push('SUBSTITUTED_UNREVIEWED_WRITE');};
+ tasks[0]!.scriptId='script-B';
+ tasks.push({id:'injected',scriptId:'script-C',approved:true,execute:async()=>{invoked.push('INJECTED');}});
+ const finished=await queue.run();
+ assert.deepEqual(invoked,['reviewed'],'later mutations cannot change the operation reviewed at queue creation');
+ assert.deepEqual(finished.items.map(i=>[i.id,i.scriptId]),[['approved-original','script-A']]);
+ assert.deepEqual(original.items.map(i=>[i.id,i.scriptId]),[['approved-original','script-A']]);
+});
+test('revoking approval on a queued repair before dispatch blocks it without reauthorizing others',async()=>{
+ let called=0;
+ const task={id:'one',scriptId:'script-A',approved:true,execute:async()=>{called++;}};
+ const queue=createRepairTaskQueue([task]);
+ task.approved=false;
+ const result=await queue.run();
+ assert.equal(called,0);
+ assert.equal(result.items[0]?.status,'blocked');
+});
