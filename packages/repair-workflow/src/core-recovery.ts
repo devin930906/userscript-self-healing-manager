@@ -6,7 +6,7 @@ import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {DatabaseSync} from 'node:sqlite';
 import {assertRegistryV1SnapshotSchema,backupRegistryDatabase,type DatabaseHandle} from '../../persistence/src/index.ts';
-import {type DiagnosisJournal} from '../../job-journal/src/index.ts';
+import {assertJournalSchemaSafety,type DiagnosisJournal} from '../../job-journal/src/index.ts';
 import {exportManagedRecovery,verifyManagedRecovery} from './managed-export.ts';
 
 type ManifestFile={readonly path:string;readonly sha256:string;readonly bytes:number};
@@ -128,9 +128,13 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
     throw new Error('Corrupt core SQLite snapshot');
    if(name==='registry.sqlite'){
     assertRegistryV1SnapshotSchema(db);
-   }else if(db.prepare('PRAGMA user_version').get()?.user_version!==1||
-             db.prepare('PRAGMA foreign_key_check').all().length)
-    throw new Error('Invalid core journal schema');
+   }else{
+    if(db.prepare('PRAGMA user_version').get()?.user_version!==1)
+     throw new Error('Invalid core journal schema');
+    assertJournalSchemaSafety(db);
+    if(db.prepare('PRAGMA foreign_key_check').all().length)
+     throw new Error('Invalid core journal foreign keys');
+   }
   }finally{db.close();}
  }
  await verifyManagedRecovery({snapshotDirectory:join(root,'managed-recovery')});
