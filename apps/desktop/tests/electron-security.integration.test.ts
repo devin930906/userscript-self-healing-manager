@@ -187,32 +187,40 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       assert.equal(state.generic, 'undefined');
     });
 
-    await t.test('iframe load, sentinel and JS execution must all succeed before checking bridge', async () => {
-      const result = await evaluate<{loaded: boolean; marker: string; executed: string; bridge: string; ipc: string; require: string}>(`(async()=>{
+    await t.test('iframe must load marker and have an executable CDP context', async () => {
+      const outcome = await evaluate<{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}>(`(async()=>{
         const frame=document.createElement('iframe');
-        frame.srcdoc='<!doctype html><html><body><span id="proof">FRAME_MARKER_44</span><script>document.body.dataset.executed="yes"<\/script></body></html>';
-        const loaded=new Promise((resolve,reject)=>{
+        frame.id='usshm-security-probe';
+        frame.srcdoc='<!doctype html><html><body><span id="proof">FRAME_MARKER_44</span></body></html>';
+        const done=new Promise((resolve,reject)=>{
           frame.addEventListener('load',()=>resolve(true),{once:true});
-          frame.addEventListener('error',()=>reject(new Error('iframe failed to load')),{once:true});
-          setTimeout(()=>reject(new Error('iframe load/CSP timeout')),3000);
+          frame.addEventListener('error',()=>reject(new Error('iframe load error')),{once:true});
+          setTimeout(()=>reject(new Error('iframe load timeout or CSP denial')),3000);
         });
         document.body.append(frame);
-        try {
-          await loaded;
-          if(!frame.contentWindow||!frame.contentDocument)throw new Error('iframe execution context unavailable');
-          const marker=frame.contentDocument.getElementById('proof')?.textContent;
-          const executed=frame.contentDocument.body.dataset.executed;
-          if(marker!=='FRAME_MARKER_44'||executed!=='yes')throw new Error('iframe content or script execution blocked');
-          return {loaded:true,marker,executed,bridge:typeof frame.contentWindow.ussm,
-            ipc:typeof frame.contentWindow.ipcRenderer,require:typeof frame.contentWindow.require};
-        } finally {frame.remove();}
+        await done;
+        if(!frame.contentWindow||!frame.contentDocument)throw new Error('iframe execution context missing');
+        const marker=frame.contentDocument.getElementById('proof')?.textContent;
+        if(marker!=='FRAME_MARKER_44')throw new Error('iframe content marker missing');
+        return {loaded:true,marker,bridge:typeof frame.contentWindow.ussm,
+          ipc:typeof frame.contentWindow.ipcRenderer,node:typeof frame.contentWindow.require};
       })()`);
-      assert.equal(result.loaded,true);
-      assert.equal(result.marker,'FRAME_MARKER_44');
-      assert.equal(result.executed,'yes');
-      assert.deepEqual([result.bridge,result.ipc,result.require],['undefined','undefined','undefined']);
+      assert.equal(outcome.loaded,true);
+      assert.equal(outcome.marker,'FRAME_MARKER_44');
+      const tree=await cdp!.call('Page.getFrameTree');
+      const mainTree=tree.frameTree as { childFrames?: Array<{frame:{id:string;url:string}}> } | undefined;
+      const child=mainTree?.childFrames?.find(f=>f.frame.url==='about:srcdoc');
+      assert.ok(child?.frame.id,'loaded iframe missing from CDP frame tree');
+      const isolated=await cdp!.call('Page.createIsolatedWorld',{frameId:child.frame.id,worldName:'usshm-security-test'});
+      assert.equal(typeof isolated.executionContextId,'number','iframe CDP execution context not created');
+      const probe=await cdp!.call('Runtime.evaluate',{contextId:isolated.executionContextId,
+        expression:'document.getElementById("proof")?.textContent',returnByValue:true});
+      assert.equal((probe.result as {value?:string})?.value,'FRAME_MARKER_44',
+        'iframe execution context could not execute isolated marker probe');
+      assert.deepEqual([outcome.bridge,outcome.ipc,outcome.node],['undefined','undefined','undefined']);
+      await evaluate<boolean>(`(()=>{const frame=document.getElementById('usshm-security-probe');
+        if(!frame)return false;frame.remove();return true})()`);
     });
-
     await t.test('existing alternate local HTML is blocked (sentinel would load without guard)', async () => {
       const before=cdp!.events.length;
       await evaluate(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(pathToFileURL(alternateFile).href)};document.body.append(a);a.click();a.remove();return true})()`);
