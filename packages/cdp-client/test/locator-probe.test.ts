@@ -312,3 +312,14 @@ test('native id and class APIs escape lone hyphens and hyphen-digit prefixes as 
   assert.equal(socket.sent.find(s=>s.method==='DOM.querySelectorAll')?.params.selector,entry.selector);
  }
 });
+
+test('className conversion preserves non-ASCII whitespace as literal class-name characters',()=>{
+ for(const [name,expected] of [
+  ['foo\u00a0bar','.foo\\a0 bar'],
+  ['foo\u2003bar','.foo\\2003 bar'],
+  ['\u00a0name\u00a0','.\\a0 name\\a0 '],
+  ['card\tprimary','.card.primary'],
+ ]){
+  assert.equal(asCss({method:'getElementsByClassName',expression:name,runtimeRequired:false}),expected);
+ }
+});
