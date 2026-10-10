@@ -116,7 +116,14 @@ test('malformed remote DOM objects never enter event-listener inspection',async(
   const got=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>s});
   assert.equal(got.status,'unknown');
   assert.equal(got.listenerCount,null);
-  assert.deepEqual(s.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode']);
+  const released=typeof object.objectId==='string'&&
+   object.objectId.length>0&&object.objectId.length<=1024&&
+   !/[\\x00-\\x1f\\x7f]/.test(object.objectId);
+  assert.deepEqual(s.sent.map(x=>x.method),[
+   'DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode',
+   ...(released?['Runtime.releaseObject']:[]),
+  ]);
+  assert.ok(!s.sent.some(x=>x.method==='DOMDebugger.getEventListeners'));
  }
 });
 
@@ -222,8 +229,9 @@ test('CDP resolved non-node object without subtype cannot masquerade as a DOM li
   assert.equal(actual.status,'unknown',JSON.stringify(resolved));
   assert.equal(actual.listenerCount,null);
   assert.deepEqual(socket.sent.map(x=>x.method),[
-   'DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode',
+   'DOM.getDocument','DOM.querySelectorAll','DOM.resolveNode','Runtime.releaseObject',
   ]);
+  assert.ok(!socket.sent.some(x=>x.method==='DOMDebugger.getEventListeners'));
  }
 });
 
