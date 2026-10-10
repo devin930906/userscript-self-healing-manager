@@ -264,3 +264,58 @@ test('pausing during asynchronous preflight waits for resume and reruns the file
  assert.equal(executed,1);
  assert.equal(result.items[0]?.status,'completed');
 });
+
+test('retryFailed prepares every failed row atomically before notifying progress observers',async()=>{
+ const invoked:string[]=[];
+ const tasks=['a','b'].map(id=>({
+  id,scriptId:id,approved:true,
+  execute:async()=>{
+   invoked.push(id);
+   if(invoked.filter(x=>x===id).length===1)throw new Error('transient failure');
+  },
+ }));
+ let q!:ReturnType<typeof createRepairTaskQueue>;
+ let armed=false,observerCalled=false;
+ let rejectedConcurrentRun:Promise<string>|undefined;
+ const states:Array<{running:boolean;statuses:string[]}>=[]; 
+ q=createRepairTaskQueue(tasks,{onProgress:s=>{
+  if(!armed)return;
+  states.push({running:s.running,statuses:s.items.map(row=>row.status)});
+  if(observerCalled)return;
+  observerCalled=true;
+  // A reentrant UI observer must not seize the half-rearmed queue.
+  rejectedConcurrentRun=q.run().then(
+   ()=> 'unexpected-competing-run',
+   e=>e instanceof Error?e.message:'rejected',
+  );
+ }});
+ await q.run();
+ assert.deepEqual(q.snapshot().items.map(row=>row.status),['failed','failed']);
+ armed=true;
+ const retried=await q.retryFailed();
+ assert.equal(observerCalled,true);
+ assert.match(await rejectedConcurrentRun!,/already running|running|active/i);
+ assert.ok(states[0]?.running,
+  'the queue must reserve its active lease before notifying on retry');
+ assert.deepEqual(retried.items.map(row=>row.status),['completed','completed']);
+ assert.deepEqual(retried.items.map(row=>row.attempts),[2,2]);
+ assert.deepEqual(invoked,['a','b','a','b']);
+});
+
+test('revoking a task during the first retry progress callback blocks it without granting any partial retry authority',async()=>{
+ const invoked:string[]=[];
+ const tasks=['a','b'].map(id=>({
+  id,scriptId:id,approved:true,
+  execute:async()=>{invoked.push(id);if(invoked.filter(x=>x===id).length===1)throw Error('once');},
+ }));
+ let q!:ReturnType<typeof createRepairTaskQueue>,armed=false;
+ q=createRepairTaskQueue(tasks,{onProgress:state=>{
+  if(armed&&state.running&&state.items[0]?.status==='queued'){
+   armed=false;tasks[1]!.approved=false;
+  }
+ }});
+ await q.run();armed=true;
+ const result=await q.retryFailed();
+ assert.deepEqual(result.items.map(row=>row.status),['completed','blocked']);
+ assert.deepEqual(invoked,['a','b','a']);
+});
