@@ -57,6 +57,20 @@ function assertPageIdentity(target:ChromeTarget,evidence:{targetId:string;confir
  if(evidence.targetId!==target.id||(evidence.confirmedUrl??evidence.url)!==target.url)
   throw new Error('CDP page identity or live frame URL changed during batch diagnosis');
 }
+/** Protect the batch boundary even if an adapter returns an invalid object
+ * instead of throwing. One script's corrupt CDP payload cannot abort others. */
+function matchesProbeShape(value:unknown,target:ChromeTarget,locators:readonly LiteralLocator[]):value is LocatorProbeResult{
+ if(!value||typeof value!=='object'||Array.isArray(value))return false;
+ const evidence=value as Partial<LocatorProbeResult>;
+ return evidence.targetId===target.id&&evidence.url===target.url&&
+  evidence.validationLevel==='dom-only'&&Array.isArray(evidence.checks)&&
+  evidence.checks.length===locators.length&&
+  evidence.checks.every((check:unknown,i)=>{
+   if(!check||typeof check!=='object'||Array.isArray(check))return false;
+   const row=check as {method?:unknown;expression?:unknown};
+   return row.method===locators[i]!.method&&row.expression===locators[i]!.expression;
+  });
+}
 /**
  * No scripts run and no files are modified. All CDP calls are read-only, bounded,
  * scoped to explicit @match/@include rules and fenced by live top-frame checks.
@@ -129,8 +143,7 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    continue;
   }
   await checkIdentity();
-  if(evidence.targetId!==target.id||evidence.url!==target.url||evidence.validationLevel!=='dom-only'||
-    evidence.checks.length!==locators.length||evidence.checks.some((check,i)=>check.method!==locators[i]!.method||check.expression!==locators[i]!.expression)){
+  if(!matchesProbeShape(evidence,target,locators)){
    results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:'CDP evidence identity or shape mismatch'});
    continue;
   }
@@ -147,10 +160,7 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    }catch(error){failure=error;}
    // Never conceal navigation, including when the delay or socket failed.
    await checkIdentity();
-   if(failure||!retry||retry.targetId!==target.id||retry.url!==target.url||
-      retry.validationLevel!=='dom-only'||retry.checks.length!==locators.length||
-      retry.checks.some((check,i)=>check.method!==locators[i]!.method||
-       check.expression!==locators[i]!.expression)){
+   if(failure||!matchesProbeShape(retry,target,locators)){
     results.push({...common,status:'needs-review',checked:locators.length,
      found:0,missing:0,needsReview:locators.length,
      reason:'DOM recheck unverified; cannot certify a locator failure'});
