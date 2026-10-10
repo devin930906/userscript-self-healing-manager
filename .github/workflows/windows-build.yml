@@ -1,13 +1,28 @@
 name: Windows three-edition final-tag-only verification
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [feat/v01-continuation]
 concurrency:
   group: usshm-windows-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  release-contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Release gate tests only (no installers or uploads)
+        run: node --experimental-strip-types --test tests/integration/windows-release-evidence.test.ts tests/integration/final-build-authorization.test.ts tests/integration/distribution.test.ts
   windows:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -19,6 +34,7 @@ jobs:
         env:
           USSHM_BUILD_REF: ${{ github.ref }}
           USSHM_BUILD_EVENT: ${{ github.event_name }}
+          USSHM_BUILD_SHA: ${{ github.sha }}
         run: node scripts/final-build-authorization.mjs
       - name: Install dependencies
         run: npm ci
