@@ -40,7 +40,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
 
  const socket=(socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
  const observed=await new Promise<boolean>((resolve,reject)=>{
-  let done=false,serial=0,waiting='',root=0,node=0,x=0,y=0,attributesRead=0,postClick=false;
+  let done=false,serial=0,lastProcessed=0,waiting='',root=0,node=0,x=0,y=0,attributesRead=0,postClick=false;
   const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[];
   const finish=(error?:Error,passed=false)=>{
    if(done)return;done=true;clearTimeout(timer);
@@ -67,7 +67,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
    return attrs;
   };
   const onOpen=()=>{try{send('DOM.getDocument',{depth:0,pierce:false});}catch(error){finish(error as Error);}};
-  const onMessage=(event:{data:unknown})=>{
+  const onMessage=async(event:{data:unknown})=>{
    try{
     if(typeof event.data!=='string'||event.data.length>128000)
      throw new Error('Invalid fixture CDP response size');
@@ -75,7 +75,10 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
     if(!m||typeof m!=='object'||Array.isArray(m))
      throw new Error('Invalid synthetic fixture CDP response envelope');
     const response=m as {id?:unknown;error?:unknown;result?:unknown};
-    if(response.id!==serial||done)return;
+    if(response.id!==serial||done||response.id===lastProcessed)return;
+    // Duplicate CDP responses must never generate a second mouse press,
+    // including while an asynchronous pre-click identity check is pending.
+    lastProcessed=serial;
     if(response.error)throw new Error('Fixture CDP command rejected: '+waiting);
     if(!response.result||typeof response.result!=='object'||Array.isArray(response.result))
      throw new Error('Invalid synthetic fixture CDP result');
@@ -121,6 +124,13 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
       if(Math.max(...xs)-Math.min(...xs)<2||Math.max(...ys)-Math.min(...ys)<2)
        throw new Error('Invisible synthetic fixture button');
       x=xs.reduce((a,b)=>a+b,0)/4;y=ys.reduce((a,b)=>a+b,0)/4;
+      // The fixture could reload or navigate after its button was sampled.
+      // Verify the live frame and loader immediately before emitting Input.
+      // This remains test-only: even stable evidence is not authorization
+      // to click arbitrary production pages or user scripts.
+      const preClick=await confirm(target);
+      assertStablePageDocument(before,preClick);
+      if(done)return;
       send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
       break;
      }
