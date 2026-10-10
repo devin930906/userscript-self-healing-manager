@@ -118,3 +118,32 @@ test('prototype-shaped userscript metadata keys cannot crash or poison the metad
  assert.equal(analysis.selectorRecords.length,1);
  assert.equal(analysis.parseDiagnostics.length,0);
 });
+
+test('an unfinished userscript header never authorizes a page match or a GM grant',()=>{
+ const unclosed=[
+  '// ==UserScript==',
+  '// @name Incomplete Manager Header',
+  '// @match https://example.org/*',
+  '// @grant GM_xmlhttpRequest',
+  'document.querySelector("#test");',
+ ].join('\n');
+ const metadata=parseUserscriptMetadata(unclosed);
+ assert.equal(metadata.name,null);
+ assert.deepEqual(metadata.match,[]);
+ assert.deepEqual(metadata.grant,[]);
+ assert.deepEqual(Object.keys(metadata.raw),[]);
+ const analysis=analyzeSource({scriptId:'unfinished',sourceBytes:encoder.encode(unclosed)});
+ assert.equal(analysis.selectorRecords.length,1,'AST inventory remains available without metadata authorization');
+ assert.deepEqual(analysis.metadata.match,[]);
+});
+
+test('a forged closing marker with extra text does not authorize userscript metadata',()=>{
+ const source=[
+  '// ==UserScript==',
+  '// @name Fake',
+  '// @match https://example.org/*',
+  '// ==/UserScript== trailing content',
+  'document.querySelector("#test");',
+ ].join('\n');
+ assert.deepEqual(parseUserscriptMetadata(source).match,[]);
+});
