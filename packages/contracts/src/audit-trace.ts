@@ -1,0 +1,68 @@
+/** FR-041: validate a caller-supplied, already-loaded audit snapshot.
+ * This validates relationships, not database existence, authenticity or authorization. */
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const sha256 = /^[0-9a-f]{64}$/;
+const fields = Object.freeze({
+ job:['id','scriptId','attemptId','sourceSha256'],
+ finding:['id','jobId','scriptId','attemptId'],
+ candidate:['id','findingId','jobId'],
+ test:['id','candidateId','jobId','status'],
+ approval:['id','testId','candidateId','jobId','sourceSha256','expiresAt'],
+ revision:['id','approvalId','candidateId','jobId','scriptId','sourceSha256'],
+} as const);
+export type AuditTrace = Readonly<{[K in keyof typeof fields]:Readonly<Record<(typeof fields)[K][number],string>>}>;
+function record(input:unknown,keys:readonly string[],label:string):Record<string,string>{
+ if(!input||typeof input!=='object'||Array.isArray(input)||
+  (Object.getPrototypeOf(input)!==Object.prototype&&Object.getPrototypeOf(input)!==null))
+  throw new TypeError('Invalid '+label);
+ const value=input as Record<string,unknown>;
+ if(Object.keys(value).length!==keys.length||!keys.every(k=>Object.hasOwn(value,k)))
+  throw new TypeError('Invalid '+label+' fields');
+ const out:Record<string,string>=Object.create(null);
+ for(const key of keys){
+  if(typeof value[key]!=='string')throw new TypeError('Invalid '+label+'.'+key);
+  out[key]=value[key] as string;
+  if(key==='id'||key.endsWith('Id')){
+   if(!uuid.test(out[key]))throw new TypeError('Invalid '+label+'.'+key);
+  }
+ }
+ return Object.freeze(out);
+}
+function requireSame(actual:string,expected:string):void{
+ if(actual!==expected)throw new TypeError('Audit trace reference mismatch');
+}
+/** now is supplied by a trusted caller; expiry is exclusive. */
+export function parseAuditTrace(input:unknown,now:string):AuditTrace{
+ if(!input||typeof input!=='object'||Array.isArray(input)||
+  (Object.getPrototypeOf(input)!==Object.prototype&&Object.getPrototypeOf(input)!==null))
+  throw new TypeError('Invalid audit trace');
+ const value=input as Record<string,unknown>;
+ const names=Object.keys(fields) as (keyof typeof fields)[];
+ if(Object.keys(value).length!==names.length||!names.every(k=>Object.hasOwn(value,k)))
+  throw new TypeError('Incomplete audit trace');
+ const out={} as {[K in keyof typeof fields]:Record<string,string>};
+ for(const stage of names)out[stage]=record(value[stage],fields[stage],stage);
+ const {job,finding,candidate,test,approval,revision}=out;
+ for(const stage of [finding,candidate,test,approval,revision])requireSame(stage.jobId,job.id);
+ requireSame(finding.scriptId,job.scriptId);
+ requireSame(finding.attemptId,job.attemptId);
+ requireSame(candidate.findingId,finding.id);
+ requireSame(test.candidateId,candidate.id);
+ requireSame(approval.testId,test.id);
+ requireSame(approval.candidateId,candidate.id);
+ requireSame(revision.approvalId,approval.id);
+ requireSame(revision.candidateId,candidate.id);
+ requireSame(revision.scriptId,job.scriptId);
+ if(!sha256.test(job.sourceSha256))throw new TypeError('Invalid pinned source hash');
+ requireSame(approval.sourceSha256,job.sourceSha256);
+ requireSame(revision.sourceSha256,job.sourceSha256);
+ if(test.status!=='passed')throw new TypeError('Test did not pass');
+ const canonical=/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+ const parsedNow=Date.parse(now),expiry=Date.parse(approval.expiresAt);
+ if(!canonical.test(now)||!canonical.test(approval.expiresAt)||
+  !Number.isFinite(parsedNow)||!Number.isFinite(expiry)||
+  new Date(parsedNow).toISOString()!==now||
+  new Date(expiry).toISOString()!==approval.expiresAt||parsedNow>=expiry)
+  throw new TypeError('Invalid or expired approval window');
+ return Object.freeze(out) as AuditTrace;
+}
