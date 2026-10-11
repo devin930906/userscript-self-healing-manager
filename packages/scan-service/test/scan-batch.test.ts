@@ -4,10 +4,10 @@ import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {runStaticScan} from '../src/index.ts';
-import {openDatabase,migrateDatabase,createScriptRepository} from '../../persistence/src/index.ts';
+import {openDatabase,migrateDatabase,createScriptRepository,type DatabaseHandle} from '../../persistence/src/index.ts';
 
 type FixtureDb={close():void};
-async function withScanFixture<T extends FixtureDb>(options:{
+async function withScanFixture<T extends FixtureDb = DatabaseHandle>(options:{
  open?:()=>T;
  remove?:(root:string)=>Promise<void>;
 },run:(root:string,db:T)=>Promise<void>):Promise<void>{
@@ -15,7 +15,7 @@ async function withScanFixture<T extends FixtureDb>(options:{
  const errors:unknown[]=[];
  let db:T|undefined;
  try{
-  db=(options.open??(()=>openDatabase(':memory:') as T))();
+  db=(options.open??(()=>openDatabase(':memory:') as unknown as T))();
   await run(root,db);
  }catch(error){errors.push(error);}
  if(db){try{db.close();}catch(error){errors.push(error);}}
