@@ -1,3 +1,12 @@
+/** FR-040/NFR-006: current static report JSON wire-schema version. */
+export const staticReportSchemaVersion = 2 as const;
+export function parseStaticReportSchemaVersion(input: unknown): typeof staticReportSchemaVersion {
+  if (input !== staticReportSchemaVersion) {
+    throw new TypeError('Unsupported static report schema version');
+  }
+  return staticReportSchemaVersion;
+}
+
 /** FR-040: only the export formats currently supported by the reporting consumer. */
 export const reportFormatValues = Object.freeze(['json','markdown'] as const);
 export type ReportFormat = (typeof reportFormatValues)[number];
