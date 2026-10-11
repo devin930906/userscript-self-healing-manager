@@ -1,5 +1,5 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
-import {confirmSingleManagedApply,approveAndApplyManagedRevision} from './confirm-managed-apply.ts';
+import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -991,11 +991,7 @@ async function bootstrap():Promise<void>{
     revalidate:()=>{
      pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
-     const currentProposal=repairs.inspectPending(proposalId);
-     if(!currentProposal||currentProposal.scriptId!==trusted.scriptId||
-        currentProposal.proposedHash!==trusted.proposedHash||
-        currentProposal.previousHash!==trusted.previousHash)
-      throw new Error('Managed repair proposal changed while awaiting approval');
+     assertManagedProposalSnapshot({...trusted,proposalId},repairs.inspectPending(proposalId));
     },
     apply:()=>repairs.apply({proposalId:proposalId,approved:true}),
    });
@@ -1059,19 +1055,25 @@ async function bootstrap():Promise<void>{
   if(!trusted||!scanSnapshot.items.some(item=>item.scriptId===trusted.scriptId&&
       withinAuthorized(item.path)))
    throw new Error('The repair is not tied to a current authorized script');
-  const approvedByUser=await confirmSingleManagedApply(()=>dialog.showMessageBox(mainWindow,{
-   type:'warning',
-   title:'确认保存受管脚本修订',
-   message:'确认应用刚才预览的单项修复？',
-   detail:'此操作仅修改受管副本并保存修订历史，不修改原始用户脚本。请先核对修复差异；仅点击确认才会继续。',
-   buttons:['取消','确认应用'],defaultId:0,cancelId:0,noLink:true,
-  }));
-  if(!approvedByUser)throw new Error('Managed repair was not approved by user');
-  scanSessions.assertCurrent(scanSnapshot);
-  pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+  const proposalId=q.proposalId;
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
-  try{applied=await repairs.apply({proposalId:q.proposalId,approved:true});}
-  finally{pendingApprovals.consume(q.proposalId);}
+  try{
+   applied=await approveAndApplyManagedRevision({
+    confirm:()=>dialog.showMessageBox(mainWindow,{
+     type:'warning',
+     title:'确认保存受管脚本修订',
+     message:'确认应用刚才预览的单项修复？',
+     detail:'此操作仅修改受管副本并保存修订历史，不修改原始用户脚本。请先核对修复差异；仅点击确认才会继续。',
+     buttons:['取消','确认应用'],defaultId:0,cancelId:0,noLink:true,
+    }),
+    revalidate:()=>{
+     pendingApprovals.require(proposalId,scanSnapshot.scanId);
+     scanSessions.assertCurrent(scanSnapshot);
+     assertManagedProposalSnapshot({...trusted,proposalId},repairs.inspectPending(proposalId));
+    },
+    apply:()=>repairs.apply({proposalId,approved:true}),
+   });
+  }finally{pendingApprovals.consume(proposalId);}
   return {...applied,activePath:join(dataRoot,'managed',trusted.scriptId,'current.user.js')};
  });
  ipcMain.handle('usshm:verify-managed-dom',async(event,input:unknown)=>{assertSender(event);
