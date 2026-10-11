@@ -52,7 +52,7 @@ test('Task 7 batch: duplicate input is skipped, unreadable and parse failures ar
   assert.equal(result.items[1]?.scriptId,undefined);
   assert.equal(result.items[1]?.analysis,undefined);
   assert.equal(result.items[2]?.scriptId,undefined);
-  assert.ok(result.items[2]?.diagnostics.length,'missing script must retain failure diagnostics');
+  assert.deepEqual(result.items[2]?.diagnostics,[], 'a missing direct-file path currently has no enumerator message; unreadable status is the failure evidence');
   assert.ok(result.items[3]?.diagnostics.length,'parse failure must retain diagnostics');
   assert.equal(repository.list().length,3,'duplicate and unreadable items must not create records; parse-error remains recorded');
   assert.deepEqual(repository.list().map(record=>record.path).sort(),[first,invalid,last].sort());
