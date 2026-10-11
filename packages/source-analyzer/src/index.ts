@@ -284,7 +284,8 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    const prop=staticPropertyKey(left);
    const prototype=prop&&staticPropertyKey(prop.owner);
    if(prop?.key==='observe'&&prototype?.key==='prototype'&&
-      ts.isIdentifier(prototype.owner)&&prototype.owner.text==='MutationObserver')
+      ((ts.isIdentifier(prototype.owner)&&prototype.owner.text==='MutationObserver')||
+       isMutationObserverGlobalReference(prototype.owner)))
     mutationObserverPrototypeObserveOverwritten=true;
    if(prop?.key==='observe'&&ts.isIdentifier(prop.owner))
     overwrittenObserveNames.add(prop.owner.text);
