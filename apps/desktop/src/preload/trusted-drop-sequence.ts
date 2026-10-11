@@ -4,7 +4,6 @@
 export class TrustedDropSequence {
  private generation=0;
  begin():number { return ++this.generation; }
- invalidate():void { ++this.generation; }
  isCurrent(generation:number):boolean {
   return Number.isSafeInteger(generation)&&generation>0&&generation===this.generation;
  }
