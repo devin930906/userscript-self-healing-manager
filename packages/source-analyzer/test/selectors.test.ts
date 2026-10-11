@@ -340,3 +340,18 @@ test('FR-011 computed observe method assignment invalidates static identity',()=
  const records=analyzeSource({scriptId:'computed-observe-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
  assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
 });
+
+test('FR-011 prototype observe overwrite invalidates instance observation without invalidating construction',()=>{
+ const source=[
+  'MutationObserver.prototype.observe = fakeObserve;',
+  'const observer = new MutationObserver(cb);',
+  'observer.observe(target,{childList:true});',
+  'const unaffected = {observe(target,opts) { return opts; }};',
+  'unaffected.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'prototype-observe-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.filter(x=>x.receiver==='MutationObserver'||x.receiver==='observer').map(x=>[x.kind,x.runtimeRequired]),[
+  ['constructor',false],['observe',true],
+ ]);
+ assert.ok(records.some(x=>x.receiver==='unaffected'&&x.runtimeRequired===true));
+});
