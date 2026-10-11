@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {describe, it} from 'node:test';
+import {parseVerificationChain} from '../src/verification-chain.ts';
+
+const blocked = {V0:'passed',V1:'blocked',V2:'blocked',V3:'not-configured',V4:'not-configured'};
+
+describe('FR-024 verification level chain',()=>{
+ it('accepts an observed V0 with later levels explicitly not passed',()=>{
+  assert.deepEqual(parseVerificationChain(blocked),blocked);
+ });
+ it('accepts contiguous proof through V4',()=>{
+  const complete={V0:'passed',V1:'passed',V2:'passed',V3:'passed',V4:'passed'};
+  assert.deepEqual(parseVerificationChain(complete),complete);
+ });
+ it('rejects any level passed when its predecessor is not passed',()=>{
+  for(const upper of ['V1','V2','V3','V4'] as const){
+   const value:{[key:string]:string}={...blocked};
+   for(const level of ['V0','V1','V2','V3','V4'])value[level]='blocked';
+   value[upper]='passed';
+   assert.throws(()=>parseVerificationChain(value),TypeError,`${upper} should not skip proof`);
+  }
+ });
+ it('rejects passed after failed, skipped or unconfigured prerequisites',()=>{
+  for(const status of ['failed','skipped','blocked','not-configured']){
+   assert.throws(()=>parseVerificationChain({...blocked,V0:status,V1:'passed'}),TypeError);
+  }
+ });
+ it('rejects malformed, ambiguous and prototype-inherited level records',()=>{
+  for(const invalid of [null,[],{}, {...blocked,V5:'passed'}, {...blocked,V2:'healthy'},
+   Object.assign(Object.create({V0:'passed'}),{V1:'blocked',V2:'blocked',V3:'blocked',V4:'blocked'})]){
+   assert.throws(()=>parseVerificationChain(invalid),TypeError);
+  }
+ });
+ it('returns a detached frozen snapshot',()=>{
+  const value={...blocked};const parsed=parseVerificationChain(value);
+  value.V0='failed';assert.equal(parsed.V0,'passed');assert.equal(Object.isFrozen(parsed),true);
+ });
+});
