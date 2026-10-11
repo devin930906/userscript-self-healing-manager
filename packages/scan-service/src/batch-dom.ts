@@ -117,18 +117,20 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    results.push({...common,status:'skipped',checked:0,found:0,missing:0,needsReview:0,reason:'No valid static analysis'});
    continue;
   }
+  const records=analysis.selectorRecords;
+  // Check the per-script budget before scope classification. Unknown scope
+  // cannot turn an over-budget selector inventory into unbounded review evidence.
+  if(records.length>50){
+   results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:'Selector count exceeds batch safety limit'});
+   continue;
+  }
   const scope=checkUserscriptPageScope(analysis.metadata,target.url);
   if(scope.status!=='allowed'){
    const indeterminate=scope.status==='unknown';
    results.push({...common,status:indeterminate?'needs-review':'out-of-scope',
     checked:0,found:0,missing:0,
-    needsReview:indeterminate?Math.max(1,analysis.selectorRecords.length):0,
+    needsReview:indeterminate?Math.max(1,records.length):0,
     reason:scope.reason});
-   continue;
-  }
-  const records=analysis.selectorRecords;
-  if(records.length>50){
-   results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:'Selector count exceeds batch safety limit'});
    continue;
   }
   if(!records.length){
