@@ -278,6 +278,9 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  function isProvenObserver(node:ts.Node,name:string):boolean{
   if(uncertainNames.has(name))return false;
   for(let parent:ts.Node|undefined=node;parent;parent=parent.parent){
+   // A with object inserts a dynamic name-resolution environment for its body.
+   // No outer lexical const can prove which receiver the identifier resolves to.
+   if(ts.isWithStatement(parent)&&node.pos>=parent.statement.pos&&node.end<=parent.statement.end)return false;
    if(localBindings.get(parent)?.has(name))
     return observerBindings.get(parent)?.has(name)===true;
   }
