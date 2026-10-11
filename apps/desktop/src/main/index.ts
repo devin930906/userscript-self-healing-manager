@@ -988,8 +988,8 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     scanSessions.assertCurrent(scanSnapshot);
      pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+     scanSessions.assertCurrent(scanSnapshot);
      const currentProposal=repairs.inspectPending(q.proposalId);
      if(!currentProposal||currentProposal.scriptId!==trusted.scriptId||
         currentProposal.proposedHash!==trusted.proposedHash||
