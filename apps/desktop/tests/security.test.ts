@@ -33,3 +33,12 @@ test('main IPC only trusts its exact packaged Electron renderer document, never 
  assert.doesNotMatch(auth,/\.startsWith\('http:\/\/localhost:5173\/'\)/);
  assert.match(auth,/senderFrame\.url/);
 });
+
+test('packaged renderer CSP explicitly forbids base URL rewriting',async()=>{
+ const html=await readFile('apps/desktop/src/renderer/index.html','utf8');
+ assert.match(html,/\bbase-uri\s+'none'\s*(?:;|&quot;|\")/);
+});
+test('packaged renderer CSP explicitly forbids form submission',async()=>{
+ const html=await readFile('apps/desktop/src/renderer/index.html','utf8');
+ assert.match(html,/\bform-action\s+'none'\s*(?:;|&quot;|\")/);
+});
