@@ -19,10 +19,10 @@ test('real apply-repair IPC awaits main-native approval before repairs.apply',as
  const end=main.indexOf("ipcMain.handle('usshm:verify-managed-dom'",start);
  assert.ok(start>=0&&end>start);
  const handler=main.slice(start,end);
- const confirm=handler.indexOf('await confirmSingleManagedApply(');
+ const confirm=handler.indexOf('await approveAndApplyManagedRevision(');
  const apply=handler.indexOf('repairs.apply(');
  assert.ok(confirm>=0&&confirm<apply,'native main confirmation must precede managed apply');
- assert.match(handler,/if\(!approvedByUser\)throw new Error\('Managed repair was not approved by user'\)/);
+ assert.match(handler,/assertManagedProposalSnapshot\(/);
 });
 
 test('guarded apply IPC must use executable approval gate before write',async()=>{
@@ -72,4 +72,38 @@ test('guarded real IPC executes approval gate ahead of managed write',async()=>{
  assert.match(handler,/await approveAndApplyManagedRevision\(/);
  assert.match(handler,/scanSessions\.assertCurrent\(scanSnapshot\)/);
  assert.match(handler,/pendingApprovals\.require\(q\.proposalId,scanSnapshot\.scanId\)/);
+});
+
+test('same-token replacement proposal after native dialog cannot activate different hashes',async()=>{
+ const {approveAndApplyManagedRevision,assertManagedProposalSnapshot}=await import('../src/main/confirm-managed-apply.ts');
+ const original={proposalId:'id',scriptId:'script',proposedHash:'before',previousHash:'old'};
+ const current={...original};
+ let writes=0;
+ const run=async(response:number,mutate:()=>void=()=>{},scanValid=true)=>{
+  Object.assign(current,original);
+  return approveAndApplyManagedRevision({
+   confirm:async()=>{mutate();return {response};},
+   revalidate:()=>{
+    if(!scanValid)throw new Error('stale scan');
+    assertManagedProposalSnapshot(original,current);
+   },
+   apply:async()=>{writes++;return 'applied';},
+  });
+ };
+ for(const response of [0,2,-1]){
+  writes=0;
+  await assert.rejects(run(response),/not approved/);
+  assert.equal(writes,0);
+ }
+ for(const key of ['proposalId','scriptId','proposedHash','previousHash'] as const){
+  writes=0;
+  await assert.rejects(run(1,()=>{current[key]='changed';}),/proposal.*changed/i);
+  assert.equal(writes,0,key);
+ }
+ writes=0;
+ await assert.rejects(run(1,()=>{},false),/stale scan/);
+ assert.equal(writes,0);
+ writes=0;
+ assert.equal(await run(1),'applied');
+ assert.equal(writes,1);
 });
