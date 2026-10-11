@@ -30,9 +30,20 @@ export interface EventBindingRecord {
  readonly confidence:'high'|'unknown';
  readonly runtimeRequired:boolean;
 }
+export interface MutationObserverRecord {
+ readonly kind:'constructor'|'observe';
+ readonly receiver:string;
+ readonly optionsKind:'static'|'dynamic'|'not-applicable';
+ readonly sourceRange:SourceRange;
+ readonly functionName:string|null;
+ readonly scope:string[];
+ readonly evidenceLevel:'static-only';
+ readonly functionalVerified:false;
+ readonly runtimeRequired:boolean;
+}
 export interface SourceAnalysis {
  scriptId:string;sourceSha256:string;metadata:MetadataParseResult;selectorRecords:SelectorRecord[];
- managerApiCalls:ManagerApiCall[];eventBindings:EventBindingRecord[];
+ managerApiCalls:ManagerApiCall[];eventBindings:EventBindingRecord[];mutationObservers:MutationObserverRecord[];
  parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom'|'invalid';lineEnding:'crlf'|'lf'|'mixed'|'none';
 }
 export function parseUserscriptMetadata(source:string):MetadataParseResult {
@@ -110,13 +121,14 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   // Never turn corrupt user scripts into a successful AST scan with replacement
   // characters. The original byte hash remains available for diagnostics.
   return {scriptId,sourceSha256,metadata:parseUserscriptMetadata(''),
-   selectorRecords:[],managerApiCalls:[],eventBindings:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
+   selectorRecords:[],managerApiCalls:[],eventBindings:[],mutationObservers:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
    encoding:'invalid',lineEnding:'none'};
  }
  const source=ts.createSourceFile(`${scriptId}.user.js`,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const selectorRecords:SelectorRecord[]=[];
  const managerApiCalls:ManagerApiCall[]=[];
  const eventBindings:EventBindingRecord[]=[];
+ const mutationObservers:MutationObserverRecord[]=[];
  const metadata=parseUserscriptMetadata(text);
  const grants=new Set(metadata.grant.map(x=>x.trim()));
  // A local binding named GM or GM_getValue is not a Tampermonkey API.
@@ -238,7 +250,118 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    functionName:fn.name,scope:fn.scope,evidenceLevel:'static-only',confidence,
    runtimeRequired:confidence!=='high'||eventName==='<dynamic>'});
  }
+ // Conservative lexical hint: only a single const initialized directly by the
+ // genuine global MutationObserver can make an identifier.observe static-known.
+ // Colliding declarations and writes keep the evidence runtime-required.
+ // A with statement inserts a dynamic object environment for every reference
+ // inside its body, including constructor calls and local observe receivers.
+ function inWithBody(node:ts.Node):boolean{
+  for(let parent=node.parent;parent;parent=parent.parent)
+   if(ts.isWithStatement(parent)&&node.pos>=parent.statement.pos&&node.end<=parent.statement.end)return true;
+  return false;
+ }
+ const overwrittenObserveNames=new Set<string>();
+ let globalMutationObserverRebound=false;
+ let mutationObserverPrototypeObserveOverwritten=false;
+ function staticPropertyKey(expr:ts.Expression):{owner:ts.Expression,key:string}|null{
+  if(ts.isPropertyAccessExpression(expr))return {owner:expr.expression,key:expr.name.text};
+  if(ts.isElementAccessExpression(expr)&&expr.argumentExpression&&
+    ts.isStringLiteralLike(expr.argumentExpression))
+   return {owner:expr.expression,key:expr.argumentExpression.text};
+  return null;
+ }
+ function isMutationObserverGlobalReference(expr:ts.Expression):boolean{
+  const prop=staticPropertyKey(expr);
+  return !!prop&&prop.key==='MutationObserver'&&ts.isIdentifier(prop.owner)&&
+   ['globalThis','window','self'].includes(prop.owner.text);
+ }
+ function scanMutationMutations(node:ts.Node):void{
+  if(ts.isBinaryExpression(node)&&node.operatorToken.kind>=ts.SyntaxKind.FirstAssignment&&node.operatorToken.kind<=ts.SyntaxKind.LastAssignment){
+   const left=node.left;
+   if((ts.isIdentifier(left)&&left.text==='MutationObserver')||
+      isMutationObserverGlobalReference(left))
+    globalMutationObserverRebound=true;
+   const prop=staticPropertyKey(left);
+   const prototype=prop&&staticPropertyKey(prop.owner);
+   if(prop?.key==='observe'&&prototype?.key==='prototype'&&
+      ((ts.isIdentifier(prototype.owner)&&prototype.owner.text==='MutationObserver')||
+       isMutationObserverGlobalReference(prototype.owner)))
+    mutationObserverPrototypeObserveOverwritten=true;
+   if(prop?.key==='observe'&&ts.isIdentifier(prop.owner))
+    overwrittenObserveNames.add(prop.owner.text);
+  }
+  ts.forEachChild(node,scanMutationMutations);
+ }
+ scanMutationMutations(source);
+ const observerBindings=new Map<ts.Node,Set<string>>();
+ const uncertainNames=new Set<string>();
+ function collectObserverBindings(node:ts.Node):void{
+  if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)){
+   const name=node.name.text;
+   const list=node.parent;
+   const isConst=ts.isVariableDeclarationList(list)&&(list.flags&ts.NodeFlags.Const)!==0;
+   const init=node.initializer;
+   const genuine=isConst&&!!init&&ts.isNewExpression(init)&&ts.isIdentifier(init.expression)&&
+    init.expression.text==='MutationObserver'&&!globalMutationObserverRebound&&!isLocallyBound(init,'MutationObserver')&&!inWithBody(init);
+   if(genuine){
+    const owner=ownerOf(node,'lexical');
+    const names=observerBindings.get(owner)??new Set<string>();
+    names.add(name);observerBindings.set(owner,names);
+   }
+  }else if(ts.isBinaryExpression(node)&&node.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+   ts.isIdentifier(node.left))uncertainNames.add(node.left.text);
+  ts.forEachChild(node,collectObserverBindings);
+ }
+ collectObserverBindings(source);
+ // Find the nearest actual lexical declaration, not a globally shared name.
+ // Function/catch parameters and hoisted var declarations shadow outer consts.
+ function isProvenObserver(node:ts.Node,name:string):boolean{
+  if(globalMutationObserverRebound||mutationObserverPrototypeObserveOverwritten||overwrittenObserveNames.has(name)||uncertainNames.has(name)||inWithBody(node))return false;
+  for(let parent:ts.Node|undefined=node;parent;parent=parent.parent){
+   // A with object inserts a dynamic name-resolution environment for its body.
+   // No outer lexical const can prove which receiver the identifier resolves to.
+   if(localBindings.get(parent)?.has(name))
+    return observerBindings.get(parent)?.has(name)===true;
+  }
+  return false;
+ }
+ function collectMutationObserver(node:ts.Node):void{
+  let kind:MutationObserverRecord['kind']|null=null;
+  let receiver='';
+  let optionsKind:MutationObserverRecord['optionsKind']='not-applicable';
+  let runtimeRequired=false;
+  if(ts.isNewExpression(node)&&ts.isIdentifier(node.expression)&&
+     node.expression.text==='MutationObserver'&&!isLocallyBound(node,'MutationObserver')){
+   kind='constructor';receiver='MutationObserver';
+   runtimeRequired=globalMutationObserverRebound||inWithBody(node)||!node.arguments||node.arguments.length!==1;
+  }else if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&
+    node.expression.name.text==='observe'&&node.arguments.length>=2){
+   const target=node.expression.expression;
+   if(ts.isIdentifier(target)){
+    // Unknown receivers may implement a non-DOM observe method: do not
+    // promote such a static candidate into a runtime assertion.
+    kind='observe';receiver=target.text;
+    runtimeRequired=!isProvenObserver(node,target.text);
+   }else if(ts.isNewExpression(target)&&ts.isIdentifier(target.expression)&&
+    target.expression.text==='MutationObserver'&&!isLocallyBound(target,'MutationObserver')){
+    kind='observe';receiver='<constructed>';
+   }
+   if(kind){
+    const options=node.arguments[1]!;
+    optionsKind=ts.isObjectLiteralExpression(options)?'static':'dynamic';
+    runtimeRequired=runtimeRequired||receiver==='<constructed>'||optionsKind==='dynamic';
+   }
+  }
+  if(!kind)return;
+  const start=source.getLineAndCharacterOfPosition(node.getStart(source));
+  const end=source.getLineAndCharacterOfPosition(node.getEnd());
+  const fn=functionScope(node);
+  mutationObservers.push({kind,receiver,optionsKind,
+   sourceRange:{start:{line:start.line+1,column:start.character+1},end:{line:end.line+1,column:end.character+1}},
+   functionName:fn.name,scope:fn.scope,evidenceLevel:'static-only',functionalVerified:false,runtimeRequired});
+ }
  function walk(node:ts.Node):void{
+   collectMutationObserver(node);
    collectEvent(node);
    if(ts.isCallExpression(node))collectManagerApi(node);
    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&METHODS.has(node.expression.name.text)&&node.arguments[0]){
@@ -272,7 +395,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  walk(source);
  const diagnostics=((source as ts.SourceFile & {parseDiagnostics?:readonly ts.Diagnostic[]}).parseDiagnostics??[]).map(d=>ts.flattenDiagnosticMessageText(d.messageText,' '));
  const crlf=(text.match(/\r\n/g)??[]).length;const lf=(text.match(/(?<!\r)\n/g)??[]).length;
- return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,eventBindings,
+ return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,eventBindings,mutationObservers,
    parseDiagnostics:diagnostics,encoding:sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191?'utf-8-bom':'utf-8',
    lineEnding:crlf&&lf?'mixed':crlf?'crlf':lf?'lf':'none'};
 }
