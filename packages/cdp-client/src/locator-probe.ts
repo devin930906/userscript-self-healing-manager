@@ -92,6 +92,9 @@ function selectSingleIframeDocument(root:unknown,expectedFrameId:string):number|
   }
   if(queue.length>1500)return null;
  }
+ // A pinned child document ID must not alias any top-tree node encountered
+ // after the iframe itself; otherwise the scoped query could target a sibling.
+ if(found!==null&&seen.has(found))return null;
  return found;
 }
 
