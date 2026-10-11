@@ -253,6 +253,13 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  // Conservative lexical hint: only a single const initialized directly by the
  // genuine global MutationObserver can make an identifier.observe static-known.
  // Colliding declarations and writes keep the evidence runtime-required.
+ // A with statement inserts a dynamic object environment for every reference
+ // inside its body, including constructor calls and local observe receivers.
+ function inWithBody(node:ts.Node):boolean{
+  for(let parent=node.parent;parent;parent=parent.parent)
+   if(ts.isWithStatement(parent)&&node.pos>=parent.statement.pos&&node.end<=parent.statement.end)return true;
+  return false;
+ }
  const observerBindings=new Map<ts.Node,Set<string>>();
  const uncertainNames=new Set<string>();
  function collectObserverBindings(node:ts.Node):void{
@@ -262,7 +269,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    const isConst=ts.isVariableDeclarationList(list)&&(list.flags&ts.NodeFlags.Const)!==0;
    const init=node.initializer;
    const genuine=isConst&&!!init&&ts.isNewExpression(init)&&ts.isIdentifier(init.expression)&&
-    init.expression.text==='MutationObserver'&&!isLocallyBound(init,'MutationObserver');
+    init.expression.text==='MutationObserver'&&!isLocallyBound(init,'MutationObserver')&&!inWithBody(init);
    if(genuine){
     const owner=ownerOf(node,'lexical');
     const names=observerBindings.get(owner)??new Set<string>();
@@ -276,11 +283,10 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  // Find the nearest actual lexical declaration, not a globally shared name.
  // Function/catch parameters and hoisted var declarations shadow outer consts.
  function isProvenObserver(node:ts.Node,name:string):boolean{
-  if(uncertainNames.has(name))return false;
+  if(uncertainNames.has(name)||inWithBody(node))return false;
   for(let parent:ts.Node|undefined=node;parent;parent=parent.parent){
    // A with object inserts a dynamic name-resolution environment for its body.
    // No outer lexical const can prove which receiver the identifier resolves to.
-   if(ts.isWithStatement(parent)&&node.pos>=parent.statement.pos&&node.end<=parent.statement.end)return false;
    if(localBindings.get(parent)?.has(name))
     return observerBindings.get(parent)?.has(name)===true;
   }
@@ -294,7 +300,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   if(ts.isNewExpression(node)&&ts.isIdentifier(node.expression)&&
      node.expression.text==='MutationObserver'&&!isLocallyBound(node,'MutationObserver')){
    kind='constructor';receiver='MutationObserver';
-   runtimeRequired=!node.arguments||node.arguments.length!==1;
+   runtimeRequired=inWithBody(node)||!node.arguments||node.arguments.length!==1;
   }else if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&
     node.expression.name.text==='observe'&&node.arguments.length>=2){
    const target=node.expression.expression;
