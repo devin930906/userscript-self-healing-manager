@@ -281,7 +281,8 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   // Only known global DOM receivers can receive high confidence. An arbitrary
   // object's identically named method or on* field remains a static candidate.
   const confidence:EventBindingRecord['confidence']=
-   (receiver==='window'||receiver==='document')?'high':'unknown';
+   (receiver==='window'||receiver==='document')&&
+    !isLocallyBound(node,receiver)&&!inWithBody(node)?'high':'unknown';
   const start=source.getLineAndCharacterOfPosition(node.getStart(source));
   const end=source.getLineAndCharacterOfPosition(node.getEnd());
   const fn=functionScope(node);
