@@ -390,6 +390,51 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       await evaluate<boolean>(`(()=>{const frame=document.getElementById('usshm-security-probe');
         if(!frame)return false;frame.remove();return true})()`);
     });
+    await t.test('CSP rejects dynamic base URI override without affecting bundled renderer', async () => {
+      const outcome=await evaluate<{before:string;after:string;directive:string;bridge:string}>(`(async()=>{
+        const before=document.baseURI;
+        const violation=new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>reject(new Error('base-uri CSP violation event absent')),3000);
+          document.addEventListener('securitypolicyviolation',event=>{
+            if(event.violatedDirective==='base-uri'){clearTimeout(timer);resolve(event.violatedDirective);}
+          },{once:false});
+        });
+        const base=document.createElement('base');
+        base.href='https://untrusted.example.invalid/forbidden/';
+        document.head.append(base);
+        const directive=await violation;
+        const after=document.baseURI;
+        base.remove();
+        return {before,after,directive,bridge:typeof window.ussm?.getAppInfo};
+      })()`);
+      assert.equal(outcome.before,trustedUrl);
+      assert.equal(outcome.after,trustedUrl);
+      assert.equal(outcome.directive,'base-uri');
+      assert.equal(outcome.bridge,'function');
+    });
+    await t.test('CSP rejects real form submission and preserves local page and loopback isolation', async () => {
+      const beforeInitial=requests.initial, beforeRedirected=requests.redirected;
+      const outcome=await evaluate<{directive:string;url:string;bridge:string}>(`(async()=>{
+        const violation=new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>reject(new Error('form-action CSP violation event absent')),3000);
+          document.addEventListener('securitypolicyviolation',event=>{
+            if(event.violatedDirective==='form-action'){clearTimeout(timer);resolve(event.violatedDirective);}
+          },{once:false});
+        });
+        const form=document.createElement('form');
+        form.method='POST';
+        form.action=${JSON.stringify(localRedirect)};
+        document.body.append(form);
+        try{form.requestSubmit();const directive=await violation;
+          return {directive,url:location.href,bridge:typeof window.ussm?.getAppInfo};
+        }finally{form.remove();}
+      })()`);
+      assert.equal(outcome.directive,'form-action');
+      assert.equal(outcome.url,trustedUrl);
+      assert.equal(outcome.bridge,'function');
+      assert.equal(requests.initial,beforeInitial);
+      assert.equal(requests.redirected,beforeRedirected);
+    });
     await t.test('existing alternate local HTML is blocked (sentinel would load without guard)', async () => {
       const before=cdp!.events.length;
       await evaluate(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(pathToFileURL(alternateFile).href)};document.body.append(a);a.click();a.remove();return true})()`);
