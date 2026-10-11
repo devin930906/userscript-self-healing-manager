@@ -10,13 +10,13 @@ const fields = Object.freeze({
  approval:['id','testId','candidateId','jobId','sourceSha256','expiresAt'],
  revision:['id','approvalId','candidateId','jobId','scriptId','sourceSha256'],
 } as const);
-export type AuditTrace = Readonly<{[K in keyof typeof fields]:Readonly<Record<(typeof fields)[K][number],string>>}>;
+export type AuditTrace = Readonly<{[K in keyof typeof fields]:Readonly<Record<(typeof fields)[K][number],string>>}> & {readonly test:Readonly<{id:string;candidateId:string;jobId:string;status:'passed'}>};
 function record<K extends string>(input:unknown,keys:readonly K[],label:string):Record<K,string>{
  if(!input||typeof input!=='object'||Array.isArray(input)||
   (Object.getPrototypeOf(input)!==Object.prototype&&Object.getPrototypeOf(input)!==null))
   throw new TypeError('Invalid '+label);
  const value=input as Record<string,unknown>;
- if(Object.keys(value).length!==keys.length||!keys.every(k=>Object.hasOwn(value,k)))
+ if(Reflect.ownKeys(value).length!==keys.length||!keys.every(k=>Object.hasOwn(value,k)))
   throw new TypeError('Invalid '+label+' fields');
  const out:Record<string,string>=Object.create(null);
  for(const key of keys){
@@ -38,7 +38,7 @@ export function parseAuditTrace(input:unknown,now:string):AuditTrace{
   throw new TypeError('Invalid audit trace');
  const value=input as Record<string,unknown>;
  const names=Object.keys(fields) as (keyof typeof fields)[];
- if(Object.keys(value).length!==names.length||!names.every(k=>Object.hasOwn(value,k)))
+ if(Reflect.ownKeys(value).length!==names.length||!names.every(k=>Object.hasOwn(value,k)))
   throw new TypeError('Incomplete audit trace');
  const out={} as {-readonly [K in keyof typeof fields]:Record<(typeof fields)[K][number],string>};
  for(const stage of names){(out as Record<string,unknown>)[stage]=record(value[stage],fields[stage],stage);}
