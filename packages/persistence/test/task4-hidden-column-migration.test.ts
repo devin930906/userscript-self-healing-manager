@@ -28,7 +28,10 @@ test('Task4 migration rejects hidden generated v1 script columns and leaves conn
    assert.throws(()=>migrateDatabase(db),/schema|column|incompatible|hidden/i);
    assert.equal(db.prepare('SELECT display_name FROM scripts WHERE id=?').get('historic')?.display_name,'important');
    assert.equal(db.prepare('SELECT version FROM schema_version').get()?.version,1);
-   assert.equal(db.prepare('PRAGMA table_xinfo(scripts)').all().length,9);
+   const columns=db.prepare('PRAGMA table_xinfo(scripts)').all() as {name:string;hidden:number}[];
+   assert.equal(columns.length,9);
+   assert.deepEqual(columns.filter(column=>column.name==='shadow').map(column=>column.hidden),[2],
+    'the original VIRTUAL generated shadow column must survive failed migration');
    db.exec('BEGIN IMMEDIATE');
    db.exec('ROLLBACK');
   }finally{db.close();}
