@@ -103,6 +103,10 @@ test('cleanup effect: unconfirmed child preserves isolated directory; confirmed 
   }
 });
 
+function finishTestCleanup(failures: Error[]): void {
+  if (failures.length) throw new AggregateError(failures, 'Electron security cleanup failed');
+}
+
 test('cleanup effect: no PID deletes only its isolated test directory', async () => {
   const root = await mkdtemp(join(tmpdir(), 'usshm-no-pid-regression-'));
   const sentinel = join(root, 'sentinel');
@@ -408,6 +412,6 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     const abnormal = exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError
       ? exitFailure(exit) ?? 'Electron exited unexpectedly' : undefined;
     await cleanTestRoot(temporary, child?.pid, exitConfirmed, failures, abnormal);
-    if(failures.length) throw new AggregateError(failures,'Electron security cleanup failed');
+    finishTestCleanup(failures);
   }
 });
