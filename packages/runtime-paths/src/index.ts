@@ -31,7 +31,6 @@ export function resolveDataRoot(input: DataRootInput): string {
   const base = input.distributionMode === 'portable-exe' ? input.portableExternalDirectory : input.exeDirectory;
   if (!base && input.distributionMode === 'portable-exe') throw new Error('PORTABLE_EXECUTABLE_DIR is unavailable; portable data directory cannot be determined');
   if (!base || !pathModule(base).isAbsolute(base)) throw new Error('Portable data root must be absolute');
-  assertLocalDataPath(base);
   if (input.distributionMode === 'portable-exe') {
     // Lexical containment is not enough to prove Windows filesystem identity.
     // Reject device namespaces and Win32 trailing-dot/space components until
@@ -55,6 +54,7 @@ export function resolveDataRoot(input: DataRootInput): string {
       throw new Error('PORTABLE_EXECUTABLE_DIR is inside unpacked executable directory; refusing temporary data root');
     }
   }
+  assertLocalDataPath(base);
   return pathModule(base).join(base, 'Data');
 }
 
