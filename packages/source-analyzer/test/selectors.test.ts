@@ -159,3 +159,17 @@ test('parenthesized logical-OR DOM calls retain symmetric fallback selector inve
   ['#fallback'],['#primary'],[],[],
  ]);
 });
+
+
+test('AST inventories getElementsByTagName literal and computed method without executing script',()=>{
+ const source=[
+  "const nodes=document.getElementsByTagName('article');",
+  "const item=root.getElementsByTagName('button');",
+  "const viaKey=document['getElementsByTagName']('section');",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'tag-name-inventory',sourceBytes:encoder.encode(source)}).selectorRecords;
+ assert.deepEqual(records.map(x=>x.method),['getElementsByTagName','getElementsByTagName','getElementsByTagName']);
+ assert.deepEqual(records.map(x=>x.expression),['article','button','section']);
+ assert.deepEqual(records.map(x=>x.receiver),['document','root','document']);
+ assert.deepEqual(records.map(x=>x.runtimeRequired),[false,false,true]);
+});
