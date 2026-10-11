@@ -10,7 +10,7 @@ export class UntrustedReportPublicationError extends Error {
  readonly code='REPORT_PUBLICATION_UNTRUSTED';
  readonly destinationPath:string;
  constructor(destinationPath:string,cause:unknown){
-  super('Report publication untrusted; target may remain at: '+destinationPath,{cause});
+  super('REPORT_PUBLICATION_UNTRUSTED',{cause});
   this.name='UntrustedReportPublicationError';
   this.destinationPath=destinationPath;
  }
