@@ -14,7 +14,7 @@ export function parseVerificationChain(input: unknown): VerificationChain {
     throw new TypeError('Verification chain must be a plain object');
   }
   const value = input as Record<string, unknown>;
-  const keys = Object.keys(value);
+  const keys = Reflect.ownKeys(value);
   if (keys.length !== verificationLevels.length ||
       !verificationLevels.every(level => Object.hasOwn(value,level))) {
     throw new TypeError('Verification chain requires exactly V0 through V4');
@@ -22,7 +22,11 @@ export function parseVerificationChain(input: unknown): VerificationChain {
   const result = {} as Record<VerificationLevel, VerificationStatus>;
   let priorPassed = true;
   for (const level of verificationLevels) {
-    const status = value[level];
+    const descriptor = Object.getOwnPropertyDescriptor(value, level);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(`Invalid ${level} verification descriptor`);
+    }
+    const status: unknown = descriptor.value;
     if (typeof status !== 'string' || !verificationStatuses.some(v => v === status)) {
       throw new TypeError(`Invalid ${level} verification status`);
     }
