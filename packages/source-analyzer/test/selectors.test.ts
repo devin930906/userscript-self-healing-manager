@@ -249,7 +249,7 @@ test('FR-011 does not certify unrelated model.observe as a MutationObserver oper
   "model.observe(target, {childList:true});",
   "const observer = new MutationObserver(() => {});",
   "observer.observe(target, {childList:true});",
- ].join('\\n');
+ ].join('\n');
  const records=analyzeSource({scriptId:'synthetic-unrelated-observe',sourceBytes:encoder.encode(source)}).mutationObservers;
  const unrelated=records.filter(x=>x.kind==='observe'&&x.receiver==='model');
  assert.equal(unrelated.every(x=>x.runtimeRequired===true),true,
