@@ -201,3 +201,25 @@ test('FR-011 inventories event bindings as static candidates without running scr
  assert.equal(result.eventBindings.every(x=>x.sourceRange.start.line>0),true);
  assert.equal(result.selectorRecords.length,1);
 });
+
+test('FR-010 metadata preserves exclude require version and reports missing/conflicting single-value tags',()=>{
+ const source=[
+  '// ==UserScript==',
+  '// @name One',
+  '// @name Two',
+  '// @match https://example.invalid/*',
+  '// @exclude https://example.invalid/private/*',
+  '// @require https://cdn.invalid/helpers.js',
+  '// @version 1.0.0',
+  '// @version 2.0.0',
+  '// ==/UserScript==',
+ ].join('\n');
+ const metadata=parseUserscriptMetadata(source);
+ assert.deepEqual(metadata.exclude,['https://example.invalid/private/*']);
+ assert.deepEqual(metadata.require,['https://cdn.invalid/helpers.js']);
+ assert.equal(metadata.version,'1.0.0');
+ assert.ok(metadata.diagnostics.some(x=>x.includes('duplicate')&&x.includes('name')));
+ assert.ok(metadata.diagnostics.some(x=>x.includes('duplicate')&&x.includes('version')));
+ const missing=parseUserscriptMetadata('// ==UserScript==\n// @name Only\n// ==/UserScript==');
+ assert.ok(missing.diagnostics.some(x=>x.includes('match')));
+});
