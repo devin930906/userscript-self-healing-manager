@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openDatabase,migrateDatabase} from '../src/index.ts';
 
-test('Task4 migration refuses unversioned nonempty SQLite with unrelated legacy table and preserves original bytes',async()=>{
+test('Task4 migration refuses unversioned nonempty SQLite with unrelated legacy table and preserves original legacy rows',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'usshm-task4-unversioned-'));
  const file=join(dir,'registry.sqlite');
  try{
