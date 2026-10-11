@@ -99,10 +99,14 @@ function functionScope(node:ts.Node):{name:string|null;scope:string[]}{
  }
  return {name:scope.at(-1)??null,scope};
 }
-function getAlternates(node:ts.CallExpression):string[]{
- // Only a contiguous logical-OR OR nullish-coalescing tree represents one
- // fallback chain. Never expand into &&, mixed operators, arbitrary helper
- // calls or conditionals: those do not prove a direct selector fallback.
+const MAX_FALLBACK_TERMS=64;
+interface FallbackEvidence {alternateSelectors:string[];truncated:boolean}
+function getAlternates(node:ts.CallExpression):FallbackEvidence{
+ // A fallback is a same-operator || / ?? chain of direct DOM method calls.
+ // Bound both AST ascent and chain expansion to prevent quadratic evidence
+ // growth for hostile or accidentally enormous userscripts.
+ const empty=():FallbackEvidence=>({alternateSelectors:[],truncated:false});
+ const overBudget=():FallbackEvidence=>({alternateSelectors:[],truncated:true});
  let child:ts.Node=node;
  let parent:ts.Node|undefined=node.parent;
  while(parent&&ts.isParenthesizedExpression(parent)){
@@ -111,38 +115,43 @@ function getAlternates(node:ts.CallExpression):string[]{
  if(!parent||!ts.isBinaryExpression(parent)||
     (parent.operatorToken.kind!==ts.SyntaxKind.BarBarToken&&
      parent.operatorToken.kind!==ts.SyntaxKind.QuestionQuestionToken)||
-    (parent.left!==child&&parent.right!==child))return [];
+    (parent.left!==child&&parent.right!==child))return empty();
  const operator=parent.operatorToken.kind;
  let root=parent;
  child=root;parent=root.parent;
- // Parenthesized subtrees can extend the same chain; stop at a different
- // operator so a nested condition does not turn into false evidence.
+ let depth=1;
  while(parent){
   if(ts.isParenthesizedExpression(parent)){
    child=parent;parent=parent.parent;continue;
   }
   if(ts.isBinaryExpression(parent)&&parent.operatorToken.kind===operator&&
      (parent.left===child||parent.right===child)){
+   if(++depth>MAX_FALLBACK_TERMS)return overBudget();
    root=parent;child=parent;parent=parent.parent;continue;
   }
   break;
  }
- const alternatives:ts.CallExpression[]=[];
+ const candidates:ts.CallExpression[]=[];
+ let terms=0,overflow=false;
  const visit=(expression:ts.Expression):void=>{
+  if(overflow)return;
   while(ts.isParenthesizedExpression(expression))expression=expression.expression;
   if(ts.isBinaryExpression(expression)&&expression.operatorToken.kind===operator){
    visit(expression.left);visit(expression.right);
-  }else if(ts.isCallExpression(expression)&&expression.arguments[0]){
+  }else{
+   if(++terms>MAX_FALLBACK_TERMS){overflow=true;return;}
+   if(!ts.isCallExpression(expression)||!expression.arguments[0])return;
    const callee=expression.expression;
    const method=ts.isPropertyAccessExpression(callee)?callee.name.text:
     ts.isElementAccessExpression(callee)&&callee.argumentExpression&&
     ts.isStringLiteralLike(callee.argumentExpression)?callee.argumentExpression.text:null;
-   if(method&&METHODS.has(method))alternatives.push(expression);
+   if(method&&METHODS.has(method))candidates.push(expression);
   }
  };
  visit(root);
- return alternatives.filter(call=>call!==node)
-  .map(call=>selectorOf(call.arguments[0]!).expression);
+ if(overflow)return overBudget();
+ return {alternateSelectors:candidates.filter(call=>call!==node)
+  .map(call=>selectorOf(call.arguments[0]!).expression),truncated:false};
 }
 export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceBytes:Uint8Array}):SourceAnalysis{
  const sourceSha256=createHash('sha256').update(sourceBytes).digest('hex');
@@ -398,10 +407,11 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&METHODS.has(node.expression.name.text)&&node.arguments[0]){
      const selector=selectorOf(node.arguments[0]);const start=source.getLineAndCharacterOfPosition(node.getStart(source));const end=source.getLineAndCharacterOfPosition(node.getEnd());
      const scope=functionScope(node);
+     const fallback=getAlternates(node);
      selectorRecords.push({scriptId,expression:selector.expression,method:node.expression.name.text,
        sourceRange:{start:{line:start.line+1,column:start.character+1},end:{line:end.line+1,column:end.character+1}},
-       functionName:scope.name,scope:scope.scope,alternateSelectors:getAlternates(node),receiver:node.expression.expression.getText(source),
-       dynamicKind:selector.dynamicKind,runtimeRequired:selector.dynamicKind!=='literal'});
+       functionName:scope.name,scope:scope.scope,alternateSelectors:fallback.alternateSelectors,receiver:node.expression.expression.getText(source),
+       dynamicKind:selector.dynamicKind,runtimeRequired:selector.dynamicKind!=='literal'||fallback.truncated});
    }
    if(ts.isCallExpression(node)&&ts.isElementAccessExpression(node.expression)&&node.arguments[0]){
      const accessor=node.expression;

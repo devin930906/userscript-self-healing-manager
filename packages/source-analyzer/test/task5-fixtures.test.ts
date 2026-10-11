@@ -168,3 +168,16 @@ test('Task 5 invalid fixture: parser returns diagnostics instead of executing co
   assert.ok(result.parseDiagnostics.length>0);
   assert.equal(result.sourceSha256,createHash('sha256').update(bytes).digest('hex'));
 });
+
+
+test('FR-013 oversized fallback expressions cannot produce quadratic unbounded alternate evidence',()=>{
+ const makeChain=(length:number)=>Array.from({length},(_,index)=>
+  "document.querySelector('#item-"+index+"')").join(' || ');
+ const withinBudget=analyzeSource({scriptId:'limit-64',sourceBytes:new TextEncoder().encode(makeChain(64))});
+ assert.equal(withinBudget.selectorRecords.length,64);
+ assert.ok(withinBudget.selectorRecords.every(item=>item.alternateSelectors.length===63&&!item.runtimeRequired));
+ const overBudget=analyzeSource({scriptId:'limit-65',sourceBytes:new TextEncoder().encode(makeChain(65))});
+ assert.equal(overBudget.selectorRecords.length,65,'the original selector AST inventory is never discarded');
+ assert.ok(overBudget.selectorRecords.every(item=>item.alternateSelectors.length===0&&item.runtimeRequired),
+  'never expose a partial fallback set as complete or treat an oversized chain as fully static');
+});
