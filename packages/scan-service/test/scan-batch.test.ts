@@ -45,3 +45,29 @@ test('Task 7 batch: duplicate input is skipped, unreadable and parse failures ar
   await rm(root,{recursive:true,force:true});
  }
 });
+
+test('fixture cleanup removes its own root after database open fails',async()=>{
+ const opened=new Error('fixture open failed');
+ let removed=false;
+ await assert.rejects(withScanFixture({
+  open:()=>{throw opened;},
+  remove:async root=>{assert.match(root,/usshm-task7-batch-/);removed=true;},
+ },async()=>{}),error=>{assert.equal(error,opened);return true;});
+ assert.equal(removed,true);
+});
+
+test('fixture cleanup attempts removal despite close failure, keeping the test failure first',async()=>{
+ const primary=new Error('primary scan assertion failed');
+ const closing=new Error('fixture close failed');
+ const removal=new Error('fixture remove failed');
+ const events:string[]=[];
+ await assert.rejects(withScanFixture({
+  open:()=>({close:()=>{events.push('close');throw closing;}}),
+  remove:async()=>{events.push('remove');throw removal;},
+ },async()=>{throw primary;}),error=>{
+  assert.ok(error instanceof AggregateError);
+  assert.deepEqual(error.errors,[primary,closing,removal]);
+  return true;
+ });
+ assert.deepEqual(events,['close','remove']);
+});
