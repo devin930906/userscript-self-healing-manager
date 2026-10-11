@@ -30,9 +30,20 @@ export interface EventBindingRecord {
  readonly confidence:'high'|'unknown';
  readonly runtimeRequired:boolean;
 }
+export interface MutationObserverRecord {
+ readonly kind:'constructor'|'observe';
+ readonly receiver:string;
+ readonly optionsKind:'static'|'dynamic'|'not-applicable';
+ readonly sourceRange:SourceRange;
+ readonly functionName:string|null;
+ readonly scope:string[];
+ readonly evidenceLevel:'static-only';
+ readonly functionalVerified:false;
+ readonly runtimeRequired:boolean;
+}
 export interface SourceAnalysis {
  scriptId:string;sourceSha256:string;metadata:MetadataParseResult;selectorRecords:SelectorRecord[];
- managerApiCalls:ManagerApiCall[];eventBindings:EventBindingRecord[];
+ managerApiCalls:ManagerApiCall[];eventBindings:EventBindingRecord[];mutationObservers:MutationObserverRecord[];
  parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom'|'invalid';lineEnding:'crlf'|'lf'|'mixed'|'none';
 }
 export function parseUserscriptMetadata(source:string):MetadataParseResult {
@@ -110,13 +121,14 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   // Never turn corrupt user scripts into a successful AST scan with replacement
   // characters. The original byte hash remains available for diagnostics.
   return {scriptId,sourceSha256,metadata:parseUserscriptMetadata(''),
-   selectorRecords:[],managerApiCalls:[],eventBindings:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
+   selectorRecords:[],managerApiCalls:[],eventBindings:[],mutationObservers:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
    encoding:'invalid',lineEnding:'none'};
  }
  const source=ts.createSourceFile(`${scriptId}.user.js`,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const selectorRecords:SelectorRecord[]=[];
  const managerApiCalls:ManagerApiCall[]=[];
  const eventBindings:EventBindingRecord[]=[];
+ const mutationObservers:MutationObserverRecord[]=[];
  const metadata=parseUserscriptMetadata(text);
  const grants=new Set(metadata.grant.map(x=>x.trim()));
  // A local binding named GM or GM_getValue is not a Tampermonkey API.
@@ -238,7 +250,42 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    functionName:fn.name,scope:fn.scope,evidenceLevel:'static-only',confidence,
    runtimeRequired:confidence!=='high'||eventName==='<dynamic>'});
  }
+ function collectMutationObserver(node:ts.Node):void{
+  let kind:MutationObserverRecord['kind']|null=null;
+  let receiver='';
+  let optionsKind:MutationObserverRecord['optionsKind']='not-applicable';
+  let runtimeRequired=false;
+  if(ts.isNewExpression(node)&&ts.isIdentifier(node.expression)&&
+     node.expression.text==='MutationObserver'&&!isLocallyBound(node,'MutationObserver')){
+   kind='constructor';receiver='MutationObserver';
+   runtimeRequired=!node.arguments||node.arguments.length!==1;
+  }else if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&
+    node.expression.name.text==='observe'&&node.arguments.length>=2){
+   const target=node.expression.expression;
+   if(ts.isIdentifier(target)){
+    // Unknown receivers may implement a non-DOM observe method: do not
+    // promote such a static candidate into a runtime assertion.
+    kind='observe';receiver=target.text;
+   }else if(ts.isNewExpression(target)&&ts.isIdentifier(target.expression)&&
+    target.expression.text==='MutationObserver'&&!isLocallyBound(target,'MutationObserver')){
+    kind='observe';receiver='<constructed>';
+   }
+   if(kind){
+    const options=node.arguments[1]!;
+    optionsKind=ts.isObjectLiteralExpression(options)?'static':'dynamic';
+    runtimeRequired=receiver==='<constructed>'||optionsKind==='dynamic';
+   }
+  }
+  if(!kind)return;
+  const start=source.getLineAndCharacterOfPosition(node.getStart(source));
+  const end=source.getLineAndCharacterOfPosition(node.getEnd());
+  const fn=functionScope(node);
+  mutationObservers.push({kind,receiver,optionsKind,
+   sourceRange:{start:{line:start.line+1,column:start.character+1},end:{line:end.line+1,column:end.character+1}},
+   functionName:fn.name,scope:fn.scope,evidenceLevel:'static-only',functionalVerified:false,runtimeRequired});
+ }
  function walk(node:ts.Node):void{
+   collectMutationObserver(node);
    collectEvent(node);
    if(ts.isCallExpression(node))collectManagerApi(node);
    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&METHODS.has(node.expression.name.text)&&node.arguments[0]){
@@ -272,7 +319,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  walk(source);
  const diagnostics=((source as ts.SourceFile & {parseDiagnostics?:readonly ts.Diagnostic[]}).parseDiagnostics??[]).map(d=>ts.flattenDiagnosticMessageText(d.messageText,' '));
  const crlf=(text.match(/\r\n/g)??[]).length;const lf=(text.match(/(?<!\r)\n/g)??[]).length;
- return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,eventBindings,
+ return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,eventBindings,mutationObservers,
    parseDiagnostics:diagnostics,encoding:sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191?'utf-8-bom':'utf-8',
    lineEnding:crlf&&lf?'mixed':crlf?'crlf':lf?'lf':'none'};
 }
