@@ -276,7 +276,7 @@ export async function backupVerifiedSqliteSnapshot(
 export function assertRegistryV1SnapshotSchema(db:DatabaseHandle):void{
  // A version marker cannot authorize unrelated user tables as Registry data.
  const unexpected=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('schema_version','scripts') AND substr(lower(name),1,7) <> 'sqlite_' LIMIT 1").get();
- if(unexpected)throw new Error('Incompatible registry schema: unexpected user table');
+ if(unexpected)throw new UnsupportedRegistrySchemaError('Incompatible registry schema: unexpected user table');
  const marker=db.prepare("SELECT type FROM sqlite_master WHERE name='schema_version' LIMIT 1")
   .get() as {type:string}|undefined;
  if(marker?.type!=='table')
