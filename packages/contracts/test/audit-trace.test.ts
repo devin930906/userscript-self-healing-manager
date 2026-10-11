@@ -29,7 +29,9 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
   const input:any=Object.assign(Object.create(null),good());
   for(const stage of ['job','finding','candidate','test','approval','revision'] as const)
    input[stage]=Object.assign(Object.create(null),input[stage]);
-  assert.equal(parseAuditTrace(input,now).test.status,'passed');
+  const parsed=parseAuditTrace(input,now);
+  const passed:'passed'=parsed.test.status;
+  assert.equal(passed,'passed');
  });
  it('rejects missing stages and malformed or extra fields',()=>{
   for(const field of ['job','finding','candidate','test','approval','revision'] as const){const value:any=good();delete value[field];assert.throws(()=>parseAuditTrace(value,now),TypeError);}
@@ -44,6 +46,20 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
  it('rejects cross-script, cross-attempt and stale source rebinding',()=>{
   for(const [stage,key,value] of [['finding','scriptId',id(90)],['finding','attemptId',id(90)],['revision','scriptId',id(90)],['approval','sourceSha256','b'.repeat(64)],['revision','sourceSha256','b'.repeat(64)]] as const){
    const input:any=good();input[stage][key]=value;assert.throws(()=>parseAuditTrace(input,now),TypeError);
+  }
+ });
+
+ it('rejects noncanonical or impossible approval expiry dates (existing validator coverage)',()=>{
+  for(const expiresAt of [
+   '2026-10-12T00:00:00Z',
+   '2026-10-12T00:00:00.000+00:00',
+   '2026-02-30T00:00:00.000Z',
+   '2026-13-01T00:00:00.000Z',
+   '2026-10-12T24:00:00.000Z',
+   '2026-10-12T00:00:00.000z'
+  ]){
+   const value:any=good();value.approval.expiresAt=expiresAt;
+   assert.throws(()=>parseAuditTrace(value,now),TypeError,expiresAt);
   }
  });
  it('rejects expired approval and nonpassing test without claiming signatures',()=>{
