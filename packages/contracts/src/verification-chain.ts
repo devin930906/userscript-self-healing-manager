@@ -1,6 +1,6 @@
 /** FR-024: a level may pass only after every lower level has passed. */
-export const verificationLevels = ['V0', 'V1', 'V2', 'V3', 'V4'] as const;
-export const verificationStatuses = ['passed', 'failed', 'skipped', 'blocked', 'not-configured'] as const;
+export const verificationLevels = Object.freeze(['V0', 'V1', 'V2', 'V3', 'V4'] as const);
+export const verificationStatuses = Object.freeze(['passed', 'failed', 'skipped', 'blocked', 'not-configured'] as const);
 export type VerificationLevel = (typeof verificationLevels)[number];
 export type VerificationStatus = (typeof verificationStatuses)[number];
 export type VerificationChain = Readonly<Record<VerificationLevel, VerificationStatus>>;
