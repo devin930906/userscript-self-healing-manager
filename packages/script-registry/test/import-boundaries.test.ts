@@ -166,3 +166,24 @@ test('transient registry lookup and write errors retain causes without fabricate
   assert.equal(actual.list().length,3);
  }finally{db.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('missing selected file retains ENOENT diagnostics while later siblings still import',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-registry-missing-diagnostic-'));
+ try{
+  const missing=join(root,'missing.user.js');
+  const good=join(root,'good.user.js');
+  await writeFile(good,'const example=1;');
+  const db=openDatabase(':memory:');
+  try{
+   migrateDatabase(db);
+   const repository=createScriptRepository(db);
+   const results=await importPaths({paths:[missing,good],recursive:false,repository});
+   assert.deepEqual(results.map(item=>item.status),['unreadable','imported']);
+   assert.match(results[0]?.message??'',/ENOENT|no such file/i,'missing file must retain its filesystem cause');
+   assert.equal(results[0]?.scriptId,undefined);
+   assert.ok(results[1]?.scriptId);
+   assert.equal(repository.list().length,1);
+   assert.equal(await readFile(good,'utf8'),'const example=1;');
+  }finally{db.close();}
+ }finally{await rm(root,{recursive:true,force:true});}
+});
