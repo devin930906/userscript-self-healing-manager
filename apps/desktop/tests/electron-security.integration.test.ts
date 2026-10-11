@@ -24,6 +24,17 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
+import { resolveDataRoot } from '../../../packages/runtime-paths/src/index.ts';
+
+function securityScratchRoot(env: NodeJS.ProcessEnv, fallback: string): string {
+  return env.RUNNER_TEMP || fallback;
+}
+test('Windows CI security fixture chooses full-form runner scratch root over 8.3 user TEMP', () => {
+  const ambiguous = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp';
+  assert.equal(securityScratchRoot({RUNNER_TEMP:'D:\\a\\_temp'},ambiguous),'D:\\a\\_temp');
+  assert.throws(()=>resolveDataRoot({distributionMode:'portable-exe',exeDirectory:'D:\\electron\\dist',osUserDataDirectory:'D:\\roaming',portableExternalDirectory:ambiguous}),/ambiguous Windows path identity/);
+  assert.equal(resolveDataRoot({distributionMode:'portable-exe',exeDirectory:'D:\\electron\\dist',osUserDataDirectory:'D:\\roaming',portableExternalDirectory:'D:\\a\\_temp\\security'}),'D:\\a\\_temp\\security\\Data');
+});
 
 const enabled = process.platform === 'win32'
   && process.env.USSHM_ELECTRON_SECURITY_INTEGRATION === '1';
@@ -218,7 +229,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     await access(file); // Missing build is a failure when explicitly enabled.
   }
 
-  const temporary = await mkdtemp(join(tmpdir(), 'usshm-security-'));
+  const temporary = await mkdtemp(join(securityScratchRoot(process.env,tmpdir()), 'usshm-security-'));
   let child: ChildProcess | undefined;
   let redirectServer: Server | undefined;
   let cdp: Awaited<ReturnType<typeof connectCdp>> | undefined;
@@ -259,6 +270,10 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     assert.ok(address && typeof address !== 'string');
     const localRedirect = `http://127.0.0.1:${address.port}/redirect`;
 
+    const expectedDataRoot = resolveDataRoot({distributionMode:'portable-exe',
+      exeDirectory:resolve('node_modules','electron','dist'),
+      osUserDataDirectory:join(temporary,'Roaming'),portableExternalDirectory:temporary});
+    assert.equal(expectedDataRoot,join(temporary,'Data'),'Electron security fixture must use an authorized portable root');
     const env = {
       ...process.env,
       APPDATA: join(temporary, 'Roaming'),
