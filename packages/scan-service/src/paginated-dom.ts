@@ -23,7 +23,7 @@ function assertValidDomRow(row:BatchDomItem|undefined):void{
   throw new Error('Invalid paginated DOM evidence row');
  const {checked,found,missing,needsReview,status}=row;
  if(![checked,found,missing,needsReview].every(n=>Number.isSafeInteger(n)&&n>=0)||
-    checked>50||(checked===0?(found!==0||missing!==0):
+    checked>50||(checked===0?(found!==0||missing!==0||needsReview>50):
       found+missing+needsReview!==checked))
   throw new Error('Invalid paginated DOM evidence counters');
  const ordinaryZero=checked===0&&found===0&&missing===0&&needsReview===0;
