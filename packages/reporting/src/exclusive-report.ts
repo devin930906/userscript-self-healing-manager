@@ -5,6 +5,16 @@ import {basename,dirname,isAbsolute,join} from 'node:path';
 
 const MAX_REPORT_BYTES=8*1024*1024;
 const CHUNK_SIZE=64*1024;
+/** Post-link verification failed. Target may exist and must not be trusted. */
+export class UntrustedReportPublicationError extends Error {
+ readonly code='REPORT_PUBLICATION_UNTRUSTED';
+ readonly destinationPath:string;
+ constructor(destinationPath:string,cause:unknown){
+  super('REPORT_PUBLICATION_UNTRUSTED',{cause});
+  this.name='UntrustedReportPublicationError';
+  this.destinationPath=destinationPath;
+ }
+}
 type ChunkWriter=(file:FileHandle,chunk:Uint8Array,offset:number)=>Promise<number>;
 /**
  * Publish an explicitly saved diagnostic report as a NEW file, never truncate
@@ -15,12 +25,14 @@ type ChunkWriter=(file:FileHandle,chunk:Uint8Array,offset:number)=>Promise<numbe
  * No rename/copy fallback: filesystems lacking safe hard links are blocked.
  * Not a cross-process snapshot lock for the diagnostic evidence itself.
  */
-export async function writeExclusiveReport({destinationPath,content,writeChunk,beforePublish}:{
+export async function writeExclusiveReport({destinationPath,content,writeChunk,beforePublish,afterPublish}:{
  destinationPath:string;content:string;
  /** Test-only fault injection; never provided by renderer IPC. */
  writeChunk?:ChunkWriter;
  /** Test-only race injection; never provided by renderer IPC. */
  beforePublish?:()=>Promise<void>;
+ /** Test-only fault injection immediately after exclusive linking. */
+ afterPublish?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof destinationPath!=='string'||!isAbsolute(destinationPath)||
     !/\.(?:json|md)$/i.test(destinationPath)||
@@ -79,6 +91,9 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   await file.close();file=undefined;
   await verify(stage);
   if(beforePublish)await beforePublish();
+  // Reject changes between the initial staging verification and publication.
+  // This also guards test-injected races without touching an existing target.
+  await verify(stage);
   try{await link(stage,destinationPath);}
   catch(error){
    const code=(error as NodeJS.ErrnoException).code;
@@ -88,7 +103,16 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
     throw new Error('Destination filesystem cannot safely publish report without overwrite (hard links required)',{cause:error});
    throw error;
   }
-  await verify(destinationPath);
+  try{
+   if(afterPublish)await afterPublish();
+   await verify(destinationPath);
+  }
+  catch(error){
+   // No portable Node API can atomically unlink only if this name still
+   // references our published inode. Preserve any visible entry rather than
+   // risk deleting a concurrent writer's replacement.
+   throw new UntrustedReportPublicationError(destinationPath,error);
+  }
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
  try{await unlink(stage);}
