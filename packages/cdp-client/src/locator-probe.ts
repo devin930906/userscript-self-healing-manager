@@ -30,12 +30,12 @@ function validatedNodeCount(nodeIds:unknown):number{
  * User-agent/closed roots and multiple open roots remain unsupported. */
 function selectSingleOpenShadowRoot(root:unknown):number|null{
  if(!root||typeof root!=='object')return null;
- const queue:unknown[]=[root];
+ const queue:Array<{node:unknown;fromShadowRoots:boolean}>=[{node:root,fromShadowRoots:false}];
  const seen=new Set<number>();
  let openRoot:number|null=null;
  for(let i=0;i<queue.length;i++){
   if(i>=1500)return null;
-  const node=queue[i];
+  const node=queue[i]!.node;
   if(!node||typeof node!=='object'||Array.isArray(node))return null;
   const data=node as {nodeId?:unknown;children?:unknown;shadowRoots?:unknown;shadowRootType?:unknown;nodeName?:unknown;nodeType?:unknown};
   const id=data.nodeId;
@@ -43,17 +43,17 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
   seen.add(id);
   if(data.shadowRootType!==undefined){
    if(data.shadowRootType==='closed'||data.shadowRootType==='user-agent')continue;
-   if(data.shadowRootType!=='open'||(data.nodeName!=='#document-fragment'||data.nodeType!==11))return null;
+   if(data.shadowRootType!=='open'||data.nodeName!=='#document-fragment'||data.nodeType!==11||!queue[i]!.fromShadowRoots)return null;
    if(openRoot!==null)return null;
    openRoot=id;
   }
   if(data.children!==undefined){
    if(!Array.isArray(data.children))return null;
-   queue.push(...data.children);
+   queue.push(...data.children.map(node=>({node,fromShadowRoots:false})));
   }
   if(data.shadowRoots!==undefined){
    if(!Array.isArray(data.shadowRoots))return null;
-   queue.push(...data.shadowRoots);
+   queue.push(...data.shadowRoots.map(node=>({node,fromShadowRoots:true})));
   }
   if(queue.length>1500)return null;
  }
