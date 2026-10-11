@@ -153,3 +153,16 @@ describe('FR-007 static scan item result status boundary', () => {
       assert.throws(()=>contracts.parseStaticScanItemStatus(input),TypeError);
   });
 });
+
+describe('FR-018 QA-025/026 error-origin contract',()=>{
+ const expected=['cdp','page','userscript','unknown'];
+ it('accepts only explicitly attributed or unknown error origins',()=>{
+  assert.deepEqual(contracts.errorOriginValues,expected);
+  assert.equal(Object.isFrozen(contracts.errorOriginValues),true);
+  for(const origin of expected)assert.equal(contracts.parseErrorOrigin(origin),origin);
+ });
+ it('rejects guessed and ambiguous error origins',()=>{
+  for(const invalid of ['script','webpage','dom','network','inferred-userscript','',null,undefined,0,{},['page']])
+   assert.throws(()=>contracts.parseErrorOrigin(invalid),TypeError);
+ });
+});
