@@ -59,9 +59,9 @@ export {
   verificationLevels,
   verificationStatuses,
   parseVerificationChain,
-} from './verification-chain.js';
+} from './verification-chain.ts';
 export type {
   VerificationLevel,
   VerificationStatus,
   VerificationChain,
-} from './verification-chain.js';
+} from './verification-chain.ts';
