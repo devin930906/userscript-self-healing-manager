@@ -50,7 +50,7 @@ test('tagged release validates real artifacts before owning SHA256 manifest and 
  // The final gate safely creates a missing manifest (wx) or verifies an
  // existing manifest byte-for-byte; a prior Set-Content would erase evidence.
  const preGate=workflow.slice(0,finalGate);
- assert.doesNotMatch(preGate,/Generate SHA256 manifest|SHA256SUMS\\.txt/i,
+ assert.doesNotMatch(preGate,/Generate SHA256 manifest|SHA256SUMS\.txt/i,
   'No packaging step may rewrite checksums before the safe release gate');
  assert.match(workflow,/Release inventory|Verify final (?:three|Windows)|final release inventory/i);
 });
