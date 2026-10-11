@@ -18,6 +18,7 @@ import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/s
 import type {ReadOnlyEventListenerEvidence} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
 import type {ReadOnlyInteractionReadinessResult} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import type {UserscriptManagerTargetReport} from '../../../../packages/cdp-client/src/manager-targets.ts';
+import type {PassivePageExceptionEvidence} from '../../../../packages/cdp-client/src/read-only-exceptions.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
@@ -84,6 +85,7 @@ declare global {interface Window{ussm:{
  launchBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{started:boolean;port:number;isolated:true}>;
   pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
  getManagerTargets:(input:{approved:true})=>Promise<UserscriptManagerTargetReport>;
+ observePageExceptions:(input:{targetId:string;approved:true})=>Promise<PassivePageExceptionEvidence>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
  onTrustedDrop:(listener:(authorizedPaths:string[])=>void)=>(()=>void);
  scan:(request:{paths:string[];recursive:boolean})=>Promise<DesktopScanResult>;
@@ -121,6 +123,9 @@ function App(){
  const [managerTargetReport,setManagerTargetReport]=useState<UserscriptManagerTargetReport|null>(null);
  const [managerBusy,setManagerBusy]=useState(false);
  const managerTargetGeneration=useRef(new LatestRequestGate());
+ const [exceptionEvidence,setExceptionEvidence]=useState<PassivePageExceptionEvidence|null>(null);
+ const [exceptionBusy,setExceptionBusy]=useState(false);
+ const exceptionGeneration=useRef(new LatestRequestGate());
  const [targetId,setTargetId]=useState('');
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
@@ -163,6 +168,7 @@ function App(){
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{managerTargetGeneration.current.invalidate();setManagerTargetReport(null);},[cdp,chromePath]);
+ useEffect(()=>{exceptionGeneration.current.invalidate();setExceptionEvidence(null);setExceptionBusy(false);},[targetId,cdp,chromePath]);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth()])
@@ -440,6 +446,24 @@ function App(){
   }catch(error){
    managerTargetGeneration.current.commit(token,()=>setError('管理器扩展目标检查失败：'+summarizeSafeDesktopError(error)));
   }finally{setManagerBusy(false);}
+ }
+ async function observePageExceptions(){
+  if(!targetId||!cdp||busy||exceptionBusy)return;
+  const token=exceptionGeneration.current.begin();
+  const target=targetId;
+  setExceptionBusy(true);setExceptionEvidence(null);setError('');
+  try{
+   const report=await window.ussm.observePageExceptions({targetId:target,approved:true});
+   if(exceptionGeneration.current.isCurrent(token)){
+    setExceptionEvidence(report);
+    setMessage('已完成限时网页异常观察；不能证明异常来自油猴脚本。V3/V4 未验证。');
+   }
+  }catch(error){
+   if(exceptionGeneration.current.isCurrent(token))
+    setError('只计数异常观察失败：'+summarizeSafeDesktopError(error));
+  }finally{
+   if(exceptionGeneration.current.isCurrent(token))setExceptionBusy(false);
+  }
  }
  async function loadDiagnosisHistory(){
   try{setDiagnosisHistory(await window.ussm.listDiagnosisHistory());}
@@ -872,6 +896,16 @@ function App(){
      <p className="dim">如 Chrome 136+ 的现有资料目录禁用远程调试，可主动使用隔离模式；资料保存在本软件 Data/Chrome-CDP-Profile。不会使用原有 Chrome 的登录状态或扩展，需要自行安装 Tampermonkey 与测试脚本。</p>
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
     {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
+    <div className="toolbar">
+     <button className="secondary" disabled={!targetId||!cdp||busy||exceptionBusy}
+      onClick={()=>void observePageExceptions()}>{exceptionBusy?'观察中…':'观察网页异常（只计数）'}</button>
+     <span className="dim">只对选定网页进行短时被动计数；不采集异常文字、堆栈或页面内容，不能证明异常来自油猴脚本。</span>
+    </div>
+    {exceptionEvidence&&<div className="notice">
+     <b>网页异常计数：</b>{exceptionEvidence.status==='observed'?String(exceptionEvidence.observedCount)+' 个被观察事件':
+      exceptionEvidence.status==='none-observed'?'观察窗口内未见异常（不代表脚本正常）':'证据超限或无法确认'}
+     · 来源未知；不代表网页或油猴脚本责任。V3/V4 未验证。
+    </div>}
     <div className="toolbar"><button disabled={!cdp||!targetId||!result||busy} onClick={()=>void batchDiagnose()}>批量网页诊断（只读）</button>{batchRunning&&<button className="secondary" onClick={()=>{const active=batchPauseGate.current;if(!active)return;if(batchPaused){active.resume();setBatchPaused(false);}else if(active.pause())setBatchPaused(true);}}>{batchPaused?'继续检查':'暂停后续检查'}</button>}{batchRunning&&<button className="secondary" onClick={()=>{batchCancel.current=true;batchPauseGate.current?.cancel();setBatchPaused(false);if(result&&targetId)void window.ussm.cancelDiagnosis({scanId:result.scanId,targetId}).catch(error=>setError('取消诊断请求失败：'+summarizeSafeDesktopError(error)));}}>取消剩余检查</button>}<span className="dim">自动每批处理 25 份，按顺序完成所有已导入脚本；已检查 {batchProgress}/{result?.items.length??0}。{batchPaused?'已暂停下一批调度；当前请求完成后生效。':''}</span></div>
     <p className="dim">批量诊断不执行油猴脚本、不自动修改原文件或 Tampermonkey 存储，也不等于脚本业务功能通过。临时 CDP 通信超时最多重试一次，导航、身份变化及安全校验失败绝不重试。</p>
     <div className="toolbar"><button className="secondary" onClick={()=>void loadDiagnosisHistory()}>最近批量诊断历史</button><span className="dim">保存在本机独立 SQLite，重启可查看历史进度；不会自动重连旧网页或恢复旧任务。</span></div>
