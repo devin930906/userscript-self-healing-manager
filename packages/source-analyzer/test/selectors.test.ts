@@ -355,3 +355,13 @@ test('FR-011 prototype observe overwrite invalidates instance observation withou
  ]);
  assert.ok(records.some(x=>x.receiver==='unaffected'&&x.runtimeRequired===true));
 });
+
+test('FR-011 window-qualified MutationObserver prototype observe overwrite is uncertain',()=>{
+ const source=[
+  'window.MutationObserver.prototype.observe = fakeObserve;',
+  'const observer = new MutationObserver(cb);',
+  'observer.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'window-qualified-prototype-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
+});
