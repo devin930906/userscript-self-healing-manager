@@ -13,7 +13,7 @@ export interface DataRootInput {
 
 /** Windows UNC shares are not safe default roots for local SQLite or backups. */
 function assertLocalDataPath(path: string): void {
-  if (/^[\\\\/]{2}/.test(path)) {
+  if (path.startsWith('\\\\') || path.startsWith('//')) {
     throw new Error('UNC network share cannot be used as a local persistent Data root');
   }
 }
