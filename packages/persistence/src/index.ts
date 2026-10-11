@@ -96,6 +96,9 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  // No triggers belong to the v1 registry schema. A database that otherwise
  // has correct columns and indexes may still carry an unexpected trigger
  // which deletes or rewrites user records on the next normal upsert.
+ const foreignKeys=db.prepare("PRAGMA foreign_key_list(scripts)").all();
+ if(foreignKeys.length!==0)
+  throw new Error('Incompatible scripts schema: unexpected foreign key constraint');
  const unexpectedTrigger=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('scripts','schema_version') LIMIT 1").get();
  if(unexpectedTrigger)throw new Error('Unsafe SQLite v1 schema: unrecognized mutating trigger');
 }
