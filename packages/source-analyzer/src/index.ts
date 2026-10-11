@@ -9,7 +9,7 @@ export interface SelectorRecord {
   functionName:string|null;scope:string[];alternateSelectors:string[];receiver:string;
   dynamicKind:DynamicKind;runtimeRequired:boolean;
 }
-export interface MetadataParseResult {name:string|null;match:string[];include:string[];grant:string[];runAt:string|null;raw:Record<string,string[]>}
+export interface MetadataParseResult {name:string|null;match:string[];include:string[];exclude:string[];require:string[];grant:string[];runAt:string|null;version:string|null;diagnostics:string[];raw:Record<string,string[]>}
 export interface ManagerApiCall {
  /** Static syntactic reference, NOT proof that the real manager injected APIs. */
  readonly api:string;
@@ -61,7 +61,15 @@ export function parseUserscriptMetadata(source:string):MetadataParseResult {
  // Unclosed or forged marker blocks script activation; preserve separate AST
  // analysis so users can still diagnose a malformed script without authorizing CDP.
  const validated=closed?raw:Object.create(null) as Record<string,string[]>;
- return {name:validated.name?.[0]??null,match:validated.match??[],include:validated.include??[],grant:validated.grant??[],runAt:validated['run-at']?.[0]??null,raw:validated};
+ const diagnostics:string[]=[];
+ if(!closed)diagnostics.push('missing-or-unclosed-userscript-header');
+ else {
+  for(const required of ['name','match','grant','run-at'])if(!validated[required]?.length)diagnostics.push('missing-@'+required);
+  for(const key of ['name','version','run-at'])if((validated[key]?.length??0)>1)diagnostics.push('duplicate-@'+key);
+ }
+ return {name:validated.name?.[0]??null,match:validated.match??[],include:validated.include??[],
+  exclude:validated.exclude??[],require:validated.require??[],grant:validated.grant??[],
+  runAt:validated['run-at']?.[0]??null,version:validated.version?.[0]??null,diagnostics,raw:validated};
 }
 const METHODS=new Set(['querySelector','querySelectorAll','getElementById','getElementsByClassName','getElementsByTagName','getElementsByName','closest','matches']);
 function selectorOf(node:ts.Expression):{expression:string;dynamicKind:DynamicKind}{
