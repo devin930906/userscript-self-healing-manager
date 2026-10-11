@@ -52,7 +52,7 @@ export function parseUserscriptMetadata(source:string):MetadataParseResult {
  const validated=closed?raw:Object.create(null) as Record<string,string[]>;
  return {name:validated.name?.[0]??null,match:validated.match??[],include:validated.include??[],grant:validated.grant??[],runAt:validated['run-at']?.[0]??null,raw:validated};
 }
-const METHODS=new Set(['querySelector','querySelectorAll','getElementById','getElementsByClassName','getElementsByName','closest','matches']);
+const METHODS=new Set(['querySelector','querySelectorAll','getElementById','getElementsByClassName','getElementsByTagName','getElementsByName','closest','matches']);
 function selectorOf(node:ts.Expression):{expression:string;dynamicKind:DynamicKind}{
  if(ts.isStringLiteralLike(node)&&!ts.isTemplateExpression(node)) return {expression:node.text,dynamicKind:'literal'};
  if(ts.isNoSubstitutionTemplateLiteral(node))return {expression:node.text,dynamicKind:'literal'};
