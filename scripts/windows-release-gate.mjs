@@ -199,6 +199,7 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
   if((await handle.read(central,0,size,start)).bytesRead!==size)
    throw new Error('Incomplete ZIP central-directory read');
   let offset=0,totalUncompressedBytes=0;
+  const seenExtractionPaths=new Set();
   for(let index=0;index<count;index++){
    if(offset+46>size||central.readUInt32LE(offset)!==0x02014b50)
     throw new Error('Invalid ZIP central-directory entry');
@@ -233,6 +234,24 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
     throw new Error('Unsafe special ZIP entry type or Windows reparse point');
    if(!nameLength||nameLength>1024||offset+46+nameLength+extraLength+commentLength>size)
     throw new Error('Invalid ZIP central-directory path budget');
+   // Independently validate the actual central-directory bytes. A tar.exe
+   // filename listing is not proof that every ZIP extractor will interpret
+   // the same destination or that the metadata is safe when reused directly.
+   let decodedName;
+   try{
+    decodedName=new TextDecoder('utf-8',{fatal:true})
+     .decode(central.subarray(offset+46,offset+46+nameLength));
+   }catch{
+    throw new Error('Invalid UTF-8 release ZIP central-directory entry path');
+   }
+   // The ZIP specification uses forward slashes for paths. Reject Windows
+   // separators here instead of silently normalizing ambiguous archives.
+   if(decodedName.includes('\\'))
+    throw new Error('Unsafe ZIP central-directory backslash path');
+   const extractionPath=normalizedZipEntry(decodedName).toLowerCase();
+   if(seenExtractionPaths.has(extractionPath))
+    throw new Error('Unsafe duplicate ZIP central-directory extraction path');
+   seenExtractionPaths.add(extractionPath);
    if(verifyLocalHeaders){
     if(localOffset===0xffffffff||localOffset+30>start)
      throw new Error('ZIP local-header offset out of bounds');
