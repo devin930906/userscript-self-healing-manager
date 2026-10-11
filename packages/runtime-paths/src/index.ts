@@ -11,20 +11,12 @@ export interface DataRootInput {
   portableExternalDirectory?: string | undefined;
 }
 
-/** Windows UNC shares are not safe default roots for local SQLite or backups. */
-function assertLocalDataPath(path: string): void {
-  if (path.startsWith('\\\\') || path.startsWith('//')) {
-    throw new Error('UNC network share cannot be used as a local persistent Data root');
-  }
-}
-
 function pathModule(path: string) {
   return /^[a-z]:[\\/]/i.test(path) || /^\\\\/.test(path) ? win32 : { join, isAbsolute, parse };
 }
 
 export function resolveDataRoot(input: DataRootInput): string {
   if (input.distributionMode === 'installed') {
-    assertLocalDataPath(input.osUserDataDirectory);
     if (!pathModule(input.osUserDataDirectory).isAbsolute(input.osUserDataDirectory)) throw new Error('User data root must be absolute');
     return input.osUserDataDirectory;
   }
@@ -54,14 +46,12 @@ export function resolveDataRoot(input: DataRootInput): string {
       throw new Error('PORTABLE_EXECUTABLE_DIR is inside unpacked executable directory; refusing temporary data root');
     }
   }
-  assertLocalDataPath(base);
   return pathModule(base).join(base, 'Data');
 }
 
 /** Never silently fall back to AppData; even an existing link is disallowed. */
 export async function ensureWritableDataRoot(dataRoot: string): Promise<void> {
-  assertLocalDataPath(dataRoot);
-  if (!isAbsolute(dataRoot)) throw new Error('Data root must be an absolute local path');
+  if (!isAbsolute(dataRoot)) throw new Error('Data root must be an absolute path');
   let current = parse(dataRoot).root;
   const segments = dataRoot.slice(current.length).split(/[\\/]+/).filter(Boolean);
   for (const segment of segments) {
