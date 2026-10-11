@@ -1,5 +1,5 @@
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
-import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
+import {asCss,type LiteralLocator,type LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyEventListenerEvidence} from '../../cdp-client/src/read-only-event-listeners.ts';
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
@@ -74,7 +74,7 @@ export async function runReadOnlyInteractionReadiness({
  if(!locator||locator.runtimeRequired||typeof locator.expression!=='string'||
     locator.expression.trim()===''||locator.expression.length>1024||
     !['querySelector','querySelectorAll','getElementById','getElementsByClassName',
-      'getElementsByName'].includes(locator.method))
+      'getElementsByName'].includes(locator.method)||asCss(locator)===null)
   throw new Error('A static supported selector is required for read-only readiness');
  if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||
     typeof deps.inspectVisibility!=='function'||typeof deps.inspectListeners!=='function'||
