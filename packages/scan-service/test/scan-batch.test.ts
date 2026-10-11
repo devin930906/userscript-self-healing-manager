@@ -6,10 +6,27 @@ import {join} from 'node:path';
 import {runStaticScan} from '../src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../../persistence/src/index.ts';
 
-test('Task 7 batch: duplicate input is skipped, unreadable and parse failures are isolated, counters match every item',async()=>{
+type FixtureDb={close():void};
+async function withScanFixture<T extends FixtureDb>(options:{
+ open?:()=>T;
+ remove?:(root:string)=>Promise<void>;
+},run:(root:string,db:T)=>Promise<void>):Promise<void>{
  const root=await mkdtemp(join(tmpdir(),'usshm-task7-batch-'));
- const db=openDatabase(':memory:');
+ const errors:unknown[]=[];
+ let db:T|undefined;
  try{
+  db=(options.open??(()=>openDatabase(':memory:') as T))();
+  await run(root,db);
+ }catch(error){errors.push(error);}
+ if(db){try{db.close();}catch(error){errors.push(error);}}
+ try{await (options.remove??(path=>rm(path,{recursive:true,force:true})))(root);}
+ catch(error){errors.push(error);}
+ if(errors.length===1)throw errors[0];
+ if(errors.length>1)throw new AggregateError(errors,'Scan fixture and cleanup failed');
+}
+
+test('Task 7 batch: duplicate input is skipped, unreadable and parse failures are isolated, counters match every item',async()=>{
+ await withScanFixture({},async(root,db)=>{
   migrateDatabase(db);
   const first=join(root,'first.user.js');
   const absent=join(root,'missing.user.js');
@@ -40,10 +57,7 @@ test('Task 7 batch: duplicate input is skipped, unreadable and parse failures ar
   assert.equal(repository.list().length,3,'duplicate and unreadable items must not create records; parse-error remains recorded');
   assert.deepEqual(repository.list().map(record=>record.path).sort(),[first,invalid,last].sort());
   for(const [index,path] of [first,invalid,last].entries())assert.deepEqual(await readFile(path),before[index]);
- }finally{
-  db.close();
-  await rm(root,{recursive:true,force:true});
- }
+ });
 });
 
 test('fixture cleanup removes its own root after database open fails',async()=>{
@@ -51,7 +65,7 @@ test('fixture cleanup removes its own root after database open fails',async()=>{
  let removed=false;
  await assert.rejects(withScanFixture({
   open:()=>{throw opened;},
-  remove:async root=>{assert.match(root,/usshm-task7-batch-/);removed=true;},
+  remove:async root=>{assert.match(root,/usshm-task7-batch-/);await rm(root,{recursive:true,force:true});removed=true;},
  },async()=>{}),error=>{assert.equal(error,opened);return true;});
  assert.equal(removed,true);
 });
@@ -63,7 +77,7 @@ test('fixture cleanup attempts removal despite close failure, keeping the test f
  const events:string[]=[];
  await assert.rejects(withScanFixture({
   open:()=>({close:()=>{events.push('close');throw closing;}}),
-  remove:async()=>{events.push('remove');throw removal;},
+  remove:async root=>{events.push('remove');await rm(root,{recursive:true,force:true});throw removal;},
  },async()=>{throw primary;}),error=>{
   assert.ok(error instanceof AggregateError);
   assert.deepEqual(error.errors,[primary,closing,removal]);
