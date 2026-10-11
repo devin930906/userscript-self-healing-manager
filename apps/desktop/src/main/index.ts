@@ -1,5 +1,5 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
-import {confirmSingleManagedApply} from './confirm-managed-apply.ts';
+import {confirmSingleManagedApply,approveAndApplyManagedRevision} from './confirm-managed-apply.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -979,8 +979,23 @@ async function bootstrap():Promise<void>{
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
-  try{applied=await repairs.apply({proposalId:q.proposalId,approved:true});}
-  finally{pendingApprovals.consume(q.proposalId);}
+  try{
+   applied=await approveAndApplyManagedRevision({
+    confirm:()=>dialog.showMessageBox(mainWindow,{
+     type:'warning',title:'确认保存并自动 V1 复核',
+     message:'确认应用刚才预览的单项修复，并随后执行只读 V1 复核？',
+     detail:'仅在确认后写入受管副本。V1 复核不等于脚本功能通过；失败时会按现有规则尝试恢复上一修订。不会覆盖原始用户脚本。',
+     buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
+    }),
+    revalidate:()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+     if(repairs.inspectPending(q.proposalId)!==trusted)
+      throw new Error('Managed repair proposal changed while awaiting approval');
+    },
+    apply:()=>repairs.apply({proposalId:q.proposalId,approved:true}),
+   });
+  }finally{pendingApprovals.consume(q.proposalId);}
   const index=Number(q.selectorIndex);
   const safety=await guardAppliedManagedRevision({
    approved:true,scriptId:item.scriptId,appliedHash:applied.hash,
