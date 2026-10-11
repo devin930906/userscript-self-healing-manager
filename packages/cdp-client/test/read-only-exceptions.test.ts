@@ -22,8 +22,11 @@ const exception=(id:number)=>({
 class FakeSocket extends EventEmitter {
  readonly sent:Array<{id:number;method:string}>=[];
  closed=0;
- constructor(private readonly events:readonly unknown[]=[],private readonly ack=true){
-  super();queueMicrotask(()=>this.emit('open'));
+ private readonly events:readonly unknown[];
+ private readonly ack:boolean;
+ constructor(events:readonly unknown[]=[],ack=true){
+  super();this.events=events;this.ack=ack;
+  queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(name:string,listener:(e:any)=>void){this.on(name,listener);}
  removeEventListener(name:string,listener:(e:any)=>void){this.off(name,listener);}
