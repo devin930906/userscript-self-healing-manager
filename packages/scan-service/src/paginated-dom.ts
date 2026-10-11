@@ -1,5 +1,6 @@
 import type {BatchDomItem,BatchDomResult} from './batch-dom.ts';
 import type {BatchPauseGate} from './pause-gate.ts';
+import {classifyReadOnlyFault} from './fault-classification.ts';
 
 /** Narrow contract for Electron's explicitly consented 25-script batch IPC. */
 export interface PaginatedDomPage extends BatchDomResult {
@@ -32,6 +33,21 @@ function assertValidDomRow(row:BatchDomItem|undefined):void{
   status==='needs-review'?needsReview>0&&missing===0:
   ['no-evidence','out-of-scope','skipped','error'].includes(status)&&ordinaryZero;
  if(!statusValid)throw new Error('Invalid paginated DOM status versus evidence');
+ // Fault attribution crosses the same renderer-facing IPC boundary as V1
+ // evidence. A page producer may only include the exact closed classification
+ // derivable from its authenticated status and trusted internal reason.
+ // Never accept a claimed userscript/page source or arbitrary exception text.
+ if(row.diagnostic!==undefined){
+  const canonical=classifyReadOnlyFault(row);
+  const received=row.diagnostic;
+  const keys=['code','origin','category','attribution','functionalVerified'] as const;
+  if(!canonical||!received||typeof received!=='object'||Array.isArray(received)||
+     Reflect.ownKeys(received).length!==keys.length||
+     Reflect.ownKeys(received).some(key=>typeof key!=='string'||!keys.includes(key as typeof keys[number])||
+       Object.getOwnPropertyDescriptor(received,key)?.enumerable!==true)||
+     keys.some(key=>received[key]!==canonical[key]))
+   throw new Error('Invalid paginated fault attribution evidence');
+ }
  const v=row.verification;
  if(v!==undefined){
   if(!v||typeof v!=='object'||Array.isArray(v)||
