@@ -11,7 +11,7 @@ const fields = Object.freeze({
  revision:['id','approvalId','candidateId','jobId','scriptId','sourceSha256'],
 } as const);
 export type AuditTrace = Readonly<{[K in keyof typeof fields]:Readonly<Record<(typeof fields)[K][number],string>>}>;
-function record(input:unknown,keys:readonly string[],label:string):Record<string,string>{
+function record<K extends string>(input:unknown,keys:readonly K[],label:string):Record<K,string>{
  if(!input||typeof input!=='object'||Array.isArray(input)||
   (Object.getPrototypeOf(input)!==Object.prototype&&Object.getPrototypeOf(input)!==null))
   throw new TypeError('Invalid '+label);
@@ -26,7 +26,7 @@ function record(input:unknown,keys:readonly string[],label:string):Record<string
    if(!uuid.test(out[key]))throw new TypeError('Invalid '+label+'.'+key);
   }
  }
- return Object.freeze(out);
+ return Object.freeze(out) as Record<K,string>;
 }
 function requireSame(actual:string,expected:string):void{
  if(actual!==expected)throw new TypeError('Audit trace reference mismatch');
@@ -40,8 +40,8 @@ export function parseAuditTrace(input:unknown,now:string):AuditTrace{
  const names=Object.keys(fields) as (keyof typeof fields)[];
  if(Object.keys(value).length!==names.length||!names.every(k=>Object.hasOwn(value,k)))
   throw new TypeError('Incomplete audit trace');
- const out={} as {[K in keyof typeof fields]:Record<string,string>};
- for(const stage of names)out[stage]=record(value[stage],fields[stage],stage);
+ const out={} as {-readonly [K in keyof typeof fields]:Record<(typeof fields)[K][number],string>};
+ for(const stage of names){(out as Record<string,unknown>)[stage]=record(value[stage],fields[stage],stage);}
  const {job,finding,candidate,test,approval,revision}=out;
  for(const stage of [finding,candidate,test,approval,revision])requireSame(stage.jobId,job.id);
  requireSame(finding.scriptId,job.scriptId);
