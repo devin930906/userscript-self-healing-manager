@@ -65,3 +65,6 @@ export type {
   VerificationStatus,
   VerificationChain,
 } from './verification-chain.ts';
+
+export {parseAuditTrace} from './audit-trace.ts';
+export type {AuditTrace} from './audit-trace.ts';
