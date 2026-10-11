@@ -284,3 +284,20 @@ test('FR-011 with dynamic object shadowing cannot certify an observer receiver o
  assert.deepEqual(calls.map(x=>x.runtimeRequired),[false,true,false]);
  assert.deepEqual(calls.map(x=>x.sourceRange.start.line),[2,3,4]);
 });
+
+test('FR-011 with may shadow the MutationObserver constructor itself',()=>{
+ const source=[
+  "const outside = new MutationObserver(() => {});",
+  "outside.observe(target,{childList:true});",
+  "with ({MutationObserver: Fake}) {",
+  " const observer = new MutationObserver(() => {});",
+  " observer.observe(target,{childList:true});",
+  "}",
+  "outside.observe(target,{childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'fake-with-constructor',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[
+  ['constructor',false],['observe',false],
+  ['constructor',true],['observe',true],['observe',false],
+ ]);
+});
