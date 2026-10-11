@@ -173,3 +173,11 @@ test('AST inventories getElementsByTagName literal and computed method without e
  assert.deepEqual(records.map(x=>x.receiver),['document','root','document']);
  assert.deepEqual(records.map(x=>x.runtimeRequired),[false,false,true]);
 });
+
+
+test('single-layer nullish DOM fallback links both selector calls symmetrically',()=>{
+ const source="const selected = (document.querySelector('#primary')) ?? (document.querySelector('#fallback'));";
+ const records=analyzeSource({scriptId:'nullish-fallback',sourceBytes:encoder.encode(source)}).selectorRecords;
+ assert.deepEqual(records.map(x=>x.expression),['#primary','#fallback']);
+ assert.deepEqual(records.map(x=>x.alternateSelectors),[['#fallback'],['#primary']]);
+});
