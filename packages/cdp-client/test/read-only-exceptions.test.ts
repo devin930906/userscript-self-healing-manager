@@ -26,7 +26,6 @@ class FakeSocket extends EventEmitter {
  private readonly ack:boolean;
  constructor(events:readonly unknown[]=[],ack=true){
   super();this.events=events;this.ack=ack;
-  queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(name:string,listener:(e:any)=>void){this.on(name,listener);}
  removeEventListener(name:string,listener:(e:any)=>void){this.off(name,listener);}
@@ -50,7 +49,7 @@ test('FR-018 passive observer counts only bounded exception IDs, never exports U
  const out=await observeReadOnlyPageExceptions(target,{
   approved:true,durationMs:100,
   confirm:async()=>{identities++;return confirmed();},
-  socketFactory:()=>socket,
+  socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
  });
  assert.equal(identities,2);
  assert.deepEqual(out,{
@@ -67,7 +66,7 @@ test('FR-018 passive observer counts only bounded exception IDs, never exports U
 test('FR-018 zero events is none-observed only, never a functional or manager pass',async()=>{
  const socket=new FakeSocket();
  const out=await observeReadOnlyPageExceptions(target,{
-  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
  });
  assert.equal(out.status,'none-observed');
  assert.equal(out.observedCount,0);
@@ -84,7 +83,7 @@ test('FR-018 malformed event metadata or exceeded event budget fails closed with
  ]){
   const socket=new FakeSocket(events);
   const out=await observeReadOnlyPageExceptions(target,{
-   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
   });
   assert.equal(out.status,'unknown');
   assert.equal(out.observedCount,null);
@@ -111,7 +110,7 @@ test('FR-018 same-URL reload invalidates counted exceptions rather than attribut
  let count=0;
  const socket=new FakeSocket([exception(10)]);
  await assert.rejects(observeReadOnlyPageExceptions(target,{
-  approved:true,durationMs:100,socketFactory:()=>socket,
+  approved:true,durationMs:100,socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
   confirm:async()=>{count++;return {...confirmed(),loaderId:count===1?'original-loader':'new-loader'};},
  }),/identity|document|loader|navigation/i);
  assert.equal(count,2);
@@ -121,7 +120,7 @@ test('FR-018 same-URL reload invalidates counted exceptions rather than attribut
 test('FR-018 runtime enable denial never leaks Chrome exception text or declares false zero',async()=>{
  const socket=new FakeSocket([],false);
  await assert.rejects(observeReadOnlyPageExceptions(target,{
-  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
  }),/runtime|CDP|observe/i);
  assert.equal(socket.closed,1);
  assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable']);
