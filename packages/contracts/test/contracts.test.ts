@@ -103,3 +103,16 @@ describe('FR-029 shared batch job status values', () => {
       assert.throws(()=>contracts.parseJobStatus(value),TypeError);
   });
 });
+
+describe('FR-029/030 job-item status boundary', () => {
+  const itemStatuses=['queued','preparing','running','completed','failed','blocked','cancelled'];
+  it('accepts precisely the recoverable per-script item states', () => {
+    assert.deepEqual(contracts.jobItemStatusValues,itemStatuses);
+    assert.equal(Object.isFrozen(contracts.jobItemStatusValues),true);
+    for(const status of itemStatuses) assert.equal(contracts.parseJobItemStatus(status),status);
+  });
+  it('rejects job-only aggregates and invalid item states', () => {
+    for(const invalid of ['paused','cancelling','partially_completed','success','',undefined,null,{},['queued']])
+      assert.throws(()=>contracts.parseJobItemStatus(invalid),TypeError);
+  });
+});
