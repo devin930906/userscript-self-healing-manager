@@ -125,3 +125,19 @@ test('FR-018 runtime enable denial never leaks Chrome exception text or declares
  assert.equal(socket.closed,1);
  assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable']);
 });
+
+test('FR-018 execution context clearing invalidates otherwise zero-count exception observation',async()=>{
+ for(const method of ['Runtime.executionContextsCleared','Runtime.executionContextDestroyed']){
+  const socket=new FakeSocket([{method,...(method.endsWith('Destroyed')?{params:{executionContextId:3}}:{})}]);
+  const out=await observeReadOnlyPageExceptions(target,{
+   approved:true,durationMs:100,confirm:async()=>confirmed(),
+   socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
+  });
+  assert.equal(out.status,'unknown',method);
+  assert.equal(out.observedCount,null,method);
+  assert.equal(out.origin,'unknown');
+  assert.equal(out.V3,'not-configured');
+  assert.equal(out.V4,'not-configured');
+  assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable']);
+ }
+});
