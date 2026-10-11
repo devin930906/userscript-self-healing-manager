@@ -401,3 +401,18 @@ test('iframe scope rejects contentDocument nodeId colliding with a later top-tre
  assert.equal(result.checks[0]?.matchCount,null);
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
 });
+
+test('open-shadow refuses a fragment falsely supplied as ordinary children rather than shadowRoots (QA-022)',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,nodeName:'DIV',children:[
+   {nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},
+  ]}]}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[101]}),
+ });
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+  socketFactory:()=>socket,rootScope:'open-shadow',
+ });
+ assert.equal(result.checks[0]?.status,'unverified');
+ assert.equal(result.checks[0]?.matchCount,null);
+ assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
+});
