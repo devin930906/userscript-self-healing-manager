@@ -1,3 +1,15 @@
+/** FR-007: static scan item outcomes from the scan-service consumer; not ScriptHealth. */
+export const staticScanItemStatusValues = Object.freeze([
+  'parsed', 'parse-error', 'unreadable', 'skipped',
+] as const);
+export type StaticScanItemStatus = (typeof staticScanItemStatusValues)[number];
+export function parseStaticScanItemStatus(input: unknown): StaticScanItemStatus {
+  if (typeof input !== 'string' || !staticScanItemStatusValues.some(value => value === input)) {
+    throw new TypeError('Invalid StaticScanItemStatus');
+  }
+  return input as StaticScanItemStatus;
+}
+
 /** FR-040/NFR-006: current static report JSON wire-schema version. */
 export const staticReportSchemaVersion = 2 as const;
 export function parseStaticReportSchemaVersion(input: unknown): typeof staticReportSchemaVersion {
