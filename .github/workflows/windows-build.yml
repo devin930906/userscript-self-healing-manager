@@ -64,13 +64,6 @@ jobs:
           [System.IO.Compression.ZipFile]::CreateFromDirectory($unpacked, $zip)
           if (!(Test-Path $zip)) { throw "Missing ZIP: $zip" }
           if (!(Test-Path "$unpacked/resources/app.asar")) { throw 'Missing packaged app resources' }
-      - name: Generate SHA256 manifest
-        shell: pwsh
-        run: |
-          Get-ChildItem release -File | Where-Object {$_.Extension -in '.exe','.zip'} | ForEach-Object {
-            $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($_.Name)"
-          } | Set-Content release/SHA256SUMS.txt
       - name: Verify final three-edition release inventory, ZIP and SHA256 checksums
         shell: pwsh
         run: |
