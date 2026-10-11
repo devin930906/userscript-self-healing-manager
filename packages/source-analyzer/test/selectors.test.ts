@@ -321,3 +321,22 @@ test('FR-011 observe method overwrite invalidates bound observer certainty',()=>
  const records=analyzeSource({scriptId:'synthetic-observe-override',sourceBytes:encoder.encode(source)}).mutationObservers;
  assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
 });
+
+test('FR-011 computed global constructor assignment invalidates static identity',()=>{
+ const source=[
+  'globalThis["MutationObserver"] = Fake;',
+  'const observer = new MutationObserver(cb);',
+  'observer.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'computed-constructor-rebind',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',true],['observe',true]]);
+});
+test('FR-011 computed observe method assignment invalidates static identity',()=>{
+ const source=[
+  'const observer = new MutationObserver(cb);',
+  'observer["observe"] = fakeObserve;',
+  'observer.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'computed-observe-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
+});
