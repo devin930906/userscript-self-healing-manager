@@ -58,6 +58,27 @@ describe('Result<T, E> runtime contract', () => {
     }
   });
 
+
+  it('rejects inherited discriminants and non-enumerable or symbol own extras', () => {
+    const text = (value: unknown): string => {
+      if (typeof value !== 'string') throw new TypeError('Expected string');
+      return value;
+    };
+    const inherited = Object.assign(Object.create({ok: true}), {value:'ready', other:'ignored'});
+    const hidden = {ok:true,value:'ready'};
+    Object.defineProperty(hidden,'extra',{value:'smuggled',enumerable:false});
+    const symbol = {ok:false,error:'failed'};
+    Object.defineProperty(symbol,Symbol('extra'),{value:1});
+    for (const input of [inherited,hidden,symbol]) {
+      assert.throws(() => contracts.parseResult(input,text,text),TypeError);
+    }
+  });
+  it('accepts both ordinary and null-prototype own-key Result records', () => {
+    const parser = (input: unknown) => String(input);
+    assert.deepEqual(contracts.parseResult(Object.assign(Object.create(null),{ok:true,value:'yes'}),parser,parser),{ok:true,value:'yes'});
+    assert.deepEqual(contracts.parseResult({ok:false,error:'no'},parser,parser),{ok:false,error:'no'});
+  });
+
   it('validates the discriminated payload using the supplied parser', () => {
     assert.throws(
       () => contracts.parseResult({ ok: true, value: 42 }, asNonemptyString, asNonemptyString),
