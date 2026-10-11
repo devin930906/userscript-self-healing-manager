@@ -103,6 +103,30 @@ test('cleanup effect: unconfirmed child preserves isolated directory; confirmed 
   }
 });
 
+test('cleanup effect: no PID deletes only its isolated test directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'usshm-no-pid-regression-'));
+  const sentinel = join(root, 'sentinel');
+  try {
+    await writeFile(sentinel, 'test-owned');
+    const failures: Error[] = [];
+    await cleanTestRoot(root, undefined, false, failures);
+    await assert.rejects(access(root), { code: 'ENOENT' });
+    assert.deepEqual(failures, [], 'no-PID cleanup must not produce a second error');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cleanup failure propagation uses the same finalizer as Electron finally', () => {
+  const abnormal = new Error('Electron exited with code 7');
+  assert.throws(() => finishTestCleanup([abnormal]), (error: unknown) =>
+    error instanceof AggregateError &&
+    error.message === 'Electron security cleanup failed' &&
+    error.errors.includes(abnormal));
+  assert.throws(() => finishTestCleanup([new Error('exit unconfirmed')]), AggregateError);
+  assert.doesNotThrow(() => finishTestCleanup([]));
+});
+
 interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
 
