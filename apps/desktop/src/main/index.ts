@@ -991,7 +991,7 @@ async function bootstrap():Promise<void>{
     revalidate:()=>{
      pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
-     assertManagedProposalSnapshot({...trusted,proposalId},(()=>{const current=repairs.inspectPending(proposalId);return current?{...current,proposalId}:null;})());
+     assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
     apply:()=>repairs.apply({proposalId:proposalId,approved:true}),
    });
@@ -1069,7 +1069,7 @@ async function bootstrap():Promise<void>{
     revalidate:()=>{
      pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
-     assertManagedProposalSnapshot({...trusted,proposalId},(()=>{const current=repairs.inspectPending(proposalId);return current?{...current,proposalId}:null;})());
+     assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
     apply:()=>repairs.apply({proposalId,approved:true}),
    });
