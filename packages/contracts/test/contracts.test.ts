@@ -90,3 +90,16 @@ describe('Result<T, E> runtime contract', () => {
     );
   });
 });
+
+describe('FR-029 shared batch job status values', () => {
+  const expected = ['queued','preparing','running','paused','cancelling','cancelled','blocked','failed','completed','partially_completed'];
+  it('accepts exactly the designed job statuses without inventing an outcome', () => {
+    assert.deepEqual(contracts.jobStatusValues,expected);
+    for (const status of expected) assert.equal(contracts.parseJobStatus(status),status);
+    assert.equal(Object.isFrozen(contracts.jobStatusValues),true);
+  });
+  it('rejects unknown, ambiguous, and legacy aliases', () => {
+    for (const value of ['success','done','partial','stopped','',null,undefined,1,{},['queued']])
+      assert.throws(()=>contracts.parseJobStatus(value),TypeError);
+  });
+});
