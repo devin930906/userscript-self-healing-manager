@@ -5,6 +5,14 @@ import {basename,dirname,isAbsolute,join} from 'node:path';
 
 const MAX_REPORT_BYTES=8*1024*1024;
 const CHUNK_SIZE=64*1024;
+/** Post-link verification failed. Target may exist and must not be trusted. */
+export class UntrustedReportPublicationError extends Error {
+ readonly code='REPORT_PUBLICATION_UNTRUSTED';
+ constructor(readonly destinationPath:string,cause:unknown){
+  super('Report publication untrusted; target may remain at: '+destinationPath,{cause});
+  this.name='UntrustedReportPublicationError';
+ }
+}
 type ChunkWriter=(file:FileHandle,chunk:Uint8Array,offset:number)=>Promise<number>;
 /**
  * Publish an explicitly saved diagnostic report as a NEW file, never truncate
@@ -98,17 +106,10 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
    await verify(destinationPath);
   }
   catch(error){
-   // The hard link is already visible. Best-effort rollback is restricted
-   // to the inode we published, never a different destination file.
-   try{
-    const [published,staged]=await Promise.all([lstat(destinationPath),lstat(stage)]);
-    if(published.dev!==staged.dev||published.ino!==staged.ino||published.ino===0)
-     throw new Error('Cannot safely roll back a report with changed destination identity');
-    await unlink(destinationPath);
-   }catch(rollbackError){
-    throw new AggregateError([error,rollbackError],'Report verification and publication rollback failed');
-   }
-   throw error;
+   // No portable Node API can atomically unlink only if this name still
+   // references our published inode. Preserve any visible entry rather than
+   // risk deleting a concurrent writer's replacement.
+   throw new UntrustedReportPublicationError(destinationPath,error);
   }
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
