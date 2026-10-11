@@ -899,7 +899,7 @@ function App(){
     <div className="toolbar">
      <button className="secondary" disabled={!targetId||!cdp||busy||exceptionBusy}
       onClick={()=>void observePageExceptions()}>{exceptionBusy?'观察中…':'观察网页异常（只计数）'}</button>
-     <span className="dim">只对选定网页进行短时被动计数；不采集异常文字、堆栈或页面内容，不能证明异常来自油猴脚本。</span>
+     <span className="dim">只对选定网页进行短时被动计数；CDP 事件可能含异常详情，但不会保存、展示或回传异常文字与堆栈，也不会读取页面 DOM；不能证明异常来自油猴脚本。</span>
     </div>
     {exceptionEvidence&&<div className="notice">
      <b>网页异常计数：</b>{exceptionEvidence.status==='observed'?String(exceptionEvidence.observedCount)+' 个被观察事件':
