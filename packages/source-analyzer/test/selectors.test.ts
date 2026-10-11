@@ -256,3 +256,18 @@ test('FR-011 does not certify unrelated model.observe as a MutationObserver oper
   'An arbitrary observe method must not be certified as a MutationObserver');
  assert.equal(records.some(x=>x.kind==='observe'&&x.receiver==='observer'&&x.runtimeRequired===false),true);
 });
+
+test('FR-011 observer binding honors lexical parameters catch and local declarations',()=>{
+ const source=[
+  "const observer = new MutationObserver(() => {});",
+  "observer.observe(target,{childList:true});",
+  "function parameter(observer) { observer.observe(target,{childList:true}); }",
+  "function localLet() { let observer; observer.observe(target,{childList:true}); }",
+  "function localVar() { observer.observe(target,{childList:true}); var observer; }",
+  "try { throw 1; } catch (observer) { observer.observe(target,{childList:true}); }",
+  "function sameScope() { const own = new MutationObserver(()=>{}); own.observe(target,{childList:true}); }",
+ ].join('\n');
+ const rows=analyzeSource({scriptId:'synthetic-shadow',sourceBytes:encoder.encode(source)}).mutationObservers.filter(x=>x.kind==='observe');
+ assert.deepEqual(rows.map(x=>x.runtimeRequired),[false,true,true,true,true,false]);
+ assert.equal(rows.every(x=>x.evidenceLevel==='static-only'&&x.functionalVerified===false),true);
+});
