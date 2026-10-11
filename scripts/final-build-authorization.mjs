@@ -1,6 +1,26 @@
 import {readFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+
+
+const HEX_SHA=/^[0-9a-f]{40}$/;
+export function assertFinalBuildIdentity({checkoutSha,eventSha,tagCommitSha}={}){
+ if(![checkoutSha,eventSha,tagCommitSha].every(s=>typeof s==='string'&&HEX_SHA.test(s)))
+  throw new Error('Final Windows source identity requires three valid Git commit SHA values');
+ if(checkoutSha!==eventSha||checkoutSha!==tagCommitSha)
+  throw new Error('Final Windows tag commit SHA differs from checkout or Actions event');
+ return checkoutSha;
+}
+function resolveGitCommit(revision){
+ const result=spawnSync('git',['rev-parse','--verify',revision],{
+  cwd:fileURLToPath(new URL('..',import.meta.url)),encoding:'utf8',windowsHide:true,
+  maxBuffer:4096,timeout:5000,
+ });
+ if(result.error||result.status!==0||!result.stdout.trim())
+  throw new Error('Unable to verify the final tag and checkout against Git');
+ return result.stdout.trim();
+}
 
 const stableVersion=/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
 
@@ -29,6 +49,11 @@ async function authorizeCurrentWorkflow(){
   ref:process.env.USSHM_BUILD_REF,
   eventName:process.env.USSHM_BUILD_EVENT,
   packageVersion:manifest.version,
+ });
+ assertFinalBuildIdentity({
+  checkoutSha:resolveGitCommit('HEAD'),
+  eventSha:process.env.USSHM_BUILD_SHA,
+  tagCommitSha:resolveGitCommit('refs/tags/v'+permitted.version+'^{commit}'),
  });
  process.stdout.write(`Authorized tag-only Windows packaging for ${permitted.ref}. RG-01..09 still require independent evidence.\n`);
 }
