@@ -368,3 +368,19 @@ test('open-shadow scope rejects a forged DIV shadow root without querying select
  assert.equal(result.checks[0]?.matchCount,null);
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
 });
+
+test('open-shadow scope rejects an element posing as document-fragment by name (QA-022)',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[
+   {nodeId:11,nodeName:'DIV',shadowRoots:[
+    {nodeId:82,nodeName:'#document-fragment',nodeType:1,shadowRootType:'open'},
+   ]},
+  ]}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[101]}),
+ });
+ const result=await probePageLocators(page,[
+  {method:'querySelectorAll',expression:'#shadow-action',runtimeRequired:false},
+ ],{socketFactory:()=>socket,rootScope:'open-shadow'});
+ assert.equal(result.checks[0]?.status,'unverified');
+ assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
+});
