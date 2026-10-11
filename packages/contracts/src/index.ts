@@ -54,3 +54,14 @@ export function parseResult<T, E>(
   }
   throw new TypeError('Invalid discriminated Result shape');
 }
+
+export {
+  verificationLevels,
+  verificationStatuses,
+  parseVerificationChain,
+} from './verification-chain.js';
+export type {
+  VerificationLevel,
+  VerificationStatus,
+  VerificationChain,
+} from './verification-chain.js';
