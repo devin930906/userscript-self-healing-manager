@@ -122,6 +122,33 @@ export function assertStablePackageVersion(version,packageVersion){
 }
 
 /**
+ * tar.exe and ZIP central-directory parsers must agree on every extraction
+ * destination and file/directory entry type, not merely the number of entries.
+ * Do not normalize away directory markers or case differences in this
+ * security-sensitive cross-parser comparison.
+ */
+export function assertMatchingZipEntryInventories({listedEntries,centralEntries}={}){
+ if(!Array.isArray(listedEntries)||!Array.isArray(centralEntries)||
+    listedEntries.length===0||listedEntries.length>ENTRY_MAX||
+    listedEntries.length!==centralEntries.length)
+  throw new Error('ZIP filename inventories have mismatched entry counts');
+ const canonical=(entries)=>{
+  const paths=entries.map(entry=>{
+   // normalizedZipEntry validates traversal, private content and Windows aliases.
+   const normalized=normalizedZipEntry(entry);
+   return normalized+(entry.endsWith('/')||entry.endsWith('\\')?'/':'');
+  });
+  if(new Set(paths.map(path=>path.toLowerCase())).size!==paths.length)
+   throw new Error('ZIP filename inventory contains duplicate destinations');
+  return paths.sort();
+ };
+ const listed=canonical(listedEntries),central=canonical(centralEntries);
+ if(listed.some((path,index)=>path!==central[index]))
+  throw new Error('ZIP tar listing and central-directory path inventory mismatch');
+ return true;
+}
+
+/**
  * Development builds may already create SHA256SUMS. Verify every digest,
  * and never rewrite an existing checksum manifest.
  * This does not prove Authenticode signatures or executable provenance.
@@ -200,6 +227,7 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
    throw new Error('Incomplete ZIP central-directory read');
   let offset=0,totalUncompressedBytes=0;
   const seenExtractionPaths=new Set();
+  const entryNames=[];
   for(let index=0;index<count;index++){
    if(offset+46>size||central.readUInt32LE(offset)!==0x02014b50)
     throw new Error('Invalid ZIP central-directory entry');
@@ -252,6 +280,7 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
    if(seenExtractionPaths.has(extractionPath))
     throw new Error('Unsafe duplicate ZIP central-directory extraction path');
    seenExtractionPaths.add(extractionPath);
+   entryNames.push(decodedName);
    if(verifyLocalHeaders){
     if(localOffset===0xffffffff||localOffset+30>start)
      throw new Error('ZIP local-header offset out of bounds');
@@ -281,7 +310,7 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
    offset+=46+nameLength+extraLength+commentLength;
   }
   if(offset!==size)throw new Error('ZIP central-directory count or length mismatch');
-  return Object.freeze({entryCount:count,totalUncompressedBytes});
+  return Object.freeze({entryCount:count,totalUncompressedBytes,entryNames:Object.freeze(entryNames)});
  }finally{await handle.close();}
 }
 
@@ -404,6 +433,7 @@ async function runFinalArtifactInventory(){
  const inspected=await inspectReleaseZipEntryTypes(zip,{verifyLocalHeaders:true});
  if(inspected.entryCount!==verified.zipEntryCount)
   throw new Error('ZIP central-directory entry count differs from archive filename inventory');
+ assertMatchingZipEntryInventories({listedEntries:entries,centralEntries:inspected.entryNames});
  const checksums=[];
  for(const [i,name] of names.entries()){
   const full=join(folder,name),info=await lstat(full);
