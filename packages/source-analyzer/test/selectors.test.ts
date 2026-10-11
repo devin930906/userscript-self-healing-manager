@@ -189,7 +189,7 @@ test('FR-011 inventories event bindings as static candidates without running scr
   "window.removeEventListener('scroll',handler);",
   "node.onclick=handler;",
   "service.addEventListener('custom', handler);",
- ].join('\\n');
+ ].join('\n');
  const result=analyzeSource({scriptId:'events',sourceBytes:encoder.encode(source)});
  assert.deepEqual(result.eventBindings.map(x=>[x.kind,x.eventName,x.confidence,x.runtimeRequired]),[
   ['addEventListener','click','unknown',true],
