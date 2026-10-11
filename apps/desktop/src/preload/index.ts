@@ -1,9 +1,11 @@
 import {contextBridge,ipcRenderer,webUtils} from 'electron';
+import {TrustedDropSequence} from './trusted-drop-sequence.ts';
 // Only the named operations are exposed. Browser JS never receives raw IPC or filesystem access.
 // A renderer-created File or string is not evidence of an OS drag.
 // The isolated preload alone observes trusted native drop events.
 type TrustedDropListener = (authorizedPaths:string[])=>void;
 const trustedDropListeners=new Set<TrustedDropListener>();
+const trustedDropSequence=new TrustedDropSequence();
 window.addEventListener('drop',(event:DragEvent)=>{
  if(!event.isTrusted||!event.dataTransfer)return;
  const files=Array.from(event.dataTransfer.files).slice(0,50);
@@ -13,9 +15,10 @@ window.addEventListener('drop',(event:DragEvent)=>{
   catch{/* Ignore browser-only File objects: no OS path evidence. */}
  }
  if(paths.length===0)return;
+ const dropGeneration=trustedDropSequence.begin();
  void ipcRenderer.invoke('usshm:grant-drops',paths)
   .then((allowed:unknown)=>{
-   if(!Array.isArray(allowed)||allowed.some(path=>typeof path!=='string'))return;
+   if(!trustedDropSequence.isCurrent(dropGeneration)||!Array.isArray(allowed)||allowed.some(path=>typeof path!=='string'))return;
    for(const listener of trustedDropListeners){try{listener(allowed);}catch{/* A failed UI callback must not grant more paths. */}}
   })
   .catch(()=>{ /* Main denies unsafe/unreadable drops; no authorization created. */ });
