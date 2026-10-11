@@ -20,16 +20,16 @@ export async function approveAndApplyManagedRevision<T>(deps:{
  return deps.apply();
 }
 
-type ManagedProposalIdentity={proposalId:string;scriptId:string;proposedHash:string;previousHash:string};
+type ManagedProposalIdentity={scriptId:string;proposedHash:string;previousHash:string;newSelector:string};
 /** A dialog can outlive a proposal. Compare the immutable reviewed values,
  * never treat a still-valid approval token as consent to replacement bytes. */
 export function assertManagedProposalSnapshot(
  original:ManagedProposalIdentity,
  current:ManagedProposalIdentity|null|undefined,
 ):void{
- if(!current||original.proposalId!==current.proposalId||
-    original.scriptId!==current.scriptId||
+ if(!current||original.scriptId!==current.scriptId||
     original.proposedHash!==current.proposedHash||
-    original.previousHash!==current.previousHash)
+    original.previousHash!==current.previousHash||
+    original.newSelector!==current.newSelector)
   throw new Error('Managed repair proposal changed while awaiting approval');
 }
