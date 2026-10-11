@@ -262,6 +262,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  }
  const overwrittenObserveNames=new Set<string>();
  let globalMutationObserverRebound=false;
+ let mutationObserverPrototypeObserveOverwritten=false;
  function staticPropertyKey(expr:ts.Expression):{owner:ts.Expression,key:string}|null{
   if(ts.isPropertyAccessExpression(expr))return {owner:expr.expression,key:expr.name.text};
   if(ts.isElementAccessExpression(expr)&&expr.argumentExpression&&
@@ -281,6 +282,10 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
       isMutationObserverGlobalReference(left))
     globalMutationObserverRebound=true;
    const prop=staticPropertyKey(left);
+   const prototype=prop&&staticPropertyKey(prop.owner);
+   if(prop?.key==='observe'&&prototype?.key==='prototype'&&
+      ts.isIdentifier(prototype.owner)&&prototype.owner.text==='MutationObserver')
+    mutationObserverPrototypeObserveOverwritten=true;
    if(prop?.key==='observe'&&ts.isIdentifier(prop.owner))
     overwrittenObserveNames.add(prop.owner.text);
   }
@@ -310,7 +315,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  // Find the nearest actual lexical declaration, not a globally shared name.
  // Function/catch parameters and hoisted var declarations shadow outer consts.
  function isProvenObserver(node:ts.Node,name:string):boolean{
-  if(globalMutationObserverRebound||overwrittenObserveNames.has(name)||uncertainNames.has(name)||inWithBody(node))return false;
+  if(globalMutationObserverRebound||mutationObserverPrototypeObserveOverwritten||overwrittenObserveNames.has(name)||uncertainNames.has(name)||inWithBody(node))return false;
   for(let parent:ts.Node|undefined=node;parent;parent=parent.parent){
    // A with object inserts a dynamic name-resolution environment for its body.
    // No outer lexical const can prove which receiver the identifier resolves to.
