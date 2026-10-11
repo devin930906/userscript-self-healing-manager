@@ -133,7 +133,11 @@ function getAlternates(node:ts.CallExpression):string[]{
   if(ts.isBinaryExpression(expression)&&expression.operatorToken.kind===operator){
    visit(expression.left);visit(expression.right);
   }else if(ts.isCallExpression(expression)&&expression.arguments[0]){
-   alternatives.push(expression);
+   const callee=expression.expression;
+   const method=ts.isPropertyAccessExpression(callee)?callee.name.text:
+    ts.isElementAccessExpression(callee)&&callee.argumentExpression&&
+    ts.isStringLiteralLike(callee.argumentExpression)?callee.argumentExpression.text:null;
+   if(method&&METHODS.has(method))alternatives.push(expression);
   }
  };
  visit(root);
