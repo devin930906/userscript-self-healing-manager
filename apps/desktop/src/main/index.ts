@@ -990,7 +990,10 @@ async function bootstrap():Promise<void>{
     revalidate:()=>{
      scanSessions.assertCurrent(scanSnapshot);
      pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
-     if(repairs.inspectPending(q.proposalId)!==trusted)
+     const currentProposal=repairs.inspectPending(q.proposalId);
+     if(!currentProposal||currentProposal.scriptId!==trusted.scriptId||
+        currentProposal.proposedHash!==trusted.proposedHash||
+        currentProposal.previousHash!==trusted.previousHash)
       throw new Error('Managed repair proposal changed while awaiting approval');
     },
     apply:()=>repairs.apply({proposalId:q.proposalId,approved:true}),
