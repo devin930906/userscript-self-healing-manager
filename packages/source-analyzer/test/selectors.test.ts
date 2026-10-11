@@ -242,3 +242,17 @@ test('FR-011 inventories MutationObserver construction and observe options stati
  assert.equal(result.mutationObservers[1]?.sourceRange.start.line,2);
  assert.equal(result.mutationObservers[2]?.optionsKind,'dynamic');
 });
+
+test('FR-011 does not certify unrelated model.observe as a MutationObserver operation',()=>{
+ const source=[
+  "const model = { observe(target, options) { return options.childList; } };",
+  "model.observe(target, {childList:true});",
+  "const observer = new MutationObserver(() => {});",
+  "observer.observe(target, {childList:true});",
+ ].join('\\n');
+ const records=analyzeSource({scriptId:'synthetic-unrelated-observe',sourceBytes:encoder.encode(source)}).mutationObservers;
+ const unrelated=records.filter(x=>x.kind==='observe'&&x.receiver==='model');
+ assert.equal(unrelated.every(x=>x.runtimeRequired===true),true,
+  'An arbitrary observe method must not be certified as a MutationObserver');
+ assert.equal(records.some(x=>x.kind==='observe'&&x.receiver==='observer'&&x.runtimeRequired===false),true);
+});
