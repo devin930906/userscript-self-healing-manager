@@ -952,6 +952,7 @@ async function bootstrap():Promise<void>{
      !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
      typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
    throw new Error('Explicit managed V1 check, target and approval required');
+  const proposalId=q.proposalId as string;
   const scanSnapshot=scanSessions.require(q.scanId);
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   const trusted=repairs.inspectPending(q.proposalId);
@@ -988,15 +989,15 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+     pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
-     const currentProposal=repairs.inspectPending(q.proposalId);
+     const currentProposal=repairs.inspectPending(proposalId);
      if(!currentProposal||currentProposal.scriptId!==trusted.scriptId||
         currentProposal.proposedHash!==trusted.proposedHash||
         currentProposal.previousHash!==trusted.previousHash)
       throw new Error('Managed repair proposal changed while awaiting approval');
     },
-    apply:()=>repairs.apply({proposalId:q.proposalId,approved:true}),
+    apply:()=>repairs.apply({proposalId:proposalId,approved:true}),
    });
   }finally{pendingApprovals.consume(q.proposalId);}
   const index=Number(q.selectorIndex);
