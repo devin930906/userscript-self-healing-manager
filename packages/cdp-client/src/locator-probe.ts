@@ -81,8 +81,8 @@ function selectSingleIframeDocument(root:unknown,expectedFrameId:string):number|
    if(node.nodeName!=='IFRAME'||found!==null||
       !node.contentDocument||typeof node.contentDocument!=='object'||
       Array.isArray(node.contentDocument))return null;
-   const doc=node.contentDocument as {nodeId?:unknown};
-   if(!Number.isSafeInteger(doc.nodeId)||typeof doc.nodeId!=='number'||doc.nodeId<1||
+   const doc=node.contentDocument as {nodeId?:unknown;nodeName?:unknown};
+   if(doc.nodeName!=='#document'||!Number.isSafeInteger(doc.nodeId)||typeof doc.nodeId!=='number'||doc.nodeId<1||
       seen.has(doc.nodeId))return null;
    found=doc.nodeId;
   }
