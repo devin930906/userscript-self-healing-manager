@@ -111,8 +111,14 @@ export function migrateDatabase(db:DatabaseHandle):void{
   const existingScripts=db.prepare("SELECT type FROM sqlite_master WHERE name='scripts' LIMIT 1").get() as {type:string}|undefined;
   if(marker&&marker.type!=='table')
    throw new Error('Invalid database schema version marker');
-  if(!marker&&existingScripts)
-   throw new Error('Unknown unversioned scripts database: explicit migration required');
+  if(!marker){
+   // A database with any user-defined schema object is not provably fresh.
+   // Never label unknown legacy storage as Registry v1, even if 'scripts'
+   // is absent; leave every existing object untouched on rollback.
+   const unknown=db.prepare("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1").get();
+   if(unknown||existingScripts)
+    throw new Error('Unknown unversioned SQLite database: explicit migration required');
+  }
   if(marker){
    const versions=db.prepare('SELECT version FROM schema_version LIMIT 2').all();
    if(versions.length!==1||versions[0]?.version!==1)
