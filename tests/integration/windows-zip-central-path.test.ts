@@ -108,3 +108,38 @@ test('release ZIP gate refuses a tar listing that differs from central directory
    'tar.exe and central directory may not disagree on any extracted path or entry type');
  }
 });
+
+
+test('ZIP central-directory entry type cannot contradict path directory marker or DOS attributes',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-zip-type-consistency-'));
+ const file=join(dir,'candidate.zip');
+ const typedZip=(name:string,unixMode:number,dosAttributes:number)=>{
+  const candidate=Buffer.from(centralDirectoryZip([name]));
+  // Unix creator attributes occupy the high 16 bits; DOS flags the low bits.
+  candidate.writeUInt16LE(unixMode?(3<<8)|20:20,4);
+  candidate.writeUInt32LE(((((unixMode<<16)>>>0)|dosAttributes)>>>0),38);
+  return candidate;
+ };
+ try{
+  for(const valid of [
+   ['resources/app.asar',0o100644,0x20],
+   ['locales/',0o040755,0x10],
+   ['locales/',0,0x10],
+   ['resources/app.asar',0,0x20],
+  ] as const){
+   await writeFile(file,typedZip(...valid));
+   assert.equal((await inspectReleaseZipEntryTypes(file)).entryCount,1);
+  }
+  for(const invalid of [
+   ['resources/app.asar',0o040755,0x10], // Unix directory without slash
+   ['resources/app.asar',0,0x10],       // DOS directory without slash
+   ['locales/',0o100644,0x20],         // Unix regular file with slash
+   ['locales/',0o100644,0x10],         // Conflicting Unix file and DOS directory
+  ] as const){
+   await writeFile(file,typedZip(...invalid));
+   await assert.rejects(inspectReleaseZipEntryTypes(file),
+    /ZIP|directory|type|attribute|marker|unsafe|mismatch/i,
+    'Archive metadata type mismatch must fail closed: '+JSON.stringify(invalid));
+  }
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
