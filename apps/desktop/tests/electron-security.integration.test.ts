@@ -266,6 +266,9 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       PORTABLE_EXECUTABLE_DIR: temporary,
     };
     delete env.ELECTRON_RUN_AS_NODE;
+    // node --test sets a child-runner context which must not leak to Electron.
+    delete env.NODE_TEST_CONTEXT;
+    delete env.NODE_OPTIONS;
     child = spawn(executable, ['.', `--remote-debugging-port=${debugPort}`,
       '--remote-debugging-address=127.0.0.1', '--disable-gpu'], {
       cwd: process.cwd(), env, windowsHide: true,
