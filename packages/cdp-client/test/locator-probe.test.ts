@@ -204,7 +204,7 @@ test('unbounded identity sets never send read-only describe commands or publish 
 
 test('explicit open-shadow scope uses one bounded top-page open root, not document root',async()=>{
  const socket=new ProtocolSocket({
-  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]}}),
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]}}),
   'DOM.querySelectorAll':({nodeId,selector})=>({nodeIds:nodeId===82&&selector==='#shadow-send'?[101]:[]}),
   'DOM.describeNode':()=>({node:{backendNodeId:882,nodeType:1}}),
  });
@@ -219,10 +219,10 @@ test('explicit open-shadow scope uses one bounded top-page open root, not docume
 });
 test('open-shadow scope fails closed on ambiguous, nested, closed or malformed roots without selector commands',async()=>{
  const trees=[
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},{nodeId:83,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]},
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'closed'}]}]},
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open',children:[{nodeId:13,shadowRoots:[{nodeId:89,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]}]}]},
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:'bad',shadowRootType:'open'}]}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},{nodeId:83,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:82,shadowRootType:'closed'}]}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open',children:[{nodeId:13,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:89,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]}]}]},
+  {nodeId:8,children:[{nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:'bad',shadowRootType:'open'}]}]},
  ];
  for(const root of trees){
   const socket=new ProtocolSocket({'DOM.getDocument':()=>({root})});
@@ -245,7 +245,7 @@ test('unknown shadow scopes and oversized trees must not silently fall back to d
 
 test('an unrelated closed shadow root does not become an open-root locator or invalidate a positive open-root check',async()=>{
  const socket=new ProtocolSocket({
-  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[
    {nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},{nodeId:83,shadowRootType:'closed'}]}]}}),
   'DOM.querySelectorAll':({nodeId})=>({nodeIds:nodeId===82?[101]:[]}),
   'DOM.describeNode':()=>({node:{nodeType:1,backendNodeId:9001}}),
@@ -357,7 +357,7 @@ test('iframe-document refuses a frameId-matched non-document content root (QA-02
 test('open-shadow scope rejects a forged DIV shadow root without querying selectors (QA-022)',async()=>{
  const socket=new ProtocolSocket({
   'DOM.getDocument':()=>({root:{nodeId:8,children:[
-   {nodeId:11,nodeName:'DIV',shadowRoots:[{nodeId:82,nodeName:'DIV',shadowRootType:'open'}]},
+   {nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[{nodeId:82,nodeName:'DIV',shadowRootType:'open'}]},
   ]}}),
   'DOM.querySelectorAll':()=>({nodeIds:[101]}),
  });
@@ -372,7 +372,7 @@ test('open-shadow scope rejects a forged DIV shadow root without querying select
 test('open-shadow scope rejects an element posing as document-fragment by name (QA-022)',async()=>{
  const socket=new ProtocolSocket({
   'DOM.getDocument':()=>({root:{nodeId:8,children:[
-   {nodeId:11,nodeName:'DIV',shadowRoots:[
+   {nodeId:11,nodeName:'DIV',nodeType:1,shadowRoots:[
     {nodeId:82,nodeName:'#document-fragment',nodeType:1,shadowRootType:'open'},
    ]},
   ]}}),
