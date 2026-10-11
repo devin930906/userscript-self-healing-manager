@@ -51,7 +51,7 @@ export function resolveDataRoot(input: DataRootInput): string {
 
 /** Never silently fall back to AppData; even an existing link is disallowed. */
 export async function ensureWritableDataRoot(dataRoot: string): Promise<void> {
-  if (!isAbsolute(dataRoot)) throw new Error('Data root must be an absolute local path');
+  if (!isAbsolute(dataRoot)) throw new Error('Data root must be an absolute path');
   let current = parse(dataRoot).root;
   const segments = dataRoot.slice(current.length).split(/[\\/]+/).filter(Boolean);
   for (const segment of segments) {
