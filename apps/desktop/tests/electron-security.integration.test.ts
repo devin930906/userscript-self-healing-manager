@@ -131,6 +131,21 @@ test('cleanup failure propagation uses the same finalizer as Electron finally', 
   assert.doesNotThrow(() => finishTestCleanup([]));
 });
 
+test('exit observed before termination request retains code and signal, requested shutdown does not', () => {
+  assert.match(exitBeforeTermination({code: 17, signal: null}, false) ?? '', /code 17/);
+  assert.match(exitBeforeTermination({code: null, signal: 'SIGTERM'}, false) ?? '', /signal SIGTERM/);
+  assert.equal(exitBeforeTermination({code: 1, signal: null}, true), undefined);
+});
+
+test('finalizer retains both primary failure and independent cleanup failure', () => {
+  const primary = new Error('main assertion failed');
+  const cleanup = new Error('cleanup failed');
+  assert.throws(() => finishTestCleanup([cleanup], primary), (error: unknown) =>
+    error instanceof AggregateError && error.errors.length === 2 &&
+    error.errors[0] === primary && error.errors[1] === cleanup);
+  assert.throws(() => finishTestCleanup([], primary), (error: unknown) => error === primary);
+});
+
 interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
 
