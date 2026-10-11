@@ -1,3 +1,28 @@
+/** FR-029/030: a recoverable script × site-state item, distinct from the batch job. */
+export const jobItemStatusValues = Object.freeze([
+  'queued', 'preparing', 'running', 'completed', 'failed', 'blocked', 'cancelled',
+] as const);
+export type JobItemStatus = (typeof jobItemStatusValues)[number];
+export function parseJobItemStatus(input: unknown): JobItemStatus {
+  if (typeof input !== 'string' || !jobItemStatusValues.some(value => value === input)) {
+    throw new TypeError('Invalid JobItemStatus');
+  }
+  return input as JobItemStatus;
+}
+
+/** FR-029: job-level batch queue status vocabulary; not a transition engine. */
+export const jobStatusValues = Object.freeze([
+  'queued', 'preparing', 'running', 'paused', 'cancelling',
+  'cancelled', 'blocked', 'failed', 'completed', 'partially_completed',
+] as const);
+export type JobStatus = (typeof jobStatusValues)[number];
+export function parseJobStatus(input: unknown): JobStatus {
+  if (typeof input !== 'string' || !jobStatusValues.some(value => value === input)) {
+    throw new TypeError('Invalid JobStatus');
+  }
+  return input as JobStatus;
+}
+
 /** Stable identifiers are opaque strings at the contract boundary. */
 export type ScriptId = string;
 
