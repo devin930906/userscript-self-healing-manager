@@ -76,3 +76,35 @@ test('ZIP central-directory inspector rejects case-insensitive duplicate extract
   }
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('release ZIP inspector exposes actual central-directory paths for an independent inventory comparison',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-zip-inventory-central-'));
+ const file=join(dir,'candidate.zip');
+ try{
+  await writeFile(file,centralDirectoryZip(['resources/app.asar','locales/en-US.pak','locales/']));
+  const result=await inspectReleaseZipEntryTypes(file);
+  assert.deepEqual((result as typeof result & {entryNames?:readonly string[]}).entryNames,
+   ['resources/app.asar','locales/en-US.pak','locales/']);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('release ZIP gate refuses a tar listing that differs from central directory despite identical entry counts',async()=>{
+ const gate=await import('../../scripts/windows-release-gate.mjs');
+ const compare=(gate as typeof gate & {
+  assertMatchingZipEntryInventories?: (input:{listedEntries:string[];centralEntries:string[]})=>boolean;
+ }).assertMatchingZipEntryInventories;
+ assert.equal(typeof compare,'function','release gate must compare path inventories, not just entry counts');
+ const listed=['Userscript-Self-Healing-Manager.exe','resources/app.asar','locales/'];
+ assert.equal(compare!({listedEntries:listed,centralEntries:[...listed].reverse()}),true,
+  'archive order must not matter');
+ for(const bad of [
+  ['Userscript-Self-Healing-Manager.exe','resources/other.asar','locales/'],
+  ['Userscript-Self-Healing-Manager.exe','resources/app.asar','locales'],
+  ['Userscript-Self-Healing-Manager.exe','resources/app.asar'],
+ ]){
+  assert.throws(()=>compare!({listedEntries:listed,centralEntries:bad}),
+   /ZIP|inventory|mismatch|entry|directory|path/i,
+   'tar.exe and central directory may not disagree on any extracted path or entry type');
+ }
+});
