@@ -241,12 +241,15 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  // lets the page collector compare batches without exposing raw CDP identities.
  const pageDocumentToken=baselineDocument?.frameId&&baselineDocument.loaderId?
   createHash('sha256').update(baselineDocument.frameId+'\0'+baselineDocument.loaderId).digest('hex'):undefined;
- const validatedItems=finalItems.map((entry,index)=>({
-  ...entry,...(classifyReadOnlyFault(entry)?{diagnostic:classifyReadOnlyFault(entry)}:{}),
-  verification:projectVerificationLevels({
-   staticStatus:items[index]?.status??'skipped',dom:entry,
-  }),
- }));
+ const validatedItems=finalItems.map((entry,index)=>{
+  const diagnostic=classifyReadOnlyFault(entry);
+  return {
+   ...entry,...(diagnostic?{diagnostic}:{}),
+   verification:projectVerificationLevels({
+    staticStatus:items[index]?.status??'skipped',dom:entry,
+   }),
+  };
+ });
  return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
   ...(pageDocumentToken?{pageDocumentToken}:{}),totalItems:items.length,items:validatedItems};
 }
