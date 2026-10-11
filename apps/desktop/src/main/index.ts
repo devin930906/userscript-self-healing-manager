@@ -1073,7 +1073,7 @@ async function bootstrap():Promise<void>{
     },
     apply:()=>repairs.apply({proposalId,approved:true}),
    });
-  }finally{pendingApprovals.consume(proposalId);}
+  }finally{pendingApprovals.consume(q.proposalId);}
   return {...applied,activePath:join(dataRoot,'managed',trusted.scriptId,'current.user.js')};
  });
  ipcMain.handle('usshm:verify-managed-dom',async(event,input:unknown)=>{assertSender(event);
