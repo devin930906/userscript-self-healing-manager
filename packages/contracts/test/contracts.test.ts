@@ -116,3 +116,16 @@ describe('FR-029/030 job-item status boundary', () => {
       assert.throws(()=>contracts.parseJobItemStatus(invalid),TypeError);
   });
 });
+
+describe('FR-040 report export format boundary', () => {
+  it('matches the reporting consumer JSON / Markdown formats', () => {
+    assert.deepEqual(contracts.reportFormatValues,['json','markdown']);
+    assert.equal(Object.isFrozen(contracts.reportFormatValues),true);
+    assert.equal(contracts.parseReportFormat('json'),'json');
+    assert.equal(contracts.parseReportFormat('markdown'),'markdown');
+  });
+  it('rejects unsupported and non-string report formats', () => {
+    for(const input of ['md','html','pdf','JSON','',null,undefined,{},['json']])
+      assert.throws(()=>contracts.parseReportFormat(input),TypeError);
+  });
+});

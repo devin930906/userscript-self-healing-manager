@@ -1,3 +1,13 @@
+/** FR-040: only the export formats currently supported by the reporting consumer. */
+export const reportFormatValues = Object.freeze(['json','markdown'] as const);
+export type ReportFormat = (typeof reportFormatValues)[number];
+export function parseReportFormat(input: unknown): ReportFormat {
+  if (typeof input !== 'string' || !reportFormatValues.some(value => value === input)) {
+    throw new TypeError('Invalid ReportFormat');
+  }
+  return input as ReportFormat;
+}
+
 /** FR-029/030: a recoverable script × site-state item, distinct from the batch job. */
 export const jobItemStatusValues = Object.freeze([
   'queued', 'preparing', 'running', 'completed', 'failed', 'blocked', 'cancelled',
