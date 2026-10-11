@@ -11,18 +11,27 @@ export interface DataRootInput {
   portableExternalDirectory?: string | undefined;
 }
 
+/** Windows UNC shares are not safe default roots for local SQLite or backups. */
+function assertLocalDataPath(path: string): void {
+  if (/^[\\\\/]{2}/.test(path)) {
+    throw new Error('UNC network share cannot be used as a local persistent Data root');
+  }
+}
+
 function pathModule(path: string) {
   return /^[a-z]:[\\/]/i.test(path) || /^\\\\/.test(path) ? win32 : { join, isAbsolute, parse };
 }
 
 export function resolveDataRoot(input: DataRootInput): string {
   if (input.distributionMode === 'installed') {
+    assertLocalDataPath(input.osUserDataDirectory);
     if (!pathModule(input.osUserDataDirectory).isAbsolute(input.osUserDataDirectory)) throw new Error('User data root must be absolute');
     return input.osUserDataDirectory;
   }
   const base = input.distributionMode === 'portable-exe' ? input.portableExternalDirectory : input.exeDirectory;
   if (!base && input.distributionMode === 'portable-exe') throw new Error('PORTABLE_EXECUTABLE_DIR is unavailable; portable data directory cannot be determined');
   if (!base || !pathModule(base).isAbsolute(base)) throw new Error('Portable data root must be absolute');
+  assertLocalDataPath(base);
   if (input.distributionMode === 'portable-exe') {
     // Lexical containment is not enough to prove Windows filesystem identity.
     // Reject device namespaces and Win32 trailing-dot/space components until
@@ -51,6 +60,7 @@ export function resolveDataRoot(input: DataRootInput): string {
 
 /** Never silently fall back to AppData; even an existing link is disallowed. */
 export async function ensureWritableDataRoot(dataRoot: string): Promise<void> {
+  assertLocalDataPath(dataRoot);
   if (!isAbsolute(dataRoot)) throw new Error('Data root must be an absolute local path');
   let current = parse(dataRoot).root;
   const segments = dataRoot.slice(current.length).split(/[\\/]+/).filter(Boolean);
