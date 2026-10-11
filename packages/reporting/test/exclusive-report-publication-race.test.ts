@@ -35,9 +35,10 @@ test('an invalid hard-linked publication is rolled back after the final link',as
   await assert.rejects(writeExclusiveReport({
    destinationPath,content:'{"original":true}',
    afterPublish:async()=>{await writeFile(destinationPath,'{"mutated":true}');},
-  }),/changed|SHA-256|mismatch|verification/i);
-  await assert.rejects(readFile(destinationPath),{code:'ENOENT'});
-  assert.deepEqual(await readdir(root),[]);
+  }),error=>error instanceof Error && error.message.includes('Report publication untrusted') && error.message.includes(destinationPath));
+  assert.equal(await readFile(destinationPath,'utf8'),'{"mutated":true}',
+   'published target must remain when atomic ownership-safe unlink is unavailable');
+  assert.deepEqual(await readdir(root),['report.json']);
  }finally{await rm(root,{recursive:true,force:true});}
 });
 
@@ -51,8 +52,25 @@ test('rollback never removes a different file installed after linking',async()=>
     await unlink(destinationPath);
     await writeFile(destinationPath,'independent file');
    },
-  }),error=>error instanceof AggregateError&&/rollback/i.test(error.message));
+  }),error=>error instanceof Error && error.message.includes('Report publication untrusted') && error.message.includes(destinationPath));
   assert.equal(await readFile(destinationPath,'utf8'),'independent file');
+  assert.deepEqual(await readdir(root),['report.json']);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+// A prior inode check cannot authorize a later path unlink: another process
+// may replace the entry in between. Failure must never delete that entry.
+test('published failure never deletes a replaced third-party file',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-report-no-unlink-'));
+ try{
+  const destinationPath=join(root,'report.json');
+  await assert.rejects(writeExclusiveReport({destinationPath,content:'{"original":true}',
+   afterPublish:async()=>{
+    await unlink(destinationPath);
+    await writeFile(destinationPath,'third-party replacement');
+   },
+  }),error=>error instanceof Error && error.message.includes('Report publication untrusted') && error.message.includes(destinationPath));
+  assert.equal(await readFile(destinationPath,'utf8'),'third-party replacement');
   assert.deepEqual(await readdir(root),['report.json']);
  }finally{await rm(root,{recursive:true,force:true});}
 });
