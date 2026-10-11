@@ -112,7 +112,15 @@ export async function observeReadOnlyPageExceptions(
      }else if(method==='Runtime.disable')finish();
      return;
     }
-    if(!enabled||method!=='Runtime.enable'||message.method!=='Runtime.exceptionThrown')return;
+    if(!enabled||method!=='Runtime.enable')return;
+    // A changed or cleared execution context breaks the continuous observation
+    // window even when the final URL/frame/loader happens to look unchanged.
+    // Do not report an unsupported zero-exception conclusion.
+    if(message.method==='Runtime.executionContextsCleared'||
+       message.method==='Runtime.executionContextDestroyed'){
+     invalid=true;stop();return;
+    }
+    if(message.method!=='Runtime.exceptionThrown')return;
     const params=message.params;
     const details=params&&typeof params==='object'&&!Array.isArray(params)?
      (params as {exceptionDetails?:unknown}).exceptionDetails:null;
