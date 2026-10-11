@@ -416,3 +416,18 @@ test('open-shadow refuses a fragment falsely supplied as ordinary children rathe
  assert.equal(result.checks[0]?.matchCount,null);
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
 });
+
+test('open-shadow rejects a forged shadowRoots edge owned by a document node (QA-022)',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,nodeName:'#document',nodeType:9,shadowRoots:[
+   {nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},
+  ]}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[101]}),
+ });
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+  socketFactory:()=>socket,rootScope:'open-shadow',
+ });
+ assert.equal(result.checks[0]?.status,'unverified');
+ assert.equal(result.checks[0]?.matchCount,null);
+ assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
+});
