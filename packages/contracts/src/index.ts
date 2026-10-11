@@ -1,3 +1,15 @@
+/** FR-029/030: a recoverable script × site-state item, distinct from the batch job. */
+export const jobItemStatusValues = Object.freeze([
+  'queued', 'preparing', 'running', 'completed', 'failed', 'blocked', 'cancelled',
+] as const);
+export type JobItemStatus = (typeof jobItemStatusValues)[number];
+export function parseJobItemStatus(input: unknown): JobItemStatus {
+  if (typeof input !== 'string' || !jobItemStatusValues.some(value => value === input)) {
+    throw new TypeError('Invalid JobItemStatus');
+  }
+  return input as JobItemStatus;
+}
+
 /** FR-029: job-level batch queue status vocabulary; not a transition engine. */
 export const jobStatusValues = Object.freeze([
   'queued', 'preparing', 'running', 'paused', 'cancelling',
