@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {runStaticScan} from '../src/index.ts';
@@ -124,4 +124,27 @@ test('fixture double failures preserve original ordering and still remove the ro
   });
   assert.deepEqual(events,['run','close','remove']);
  }
+});
+
+test('successful run keeps close then remove errors in order and removes its fixture',async()=>{
+ const closing=new Error('close-only cleanup failure');
+ const removing=new Error('remove-only cleanup failure');
+ const events:string[]=[];
+ let fixtureRoot:string|undefined;
+ await assert.rejects(withScanFixture({
+  open:()=>({close:()=>{events.push('close');throw closing;}}),
+  remove:async root=>{
+   events.push('remove');
+   fixtureRoot=root;
+   await rm(root,{recursive:true,force:true});
+   throw removing;
+  },
+ },async()=>{events.push('run-success');}),error=>{
+  assert.ok(error instanceof AggregateError);
+  assert.deepEqual(error.errors,[closing,removing]);
+  return true;
+ });
+ assert.deepEqual(events,['run-success','close','remove']);
+ assert.ok(fixtureRoot);
+ await assert.rejects(stat(fixtureRoot),{code:'ENOENT'});
 });
