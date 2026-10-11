@@ -41,13 +41,17 @@ test('Windows packaging workflow enforces tag guard before npm ci, build and ele
 });
 
 
-test('tagged release must verify three real files, ZIP safety and SHA256 checksums before artifacts are uploaded',async()=>{
+test('tagged release validates real artifacts before owning SHA256 manifest and upload',async()=>{
  const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
- const checksum=workflow.indexOf('name: Generate SHA256 manifest');
  const finalGate=workflow.indexOf('node scripts/windows-release-gate.mjs');
  const upload=workflow.indexOf('uses: actions/upload-artifact@v4');
- assert.ok(checksum>=0&&finalGate>checksum&&upload>finalGate,
+ assert.ok(finalGate>0&&upload>finalGate,
   'An unverified installer/ZIP must never reach the final artifact upload step');
+ // The final gate safely creates a missing manifest (wx) or verifies an
+ // existing manifest byte-for-byte; a prior Set-Content would erase evidence.
+ const preGate=workflow.slice(0,finalGate);
+ assert.doesNotMatch(preGate,/Generate SHA256 manifest|SHA256SUMS\\.txt/i,
+  'No packaging step may rewrite checksums before the safe release gate');
  assert.match(workflow,/Release inventory|Verify final (?:three|Windows)|final release inventory/i);
 });
 
