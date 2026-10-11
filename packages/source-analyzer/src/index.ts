@@ -253,7 +253,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  // Conservative lexical hint: only a single const initialized directly by the
  // genuine global MutationObserver can make an identifier.observe static-known.
  // Colliding declarations and writes keep the evidence runtime-required.
- const observerNames=new Set<string>();
+ const observerBindings=new Map<ts.Node,Set<string>>();
  const uncertainNames=new Set<string>();
  function collectObserverBindings(node:ts.Node):void{
   if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)){
@@ -263,13 +263,26 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    const init=node.initializer;
    const genuine=isConst&&!!init&&ts.isNewExpression(init)&&ts.isIdentifier(init.expression)&&
     init.expression.text==='MutationObserver'&&!isLocallyBound(init,'MutationObserver');
-   if(genuine&&!observerNames.has(name)&&!uncertainNames.has(name))observerNames.add(name);
-   else {observerNames.delete(name);uncertainNames.add(name);}
+   if(genuine){
+    const owner=ownerOf(node,'lexical');
+    const names=observerBindings.get(owner)??new Set<string>();
+    names.add(name);observerBindings.set(owner,names);
+   }
   }else if(ts.isBinaryExpression(node)&&node.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
    ts.isIdentifier(node.left))uncertainNames.add(node.left.text);
   ts.forEachChild(node,collectObserverBindings);
  }
  collectObserverBindings(source);
+ // Find the nearest actual lexical declaration, not a globally shared name.
+ // Function/catch parameters and hoisted var declarations shadow outer consts.
+ function isProvenObserver(node:ts.Node,name:string):boolean{
+  if(uncertainNames.has(name))return false;
+  for(let parent:ts.Node|undefined=node;parent;parent=parent.parent){
+   if(localBindings.get(parent)?.has(name))
+    return observerBindings.get(parent)?.has(name)===true;
+  }
+  return false;
+ }
  function collectMutationObserver(node:ts.Node):void{
   let kind:MutationObserverRecord['kind']|null=null;
   let receiver='';
@@ -286,7 +299,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
     // Unknown receivers may implement a non-DOM observe method: do not
     // promote such a static candidate into a runtime assertion.
     kind='observe';receiver=target.text;
-    runtimeRequired=!observerNames.has(target.text)||uncertainNames.has(target.text);
+    runtimeRequired=!isProvenObserver(node,target.text);
    }else if(ts.isNewExpression(target)&&ts.isIdentifier(target.expression)&&
     target.expression.text==='MutationObserver'&&!isLocallyBound(target,'MutationObserver')){
     kind='observe';receiver='<constructed>';
