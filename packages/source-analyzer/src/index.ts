@@ -267,7 +267,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    ts.isIdentifier(expr.expression)&&['globalThis','window','self'].includes(expr.expression.text);
  }
  function scanMutationMutations(node:ts.Node):void{
-  if(ts.isBinaryExpression(node)&&ts.isAssignmentOperator(node.operatorToken.kind)){
+  if(ts.isBinaryExpression(node)&&node.operatorToken.kind>=ts.SyntaxKind.FirstAssignment&&node.operatorToken.kind<=ts.SyntaxKind.LastAssignment){
    const left=node.left;
    if((ts.isIdentifier(left)&&left.text==='MutationObserver')||
       (ts.isPropertyAccessExpression(left)&&isMutationObserverGlobalReference(left)))
