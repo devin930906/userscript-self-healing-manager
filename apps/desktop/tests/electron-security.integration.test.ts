@@ -69,6 +69,40 @@ test('cleanup retains data for unconfirmed PID, but removes data after confirmed
   assert.equal(mayDeleteTestRoot(4242, true), true);
 });
 
+// The same effectful cleanup function is exercised by the tests and by the
+// real Electron integration's finally block. It only receives test-owned roots.
+async function cleanTestRoot(root: string, pid: number | undefined, confirmed: boolean,
+  failures: Error[], abnormal?: string): Promise<void> {
+  if (!mayDeleteTestRoot(pid, confirmed)) {
+    failures.push(new Error('Electron exit unconfirmed; temporary data retained: ' + root));
+  }
+  if (abnormal) failures.push(new Error(abnormal));
+  if (mayDeleteTestRoot(pid, confirmed)) {
+    try { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+    catch (error) { failures.push(new Error('Temporary directory cleanup: ' + String(error))); }
+  }
+}
+
+test('cleanup effect: unconfirmed child preserves isolated directory; confirmed abnormal exit deletes and fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'usshm-cleanup-regression-'));
+  const sentinel = join(root, 'sentinel');
+  try {
+    await writeFile(sentinel, 'test-owned');
+    const pending: Error[] = [];
+    await cleanTestRoot(root, 4242, false, pending);
+    await access(sentinel); // Real fs assertion: rm must NOT run.
+    assert.match(pending.map(x => x.message).join(' '), /exit unconfirmed/);
+
+    const abnormal: Error[] = [];
+    await cleanTestRoot(root, 4242, true, abnormal, exitFailure({ code: 7, signal: null }));
+    await assert.rejects(access(root), { code: 'ENOENT' }); // Real fs assertion: rm DID run.
+    assert.match(abnormal.map(x => x.message).join(' '), /code 7/);
+  } finally {
+    // This fixture has no spawned Electron process; it owns its root outright.
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 interface Target { type?: string; url?: string; webSocketDebuggerUrl?: string }
 interface CdpReply { id?: number; result?: Record<string, unknown>; error?: { message: string } }
 
@@ -347,17 +381,9 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       try { await withTimeout(new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())), 10000, 'HTTP close'); }
       catch(e) { failures.push(e as Error); }
     }
-    if (!mayDeleteTestRoot(child?.pid, exitConfirmed)) {
-      failures.push(new Error('Electron exit unconfirmed; temporary data retained: ' + temporary));
-    }
-    if (exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError) {
-      // Report an abnormal exit even when deleting the test-only directory is safe.
-      failures.push(new Error(exitFailure(exit) ?? 'Electron exited unexpectedly'));
-    }
-    if (mayDeleteTestRoot(child?.pid, exitConfirmed)) {
-      try { await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
-      catch (e) { failures.push(new Error('Temporary directory cleanup: ' + String(e))); }
-    }
+    const abnormal = exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError
+      ? exitFailure(exit) ?? 'Electron exited unexpectedly' : undefined;
+    await cleanTestRoot(temporary, child?.pid, exitConfirmed, failures, abnormal);
     if(failures.length) throw new AggregateError(failures,'Electron security cleanup failed');
   }
 });
