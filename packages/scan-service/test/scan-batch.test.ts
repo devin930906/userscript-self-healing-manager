@@ -37,8 +37,8 @@ test('Task 7 batch: duplicate input is skipped, unreadable and parse failures ar
   assert.equal(result.items[2]?.scriptId,undefined);
   assert.ok(result.items[2]?.diagnostics.length,'missing script must retain failure diagnostics');
   assert.ok(result.items[3]?.diagnostics.length,'parse failure must retain diagnostics');
-  assert.equal(repository.list().length,2,'duplicate and failed items must not create records');
-  assert.deepEqual(repository.list().map(record=>record.path).sort(),[first,last].sort());
+  assert.equal(repository.list().length,3,'duplicate and unreadable items must not create records; parse-error remains recorded');
+  assert.deepEqual(repository.list().map(record=>record.path).sort(),[first,invalid,last].sort());
   for(const [index,path] of [first,invalid,last].entries())assert.deepEqual(await readFile(path),before[index]);
  }finally{
   db.close();
