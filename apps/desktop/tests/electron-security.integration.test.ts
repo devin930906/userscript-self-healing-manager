@@ -18,7 +18,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { createServer as createTcpServer } from 'node:net';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -233,22 +232,8 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   const marker = 'USSHM_EXISTING_HTML_44';
   const alternateFile = join(temporary, 'alternate-existing.html');
   const requests = { initial: 0, redirected: 0 };
-  // Reserve an OS-selected loopback TCP port, then release it for Electron.
-  // Electron on Windows does not reliably emit the port=0 CDP endpoint on stderr.
-  const portProbe = createTcpServer();
-  let debugPort: number;
-  try {
-    await withTimeout(new Promise<void>((done, fail) => {
-      portProbe.once('error', fail);
-      portProbe.listen(0, '127.0.0.1', done);
-    }), 5000, 'CDP port reservation');
-    const bound = portProbe.address();
-    assert.ok(bound && typeof bound !== 'string');
-    debugPort = bound.port;
-  } finally {
-    if (portProbe.listening) await withTimeout(new Promise<void>((done, fail) =>
-      portProbe.close(error => error ? fail(error) : done())), 5000, 'CDP port release');
-  }
+  // Match the proven Windows Electron GUI smoke CDP port on an isolated runner.
+  const debugPort = 9224;
   const origin = `http://127.0.0.1:${debugPort}`;
   try {
     await writeFile(alternateFile, '<!doctype html><title>' + marker + '</title>', 'utf8');
