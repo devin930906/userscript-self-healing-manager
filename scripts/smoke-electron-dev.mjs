@@ -14,7 +14,10 @@ const exe=resolve('node_modules','electron','dist','electron.exe');
 await access(exe);
 await access(resolve('dist','index.html'));
 await access(resolve('dist','main.cjs'));
-const root=await mkdtemp(join(tmpdir(),'usshm-electron-gui-'));
+// Windows hosted runners can expose an 8.3 user-profile alias via tmpdir()
+// (for example RUNNER~1). A portable EXE must reject that ambiguous path.
+// Use the runner's separate full-form scratch root; never relax production guards.
+const root=await mkdtemp(join(process.env.RUNNER_TEMP??tmpdir(),'usshm-electron-gui-'));
 const roaming=join(root,'Roaming'),local=join(root,'Local');
 let appProcess,secondInstance,stderr='';
 try{
