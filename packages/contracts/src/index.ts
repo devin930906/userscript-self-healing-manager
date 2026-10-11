@@ -1,3 +1,15 @@
+/** FR-018 / QA-025/026: provenance classification, not an attribution inference engine. */
+export const errorOriginValues = Object.freeze([
+  'cdp', 'page', 'userscript', 'unknown',
+] as const);
+export type ErrorOrigin = (typeof errorOriginValues)[number];
+export function parseErrorOrigin(input: unknown): ErrorOrigin {
+  if (typeof input !== 'string' || !errorOriginValues.some(value => value === input)) {
+    throw new TypeError('Invalid ErrorOrigin');
+  }
+  return input as ErrorOrigin;
+}
+
 /** FR-007: static scan item outcomes from the scan-service consumer; not ScriptHealth. */
 export const staticScanItemStatusValues = Object.freeze([
   'parsed', 'parse-error', 'unreadable', 'skipped',
