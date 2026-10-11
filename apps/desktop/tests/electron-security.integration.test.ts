@@ -407,7 +407,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       let killer: ChildProcess | undefined;
       try {
         // Capture any exit that happened before we requested termination.
-        if (!exitConfirmed && processToStop.exitCode !== null || !exitConfirmed && processToStop.signalCode !== null) {
+        if (!exitConfirmed && (processToStop.exitCode !== null || processToStop.signalCode !== null)) {
           unrequestedAbnormalExit ??= exitBeforeTermination({code:processToStop.exitCode, signal:processToStop.signalCode}, false);
         }
         terminationRequested = true;
