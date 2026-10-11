@@ -43,7 +43,7 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
   seen.add(id);
   if(data.shadowRootType!==undefined){
    if(data.shadowRootType==='closed'||data.shadowRootType==='user-agent')continue;
-   if(data.shadowRootType!=='open'||data.nodeName!=='#document-fragment')return null;
+   if(data.shadowRootType!=='open'||(data.nodeName!=='#document-fragment'||data.nodeType!==11))return null;
    if(openRoot!==null)return null;
    openRoot=id;
   }
