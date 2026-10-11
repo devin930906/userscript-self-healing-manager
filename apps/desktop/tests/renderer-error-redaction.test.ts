@@ -45,3 +45,25 @@ test('all renderer error fallbacks use a safe formatter, never stringify untrust
  assert.doesNotMatch(source,/String\(error\)|String\(e\)|String\(err\)/,
   'Raw exceptions may contain private paths, URLs, DOM data or auth tokens');
 });
+
+
+test('report publication residue IPC code gives an actionable warning without leaking file paths',()=>{
+ const warning='报告可能残留且不可信，请检查导出文件夹。';
+ for(const raw of [
+  'REPORT_PUBLICATION_UNTRUSTED',
+  "Error invoking remote method 'usshm:export': Error: REPORT_PUBLICATION_UNTRUSTED",
+  "Error invoking remote method 'usshm:export-dom-report': Error: REPORT_PUBLICATION_UNTRUSTED",
+ ]) assert.equal(summarizeSafeDesktopError(new Error(raw)),warning);
+ for(const raw of [
+  'REPORT_PUBLICATION_UNTRUSTED C:\\\\Users\\\\Alice\\\\secret.json',
+  "Error invoking remote method 'usshm:export': Error: REPORT_PUBLICATION_UNTRUSTED /private/token",
+  'OTHER_REPORT_FAILURE',
+ ]) assert.equal(summarizeSafeDesktopError(new Error(raw)),
+  '操作未完成，请检查当前授权、源文件和浏览器状态后重试。');
+});
+
+test('report export errors route through safe formatter in both UI entrypoints',async()=>{
+ const source=await readFile(new URL('../src/renderer/App.tsx',import.meta.url),'utf8');
+ assert.match(source,/async function exportReport[\\s\\S]*?catch\\(e\\)\\{setError\\(summarizeSafeDesktopError\\(e\\)\\);\\}/);
+ assert.match(source,/async function exportDomReport[\\s\\S]*?catch\\(e\\)\\{setError\\(summarizeSafeDesktopError\\(e\\)\\);\\}/);
+});
