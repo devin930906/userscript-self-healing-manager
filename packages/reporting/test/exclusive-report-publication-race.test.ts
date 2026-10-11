@@ -35,7 +35,7 @@ test('an invalid hard-linked publication is rolled back after the final link',as
   await assert.rejects(writeExclusiveReport({
    destinationPath,content:'{"original":true}',
    afterPublish:async()=>{await writeFile(destinationPath,'{"mutated":true}');},
-  }),error=>error instanceof Error && error.message.includes('Report publication untrusted') && error.message.includes(destinationPath));
+  }),error=>error instanceof Error && error.message==='REPORT_PUBLICATION_UNTRUSTED' && 'destinationPath' in error && error.destinationPath===destinationPath);
   assert.equal(await readFile(destinationPath,'utf8'),'{"mutated":true}',
    'published target must remain when atomic ownership-safe unlink is unavailable');
   assert.deepEqual(await readdir(root),['report.json']);
@@ -52,7 +52,7 @@ test('rollback never removes a different file installed after linking',async()=>
     await unlink(destinationPath);
     await writeFile(destinationPath,'independent file');
    },
-  }),error=>error instanceof Error && error.message.includes('Report publication untrusted') && error.message.includes(destinationPath));
+  }),error=>error instanceof Error && error.message==='REPORT_PUBLICATION_UNTRUSTED' && 'destinationPath' in error && error.destinationPath===destinationPath);
   assert.equal(await readFile(destinationPath,'utf8'),'independent file');
   assert.deepEqual(await readdir(root),['report.json']);
  }finally{await rm(root,{recursive:true,force:true});}
@@ -69,7 +69,7 @@ test('published failure never deletes a replaced third-party file',async()=>{
     await unlink(destinationPath);
     await writeFile(destinationPath,'third-party replacement');
    },
-  }),error=>error instanceof Error && error.message.includes('Report publication untrusted') && error.message.includes(destinationPath));
+  }),error=>error instanceof Error && error.message==='REPORT_PUBLICATION_UNTRUSTED' && 'destinationPath' in error && error.destinationPath===destinationPath);
   assert.equal(await readFile(destinationPath,'utf8'),'third-party replacement');
   assert.deepEqual(await readdir(root),['report.json']);
  }finally{await rm(root,{recursive:true,force:true});}
