@@ -103,8 +103,14 @@ test('cleanup effect: unconfirmed child preserves isolated directory; confirmed 
   }
 });
 
-function finishTestCleanup(failures: Error[]): void {
+function finishTestCleanup(failures: Error[], primary?: unknown): void {
+  if (primary !== undefined && failures.length) throw new AggregateError([primary, ...failures], 'Electron test and cleanup failed');
   if (failures.length) throw new AggregateError(failures, 'Electron security cleanup failed');
+  if (primary !== undefined) throw primary;
+}
+
+function exitBeforeTermination(status: {code: number | null; signal: NodeJS.Signals | null}, requested: boolean): string | undefined {
+  return requested ? undefined : exitFailure(status);
 }
 
 test('cleanup effect: no PID deletes only its isolated test directory', async () => {
@@ -220,6 +226,9 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   let stderr = '';
   let exitConfirmed = false;
   let spawnError: Error | undefined;
+  let terminationRequested = false;
+  let unrequestedAbnormalExit: string | undefined;
+  let primaryFailure: unknown;
   const marker = 'USSHM_EXISTING_HTML_44';
   const alternateFile = join(temporary, 'alternate-existing.html');
   const requests = { initial: 0, redirected: 0 };
@@ -260,7 +269,10 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     child.on('error', (error: Error) => { spawnError = error; });
-    child.on('exit', (code, signal) => { exit = { code, signal }; exitConfirmed = true; });
+    child.on('exit', (code, signal) => {
+      exit = { code, signal }; exitConfirmed = true;
+      unrequestedAbnormalExit ??= exitBeforeTermination({code, signal}, terminationRequested);
+    });
     child.stderr?.on('data', (data: Buffer) => { stderr = (stderr + String(data)).slice(-8000); });
 
     // Chrome chooses a free debugging port; parse its stderr endpoint.
@@ -378,12 +390,13 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       assert.equal(cdp!.events.slice(before).some(e=>e.includes('Page.frameNavigated')&&e.includes('/destination')),false);
       assert.equal(typeof (await evaluate('window.ussm.getAppInfo()')).version,'string');
     });
+  } catch (error) {
+    primaryFailure = error;
   } finally {
     const failures: Error[] = [];
     try { await cdp?.close(); } catch(e) { failures.push(new Error('CDP cleanup: '+String(e))); }
     // Failed spawn with no PID did not create a running Electron process.
     // It must not create a second cleanup failure or block removal of this test-only data.
-    const exitedBeforeCleanup = exitConfirmed;
     if (child?.pid && !exitConfirmed) {
       const processToStop = child;
       const ended = new Promise<void>((resolve, reject) => {
@@ -393,6 +406,11 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       });
       let killer: ChildProcess | undefined;
       try {
+        // Capture any exit that happened before we requested termination.
+        if (!exitConfirmed && processToStop.exitCode !== null || !exitConfirmed && processToStop.signalCode !== null) {
+          unrequestedAbnormalExit ??= exitBeforeTermination({code:processToStop.exitCode, signal:processToStop.signalCode}, false);
+        }
+        terminationRequested = true;
         killer = spawn('taskkill', ['/PID', String(processToStop.pid), '/T', '/F'],
           {windowsHide:true,stdio:['ignore','ignore','pipe']});
         const runningKiller = killer;
@@ -424,9 +442,8 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       try { await withTimeout(new Promise<void>((resolve,reject)=>redirectServer!.close(err=>err?reject(err):resolve())), 10000, 'HTTP close'); }
       catch(e) { failures.push(e as Error); }
     }
-    const abnormal = exitedBeforeCleanup && exit && exit.code !== 0 && !spawnError
-      ? exitFailure(exit) ?? 'Electron exited unexpectedly' : undefined;
+    const abnormal = !spawnError ? unrequestedAbnormalExit : undefined;
     await cleanTestRoot(temporary, child?.pid, exitConfirmed, failures, abnormal);
-    finishTestCleanup(failures);
+    finishTestCleanup(failures, primaryFailure);
   }
 });
