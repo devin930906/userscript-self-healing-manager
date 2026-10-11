@@ -76,7 +76,7 @@ function getAlternates(node:ts.CallExpression):string[]{
  while(parent&&ts.isParenthesizedExpression(parent)){
   child=parent;parent=parent.parent;
  }
- if(ts.isBinaryExpression(parent)&&parent.operatorToken.kind===ts.SyntaxKind.BarBarToken){
+ if(ts.isBinaryExpression(parent)&&(parent.operatorToken.kind===ts.SyntaxKind.BarBarToken||parent.operatorToken.kind===ts.SyntaxKind.QuestionQuestionToken)){
    let alternative:ts.Expression=parent.left===child?parent.right:parent.left;
    while(ts.isParenthesizedExpression(alternative))alternative=alternative.expression;
    if(ts.isCallExpression(alternative)&&alternative.arguments[0])return [selectorOf(alternative.arguments[0]).expression];
