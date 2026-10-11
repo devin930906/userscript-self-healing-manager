@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import type {ScanItemResult} from './index.ts';
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
-import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
+import {asCss,type LiteralLocator,type LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 import {checkUserscriptPageScope} from '../../candidate-engine/src/page-scope.ts';
@@ -68,8 +68,15 @@ function matchesProbeShape(value:unknown,target:ChromeTarget,locators:readonly L
   evidence.checks.length===locators.length&&
   evidence.checks.every((check:unknown,i)=>{
    if(!check||typeof check!=='object'||Array.isArray(check))return false;
-   const row=check as {method?:unknown;expression?:unknown};
-   return row.method===locators[i]!.method&&row.expression===locators[i]!.expression;
+   const row=check as {method?:unknown;expression?:unknown;status?:unknown;matchCount?:unknown};
+   const locator=locators[i]!;
+   if(row.method!==locator.method||row.expression!==locator.expression)return false;
+   // A syntactically dynamic locator, non-document receiver or method that
+   // the read-only CDP probe cannot represent MUST remain unverified. A
+   // malformed/misbehaving adapter cannot upgrade it to V1 DOM success.
+   if(asCss(locator)===null)
+    return row.status==='unverified'&&row.matchCount===null;
+   return true;
   });
 }
 /**
@@ -129,7 +136,7 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   const locators:LiteralLocator[]=records.map(r=>({
    method:r.method,expression:r.expression,runtimeRequired:r.runtimeRequired||r.receiver!=='document',
   }));
-  const staticCount=locators.filter(x=>!x.runtimeRequired).length;
+  const staticCount=locators.filter(x=>asCss(x)!==null).length;
   if(staticCount===0){
    results.push({...common,status:'needs-review',checked:0,found:0,missing:0,needsReview:locators.length,reason:'Only dynamic or non-document locators'});
    continue;
