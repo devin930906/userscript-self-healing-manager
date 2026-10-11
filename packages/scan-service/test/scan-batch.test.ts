@@ -85,3 +85,43 @@ test('fixture cleanup attempts removal despite close failure, keeping the test f
  });
  assert.deepEqual(events,['close','remove']);
 });
+
+test('fixture single failures preserve the exact error and always attempt removal',async()=>{
+ for(const phase of ['run','close','remove'] as const){
+  const failure=new Error('only '+phase+' failed');
+  const events:string[]=[];
+  await assert.rejects(withScanFixture({
+   open:()=>({close:()=>{events.push('close');if(phase==='close')throw failure;}}),
+   remove:async root=>{
+    events.push('remove');
+    await rm(root,{recursive:true,force:true});
+    if(phase==='remove')throw failure;
+   },
+  },async()=>{events.push('run');if(phase==='run')throw failure;}),error=>{
+   assert.equal(error,failure,'one failure must not be wrapped or replaced');
+   return true;
+  });
+  assert.deepEqual(events,['run','close','remove'],'cleanup order must survive '+phase+' failure');
+ }
+});
+
+test('fixture double failures preserve original ordering and still remove the root',async()=>{
+ for(const cleanup of ['close','remove'] as const){
+  const primary=new Error('run failed');
+  const secondary=new Error(cleanup+' failed');
+  const events:string[]=[];
+  await assert.rejects(withScanFixture({
+   open:()=>({close:()=>{events.push('close');if(cleanup==='close')throw secondary;}}),
+   remove:async root=>{
+    events.push('remove');
+    await rm(root,{recursive:true,force:true});
+    if(cleanup==='remove')throw secondary;
+   },
+  },async()=>{events.push('run');throw primary;}),error=>{
+   assert.ok(error instanceof AggregateError);
+   assert.deepEqual(error.errors,[primary,secondary],'primary must precede cleanup error');
+   return true;
+  });
+  assert.deepEqual(events,['run','close','remove']);
+ }
+});
