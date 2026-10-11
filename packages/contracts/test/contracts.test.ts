@@ -140,3 +140,16 @@ describe('FR-040 / NFR-006 static report schema version', () => {
       assert.throws(()=>contracts.parseStaticReportSchemaVersion(version),TypeError);
   });
 });
+
+describe('FR-007 static scan item result status boundary', () => {
+  const expected=['parsed','parse-error','unreadable','skipped'];
+  it('accepts the exact scan-service item status vocabulary',()=>{
+    assert.deepEqual(contracts.staticScanItemStatusValues,expected);
+    assert.equal(Object.isFrozen(contracts.staticScanItemStatusValues),true);
+    for(const status of expected) assert.equal(contracts.parseStaticScanItemStatus(status),status);
+  });
+  it('rejects ScriptHealth-only and invented scan outcomes',()=>{
+    for(const input of ['unverified','runtime-required','completed','imported','failed','',null,undefined,{},['parsed']])
+      assert.throws(()=>contracts.parseStaticScanItemStatus(input),TypeError);
+  });
+});
