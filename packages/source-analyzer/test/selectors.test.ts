@@ -223,3 +223,22 @@ test('FR-010 metadata preserves exclude require version and reports missing/conf
  const missing=parseUserscriptMetadata('// ==UserScript==\n// @name Only\n// ==/UserScript==');
  assert.ok(missing.diagnostics.some(x=>x.includes('match')));
 });
+
+test('FR-011 inventories MutationObserver construction and observe options statically without invoking callbacks',()=>{
+ const source=[
+  "const observer = new MutationObserver(() => { throw Error('MUST_NOT_RUN'); });",
+  "observer.observe(document.body, {childList:true, subtree:true});",
+  "observer.disconnect();",
+  "new MutationObserver(handleMutation).observe(target, dynamicOptions);",
+ ].join('\n');
+ const result=analyzeSource({scriptId:'synthetic-mutation',sourceBytes:encoder.encode(source)});
+ assert.deepEqual(result.mutationObservers.map(x=>[x.kind,x.receiver,x.runtimeRequired]),[
+  ['constructor','MutationObserver',false],
+  ['observe','observer',false],
+  ['observe','<constructed>',true],
+  ['constructor','MutationObserver',false],
+ ]);
+ assert.equal(result.mutationObservers.every(x=>x.evidenceLevel==='static-only'&&x.functionalVerified===false),true);
+ assert.equal(result.mutationObservers[1]?.sourceRange.start.line,2);
+ assert.equal(result.mutationObservers[2]?.optionsKind,'dynamic');
+});
