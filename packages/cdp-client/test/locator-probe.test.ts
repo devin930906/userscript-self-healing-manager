@@ -353,3 +353,18 @@ test('iframe-document refuses a frameId-matched non-document content root (QA-02
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument'],
   'malformed iframe scope must not issue selector commands or claim V1');
 });
+
+test('open-shadow scope rejects a forged DIV shadow root without querying selectors (QA-022)',async()=>{
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[
+   {nodeId:11,nodeName:'DIV',shadowRoots:[{nodeId:82,nodeName:'DIV',shadowRootType:'open'}]},
+  ]}}),
+  'DOM.querySelectorAll':()=>({nodeIds:[101]}),
+ });
+ const result=await probePageLocators(page,[
+  {method:'querySelectorAll',expression:'#shadow-action',runtimeRequired:false},
+ ],{socketFactory:()=>socket,rootScope:'open-shadow'});
+ assert.equal(result.checks[0]?.status,'unverified');
+ assert.equal(result.checks[0]?.matchCount,null);
+ assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
+});
