@@ -181,3 +181,23 @@ test('single-layer nullish DOM fallback links both selector calls symmetrically'
  assert.deepEqual(records.map(x=>x.expression),['#primary','#fallback']);
  assert.deepEqual(records.map(x=>x.alternateSelectors),[['#fallback'],['#primary']]);
 });
+
+test('FR-011 inventories event bindings as static candidates without running script',()=>{
+ const source=[
+  "const node=document.querySelector('#run');",
+  "node.addEventListener('click',()=>{ throw Error('MUST_NOT_RUN'); });",
+  "window.removeEventListener('scroll',handler);",
+  "node.onclick=handler;",
+  "service.addEventListener('custom', handler);",
+ ].join('\\n');
+ const result=analyzeSource({scriptId:'events',sourceBytes:encoder.encode(source)});
+ assert.deepEqual(result.eventBindings.map(x=>[x.kind,x.eventName,x.confidence,x.runtimeRequired]),[
+  ['addEventListener','click','unknown',true],
+  ['removeEventListener','scroll','high',false],
+  ['on-property','click','unknown',true],
+  ['addEventListener','custom','unknown',true],
+ ]);
+ assert.equal(result.eventBindings.every(x=>x.evidenceLevel==='static-only'),true);
+ assert.equal(result.eventBindings.every(x=>x.sourceRange.start.line>0),true);
+ assert.equal(result.selectorRecords.length,1);
+});
