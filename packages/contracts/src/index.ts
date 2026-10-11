@@ -32,7 +32,8 @@ export type Result<T, E> =
 type FieldParser<T> = (input: unknown) => T;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+  return value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 }
 
 /** Validate the discriminant, exact shape, and payload (with caller-supplied parsers). */
@@ -45,11 +46,11 @@ export function parseResult<T, E>(
     throw new TypeError('Result must be an object');
   }
 
-  const keys = Object.keys(input);
-  if (input.ok === true && keys.length === 2 && keys.includes('value')) {
+  const keys = Reflect.ownKeys(input);
+  if (Object.hasOwn(input, 'ok') && input.ok === true && keys.length === 2 && keys.includes('value')) {
     return { ok: true, value: parseValue(input.value) };
   }
-  if (input.ok === false && keys.length === 2 && keys.includes('error')) {
+  if (Object.hasOwn(input, 'ok') && input.ok === false && keys.length === 2 && keys.includes('error')) {
     return { ok: false, error: parseError(input.error) };
   }
   throw new TypeError('Invalid discriminated Result shape');
