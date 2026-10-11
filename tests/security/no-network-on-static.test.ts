@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import http,{request as esmHttpRequest} from 'node:http';
 import dns from 'node:dns';
+import dnsPromises,{lookup as esmDnsPromiseLookup} from 'node:dns/promises';
 import dgram from 'node:dgram';
 import http2 from 'node:http2';
 import https from 'node:https';
@@ -73,6 +74,7 @@ test('Task 12: real offline static scan avoids instrumented fetch/http/dns/udp/t
         [net,['connect','createConnection'],'net'],
         [tls,['connect'],'tls'],
         [dns,['lookup','resolve','resolve4','resolve6'],'dns'],
+        [dnsPromises,['lookup','resolve','resolve4','resolve6'],'dns.promises'],
         [dgram,['createSocket'],'dgram'],
       ] as const){
         for(const method of methods)hook(target,method,`${prefix}.${method}`);
@@ -82,7 +84,12 @@ test('Task 12: real offline static scan avoids instrumented fetch/http/dns/udp/t
       syncBuiltinESMExports();
       assert.equal(esmHttpRequest,http.request,'ESM named import must be intercepted');
       assert.throws(()=>esmHttpRequest('http://127.0.0.1/'),/Unexpected offline network attempt/);
-      assert.deepEqual(attempts,['http.request'],'ESM interception probe must hit hook');
+      assert.equal(esmDnsPromiseLookup,dnsPromises.lookup,
+        'DNS promises ESM named import must be intercepted');
+      assert.throws(()=>esmDnsPromiseLookup('fixture.example.invalid'),
+        /Unexpected offline network attempt/);
+      assert.deepEqual(attempts,['http.request','dns.promises.lookup'],
+        'HTTP and DNS promises ESM interception probes must hit hooks');
       attempts.length=0;
 
       const result=await runStaticScan({
