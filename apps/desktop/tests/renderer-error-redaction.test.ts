@@ -64,6 +64,12 @@ test('report publication residue IPC code gives an actionable warning without le
 
 test('report export errors route through safe formatter in both UI entrypoints',async()=>{
  const source=await readFile(new URL('../src/renderer/App.tsx',import.meta.url),'utf8');
- assert.match(source,/async function exportReport[\\s\\S]*?catch\\(e\\)\\{setError\\(summarizeSafeDesktopError\\(e\\)\\);\\}/);
- assert.match(source,/async function exportDomReport[\\s\\S]*?catch\\(e\\)\\{setError\\(summarizeSafeDesktopError\\(e\\)\\);\\}/);
+ const staticStart=source.indexOf('async function exportReport(');
+ const domStart=source.indexOf('async function exportDomReport(');
+ const nextStart=source.indexOf('async function stageSiteAdapterImport(',domStart);
+ assert.ok(staticStart>=0&&domStart>staticStart&&nextStart>domStart);
+ for(const body of [source.slice(staticStart,domStart),source.slice(domStart,nextStart)]){
+  assert.ok(body.includes('catch(e){setError(summarizeSafeDesktopError(e));}'),
+   'both report exports must send IPC errors through the redacting formatter');
+ }
 });
