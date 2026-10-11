@@ -262,18 +262,27 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  }
  const overwrittenObserveNames=new Set<string>();
  let globalMutationObserverRebound=false;
+ function staticPropertyKey(expr:ts.Expression):{owner:ts.Expression,key:string}|null{
+  if(ts.isPropertyAccessExpression(expr))return {owner:expr.expression,key:expr.name.text};
+  if(ts.isElementAccessExpression(expr)&&expr.argumentExpression&&
+    ts.isStringLiteralLike(expr.argumentExpression))
+   return {owner:expr.expression,key:expr.argumentExpression.text};
+  return null;
+ }
  function isMutationObserverGlobalReference(expr:ts.Expression):boolean{
-  return ts.isPropertyAccessExpression(expr)&&expr.name.text==='MutationObserver'&&
-   ts.isIdentifier(expr.expression)&&['globalThis','window','self'].includes(expr.expression.text);
+  const prop=staticPropertyKey(expr);
+  return !!prop&&prop.key==='MutationObserver'&&ts.isIdentifier(prop.owner)&&
+   ['globalThis','window','self'].includes(prop.owner.text);
  }
  function scanMutationMutations(node:ts.Node):void{
   if(ts.isBinaryExpression(node)&&node.operatorToken.kind>=ts.SyntaxKind.FirstAssignment&&node.operatorToken.kind<=ts.SyntaxKind.LastAssignment){
    const left=node.left;
    if((ts.isIdentifier(left)&&left.text==='MutationObserver')||
-      (ts.isPropertyAccessExpression(left)&&isMutationObserverGlobalReference(left)))
+      isMutationObserverGlobalReference(left))
     globalMutationObserverRebound=true;
-   if(ts.isPropertyAccessExpression(left)&&left.name.text==='observe'&&
-      ts.isIdentifier(left.expression))overwrittenObserveNames.add(left.expression.text);
+   const prop=staticPropertyKey(left);
+   if(prop?.key==='observe'&&ts.isIdentifier(prop.owner))
+    overwrittenObserveNames.add(prop.owner.text);
   }
   ts.forEachChild(node,scanMutationMutations);
  }
