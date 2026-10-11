@@ -115,7 +115,7 @@ export function migrateDatabase(db:DatabaseHandle):void{
    // A database with any user-defined schema object is not provably fresh.
    // Never label unknown legacy storage as Registry v1, even if 'scripts'
    // is absent; leave every existing object untouched on rollback.
-   const unknown=db.prepare("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1").get();
+   const unknown=db.prepare("SELECT name FROM sqlite_master WHERE substr(lower(name),1,7) <> 'sqlite_' LIMIT 1").get();
    if(unknown||existingScripts)
     throw new Error('Unknown unversioned SQLite database: explicit migration required');
   }
