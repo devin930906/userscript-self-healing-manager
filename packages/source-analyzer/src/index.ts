@@ -100,18 +100,45 @@ function functionScope(node:ts.Node):{name:string|null;scope:string[]}{
  return {name:scope.at(-1)??null,scope};
 }
 function getAlternates(node:ts.CallExpression):string[]{
- // Grouping parentheses must not hide either side of a literal fallback.
+ // Only a contiguous logical-OR OR nullish-coalescing tree represents one
+ // fallback chain. Never expand into &&, mixed operators, arbitrary helper
+ // calls or conditionals: those do not prove a direct selector fallback.
  let child:ts.Node=node;
  let parent:ts.Node|undefined=node.parent;
  while(parent&&ts.isParenthesizedExpression(parent)){
   child=parent;parent=parent.parent;
  }
- if(ts.isBinaryExpression(parent)&&(parent.operatorToken.kind===ts.SyntaxKind.BarBarToken||parent.operatorToken.kind===ts.SyntaxKind.QuestionQuestionToken)){
-   let alternative:ts.Expression=parent.left===child?parent.right:parent.left;
-   while(ts.isParenthesizedExpression(alternative))alternative=alternative.expression;
-   if(ts.isCallExpression(alternative)&&alternative.arguments[0])return [selectorOf(alternative.arguments[0]).expression];
+ if(!parent||!ts.isBinaryExpression(parent)||
+    (parent.operatorToken.kind!==ts.SyntaxKind.BarBarToken&&
+     parent.operatorToken.kind!==ts.SyntaxKind.QuestionQuestionToken)||
+    (parent.left!==child&&parent.right!==child))return [];
+ const operator=parent.operatorToken.kind;
+ let root=parent;
+ child=root;parent=root.parent;
+ // Parenthesized subtrees can extend the same chain; stop at a different
+ // operator so a nested condition does not turn into false evidence.
+ while(parent){
+  if(ts.isParenthesizedExpression(parent)){
+   child=parent;parent=parent.parent;continue;
+  }
+  if(ts.isBinaryExpression(parent)&&parent.operatorToken.kind===operator&&
+     (parent.left===child||parent.right===child)){
+   root=parent;child=parent;parent=parent.parent;continue;
+  }
+  break;
  }
- return [];
+ const alternatives:ts.CallExpression[]=[];
+ const visit=(expression:ts.Expression):void=>{
+  while(ts.isParenthesizedExpression(expression))expression=expression.expression;
+  if(ts.isBinaryExpression(expression)&&expression.operatorToken.kind===operator){
+   visit(expression.left);visit(expression.right);
+  }else if(ts.isCallExpression(expression)&&expression.arguments[0]){
+   alternatives.push(expression);
+  }
+ };
+ visit(root);
+ return alternatives.filter(call=>call!==node)
+  .map(call=>selectorOf(call.arguments[0]!).expression);
 }
 export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceBytes:Uint8Array}):SourceAnalysis{
  const sourceSha256=createHash('sha256').update(sourceBytes).digest('hex');
