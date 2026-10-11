@@ -431,3 +431,41 @@ test('open-shadow rejects a forged shadowRoots edge owned by a document node (QA
  assert.equal(result.checks[0]?.matchCount,null);
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
 });
+
+test('standards-valid Unicode custom-element hosts MATH-α and EMOTION-😍 allow open ShadowRoot probes (QA-022)',async()=>{
+ for(const hostName of ['MATH-α','EMOTION-😍','MATH-\u{F0000}','MATH-\u{10FFFF}']){
+ const socket=new ProtocolSocket({
+  'DOM.getDocument':()=>({root:{nodeId:8,nodeName:'#document',nodeType:9,children:[
+   {nodeId:11,nodeType:1,nodeName:hostName,shadowRoots:[
+    {nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},
+   ]},
+  ]}}),
+  'DOM.querySelectorAll':({nodeId})=>({nodeIds:nodeId===82?[101]:[]}),
+ });
+ const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+  socketFactory:()=>socket,rootScope:'open-shadow',
+ });
+ assert.equal(result.checks[0]?.status,'found');
+ assert.equal(result.checks[0]?.matchCount,1);
+ assert.deepEqual(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').map(x=>x.params.nodeId),[82]);
+ }
+});
+
+test('invalid ASCII separators in synthetic element host names fail closed (QA-022)',async()=>{
+ for(const hostName of ['MATH-α/BAD','MATH-α>BAD','MATH-α BAD','MATH-α\tBAD','MATH-α\0BAD']){
+  const socket=new ProtocolSocket({
+   'DOM.getDocument':()=>({root:{nodeId:8,nodeName:'#document',nodeType:9,children:[
+    {nodeId:11,nodeType:1,nodeName:hostName,shadowRoots:[
+     {nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},
+    ]},
+   ]}}),
+   'DOM.querySelectorAll':()=>({nodeIds:[101]}),
+  });
+  const result=await probePageLocators(page,[{method:'querySelectorAll',expression:'#shadow-send',runtimeRequired:false}],{
+   socketFactory:()=>socket,rootScope:'open-shadow',
+  });
+  assert.equal(result.checks[0]?.status,'unverified');
+  assert.equal(result.checks[0]?.matchCount,null);
+  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
+ }
+});
