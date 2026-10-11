@@ -219,9 +219,9 @@ test('explicit open-shadow scope uses one bounded top-page open root, not docume
 });
 test('open-shadow scope fails closed on ambiguous, nested, closed or malformed roots without selector commands',async()=>{
  const trees=[
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},{nodeId:83,shadowRootType:'open'}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},{nodeId:83,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'closed'}]}]},
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open',children:[{nodeId:13,shadowRoots:[{nodeId:89,shadowRootType:'open'}]}]}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open',children:[{nodeId:13,shadowRoots:[{nodeId:89,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'}]}]}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:'bad',shadowRootType:'open'}]}]},
  ];
  for(const root of trees){
