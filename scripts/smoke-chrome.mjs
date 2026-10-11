@@ -18,6 +18,7 @@ import {captureDomSummary} from '../packages/cdp-client/src/snapshot.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../packages/cdp-client/src/read-only-visibility.ts';
 import {inspectReadOnlyEventListeners} from '../packages/cdp-client/src/read-only-event-listeners.ts';
+import {observeReadOnlyPageExceptions} from '../packages/cdp-client/src/read-only-exceptions.ts';
 import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapshot.ts';
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
@@ -240,6 +241,19 @@ try{
  const identity=await confirmPageIdentity(selected);
  assert.equal(identity.confirmedUrl,fixtureUrl);
  assert.ok(identity.frameId&&identity.loaderId,'real Chrome must expose stable main-frame and loader identity');
+ // Observe a REAL isolated Chrome Page target without any page injection.
+ // Natural fixture exceptions (if any) are counts only, NEVER evidence that
+ // a userscript/GM manager executed or that V3/V4 functionality passed.
+ const passiveExceptions=await observeReadOnlyPageExceptions(selected,{approved:true,durationMs:150});
+ assert.ok(['observed','none-observed'].includes(passiveExceptions.status));
+ assert.ok(Number.isSafeInteger(passiveExceptions.observedCount));
+ assert.ok(passiveExceptions.observedCount>=0&&passiveExceptions.observedCount<=64);
+ assert.equal(passiveExceptions.origin,'unknown');
+ assert.equal(passiveExceptions.userscriptVerified,false);
+ assert.equal(passiveExceptions.V3,'not-configured');
+ assert.equal(passiveExceptions.V4,'not-configured');
+ assert.equal(JSON.stringify(passiveExceptions).includes(fixtureUrl),false);
+ console.log('PASS real Chrome FR-018 passive exception observer: count-only, V3/V4 unverified.');
  const summary=await captureDomSummary(selected);
  assert.ok(summary.nodeCount>0,'must capture real DOM nodes');
  assert.ok(summary.documentCount>=1);
