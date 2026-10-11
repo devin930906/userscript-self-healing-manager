@@ -62,3 +62,29 @@ GM.setValue('real-global');
 `);
  assert.deepEqual(calls,['GM.setValue']);
 });
+
+test('class static block var does not shadow the userscript-manager global outside the static block',()=>{
+ const calls=inspect(`class LocalTools {
+   static {
+     var GM_getValue = () => 'local';
+     GM_getValue('inside-static-block');
+   }
+ }
+ GM_getValue('outside-static-block');
+ `);
+ assert.deepEqual(calls,['GM_getValue']);
+});
+
+test('class static block GM object does not shadow a manager call in an enclosing function',()=>{
+ const calls=inspect(`function checkManager() {
+   class LocalTools {
+     static {
+       var GM = { setValue() {} };
+       GM.setValue('inside-static-block', 1);
+     }
+   }
+   GM.setValue('outside-static-block', 1);
+ }
+ `);
+ assert.deepEqual(calls,['GM.setValue']);
+});
