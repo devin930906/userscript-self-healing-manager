@@ -1,15 +1,13 @@
 // ==UserScript==
-// @name Fictional Dynamic Locator
-// @match https://example.invalid/*
+// @name Fictional Dynamic Selector Fixture
+// @match https://fixture.example.invalid/*
 // @grant none
 // @run-at document-end
 // ==/UserScript==
-function locate(key) {
-  return document.querySelector(`[data-key="${key}"]`) || document.querySelector('#fallback');
-}
-function concatenated(part) {
-  return document.querySelector('#' + part);
-}
-function wrapper(selector) {
-  return document.querySelector(selector);
+// Synthetic fixture: expressions are only parsed, never evaluated.
+function locateDynamic(key, part, selector) {
+  const template = document.querySelector(`[data-key="${key}"]`);
+  const concat = document.getElementById('element-' + part);
+  const unknown = document.querySelector(selector);
+  return template || concat || unknown;
 }
