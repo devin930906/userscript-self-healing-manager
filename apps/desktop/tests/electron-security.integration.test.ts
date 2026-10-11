@@ -272,6 +272,9 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     child = spawn(executable, ['.', `--remote-debugging-port=${debugPort}`,
       '--remote-debugging-address=127.0.0.1', '--disable-gpu'], {
       cwd: process.cwd(), env, windowsHide: true,
+      // Electron/Chromium subprocesses need their own process group under node --test.
+      // Cleanup still targets the exact spawned PID and its child tree.
+      detached: true,
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     child.on('error', (error: Error) => { spawnError = error; });
