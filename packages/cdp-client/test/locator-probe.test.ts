@@ -432,10 +432,11 @@ test('open-shadow rejects a forged shadowRoots edge owned by a document node (QA
  assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
 });
 
-test('Unicode custom-element host MATH-α permits a scoped author open ShadowRoot (QA-022)',async()=>{
+test('standards-valid Unicode custom-element hosts MATH-α and EMOTION-😍 allow open ShadowRoot probes (QA-022)',async()=>{
+ for(const hostName of ['MATH-α','EMOTION-😍']){
  const socket=new ProtocolSocket({
   'DOM.getDocument':()=>({root:{nodeId:8,nodeName:'#document',nodeType:9,children:[
-   {nodeId:11,nodeType:1,nodeName:'MATH-α',shadowRoots:[
+   {nodeId:11,nodeType:1,nodeName:hostName,shadowRoots:[
     {nodeId:82,nodeName:'#document-fragment',nodeType:11,shadowRootType:'open'},
    ]},
   ]}}),
@@ -447,4 +448,5 @@ test('Unicode custom-element host MATH-α permits a scoped author open ShadowRoo
  assert.equal(result.checks[0]?.status,'found');
  assert.equal(result.checks[0]?.matchCount,1);
  assert.deepEqual(socket.sent.filter(x=>x.method==='DOM.querySelectorAll').map(x=>x.params.nodeId),[82]);
+ }
 });
