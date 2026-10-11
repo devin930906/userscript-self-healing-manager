@@ -61,15 +61,27 @@ export function rankSelectorCandidates({method,oldSelector,nodes,runtimeRequired
   if(!node||typeof node!=='object'||!node.attributes||
      typeof node.attributes!=='object'||Array.isArray(node.attributes))
    throw new Error('Invalid DOM candidate attribute evidence');
-  const names=Object.keys(node.attributes);
-  if(names.length>32||names.some(name=>name.length>64||
-     typeof node.attributes[name]!=='string'||node.attributes[name]!.length>2048))
-   throw new Error('DOM candidate attribute evidence budget exceeded');
+  // Contract: attributes are decoded, plain JSON records from the bounded
+  // CDP evidence collector, not arbitrary JS objects/Proxies. A Proxy may
+  // execute user code from traps; this local iteration is not a byte limit
+  // on arbitrary hostile objects. Bound payload bytes before JSON decoding.
+  const prototype=Object.getPrototypeOf(node.attributes);
+  if(prototype!==Object.prototype&&prototype!==null)
+   throw new Error('Invalid DOM candidate attribute evidence');
+  let count=0;
+  for(const name in node.attributes){
+   if(!Object.prototype.hasOwnProperty.call(node.attributes,name))continue;
+   if(++count>32||name.length>64)
+    throw new Error('DOM candidate attribute evidence budget exceeded');
+   const value=node.attributes[name];
+   if(typeof value!=='string'||value.length>2048)
+    throw new Error('DOM candidate attribute evidence budget exceeded');
+  }
  }
  const oldWords=words(oldSelector);
  const occurrences=new Map<string,{count:number;entry:{expression:string;cssSelector:string;weight:number;evidence:string}}>();
  for(const node of nodes) {
-  if(!/^[a-z][a-z0-9-]{0,30}$/i.test(node.tagName))continue;
+  if(typeof node.tagName!=='string'||!/^[a-z][a-z0-9-]{0,30}$/i.test(node.tagName))continue;
   const thisNode=new Set<string>();
   for(const entry of selectors(node,method)) {
    if(thisNode.has(entry.cssSelector))continue;thisNode.add(entry.cssSelector);
