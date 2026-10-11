@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {readFileSync} from 'node:fs';
+test('DOM batch export is explicitly requested, tied to the active scan and never writes a renderer-supplied path',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const preload=readFileSync('apps/desktop/src/preload/index.ts','utf8');
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(main,/ipcMain\.handle\('usshm:export-dom-report'/);
+ assert.match(main,/scanSessions\.require\(q\.scanId\)/);
+ assert.match(main,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(main,/serializeDomBatchReport\(/);
+ assert.match(main,/dialog\.showSaveDialog/);
+ assert.match(preload,/exportDomReport:/);
+ assert.match(preload,/ipcRenderer\.invoke\('usshm:export-dom-report'/);
+ assert.match(ui,/导出 DOM JSON/);
+ assert.match(ui,/导出 DOM Markdown/);
+ assert.match(ui,/ussm\.exportDomReport/);
+});
+test('main process owns the export evidence; renderer is prohibited from submitting verification grades',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const preload=readFileSync('apps/desktop/src/preload/index.ts','utf8');
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(main,/new BatchEvidenceStore\(\)/);
+ assert.match(main,/batchEvidence\.record\(/);
+ assert.match(main,/batchEvidence\.snapshot\(/);
+ assert.match(main,/batchEvidence\.clear\(\)/);
+ const handler=main.split("ipcMain.handle('usshm:export-dom-report'")[1]?.split("ipcMain.handle('usshm:export'")[0]??'';
+ assert.doesNotMatch(handler,/q\.report/);
+ assert.doesNotMatch(preload,/report:unknown/);
+ assert.match(ui,/scanId:result\.scanId,targetId:batchResult\.pageTargetId/);
+});
+test('main revokes cached evidence on a failed diagnosis and checks revision after a delayed save dialog',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const diagnostic=main.split("ipcMain.handle('usshm:batch-diagnose'")[1]?.split("ipcMain.handle('usshm:suggest-repair'")[0]??'';
+ const exportHandler=main.split("ipcMain.handle('usshm:export-dom-report'")[1]?.split("ipcMain.handle('usshm:export'")[0]??'';
+ // Only a still-active failed lease can clear evidence; a stale failure
+ // must never delete pages belonging to a restarted batch. Transient CDP
+ // errors preserve the completed prefix for the same-offset retry.
+ assert.match(diagnostic,/if\(diagnosisRequests\.isCurrent\(ticket\)\)/);
+ assert.match(diagnostic,/if\(isTransientCdpReadError\(error\)\)/);
+ assert.match(diagnostic,/diagnosisRequests\.releaseForRetry\(ticket\)/);
+ assert.match(diagnostic,/diagnosisRequests\.failIfCurrent\(ticket\)/);
+ assert.match(diagnostic,/batchEvidence\.invalidateIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId\}\)/);
+ assert.match(diagnostic,/journal\.failIfCurrent\(\{scanId:q\.scanId,targetId:q\.targetId,runId:journalRunId\}\)/);
+ assert.match(exportHandler,/observed\.revision/);
+ assert.match(exportHandler,/fresh\.revision/);
+});

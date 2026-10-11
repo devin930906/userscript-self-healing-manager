@@ -1,0 +1,188 @@
+name: Windows three-edition final-tag-only verification
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [feat/v01-continuation]
+concurrency:
+  group: usshm-windows-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  release-contracts:
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Release gate tests only (no installers or uploads)
+        run: node --experimental-strip-types --test tests/integration/windows-release-evidence.test.ts tests/integration/final-build-authorization.test.ts tests/integration/distribution.test.ts tests/integration/packaged-startup.test.ts tests/integration/windows-command.test.ts apps/desktop/tests/windows-release-gate.test.ts apps/desktop/tests/three-target-release-contract.test.ts
+  windows:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Block branch or prerelease packaging before installing anything
+        env:
+          USSHM_BUILD_REF: ${{ github.ref }}
+          USSHM_BUILD_EVENT: ${{ github.event_name }}
+          USSHM_BUILD_SHA: ${{ github.sha }}
+        run: node scripts/final-build-authorization.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Full TypeScript typecheck
+        run: npm run typecheck
+      - name: Bundle desktop
+        run: npm run build
+      - name: Build Setup and Portable EXEs
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Create complete unpacked ZIP portable application
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $unpacked = Resolve-Path 'release/win-unpacked'
+          if (Test-Path -LiteralPath "$unpacked/Data") { throw 'Refuse to include private Data in release ZIP' }
+          Set-Content -NoNewline -Path "$unpacked/.usshm-portable" -Value 'zip-portable-v1'
+          $zip = Join-Path (Resolve-Path 'release') "Userscript-Self-Healing-Manager-$version-win-x64.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($unpacked, $zip)
+          if (!(Test-Path $zip)) { throw "Missing ZIP: $zip" }
+          if (!(Test-Path "$unpacked/resources/app.asar")) { throw 'Missing packaged app resources' }
+      - name: Generate SHA256 manifest
+        shell: pwsh
+        run: |
+          Get-ChildItem release -File | Where-Object {$_.Extension -in '.exe','.zip'} | ForEach-Object {
+            $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content release/SHA256SUMS.txt
+      - name: Verify final three-edition release inventory, ZIP and SHA256 checksums
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          node scripts/windows-release-gate.mjs $version release
+      - name: Extract and compare the actual ZIP payload before any package smoke
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $zip = Join-Path 'release' "Userscript-Self-Healing-Manager-$version-win-x64.zip"
+          $target = Join-Path $env:RUNNER_TEMP 'usshm-verified-zip'
+          if (Test-Path -LiteralPath $target) { throw 'Release extraction target already exists' }
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          # Prior inventory gate has already validated names and ZIP entry types.
+          Expand-Archive -LiteralPath $zip -DestinationPath $target
+          node scripts/windows-release-gate.mjs --verify-extracted release/win-unpacked $target
+      - name: Smoke-check unpacked Windows executable
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path (Join-Path $env:RUNNER_TEMP 'usshm-verified-zip')).Path
+          $exe = Join-Path $root 'Userscript-Self-Healing-Manager.exe'
+          if (!(Test-Path $exe)) { throw "Missing unpacked EXE" }
+          $database = Join-Path $root 'Data/registry.sqlite'
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+            $ok = $false
+            for ($i=0; $i -lt 20; $i++) {
+              if (Test-Path $database) { $ok = $true; break }
+              Start-Sleep -Seconds 1
+              if ($proc.HasExited) { throw "Packaged EXE exited before database initialization, exit $($proc.ExitCode)" }
+            }
+            if (!$ok) { throw "Packaged application did not initialize portable registry.sqlite" }
+            Write-Host 'Smoke PASS: unpacked ZIP portable EXE initialized registry.sqlite'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Smoke-check single-file Portable EXE
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem release -File -Filter '*-Portable-*.exe' | Select-Object -First 1
+          if (!$portable) { throw 'Missing Portable.exe' }
+          $root = Join-Path $env:RUNNER_TEMP 'usshm-portable-exe-smoke'
+          New-Item -Path $root -ItemType Directory -Force | Out-Null
+          $exe = Join-Path $root $portable.Name
+          Copy-Item $portable.FullName $exe -Force
+          $db = Join-Path $root 'Data/registry.sqlite'
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+            $ok = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              if (Test-Path $db) { $ok = $true; break }
+              Start-Sleep -Seconds 1
+            }
+            if (!$ok) { throw 'Portable single-file EXE did not initialize adjacent Data/registry.sqlite' }
+            Write-Host 'Smoke PASS: Portable EXE initialized data beside external EXE'
+          } finally {
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Smoke-check NSIS Setup installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release -File -Filter '*-Setup-*.exe' | Select-Object -First 1
+          if (!$installer) { throw 'Missing Setup.exe' }
+          $root = Join-Path $env:RUNNER_TEMP 'usshm-setup-smoke'
+          $installed = Join-Path $root 'Userscript-Self-Healing-Manager.exe'
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList @('/S',"/D=$root") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "NSIS silent install failed with code $($install.ExitCode)" }
+          if (!(Test-Path $installed)) { throw 'NSIS install did not create the desktop executable' }
+          $running = $null
+          try {
+            $running = Start-Process -FilePath $installed -WorkingDirectory $root -PassThru
+            Start-Sleep -Seconds 5
+            if ($running.HasExited) { throw "Installed EXE exited unexpectedly: $($running.ExitCode)" }
+            Write-Host 'Smoke PASS: installed desktop EXE launched'
+          } finally {
+            if ($running -and !$running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
+          }
+          $uninstaller = Get-ChildItem -Path $root -File -Filter '*Uninstall*.exe' | Select-Object -First 1
+          if (!$uninstaller) { throw 'NSIS uninstaller is missing' }
+          $removed = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/S') -Wait -PassThru
+          if ($removed.ExitCode -ne 0) { throw "NSIS uninstall failed: $($removed.ExitCode)" }
+          Write-Host 'Smoke PASS: NSIS silent uninstall finished'
+      - name: Record signatures and explicitly unverified Stable gates
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $setup = Join-Path 'release' "Userscript-Self-Healing-Manager-Setup-$version-win-x64.exe"
+          $portable = Join-Path 'release' "Userscript-Self-Healing-Manager-Portable-$version-win-x64.exe"
+          $report = [ordered]@{
+            sourceCommit = $env:GITHUB_SHA
+            version = $version
+            runnerOS = [System.Environment]::OSVersion.VersionString
+            threeFileInventory = 'passed-on-ci'
+            extractedZipByteMatch = 'passed-on-ci'
+            setupAuthenticodeStatus = (Get-AuthenticodeSignature -LiteralPath $setup).Status.ToString()
+            portableAuthenticodeStatus = (Get-AuthenticodeSignature -LiteralPath $portable).Status.ToString()
+            userWindows10Chrome155_0_8059_40 = 'not-verified'
+            realTampermonkeyGM = 'not-verified'
+            stableApproved = $false
+            pending = 'Independent DIST-001..014 and RG-01..09 audit'
+          }
+          $report | ConvertTo-Json | Set-Content -Path release/windows-verification-evidence.json -Encoding utf8
+      - name: Upload tag-only artifacts for independent RG audit (not automatically Stable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: usshm-windows-three-editions-final-RG-audit-required
+          path: |
+            release/*.exe
+            release/*.zip
+            release/SHA256SUMS.txt
+            release/windows-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 7

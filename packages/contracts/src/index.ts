@@ -1,47 +1,56 @@
-/** Shared Phase 1 primitives; runtime validation never executes imported userscripts. */
+/** Stable identifiers are opaque strings at the contract boundary. */
 export type ScriptId = string;
-export const SCRIPT_HEALTH = ['unverified', 'parsed', 'parse-error', 'runtime-required'] as const;
-export type ScriptHealth = (typeof SCRIPT_HEALTH)[number];
-export type Result<T, E> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
 
-export type ParseResult<T> =
-  | { readonly success: true; readonly data: T }
-  | { readonly success: false; readonly error: { readonly message: string } };
+/** Only source inspection statuses belong to this first milestone. */
+export const scriptHealthValues = Object.freeze([
+  'unverified',
+  'parsed',
+  'parse-error',
+  'runtime-required',
+] as const);
 
+export type ScriptHealth = (typeof scriptHealthValues)[number];
+
+/** The parser is deliberately dependency-free so it can run in offline mode. */
 export const scriptHealthSchema = {
-  safeParse(input: unknown): ParseResult<ScriptHealth> {
-    if (typeof input === 'string' && (SCRIPT_HEALTH as readonly string[]).includes(input)) {
-      return { success: true, data: input as ScriptHealth };
-    }
-    return { success: false, error: { message: 'Invalid ScriptHealth status' } };
-  },
   parse(input: unknown): ScriptHealth {
-    const result = this.safeParse(input);
-    if (!result.success) throw new Error(result.error.message);
-    return result.data;
+    if (
+      typeof input !== 'string' ||
+      !scriptHealthValues.some((value) => value === input)
+    ) {
+      throw new TypeError('Invalid ScriptHealth status');
+    }
+    return input as ScriptHealth;
   },
 };
 
-export function resultSchema<T, E>(
-  valueSchema: { safeParse(input: unknown): ParseResult<T> },
-  errorSchema: { safeParse(input: unknown): ParseResult<E> },
-) {
-  return {
-    safeParse(input: unknown): ParseResult<Result<T, E>> {
-      if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-        return { success: false, error: { message: 'Result must be an object' } };
-      }
-      const record = input as Record<string, unknown>;
-      const expected = record.ok === true ? ['ok', 'value'] : record.ok === false ? ['ok', 'error'] : null;
-      if (expected === null || Object.keys(record).some(key => !expected.includes(key)) || Object.keys(record).length !== 2) {
-        return { success: false, error: { message: 'Invalid Result discriminant or shape' } };
-      }
-      if (record.ok === true) {
-        const value = valueSchema.safeParse(record.value);
-        return value.success ? { success: true, data: { ok: true, value: value.data } } : { success: false, error: value.error };
-      }
-      const error = errorSchema.safeParse(record.error);
-      return error.success ? { success: true, data: { ok: false, error: error.data } } : { success: false, error: error.error };
-    },
-  };
+/** Every call site must handle success and failure explicitly. */
+export type Result<T, E> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: E };
+
+type FieldParser<T> = (input: unknown) => T;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Validate the discriminant, exact shape, and payload (with caller-supplied parsers). */
+export function parseResult<T, E>(
+  input: unknown,
+  parseValue: FieldParser<T>,
+  parseError: FieldParser<E>,
+): Result<T, E> {
+  if (!isRecord(input)) {
+    throw new TypeError('Result must be an object');
+  }
+
+  const keys = Object.keys(input);
+  if (input.ok === true && keys.length === 2 && keys.includes('value')) {
+    return { ok: true, value: parseValue(input.value) };
+  }
+  if (input.ok === false && keys.length === 2 && keys.includes('error')) {
+    return { ok: false, error: parseError(input.error) };
+  }
+  throw new TypeError('Invalid discriminated Result shape');
 }

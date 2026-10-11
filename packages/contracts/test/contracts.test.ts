@@ -1,26 +1,71 @@
-import { describe, expect, it } from 'vitest';
-import { SCRIPT_HEALTH, resultSchema, scriptHealthSchema } from '../src/index';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import * as contracts from '../src/index.ts';
 
-describe('ScriptHealth runtime boundary', () => {
-  it('accepts precisely the four planned states', () => {
-    for (const status of SCRIPT_HEALTH) expect(scriptHealthSchema.safeParse(status)).toEqual({ success: true, data: status });
+describe('ScriptHealth runtime contract', () => {
+  it('accepts exactly the known health statuses', () => {
+    assert.deepEqual(contracts.scriptHealthValues, [
+      'unverified',
+      'parsed',
+      'parse-error',
+      'runtime-required',
+    ]);
+
+    for (const status of contracts.scriptHealthValues) {
+      assert.equal(contracts.scriptHealthSchema.parse(status), status);
+    }
   });
-  it('rejects unknown and incorrectly typed states', () => {
-    for (const value of ['healthy', 'passed', 'runtime_required', '', null, 1, {}]) {
-      expect(scriptHealthSchema.safeParse(value).success).toBe(false);
+
+  it('rejects unknown, empty and non-string statuses', () => {
+    for (const input of ['healthy', 'completed', '', undefined, null, 1, {}, []]) {
+      assert.throws(() => contracts.scriptHealthSchema.parse(input), TypeError);
     }
   });
 });
-describe('Result runtime boundary', () => {
-  const stringSchema = { safeParse: (x: unknown) => typeof x === 'string' ? { success: true as const, data: x } : { success: false as const, error: { message: 'string required' } } };
-  const schema = resultSchema(stringSchema, stringSchema);
-  it('accepts both tagged variants', () => {
-    expect(schema.safeParse({ ok: true, value: 'ok' }).success).toBe(true);
-    expect(schema.safeParse({ ok: false, error: 'failed' }).success).toBe(true);
-  });
-  it('rejects malformed, mixed, and unknown-key variants', () => {
-    for (const value of [{ ok: true, error: 'bad' }, { ok: false, value: 'bad' }, { ok: true, value: 1 }, { ok: true, value: 'x', extra: 1 }, { ok: 'true', value: 'x' }, null]) {
-      expect(schema.safeParse(value).success).toBe(false);
+
+describe('Result<T, E> runtime contract', () => {
+  const asNonemptyString = (value: unknown): string => {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new TypeError('Expected a non-empty string');
     }
+    return value;
+  };
+
+  it('accepts success and failure variants', () => {
+    assert.deepEqual(
+      contracts.parseResult({ ok: true, value: 'ready' }, asNonemptyString, asNonemptyString),
+      { ok: true, value: 'ready' },
+    );
+    assert.deepEqual(
+      contracts.parseResult({ ok: false, error: 'missing' }, asNonemptyString, asNonemptyString),
+      { ok: false, error: 'missing' },
+    );
+  });
+
+  it('rejects malformed, ambiguous and extraneous variants', () => {
+    const badValues: unknown[] = [
+      null, 3, [], { ok: 'yes', value: 'a' }, { ok: true },
+      { ok: false }, { ok: true, error: 'oops' },
+      { ok: false, value: 'oops' },
+      { ok: true, value: 'a', error: 'oops' },
+      { ok: true, value: 'a', extra: 1 },
+    ];
+    for (const bad of badValues) {
+      assert.throws(
+        () => contracts.parseResult(bad, asNonemptyString, asNonemptyString),
+        TypeError,
+      );
+    }
+  });
+
+  it('validates the discriminated payload using the supplied parser', () => {
+    assert.throws(
+      () => contracts.parseResult({ ok: true, value: 42 }, asNonemptyString, asNonemptyString),
+      /non-empty string/,
+    );
+    assert.throws(
+      () => contracts.parseResult({ ok: false, error: '' }, asNonemptyString, asNonemptyString),
+      /non-empty string/,
+    );
   });
 });
