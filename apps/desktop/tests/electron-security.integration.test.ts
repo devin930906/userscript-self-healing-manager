@@ -285,8 +285,12 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
       if (exit) throw new Error('Electron exited during target discovery: ' + JSON.stringify(exit));
       const controller = new AbortController();
-      const response = await fetch(origin + '/json/list', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(1000)]) }).catch(() => null);
-      lastDiscovery = response ? `HTTP ${response.status}` : 'CDP endpoint unreachable';
+      let fetchError = '';
+      const response = await fetch(origin + '/json/list', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(1000)]) }).catch((error: unknown) => {
+        fetchError = error instanceof Error ? error.message + ' (' + String(error.cause ?? '') + ')' : String(error);
+        return null;
+      });
+      lastDiscovery = response ? `HTTP ${response.status}` : 'CDP endpoint unreachable: ' + fetchError;
       if (response?.ok) {
         let targets: Target[];
         try { targets = await withTimeout(response.json() as Promise<Target[]>, 1000, 'CDP target response body'); }
@@ -301,7 +305,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       await delay(200);
     }
     if (exit) throw new Error(exitFailure(exit) ?? 'Electron exited before renderer ready');
-    assert.ok(target?.webSocketDebuggerUrl, 'Expected the bundled local renderer; CDP discovery: ' + lastDiscovery + '; Electron stderr: ' + stderr);
+    assert.ok(target?.webSocketDebuggerUrl, 'Expected the bundled local renderer; CDP discovery: ' + lastDiscovery + '; Electron PID=' + child?.pid + ', exit=' + JSON.stringify(exit) + ', spawnError=' + String(spawnError) + '; Electron stderr: ' + stderr);
     const trustedUrl = target.url!;
     cdp = await connectCdp(target.webSocketDebuggerUrl);
     await cdp.call('Runtime.enable');
