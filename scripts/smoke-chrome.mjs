@@ -67,6 +67,9 @@ const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></h
 <script>
  document.getElementById('fixture-safe-click').addEventListener('click',event=>{
   event.currentTarget.setAttribute('data-usshm-v2-fixture','yes');
+  // Local synthetic fixture ONLY; deliberately emit one unhandled exception
+  // to verify passive CDP counting without ever evaluating a user script.
+  setTimeout(()=>{throw new Error('USSHM_FR018_SYNTHETIC_EVENT_ONLY');},0);
  });
  const shadowRoot=document.getElementById('shadow-host').attachShadow({mode:'open'});
  const shadowButton=document.createElement('span');
@@ -316,9 +319,23 @@ try{
  // This isolated fixture is the ONLY CDP Input target in our suite. Verify a
  // real browser click and observable local side effect without running scripts
  // from users, without arbitrary JS injection, and without elevating app V2/V3/V4.
- const syntheticInteraction=await runIsolatedFixtureInteraction({
+ // Positive real-Chrome FR-018 evidence: a *test-only* synthetic fixture
+ // produces an exception after a bounded passive observation is active.
+ // Production CDP never injects JavaScript or dispatches Input.
+ const positiveObservation=observeReadOnlyPageExceptions(selected,{approved:true,durationMs:4500});
+ const syntheticClick=(async()=>{await delay(250);return runIsolatedFixtureInteraction({
   approved:true,target:selected,fixtureUrl,
- });
+ });})();
+ const [syntheticInteraction,observedException]=await Promise.all([syntheticClick,positiveObservation]);
+ assert.equal(observedException.status,'observed','real Chrome must report the synthetic unhandled exception');
+ assert.ok(Number.isSafeInteger(observedException.observedCount)&&observedException.observedCount>=1);
+ assert.ok(observedException.observedCount<=64);
+ assert.equal(observedException.origin,'unknown');
+ assert.equal(observedException.userscriptVerified,false);
+ assert.equal(observedException.V3,'not-configured');
+ assert.equal(observedException.V4,'not-configured');
+ assert.doesNotMatch(JSON.stringify(observedException),/USSHM_FR018_SYNTHETIC_EVENT_ONLY|fixture\/|stackTrace|exceptionDetails/);
+ console.log('PASS real Chrome FR-018 positive synthetic exception: count observed, origin unknown, V3/V4 blocked.');
  assert.equal(syntheticInteraction.validationLevel,'synthetic-fixture-interaction');
  assert.equal(syntheticInteraction.observed,true,'real Chrome must dispatch safe input on local fixture');
  assert.equal(syntheticInteraction.productionEligible,false);
