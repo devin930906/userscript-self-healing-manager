@@ -223,3 +223,145 @@ test('FR-010 metadata preserves exclude require version and reports missing/conf
  const missing=parseUserscriptMetadata('// ==UserScript==\n// @name Only\n// ==/UserScript==');
  assert.ok(missing.diagnostics.some(x=>x.includes('match')));
 });
+
+test('FR-011 inventories MutationObserver construction and observe options statically without invoking callbacks',()=>{
+ const source=[
+  "const observer = new MutationObserver(() => { throw Error('MUST_NOT_RUN'); });",
+  "observer.observe(document.body, {childList:true, subtree:true});",
+  "observer.disconnect();",
+  "new MutationObserver(handleMutation).observe(target, dynamicOptions);",
+ ].join('\n');
+ const result=analyzeSource({scriptId:'synthetic-mutation',sourceBytes:encoder.encode(source)});
+ assert.deepEqual(result.mutationObservers.map(x=>[x.kind,x.receiver,x.runtimeRequired]),[
+  ['constructor','MutationObserver',false],
+  ['observe','observer',false],
+  ['observe','<constructed>',true],
+  ['constructor','MutationObserver',false],
+ ]);
+ assert.equal(result.mutationObservers.every(x=>x.evidenceLevel==='static-only'&&x.functionalVerified===false),true);
+ assert.equal(result.mutationObservers[1]?.sourceRange.start.line,2);
+ assert.equal(result.mutationObservers[2]?.optionsKind,'dynamic');
+});
+
+test('FR-011 does not certify unrelated model.observe as a MutationObserver operation',()=>{
+ const source=[
+  "const model = { observe(target, options) { return options.childList; } };",
+  "model.observe(target, {childList:true});",
+  "const observer = new MutationObserver(() => {});",
+  "observer.observe(target, {childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'synthetic-unrelated-observe',sourceBytes:encoder.encode(source)}).mutationObservers;
+ const unrelated=records.filter(x=>x.kind==='observe'&&x.receiver==='model');
+ assert.ok(unrelated.length>0,'Unrelated observe candidate must be present');
+ assert.equal(unrelated.every(x=>x.runtimeRequired===true),true,
+  'An arbitrary observe method must not be certified as a MutationObserver');
+ assert.equal(records.some(x=>x.kind==='observe'&&x.receiver==='observer'&&x.runtimeRequired===false),true);
+});
+
+test('FR-011 observer binding honors lexical parameters catch and local declarations',()=>{
+ const source=[
+  "const observer = new MutationObserver(() => {});",
+  "observer.observe(target,{childList:true});",
+  "function parameter(observer) { observer.observe(target,{childList:true}); }",
+  "function localLet() { let observer; observer.observe(target,{childList:true}); }",
+  "function localVar() { observer.observe(target,{childList:true}); var observer; }",
+  "try { throw 1; } catch (observer) { observer.observe(target,{childList:true}); }",
+  "function sameScope() { const own = new MutationObserver(()=>{}); own.observe(target,{childList:true}); }",
+ ].join('\n');
+ const rows=analyzeSource({scriptId:'synthetic-shadow',sourceBytes:encoder.encode(source)}).mutationObservers.filter(x=>x.kind==='observe');
+ assert.deepEqual(rows.map(x=>x.runtimeRequired),[false,true,true,true,true,false]);
+ assert.equal(rows.every(x=>x.evidenceLevel==='static-only'&&x.functionalVerified===false),true);
+});
+
+test('FR-011 with dynamic object shadowing cannot certify an observer receiver outside the with body',()=>{
+ const source=[
+  "const observer = new MutationObserver(() => {});",
+  "observer.observe(target,{childList:true});",
+  "with ({observer: fake}) { observer.observe(target,{childList:true}); }",
+  "observer.observe(target,{childList:true});",
+ ].join('\n');
+ const calls=analyzeSource({scriptId:'synthetic-with-shadow',sourceBytes:encoder.encode(source)})
+  .mutationObservers.filter(x=>x.kind==='observe');
+ assert.deepEqual(calls.map(x=>x.runtimeRequired),[false,true,false]);
+ assert.deepEqual(calls.map(x=>x.sourceRange.start.line),[2,3,4]);
+});
+
+test('FR-011 with may shadow the MutationObserver constructor itself',()=>{
+ const source=[
+  "const outside = new MutationObserver(() => {});",
+  "outside.observe(target,{childList:true});",
+  "with ({MutationObserver: Fake}) {",
+  " const observer = new MutationObserver(() => {});",
+  " observer.observe(target,{childList:true});",
+  "}",
+  "outside.observe(target,{childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'fake-with-constructor',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[
+  ['constructor',false],['observe',false],
+  ['constructor',true],['observe',true],['observe',false],
+ ]);
+});
+
+test('FR-011 globalThis constructor reassignment makes MutationObserver evidence unknown',()=>{
+ const source=[
+  "globalThis.MutationObserver = Fake;",
+  "const observer = new MutationObserver(cb);",
+  "observer.observe(target,{childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'synthetic-global-rebind',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',true],['observe',true]]);
+});
+test('FR-011 observe method overwrite invalidates bound observer certainty',()=>{
+ const source=[
+  "const observer = new MutationObserver(cb);",
+  "observer.observe = fakeObserve;",
+  "observer.observe(target,{childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'synthetic-observe-override',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
+});
+
+test('FR-011 computed global constructor assignment invalidates static identity',()=>{
+ const source=[
+  'globalThis["MutationObserver"] = Fake;',
+  'const observer = new MutationObserver(cb);',
+  'observer.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'computed-constructor-rebind',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',true],['observe',true]]);
+});
+test('FR-011 computed observe method assignment invalidates static identity',()=>{
+ const source=[
+  'const observer = new MutationObserver(cb);',
+  'observer["observe"] = fakeObserve;',
+  'observer.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'computed-observe-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
+});
+
+test('FR-011 prototype observe overwrite invalidates instance observation without invalidating construction',()=>{
+ const source=[
+  'MutationObserver.prototype.observe = fakeObserve;',
+  'const observer = new MutationObserver(cb);',
+  'observer.observe(target,{childList:true});',
+  'const unaffected = {observe(target,opts) { return opts; }};',
+  'unaffected.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'prototype-observe-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.filter(x=>x.receiver==='MutationObserver'||x.receiver==='observer').map(x=>[x.kind,x.runtimeRequired]),[
+  ['constructor',false],['observe',true],
+ ]);
+ assert.ok(records.some(x=>x.receiver==='unaffected'&&x.runtimeRequired===true));
+});
+
+test('FR-011 window-qualified MutationObserver prototype observe overwrite is uncertain',()=>{
+ const source=[
+  'window.MutationObserver.prototype.observe = fakeObserve;',
+  'const observer = new MutationObserver(cb);',
+  'observer.observe(target,{childList:true});',
+ ].join('\n');
+ const records=analyzeSource({scriptId:'window-qualified-prototype-overwrite',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
+});
