@@ -452,7 +452,7 @@ test('standards-valid Unicode custom-element hosts MATH-α and EMOTION-😍 allo
 });
 
 test('invalid ASCII separators in synthetic element host names fail closed (QA-022)',async()=>{
- for(const hostName of ['MATH-α/BAD','MATH-α>BAD','MATH-α BAD','MATH-α\\tBAD','MATH-α\\0BAD']){
+ for(const hostName of ['MATH-α/BAD','MATH-α>BAD','MATH-α BAD','MATH-α\tBAD','MATH-α\0BAD']){
   const socket=new ProtocolSocket({
    'DOM.getDocument':()=>({root:{nodeId:8,nodeName:'#document',nodeType:9,children:[
     {nodeId:11,nodeType:1,nodeName:hostName,shadowRoots:[
