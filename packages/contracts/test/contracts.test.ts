@@ -129,3 +129,14 @@ describe('FR-040 report export format boundary', () => {
       assert.throws(()=>contracts.parseReportFormat(input),TypeError);
   });
 });
+
+describe('FR-040 / NFR-006 static report schema version', () => {
+  it('accepts only the existing serialized report version 2', () => {
+    assert.equal(contracts.staticReportSchemaVersion,2);
+    assert.equal(contracts.parseStaticReportSchemaVersion(2),2);
+  });
+  it('rejects unsupported versions and type coercion', () => {
+    for (const version of [0,1,3,-1,2.1,'2',null,undefined,{},[2]])
+      assert.throws(()=>contracts.parseStaticReportSchemaVersion(version),TypeError);
+  });
+});

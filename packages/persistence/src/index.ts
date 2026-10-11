@@ -67,6 +67,11 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  const table=db.prepare("SELECT type FROM sqlite_master WHERE name='scripts' LIMIT 1").get() as {type:string}|undefined;
  if(table?.type!=='table')
   throw new Error('Missing or incompatible scripts table for schema version 1');
+ // Canonical v1 is a normal rowid table, not an alternate WITHOUT ROWID layout.
+ const layout=db.prepare("SELECT wr,strict FROM pragma_table_list WHERE schema='main' AND name='scripts'")
+  .get() as {wr:number;strict:number}|undefined;
+ if(!layout||layout.wr!==0||layout.strict!==0)
+  throw new Error('Incompatible scripts schema: unexpected SQLite table layout');
  const columns=db.prepare('PRAGMA table_xinfo(scripts)').all() as {name:string;type:string;notnull:number;pk:number;hidden:number}[];
  const expected=['id','path','display_name','sha256','health_status','metadata_json','created_at','updated_at'];
  if(columns.length!==expected.length||columns.some((c,i)=>

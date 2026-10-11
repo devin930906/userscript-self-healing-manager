@@ -1,5 +1,6 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
+import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -851,11 +852,24 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
+  const proposalId=q.proposalId;
   try{
-   const applied=await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});
+   const applied=await approveAndApplyManagedRevision({
+    confirm:()=>dialog.showMessageBox(mainWindow,{
+     type:'warning',title:'确认应用批量修复',
+     message:'确认应用刚才预览的批量选择器修复？',
+     detail:'仅写入受管脚本修订，不修改原始用户脚本。请先核对批量差异。',
+     buttons:['取消','确认应用'],defaultId:0,cancelId:0,noLink:true,
+    }),
+    revalidate:()=>{
+     pendingApprovals.require(proposalId,scanSnapshot.scanId);
+     scanSessions.assertCurrent(scanSnapshot);
+     assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
+    },
+    apply:()=>batchRepairs.applyBatch({proposalId,approved:true}),
+   });
    return {...applied,activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
-  }
-  finally{pendingApprovals.consume(q.proposalId);}
+  }finally{pendingApprovals.consume(q.proposalId);}
  });
  ipcMain.handle('usshm:apply-batch-repair-guarded',async(event,input:unknown)=>{
   assertSender(event);
@@ -890,9 +904,24 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
+  const proposalId=q.proposalId;
   let applied:Awaited<ReturnType<typeof batchRepairs.applyBatch>>;
-  try{applied=await batchRepairs.applyBatch({proposalId:q.proposalId,approved:true});}
-  finally{pendingApprovals.consume(q.proposalId);}
+  try{
+   applied=await approveAndApplyManagedRevision({
+    confirm:()=>dialog.showMessageBox(mainWindow,{
+     type:'warning',title:'确认应用批量修复并执行 V1 复核',
+     message:'确认应用刚才预览的批量修订，随后执行只读 V1 复核？',
+     detail:'仅修改受管副本。V1 复核失败时按原有流程尝试恢复上一修订。',
+     buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
+    }),
+    revalidate:()=>{
+     pendingApprovals.require(proposalId,scanSnapshot.scanId);
+     scanSessions.assertCurrent(scanSnapshot);
+     assertBatchProposalSnapshot(trusted,batchRepairs.inspectPending(proposalId));
+    },
+    apply:()=>batchRepairs.applyBatch({proposalId,approved:true}),
+   });
+  }finally{pendingApprovals.consume(q.proposalId);}
   const safety=await guardAppliedManagedBatchRevision({
    approved:true,scriptId:item.scriptId,appliedHash:applied.hash,
    previousHash:trusted.previousHash,selectorIndexes:trusted.selectorIndexes,
