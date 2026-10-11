@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import {describe, it} from 'node:test';
-import {parseVerificationChain} from '../src/verification-chain.ts';
+import {parseVerificationChain, verificationLevels, verificationStatuses} from '../src/verification-chain.ts';
 
 const blocked = {V0:'passed',V1:'blocked',V2:'blocked',V3:'not-configured',V4:'not-configured'};
 
 describe('FR-024 verification level chain',()=>{
+ it('freezes exported verification levels and statuses at runtime',()=>{
+  assert.equal(Object.isFrozen(verificationLevels),true,'verificationLevels must be frozen');
+  assert.equal(Object.isFrozen(verificationStatuses),true,'verificationStatuses must be frozen');
+ });
  it('accepts an observed V0 with later levels explicitly not passed',()=>{
   assert.deepEqual(parseVerificationChain(blocked),blocked);
  });
