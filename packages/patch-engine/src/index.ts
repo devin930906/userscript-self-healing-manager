@@ -21,6 +21,7 @@ export function proposeLiteralPatch({sourceBytes,oldSelector,newSelector,selecto
  if(typeof oldSelector!=='string'||typeof newSelector!=='string'||!oldSelector||!newSelector||
     oldSelector.length>1024||newSelector.length>1024)
   throw new Error('Selectors must be nonempty and short');
+ if(oldSelector===newSelector)throw new Error('Unchanged selector cannot create an approved repair revision');
  if(expectedSourceRange&&
    (!Number.isSafeInteger(expectedSourceRange.start)||!Number.isSafeInteger(expectedSourceRange.end)||
     expectedSourceRange.start<0||expectedSourceRange.end<=expectedSourceRange.start))

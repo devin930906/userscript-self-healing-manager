@@ -54,11 +54,34 @@ function selectors(node:SafeDomNode,method:string):Array<{expression:string;cssS
 export function rankSelectorCandidates({method,oldSelector,nodes,runtimeRequired=false,limit=10}:CandidateInput):SelectorCandidate[]{
  if(runtimeRequired||!['querySelector','getElementById','getElementsByName','getElementsByClassName'].includes(method)||typeof oldSelector!=='string'||!oldSelector.trim()||oldSelector.length>1024)return [];
  if(!Number.isInteger(limit)||limit<1||limit>10)throw new Error('Invalid candidate limit');
- if(nodes.length>MAX_NODES)throw new Error('DOM candidate node limit exceeded');
+ if(!Array.isArray(nodes)||nodes.length>MAX_NODES)throw new Error('DOM candidate node limit exceeded');
+ // Public ranking APIs must not trust callers to have already sanitized
+ // hostile CDP attributes. Enforce a per-node budget before class splitting.
+ for(const node of nodes){
+  if(!node||typeof node!=='object'||!node.attributes||
+     typeof node.attributes!=='object'||Array.isArray(node.attributes))
+   throw new Error('Invalid DOM candidate attribute evidence');
+  // Contract: attributes are decoded, plain JSON records from the bounded
+  // CDP evidence collector, not arbitrary JS objects/Proxies. A Proxy may
+  // execute user code from traps; this local iteration is not a byte limit
+  // on arbitrary hostile objects. Bound payload bytes before JSON decoding.
+  const prototype=Object.getPrototypeOf(node.attributes);
+  if(prototype!==Object.prototype&&prototype!==null)
+   throw new Error('Invalid DOM candidate attribute evidence');
+  let count=0;
+  for(const name in node.attributes){
+   if(!Object.prototype.hasOwnProperty.call(node.attributes,name))continue;
+   if(++count>32||name.length>64)
+    throw new Error('DOM candidate attribute evidence budget exceeded');
+   const value=node.attributes[name];
+   if(typeof value!=='string'||value.length>2048)
+    throw new Error('DOM candidate attribute evidence budget exceeded');
+  }
+ }
  const oldWords=words(oldSelector);
  const occurrences=new Map<string,{count:number;entry:{expression:string;cssSelector:string;weight:number;evidence:string}}>();
  for(const node of nodes) {
-  if(!/^[a-z][a-z0-9-]{0,30}$/i.test(node.tagName))continue;
+  if(typeof node.tagName!=='string'||!/^[a-z][a-z0-9-]{0,30}$/i.test(node.tagName))continue;
   const thisNode=new Set<string>();
   for(const entry of selectors(node,method)) {
    if(thisNode.has(entry.cssSelector))continue;thisNode.add(entry.cssSelector);
