@@ -67,10 +67,10 @@ function assertV1ScriptsTable(db:DatabaseHandle):void{
  const table=db.prepare("SELECT type FROM sqlite_master WHERE name='scripts' LIMIT 1").get() as {type:string}|undefined;
  if(table?.type!=='table')
   throw new Error('Missing or incompatible scripts table for schema version 1');
- const columns=db.prepare('PRAGMA table_info(scripts)').all() as {name:string;type:string;notnull:number;pk:number}[];
+ const columns=db.prepare('PRAGMA table_xinfo(scripts)').all() as {name:string;type:string;notnull:number;pk:number;hidden:number}[];
  const expected=['id','path','display_name','sha256','health_status','metadata_json','created_at','updated_at'];
  if(columns.length!==expected.length||columns.some((c,i)=>
-    c.name!==expected[i]||c.type.toUpperCase()!=='TEXT'||
+    c.name!==expected[i]||c.hidden!==0||c.type.toUpperCase()!=='TEXT'||
     (i===0?c.pk!==1:c.pk!==0||c.notnull!==1)))
   throw new Error('Incompatible scripts columns for schema version 1');
  // A marker and matching columns are not enough: without this UNIQUE
