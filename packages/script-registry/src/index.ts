@@ -75,14 +75,16 @@ export async function importPaths({paths,recursive,repository,maxFiles=Number.MA
   const path=resolve(input);
   let info:Awaited<ReturnType<typeof lstat>>|null=null;
   let linked=false;
+  let filesystemError:unknown;
   try{
    linked=await containsLinkedComponent(path);
    if(!linked)info=await lstat(path);
-  }catch{/* Missing/inaccessible path is reported below without interrupting siblings. */}
+  }catch(error){filesystemError=error;}
   if(linked)candidates.push({path,status:'symlink-skipped'});
   else if(info?.isDirectory()){candidates.push(...await enumerateScripts({paths:[path],recursive,followSymlinks:false,maxEntries:maxFiles-candidates.length}));}
   else if(info?.isSymbolicLink())candidates.push({path,status:'symlink-skipped'});
-  else candidates.push({path,status:info?'found':'unreadable'});
+  else candidates.push({path,status:info?'found':'unreadable',
+   ...(filesystemError!==undefined?{message:String(filesystemError)}:{})});
   if(candidates.length>maxFiles)throw new Error('limit-exceeded');
  }
  // Every selected directory is expanded before any bytes are read or SQLite rows are written.
