@@ -17,7 +17,10 @@ test('Task4 versioned Registry rejects unrelated legacy table while retaining ro
   }finally{fixture.close();}
   const db=openDatabase(file);
   try{
-   assert.throws(()=>migrateDatabase(db),/unknown|unexpected|schema|incompatible/i);
+   assert.throws(()=>migrateDatabase(db),(error:unknown)=>{
+    assert.equal((error as {code?:unknown}).code,'DATABASE_SCHEMA_UNSUPPORTED');
+    return true;
+   });
    assert.equal(db.prepare('SELECT note FROM legacy_private_history').get()?.note,'preserve-private-history');
    assert.equal(db.prepare('SELECT version FROM schema_version').get()?.version,1);
    db.exec('BEGIN IMMEDIATE');db.exec('ROLLBACK');
