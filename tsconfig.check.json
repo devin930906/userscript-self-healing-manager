@@ -1,0 +1,6 @@
+{
+ "extends":"./tsconfig.base.json",
+ "compilerOptions":{"noEmit":true,"allowImportingTsExtensions":true,"types":["node"],"jsx":"react-jsx","lib":["ES2022","DOM"],"module":"NodeNext","moduleResolution":"NodeNext"},
+ "include":["packages/*/src/**/*.ts","apps/desktop/src/**/*.ts","apps/desktop/src/**/*.tsx"],
+ "exclude":["node_modules","dist","release","**/*.test.ts"]
+}

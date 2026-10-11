@@ -1,0 +1,40 @@
+name: Continuation integration checks
+
+on:
+  push:
+    branches:
+      - feat/v01-continuation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: continuation-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node24:
+    name: Node 24 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Check out exact integration commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run repository tests
+        run: npm test
+      - name: Strict TypeScript check
+        run: npm run typecheck
+      - name: Bundle desktop application (no installers)
+        run: npm run build
