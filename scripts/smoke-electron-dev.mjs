@@ -19,6 +19,18 @@ const roaming=join(root,'Roaming'),local=join(root,'Local');
 let appProcess,secondInstance,stderr='';
 try{
  await mkdir(roaming,{recursive:true});await mkdir(local,{recursive:true});
+ // Diagnose the production path contract before launching Electron. This must
+ // not bypass it: any rejection still fails the real GUI smoke.
+ const {resolveDataRoot}=await import('../packages/runtime-paths/src/index.ts');
+ const externalRoot=root;
+ const unpackedDirectory=resolve('node_modules','electron','dist');
+ console.log('GUI path preflight:',JSON.stringify({
+  externalRoot,unpackedDirectory,runnerTemp:process.env.RUNNER_TEMP??null,
+ }));
+ const dataRoot=resolveDataRoot({distributionMode:'portable-exe',
+  exeDirectory:unpackedDirectory,portableExternalDirectory:externalRoot,
+  osUserDataDirectory:roaming});
+ assert.equal(dataRoot,join(root,'Data'),'GUI smoke and production must agree on portable Data root');
  const env={...process.env,APPDATA:roaming,LOCALAPPDATA:local,
   // Use the application's own explicitly portable data-root contract. Windows
   // Known Folder paths are not guaranteed to obey overridden APPDATA.
