@@ -1,5 +1,5 @@
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
-import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
+import {asCss,type LiteralLocator,type LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 
@@ -94,7 +94,8 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
  if(expectation!=='exists'&&expectation!=='unique')throw new Error('Unsupported DOM contract');
  if(!locator||locator.runtimeRequired||!['querySelector','querySelectorAll','getElementById',
   'getElementsByClassName','getElementsByName'].includes(locator.method)||
-  typeof locator.expression!=='string'||!locator.expression.trim()||locator.expression.length>1024)
+  typeof locator.expression!=='string'||!locator.expression.trim()||locator.expression.length>1024||
+  asCss(locator)===null)
   throw new Error('A supported static literal document selector is required');
  if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||typeof deps.wait!=='function')
   throw new Error('Invalid DOM test dependencies');
