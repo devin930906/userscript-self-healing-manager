@@ -10,6 +10,7 @@
  */
 const UNKNOWN='操作未完成，请检查当前授权、源文件和浏览器状态后重试。';
 const SAFE_CODES:Readonly<Record<string,string>>=Object.freeze({
+ 'REPORT_PUBLICATION_UNTRUSTED':'报告可能残留且不可信，请检查导出文件夹。',
  'CDP page identity timeout':'浏览器页面连接超时，请检查 Chrome 调试连接与目标标签页。',
  'CDP locator probe timeout':'页面 DOM 检查超时，请刷新目标页状态后重试。',
  'CDP snapshot timeout':'页面 DOM 检查超时，请刷新目标页状态后重试。',
