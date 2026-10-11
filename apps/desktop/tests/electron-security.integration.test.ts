@@ -18,6 +18,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
+import { createServer as createTcpServer } from 'node:net';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -232,6 +233,23 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
   const marker = 'USSHM_EXISTING_HTML_44';
   const alternateFile = join(temporary, 'alternate-existing.html');
   const requests = { initial: 0, redirected: 0 };
+  // Reserve an OS-selected loopback TCP port, then release it for Electron.
+  // Electron on Windows does not reliably emit the port=0 CDP endpoint on stderr.
+  const portProbe = createTcpServer();
+  let debugPort: number;
+  try {
+    await withTimeout(new Promise<void>((done, fail) => {
+      portProbe.once('error', fail);
+      portProbe.listen(0, '127.0.0.1', done);
+    }), 5000, 'CDP port reservation');
+    const bound = portProbe.address();
+    assert.ok(bound && typeof bound !== 'string');
+    debugPort = bound.port;
+  } finally {
+    if (portProbe.listening) await withTimeout(new Promise<void>((done, fail) =>
+      portProbe.close(error => error ? fail(error) : done())), 5000, 'CDP port release');
+  }
+  const origin = `http://127.0.0.1:${debugPort}`;
   try {
     await writeFile(alternateFile, '<!doctype html><title>' + marker + '</title>', 'utf8');
     await access(alternateFile);
@@ -263,7 +281,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
       PORTABLE_EXECUTABLE_DIR: temporary,
     };
     delete env.ELECTRON_RUN_AS_NODE;
-    child = spawn(executable, ['.', '--remote-debugging-port=0',
+    child = spawn(executable, ['.', `--remote-debugging-port=${debugPort}`,
       '--remote-debugging-address=127.0.0.1', '--disable-gpu'], {
       cwd: process.cwd(), env, windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -275,19 +293,7 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     });
     child.stderr?.on('data', (data: Buffer) => { stderr = (stderr + String(data)).slice(-8000); });
 
-    // Chrome chooses a free debugging port; parse its stderr endpoint.
-    let endpoint: string | undefined;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
-      endpoint = stderr.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)/)?.[1];
-      if (endpoint) break;
-      if (exit) throw new Error('Electron exited before CDP became available: ' + JSON.stringify(exit));
-      await delay(200);
-    }
-    if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
-    assert.ok(endpoint, 'Electron did not expose a loopback CDP endpoint: ' + stderr);
-    const browserWs = new URL(endpoint);
-    const origin = `http://127.0.0.1:${browserWs.port}`;
+    // The allocated loopback port is known; no stderr endpoint parsing is required.
     let target: Target | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
       if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
