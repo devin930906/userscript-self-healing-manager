@@ -53,7 +53,9 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
   }
   if(data.shadowRoots!==undefined){
    if(!Array.isArray(data.shadowRoots))return null;
-   if(data.shadowRoots.length>0&&(data.nodeType!==1||typeof data.nodeName!=='string'||!(/^[A-Z][A-Z0-9-]*$/).test(data.nodeName)))return null;
+   // DOM valid element local name: ASCII-alpha-leading branch, with HTML nodeName ASCII-uppercased.
+   // Reject ASCII whitespace, NUL, '/', and '>'; allow the full non-ASCII code-point range.
+   if(data.shadowRoots.length>0&&(data.nodeType!==1||typeof data.nodeName!=='string'||!/^[A-Z][^\0\t\n\f\r />]*$/u.test(data.nodeName)))return null;
    queue.push(...data.shadowRoots.map(node=>({node,fromShadowRoots:true})));
   }
   if(queue.length>1500)return null;
