@@ -204,7 +204,7 @@ test('unbounded identity sets never send read-only describe commands or publish 
 
 test('explicit open-shadow scope uses one bounded top-page open root, not document root',async()=>{
  const socket=new ProtocolSocket({
-  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'}]}]}}),
+  'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',shadowRootType:'open'}]}]}}),
   'DOM.querySelectorAll':({nodeId,selector})=>({nodeIds:nodeId===82&&selector==='#shadow-send'?[101]:[]}),
   'DOM.describeNode':()=>({node:{backendNodeId:882,nodeType:1}}),
  });
@@ -219,7 +219,7 @@ test('explicit open-shadow scope uses one bounded top-page open root, not docume
 });
 test('open-shadow scope fails closed on ambiguous, nested, closed or malformed roots without selector commands',async()=>{
  const trees=[
-  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'open'}]}]},
+  {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,nodeName:'#document-fragment',shadowRootType:'open'},{nodeId:83,shadowRootType:'open'}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'closed'}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:82,shadowRootType:'open',children:[{nodeId:13,shadowRoots:[{nodeId:89,shadowRootType:'open'}]}]}]}]},
   {nodeId:8,children:[{nodeId:11,shadowRoots:[{nodeId:'bad',shadowRootType:'open'}]}]},
@@ -246,7 +246,7 @@ test('unknown shadow scopes and oversized trees must not silently fall back to d
 test('an unrelated closed shadow root does not become an open-root locator or invalidate a positive open-root check',async()=>{
  const socket=new ProtocolSocket({
   'DOM.getDocument':()=>({root:{nodeId:8,children:[{nodeId:11,shadowRoots:[
-   {nodeId:82,shadowRootType:'open'},{nodeId:83,shadowRootType:'closed'}]}]}}),
+   {nodeId:82,nodeName:'#document-fragment',shadowRootType:'open'},{nodeId:83,shadowRootType:'closed'}]}]}}),
   'DOM.querySelectorAll':({nodeId})=>({nodeIds:nodeId===82?[101]:[]}),
   'DOM.describeNode':()=>({node:{nodeType:1,backendNodeId:9001}}),
  });
