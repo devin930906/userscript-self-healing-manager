@@ -8,9 +8,11 @@ const CHUNK_SIZE=64*1024;
 /** Post-link verification failed. Target may exist and must not be trusted. */
 export class UntrustedReportPublicationError extends Error {
  readonly code='REPORT_PUBLICATION_UNTRUSTED';
- constructor(readonly destinationPath:string,cause:unknown){
+ readonly destinationPath:string;
+ constructor(destinationPath:string,cause:unknown){
   super('Report publication untrusted; target may remain at: '+destinationPath,{cause});
   this.name='UntrustedReportPublicationError';
+  this.destinationPath=destinationPath;
  }
 }
 type ChunkWriter=(file:FileHandle,chunk:Uint8Array,offset:number)=>Promise<number>;
