@@ -7,6 +7,7 @@ import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 import {checkUserscriptPageScope} from '../../candidate-engine/src/page-scope.ts';
 import {summarizeLiveLocatorCheck} from './health.ts';
 import {projectVerificationLevels,type VerificationProjection} from './verification-levels.ts';
+import {classifyReadOnlyFault,type ReadOnlyFault} from './fault-classification.ts';
 
 export type BatchDomStatus='locator-missing'|'dom-present'|'needs-review'|'no-evidence'|'out-of-scope'|'skipped'|'error';
 export interface BatchDomItem {
@@ -19,6 +20,7 @@ export interface BatchDomItem {
  readonly missing:number;
  readonly needsReview:number;
  readonly reason?:string;
+ readonly diagnostic?:ReadOnlyFault;
  readonly verification?:VerificationProjection;
 }
 export interface BatchDomResult {
@@ -239,11 +241,15 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  // lets the page collector compare batches without exposing raw CDP identities.
  const pageDocumentToken=baselineDocument?.frameId&&baselineDocument.loaderId?
   createHash('sha256').update(baselineDocument.frameId+'\0'+baselineDocument.loaderId).digest('hex'):undefined;
- const validatedItems=finalItems.map((entry,index)=>({
-  ...entry,verification:projectVerificationLevels({
-   staticStatus:items[index]?.status??'skipped',dom:entry,
-  }),
- }));
+ const validatedItems=finalItems.map((entry,index)=>{
+  const diagnostic=classifyReadOnlyFault(entry);
+  return {
+   ...entry,...(diagnostic?{diagnostic}:{}),
+   verification:projectVerificationLevels({
+    staticStatus:items[index]?.status??'skipped',dom:entry,
+   }),
+  };
+ });
  return {validationLevel:'dom-only',pageTargetId:target.id,pageUrl:target.url,
   ...(pageDocumentToken?{pageDocumentToken}:{}),totalItems:items.length,items:validatedItems};
 }
