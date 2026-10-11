@@ -64,15 +64,41 @@ test('Task 5 static fixture: both fallback calls, scope and exact source ranges'
   assert.ok(records.every(record=>record.dynamicKind==='literal'&&!record.runtimeRequired));
 });
 
-test('Task 5 chained || fallback: inventory keeps all calls; immediate pairs are related',()=>{
-  // Existing analyzer only relates direct children of each || node.
+test('FR-013 chained || fallbacks relate all direct alternatives in source order',()=>{
   const source="function chain(){ return document.querySelector('#a') || document.querySelector('#b') || document.getElementById('c'); }";
   const result=analyzeSource({scriptId:'fallback-chain',sourceBytes:new TextEncoder().encode(source)});
   assert.deepEqual(result.selectorRecords.map(record=>record.expression),['#a','#b','c']);
-  assert.deepEqual(result.selectorRecords[0]?.alternateSelectors,['#b']);
-  assert.deepEqual(result.selectorRecords[1]?.alternateSelectors,['#a']);
-  // The outer RHS is recorded, but the current API does not flatten the nested LHS.
-  assert.deepEqual(result.selectorRecords[2]?.alternateSelectors,[]);
+  assert.deepEqual(result.selectorRecords.map(record=>record.alternateSelectors),[
+    ['#b','c'],['#a','c'],['#a','#b'],
+  ]);
+});
+
+test('FR-013 grouped fallback trees and nullish chains report all distinct direct calls',()=>{
+ const samples=[
+  ["document.querySelector('#a') || (document.querySelector('#b') || document.querySelector('#c'))",
+   [['#b','#c'],['#a','#c'],['#a','#b']]],
+  ["(document.querySelector('#a') ?? document.querySelector('#b')) ?? document.querySelector('#c')",
+   [['#b','#c'],['#a','#c'],['#a','#b']]],
+  ["document.querySelector('#a') || ((document.querySelector('#b'))) || (document.querySelector('#c'))",
+   [['#b','#c'],['#a','#c'],['#a','#b']]],
+ ] as const;
+ for(const [src,expected] of samples){
+  const result=analyzeSource({scriptId:'nested-fallback',sourceBytes:new TextEncoder().encode(src)});
+  assert.deepEqual(result.selectorRecords.map(r=>r.alternateSelectors),expected,src);
+ }
+});
+
+test('FR-013 fallback inventory never crosses unrelated logical operators or expression wrappers',()=>{
+ const src=[
+  "const x=document.querySelector('#a') || (document.querySelector('#b') && document.querySelector('#c'));",
+  "const y=document.querySelector('#d') ?? (document.querySelector('#e') || document.querySelector('#f'));",
+  "const z=document.querySelector('#g') || fallbackFactory(document.querySelector('#h'));",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'unrelated-branches',sourceBytes:new TextEncoder().encode(src)}).selectorRecords;
+ assert.deepEqual(records.map(r=>r.expression),['#a','#b','#c','#d','#e','#f','#g','#h']);
+ assert.deepEqual(records.map(r=>r.alternateSelectors),[
+  [],[],[],[],['#f'],['#e'],[],[],
+ ]);
 });
 
 test('Task 5 dynamic fixture: all unknown expressions require runtime confirmation',()=>{
