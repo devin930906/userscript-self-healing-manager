@@ -169,5 +169,9 @@
   - 测试提交：`5afa48e9efb629d16d31ff7f882271fc2c8f0273`。
   - [Development CI #38143874876](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38143874876)：**completed / success**，989 项测试中 987 通过、0 失败、2 跳过，QA-010 日志明确 PASS；独立 Chrome 155、Electron 安全集成与 Windows 开发构建通过。
   - [发行合同检查 #38143874878](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38143874878)：Ubuntu 和 Windows 合同检查成功；正式三种安装包构建刻意跳过。不能据此声称 Windows 10/11 最终用户机器验收已完成。
-- **QA-001~074 其余项目**：部分已有单元或集成测试，但尚未在本矩阵逐案例完整映射执行证据，不能凭全量 CI 全绿全部标记通过。尤其 QA-033（真实 GM/manager）、QA-056、QA-061~074（真实三发行包及 Windows 10/11）仍需独立验证。
+- **QA-034（受控集成验收通过，2026-10-11）**：`packages/scan-service/test/qa034-thirty-item-failure-isolation.test.ts` 使用 30 份经真实 TypeScript AST 分析器解析的合成脚本，通过同一目标页面的 25+5 分页诊断，注入其中 1 项 CDP 探测失败；其他 29 项保持独立 `dom-present`／V1 结果，唯一失败项为 `error`／V1 blocked，敏感异常原文不返回，V2/V3/V4 均未被越级宣布成功。CDP 探测使用受控测试适配器，**不等于真实网站、真实 Tampermonkey/GM 或 Windows 安装包验收**。
+  - 测试提交：`53b837678f42325c4f9a225d6289c8bc215b5542`。
+  - [Development CI #38144816252](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38144816252)：**completed / success**，994 项主测试中 992 通过、0 失败、2 跳过；独立 Chrome 155、Electron 安全集成与 Windows 开发构建成功。
+  - [发行合同检查 #38144816247](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38144816247)：Windows 与 Ubuntu 发行合同成功；正式发行包仍未构建。
+- **QA-001~074 其余项目（不含 QA-010、QA-034）**：部分已有单元或集成测试，但尚未在本矩阵逐案例完整映射执行证据，不能凭全量 CI 全绿全部标记通过。尤其 QA-033（真实 GM/manager）、QA-056、QA-061~074（真实三发行包及 Windows 10/11）仍需独立验证。
 - **Stable Release Gates RG-01~09**：QA-010 单项通过不意味着发行门禁完成。真实 Tampermonkey 注入、GM 功能、三包独立验收、升级迁移和安全审查继续保留未验证状态。
