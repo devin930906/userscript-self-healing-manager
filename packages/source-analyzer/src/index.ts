@@ -250,6 +250,26 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    functionName:fn.name,scope:fn.scope,evidenceLevel:'static-only',confidence,
    runtimeRequired:confidence!=='high'||eventName==='<dynamic>'});
  }
+ // Conservative lexical hint: only a single const initialized directly by the
+ // genuine global MutationObserver can make an identifier.observe static-known.
+ // Colliding declarations and writes keep the evidence runtime-required.
+ const observerNames=new Set<string>();
+ const uncertainNames=new Set<string>();
+ function collectObserverBindings(node:ts.Node):void{
+  if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)){
+   const name=node.name.text;
+   const list=node.parent;
+   const isConst=ts.isVariableDeclarationList(list)&&(list.flags&ts.NodeFlags.Const)!==0;
+   const init=node.initializer;
+   const genuine=isConst&&!!init&&ts.isNewExpression(init)&&ts.isIdentifier(init.expression)&&
+    init.expression.text==='MutationObserver'&&!isLocallyBound(init,'MutationObserver');
+   if(genuine&&!observerNames.has(name)&&!uncertainNames.has(name))observerNames.add(name);
+   else {observerNames.delete(name);uncertainNames.add(name);}
+  }else if(ts.isBinaryExpression(node)&&node.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+   ts.isIdentifier(node.left))uncertainNames.add(node.left.text);
+  ts.forEachChild(node,collectObserverBindings);
+ }
+ collectObserverBindings(source);
  function collectMutationObserver(node:ts.Node):void{
   let kind:MutationObserverRecord['kind']|null=null;
   let receiver='';
@@ -266,6 +286,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
     // Unknown receivers may implement a non-DOM observe method: do not
     // promote such a static candidate into a runtime assertion.
     kind='observe';receiver=target.text;
+    runtimeRequired=!observerNames.has(target.text)||uncertainNames.has(target.text);
    }else if(ts.isNewExpression(target)&&ts.isIdentifier(target.expression)&&
     target.expression.text==='MutationObserver'&&!isLocallyBound(target,'MutationObserver')){
     kind='observe';receiver='<constructed>';
@@ -273,7 +294,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    if(kind){
     const options=node.arguments[1]!;
     optionsKind=ts.isObjectLiteralExpression(options)?'static':'dynamic';
-    runtimeRequired=receiver==='<constructed>'||optionsKind==='dynamic';
+    runtimeRequired=runtimeRequired||receiver==='<constructed>'||optionsKind==='dynamic';
    }
   }
   if(!kind)return;
