@@ -260,6 +260,24 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    if(ts.isWithStatement(parent)&&node.pos>=parent.statement.pos&&node.end<=parent.statement.end)return true;
   return false;
  }
+ const overwrittenObserveNames=new Set<string>();
+ let globalMutationObserverRebound=false;
+ function isMutationObserverGlobalReference(expr:ts.Expression):boolean{
+  return ts.isPropertyAccessExpression(expr)&&expr.name.text==='MutationObserver'&&
+   ts.isIdentifier(expr.expression)&&['globalThis','window','self'].includes(expr.expression.text);
+ }
+ function scanMutationMutations(node:ts.Node):void{
+  if(ts.isBinaryExpression(node)&&ts.isAssignmentOperator(node.operatorToken.kind)){
+   const left=node.left;
+   if((ts.isIdentifier(left)&&left.text==='MutationObserver')||
+      (ts.isPropertyAccessExpression(left)&&isMutationObserverGlobalReference(left)))
+    globalMutationObserverRebound=true;
+   if(ts.isPropertyAccessExpression(left)&&left.name.text==='observe'&&
+      ts.isIdentifier(left.expression))overwrittenObserveNames.add(left.expression.text);
+  }
+  ts.forEachChild(node,scanMutationMutations);
+ }
+ scanMutationMutations(source);
  const observerBindings=new Map<ts.Node,Set<string>>();
  const uncertainNames=new Set<string>();
  function collectObserverBindings(node:ts.Node):void{
@@ -269,7 +287,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    const isConst=ts.isVariableDeclarationList(list)&&(list.flags&ts.NodeFlags.Const)!==0;
    const init=node.initializer;
    const genuine=isConst&&!!init&&ts.isNewExpression(init)&&ts.isIdentifier(init.expression)&&
-    init.expression.text==='MutationObserver'&&!isLocallyBound(init,'MutationObserver')&&!inWithBody(init);
+    init.expression.text==='MutationObserver'&&!globalMutationObserverRebound&&!isLocallyBound(init,'MutationObserver')&&!inWithBody(init);
    if(genuine){
     const owner=ownerOf(node,'lexical');
     const names=observerBindings.get(owner)??new Set<string>();
@@ -283,7 +301,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  // Find the nearest actual lexical declaration, not a globally shared name.
  // Function/catch parameters and hoisted var declarations shadow outer consts.
  function isProvenObserver(node:ts.Node,name:string):boolean{
-  if(uncertainNames.has(name)||inWithBody(node))return false;
+  if(globalMutationObserverRebound||overwrittenObserveNames.has(name)||uncertainNames.has(name)||inWithBody(node))return false;
   for(let parent:ts.Node|undefined=node;parent;parent=parent.parent){
    // A with object inserts a dynamic name-resolution environment for its body.
    // No outer lexical const can prove which receiver the identifier resolves to.
@@ -300,7 +318,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   if(ts.isNewExpression(node)&&ts.isIdentifier(node.expression)&&
      node.expression.text==='MutationObserver'&&!isLocallyBound(node,'MutationObserver')){
    kind='constructor';receiver='MutationObserver';
-   runtimeRequired=inWithBody(node)||!node.arguments||node.arguments.length!==1;
+   runtimeRequired=globalMutationObserverRebound||inWithBody(node)||!node.arguments||node.arguments.length!==1;
   }else if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&
     node.expression.name.text==='observe'&&node.arguments.length>=2){
    const target=node.expression.expression;
