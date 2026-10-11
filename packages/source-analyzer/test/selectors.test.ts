@@ -252,6 +252,7 @@ test('FR-011 does not certify unrelated model.observe as a MutationObserver oper
  ].join('\n');
  const records=analyzeSource({scriptId:'synthetic-unrelated-observe',sourceBytes:encoder.encode(source)}).mutationObservers;
  const unrelated=records.filter(x=>x.kind==='observe'&&x.receiver==='model');
+ assert.ok(unrelated.length>0,'Unrelated observe candidate must be present');
  assert.equal(unrelated.every(x=>x.runtimeRequired===true),true,
   'An arbitrary observe method must not be certified as a MutationObserver');
  assert.equal(records.some(x=>x.kind==='observe'&&x.receiver==='observer'&&x.runtimeRequired===false),true);
@@ -300,4 +301,23 @@ test('FR-011 with may shadow the MutationObserver constructor itself',()=>{
   ['constructor',false],['observe',false],
   ['constructor',true],['observe',true],['observe',false],
  ]);
+});
+
+test('FR-011 globalThis constructor reassignment makes MutationObserver evidence unknown',()=>{
+ const source=[
+  "globalThis.MutationObserver = Fake;",
+  "const observer = new MutationObserver(cb);",
+  "observer.observe(target,{childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'synthetic-global-rebind',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',true],['observe',true]]);
+});
+test('FR-011 observe method overwrite invalidates bound observer certainty',()=>{
+ const source=[
+  "const observer = new MutationObserver(cb);",
+  "observer.observe = fakeObserve;",
+  "observer.observe(target,{childList:true});",
+ ].join('\n');
+ const records=analyzeSource({scriptId:'synthetic-observe-override',sourceBytes:encoder.encode(source)}).mutationObservers;
+ assert.deepEqual(records.map(x=>[x.kind,x.runtimeRequired]),[['constructor',false],['observe',true]]);
 });
