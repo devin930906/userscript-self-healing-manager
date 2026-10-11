@@ -276,6 +276,17 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
    // separators here instead of silently normalizing ambiguous archives.
    if(decodedName.includes('\\'))
     throw new Error('Unsafe ZIP central-directory backslash path');
+   // A file entry must not masquerade as a directory (or vice versa).
+   // ZIP extractors can interpret Unix type bits, DOS directory attributes
+   // and trailing slashes differently; require them to agree when present.
+   const directoryName=decodedName.endsWith('/');
+   const unixDirectory=mode===0o040000;
+   const unixRegular=mode===0o100000;
+   const dosDirectory=(attrs&0x10)!==0;
+   if((unixDirectory&&!directoryName)||
+      (unixRegular&&(directoryName||dosDirectory))||
+      (dosDirectory&&!directoryName))
+    throw new Error('ZIP directory path marker contradicts central-directory file attributes');
    const extractionPath=normalizedZipEntry(decodedName).toLowerCase();
    if(seenExtractionPaths.has(extractionPath))
     throw new Error('Unsafe duplicate ZIP central-directory extraction path');
