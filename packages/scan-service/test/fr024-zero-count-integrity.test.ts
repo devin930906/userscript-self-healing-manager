@@ -53,7 +53,7 @@ test('FR-024 rejects an over-budget second page without publishing its evidence'
   total:26,targetId,
   requestPage:async offset=>offset===0?
    page(0,26,Array.from({length:25},(_,i)=>row(i))):
-   page(25,26,[{...row(25),status:'needs-review',checked:0,
+   page(25,26,[{...row(25),status:'needs-review' as const,checked:0,
     found:0,missing:0,needsReview:51}]),
   isCancelled:()=>false,onProgress:()=>{published++;},
  }),/invalid|evidence|counter|limit|budget/i);
