@@ -37,13 +37,13 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
   if(i>=1500)return null;
   const node=queue[i];
   if(!node||typeof node!=='object'||Array.isArray(node))return null;
-  const data=node as {nodeId?:unknown;children?:unknown;shadowRoots?:unknown;shadowRootType?:unknown};
+  const data=node as {nodeId?:unknown;children?:unknown;shadowRoots?:unknown;shadowRootType?:unknown;nodeName?:unknown;nodeType?:unknown};
   const id=data.nodeId;
   if(!Number.isSafeInteger(id)||typeof id!=='number'||id<1||seen.has(id))return null;
   seen.add(id);
   if(data.shadowRootType!==undefined){
    if(data.shadowRootType==='closed'||data.shadowRootType==='user-agent')continue;
-   if(data.shadowRootType!=='open')return null;
+   if(data.shadowRootType!=='open'||data.nodeName!=='#document-fragment')return null;
    if(openRoot!==null)return null;
    openRoot=id;
   }
