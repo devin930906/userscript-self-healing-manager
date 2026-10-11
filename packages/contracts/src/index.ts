@@ -1,3 +1,16 @@
+/** FR-029: job-level batch queue status vocabulary; not a transition engine. */
+export const jobStatusValues = Object.freeze([
+  'queued', 'preparing', 'running', 'paused', 'cancelling',
+  'cancelled', 'blocked', 'failed', 'completed', 'partially_completed',
+] as const);
+export type JobStatus = (typeof jobStatusValues)[number];
+export function parseJobStatus(input: unknown): JobStatus {
+  if (typeof input !== 'string' || !jobStatusValues.some(value => value === input)) {
+    throw new TypeError('Invalid JobStatus');
+  }
+  return input as JobStatus;
+}
+
 /** Stable identifiers are opaque strings at the contract boundary. */
 export type ScriptId = string;
 
