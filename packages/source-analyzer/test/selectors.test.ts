@@ -271,3 +271,16 @@ test('FR-011 observer binding honors lexical parameters catch and local declarat
  assert.deepEqual(rows.map(x=>x.runtimeRequired),[false,true,true,true,true,false]);
  assert.equal(rows.every(x=>x.evidenceLevel==='static-only'&&x.functionalVerified===false),true);
 });
+
+test('FR-011 with dynamic object shadowing cannot certify an observer receiver outside the with body',()=>{
+ const source=[
+  "const observer = new MutationObserver(() => {});",
+  "observer.observe(target,{childList:true});",
+  "with ({observer: fake}) { observer.observe(target,{childList:true}); }",
+  "observer.observe(target,{childList:true});",
+ ].join('\n');
+ const calls=analyzeSource({scriptId:'synthetic-with-shadow',sourceBytes:encoder.encode(source)})
+  .mutationObservers.filter(x=>x.kind==='observe');
+ assert.deepEqual(calls.map(x=>x.runtimeRequired),[false,true,false]);
+ assert.deepEqual(calls.map(x=>x.sourceRange.start.line),[2,3,4]);
+});
