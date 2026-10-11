@@ -53,7 +53,7 @@ function selectSingleOpenShadowRoot(root:unknown):number|null{
   }
   if(data.shadowRoots!==undefined){
    if(!Array.isArray(data.shadowRoots))return null;
-   if(data.shadowRoots.length>0&&(data.nodeType!==1||typeof data.nodeName!=='string'||!(/^[A-Z][A-Z0-9-]*$/.test(data.nodeName)||/^[A-Z][A-Z0-9._-]*-[A-Z0-9._\p{L}\p{N}\p{M}-]*$/u.test(data.nodeName))))return null;
+   if(data.shadowRoots.length>0&&(data.nodeType!==1||typeof data.nodeName!=='string'||!(/^[A-Z][A-Z0-9-]*$/.test(data.nodeName)||/^(?=[A-Z].*-)[A-Z][-.0-9_A-Z\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD\u{10000}-\u{EFFFF}]*$/u.test(data.nodeName))))return null;
    queue.push(...data.shadowRoots.map(node=>({node,fromShadowRoots:true})));
   }
   if(queue.length>1500)return null;
