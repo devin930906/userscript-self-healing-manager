@@ -862,7 +862,7 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+     pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
      assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
     },
@@ -915,7 +915,7 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
+     pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
      assertBatchProposalSnapshot(trusted,batchRepairs.inspectPending(proposalId));
     },
