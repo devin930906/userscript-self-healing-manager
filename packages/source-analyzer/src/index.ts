@@ -19,9 +19,20 @@ export interface ManagerApiCall {
  readonly evidenceLevel:'static-only';
  readonly managerVerified:false;
 }
+export interface EventBindingRecord {
+ readonly kind:'addEventListener'|'removeEventListener'|'on-property';
+ readonly eventName:string;
+ readonly receiver:string;
+ readonly sourceRange:SourceRange;
+ readonly functionName:string|null;
+ readonly scope:string[];
+ readonly evidenceLevel:'static-only';
+ readonly confidence:'high'|'unknown';
+ readonly runtimeRequired:boolean;
+}
 export interface SourceAnalysis {
  scriptId:string;sourceSha256:string;metadata:MetadataParseResult;selectorRecords:SelectorRecord[];
- managerApiCalls:ManagerApiCall[];
+ managerApiCalls:ManagerApiCall[];eventBindings:EventBindingRecord[];
  parseDiagnostics:string[]; encoding:'utf-8'|'utf-8-bom'|'invalid';lineEnding:'crlf'|'lf'|'mixed'|'none';
 }
 export function parseUserscriptMetadata(source:string):MetadataParseResult {
@@ -91,12 +102,13 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
   // Never turn corrupt user scripts into a successful AST scan with replacement
   // characters. The original byte hash remains available for diagnostics.
   return {scriptId,sourceSha256,metadata:parseUserscriptMetadata(''),
-   selectorRecords:[],managerApiCalls:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
+   selectorRecords:[],managerApiCalls:[],eventBindings:[],parseDiagnostics:['Invalid UTF-8 source encoding'],
    encoding:'invalid',lineEnding:'none'};
  }
  const source=ts.createSourceFile(`${scriptId}.user.js`,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const selectorRecords:SelectorRecord[]=[];
  const managerApiCalls:ManagerApiCall[]=[];
+ const eventBindings:EventBindingRecord[]=[];
  const metadata=parseUserscriptMetadata(text);
  const grants=new Set(metadata.grant.map(x=>x.trim()));
  // A local binding named GM or GM_getValue is not a Tampermonkey API.
@@ -190,7 +202,36 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
    grantStatus:api==='GM.<dynamic>'?'unknown':grants.has(api)?'declared':'missing',
    evidenceLevel:'static-only',managerVerified:false});
  }
+ function collectEvent(node:ts.Node):void{
+  let kind:EventBindingRecord['kind']|undefined;
+  let eventName:string|undefined;
+  let receiver:string|undefined;
+  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)){
+   const method=node.expression.name.text;
+   if((method==='addEventListener'||method==='removeEventListener')&&node.arguments.length>=2){
+    kind=method;eventName=node.arguments[0]&&ts.isStringLiteralLike(node.arguments[0])?node.arguments[0].text:'<dynamic>';
+    receiver=node.expression.expression.getText(source);
+   }
+  }else if(ts.isBinaryExpression(node)&&node.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+    ts.isPropertyAccessExpression(node.left)&&/^on[a-z][a-z0-9]*$/i.test(node.left.name.text)){
+   kind='on-property';eventName=node.left.name.text.slice(2).toLowerCase();
+   receiver=node.left.expression.getText(source);
+  }
+  if(!kind||!eventName||!receiver)return;
+  // Only known global DOM receivers can receive high confidence. An arbitrary
+  // object's identically named method or on* field remains a static candidate.
+  const confidence:EventBindingRecord['confidence']=
+   (receiver==='window'||receiver==='document')?'high':'unknown';
+  const start=source.getLineAndCharacterOfPosition(node.getStart(source));
+  const end=source.getLineAndCharacterOfPosition(node.getEnd());
+  const fn=functionScope(node);
+  eventBindings.push({kind,eventName,receiver,
+   sourceRange:{start:{line:start.line+1,column:start.character+1},end:{line:end.line+1,column:end.character+1}},
+   functionName:fn.name,scope:fn.scope,evidenceLevel:'static-only',confidence,
+   runtimeRequired:confidence!=='high'||eventName==='<dynamic>'});
+ }
  function walk(node:ts.Node):void{
+   collectEvent(node);
    if(ts.isCallExpression(node))collectManagerApi(node);
    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&METHODS.has(node.expression.name.text)&&node.arguments[0]){
      const selector=selectorOf(node.arguments[0]);const start=source.getLineAndCharacterOfPosition(node.getStart(source));const end=source.getLineAndCharacterOfPosition(node.getEnd());
@@ -223,7 +264,7 @@ export function analyzeSource({scriptId,sourceBytes}:{scriptId:string;sourceByte
  walk(source);
  const diagnostics=((source as ts.SourceFile & {parseDiagnostics?:readonly ts.Diagnostic[]}).parseDiagnostics??[]).map(d=>ts.flattenDiagnosticMessageText(d.messageText,' '));
  const crlf=(text.match(/\r\n/g)??[]).length;const lf=(text.match(/(?<!\r)\n/g)??[]).length;
- return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,
+ return {scriptId,sourceSha256,metadata,selectorRecords,managerApiCalls,eventBindings,
    parseDiagnostics:diagnostics,encoding:sourceBytes[0]===239&&sourceBytes[1]===187&&sourceBytes[2]===191?'utf-8-bom':'utf-8',
    lineEnding:crlf&&lf?'mixed':crlf?'crlf':lf?'lf':'none'};
 }
