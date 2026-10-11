@@ -13,6 +13,40 @@ export interface CompletedDomBatch extends BatchDomResult {
 export interface PaginatedDomProgress extends BatchDomResult {
  readonly remainingItems:number;
 }
+/**
+ * Every page is an IPC evidence boundary. Script/page identity alone does not
+ * validate per-script counts or claimed verification levels.
+ */
+function assertValidDomRow(row:BatchDomItem|undefined):void{
+ if(!row||typeof row!=='object'||Array.isArray(row))
+  throw new Error('Invalid paginated DOM evidence row');
+ const {checked,found,missing,needsReview,status}=row;
+ if(![checked,found,missing,needsReview].every(n=>Number.isSafeInteger(n)&&n>=0)||
+    checked>50||(checked===0?(found!==0||missing!==0):
+      found+missing+needsReview!==checked))
+  throw new Error('Invalid paginated DOM evidence counters');
+ const ordinaryZero=checked===0&&found===0&&missing===0&&needsReview===0;
+ const statusValid=status==='dom-present'?
+   checked>0&&found===checked&&missing===0&&needsReview===0:
+  status==='locator-missing'?checked>0&&missing>0:
+  status==='needs-review'?needsReview>0&&missing===0:
+  ['no-evidence','out-of-scope','skipped','error'].includes(status)&&ordinaryZero;
+ if(!statusValid)throw new Error('Invalid paginated DOM status versus evidence');
+ const v=row.verification;
+ if(v!==undefined){
+  if(!v||typeof v!=='object'||Array.isArray(v)||
+     !['passed','failed','skipped','blocked','not-configured'].includes(v.V0)||
+     !['passed','failed','skipped','blocked','not-configured'].includes(v.V1)||
+     v.V2!=='blocked'||v.V3!=='not-configured'||v.V4!=='not-configured'||
+     v.functionalVerified!==false||v.managerVerified!==false||
+     (v.V1==='passed'&&(v.V0!=='passed'||status!=='dom-present'))||
+     (v.V1==='failed'&&status!=='locator-missing')||
+     (v.V1==='skipped'&&status!=='skipped'&&status!=='out-of-scope')||
+     (v.V1==='not-configured'&&status!=='no-evidence')||
+     v.highestVerified!==(v.V1==='passed'?'V1':v.V0==='passed'?'V0':null))
+   throw new Error('Invalid paginated verification evidence or V-level escalation');
+ }
+}
 function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,pageDocumentToken,expectedItems}:{
  offset:number;total:number;targetId:string;pageUrl:string|null;
  pageDocumentToken:string|null;
@@ -35,6 +69,7 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
   throw new Error('Invalid or partial CDP pagination result');
  for(let i=0;i<page.items.length;i++) {
   const row=page.items[i];
+  assertValidDomRow(row);
   if(row?.index!==offset+i)
    throw new Error('CDP pagination item index mismatch');
   const expected=expectedItems?.[offset+i];
