@@ -14,6 +14,23 @@ const good=()=>({
 const now='2026-10-11T08:00:00.000Z';
 describe('FR-041 immutable cross-entity trace contracts',()=>{
  it('accepts a complete pinned same-job chain',()=>{const result=parseAuditTrace(good(),now);assert.equal(result.revision.approvalId,id(7));assert.equal(Object.isFrozen(result.job),true);assert.equal(Object.isFrozen(result),true);});
+
+ it('rejects symbol and non-enumerable own extras at every audit stage',()=>{
+  for(const stage of [null,'job','finding','candidate','test','approval','revision'] as const){
+   for(const kind of ['symbol','hidden'] as const){
+    const input:any=good();const target=stage===null?input:input[stage];
+    if(kind==='symbol')Object.defineProperty(target,Symbol('unexpected'),{value:'forged',enumerable:true});
+    else Object.defineProperty(target,'hiddenExtra',{value:'forged',enumerable:false});
+    assert.throws(()=>parseAuditTrace(input,now),TypeError,`${stage??'root'} / ${kind}`);
+   }
+  }
+ });
+ it('continues accepting null-prototype input and nested records',()=>{
+  const input:any=Object.assign(Object.create(null),good());
+  for(const stage of ['job','finding','candidate','test','approval','revision'] as const)
+   input[stage]=Object.assign(Object.create(null),input[stage]);
+  assert.equal(parseAuditTrace(input,now).test.status,'passed');
+ });
  it('rejects missing stages and malformed or extra fields',()=>{
   for(const field of ['job','finding','candidate','test','approval','revision'] as const){const value:any=good();delete value[field];assert.throws(()=>parseAuditTrace(value,now),TypeError);}
   assert.throws(()=>parseAuditTrace({...good(),extra:1},now),TypeError);
