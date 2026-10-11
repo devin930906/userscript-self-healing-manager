@@ -29,6 +29,7 @@ import {captureDomSummary} from '../../../../packages/cdp-client/src/snapshot.ts
 import {probePageLocators} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import {inspectReadOnlyElementVisibility,qualifyTopDocumentVisibility} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import {inspectReadOnlyEventListeners} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
+import {observeReadOnlyPageExceptions} from '../../../../packages/cdp-client/src/read-only-exceptions.ts';
 import {confirmPageIdentity,assertStablePageDocument} from '../../../../packages/cdp-client/src/page-identity.ts';
 import {createRepairWorkflow} from '../../../../packages/repair-workflow/src/index.ts';
 import {createBatchRepairWorkflow} from '../../../../packages/repair-workflow/src/batch.ts';
@@ -404,6 +405,21 @@ async function bootstrap():Promise<void>{
   return inspectKnownUserscriptManagerTargets({
    approved:true,browserEndpoint:browser.browserSocket,expectedProduct:browser.browser,
   });
+ });
+ ipcMain.handle('usshm:read-only-page-exceptions',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {targetId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||
+     Object.keys(q).length!==2||q.approved!==true||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit approval and selected page identity required for passive exception observation');
+  // Page URL and socket are resolved solely from the reauthenticated local
+  // Chrome session, never from a renderer-provided endpoint or origin.
+  const chrome=await getVerifiedChromeStatus({port:9223});
+  const page=chrome.pages.find(x=>x.id===q.targetId);
+  if(!page?.webSocketDebuggerUrl)
+   throw new Error('Approved Chrome page target unavailable');
+  return observeReadOnlyPageExceptions(page,{approved:true,durationMs:500});
  });
  ipcMain.handle('usshm:probe-locators',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;targetId:string;approved:true}|null;
