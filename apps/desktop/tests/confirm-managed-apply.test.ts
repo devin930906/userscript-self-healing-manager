@@ -32,3 +32,44 @@ test('guarded apply IPC must use executable approval gate before write',async()=
  await assert.rejects(approveAndApplyManagedRevision(deps),/not approved/);
  assert.equal(writes,0);
 });
+
+test('guarded managed write gate rejects dismissal and stale checks without calling apply',async()=>{
+ const {approveAndApplyManagedRevision}=await import('../src/main/confirm-managed-apply.ts');
+ for(const response of [0,2,-1]){
+  let applied=0;
+  await assert.rejects(approveAndApplyManagedRevision({
+   confirm:async()=>({response}),revalidate:()=>{},apply:async()=>{applied++;return 1;},
+  }),/not approved/);
+  assert.equal(applied,0);
+ }
+ for(const phase of ['scan','proposal']){
+  let applied=0;
+  await assert.rejects(approveAndApplyManagedRevision({
+   confirm:async()=>({response:1}),
+   revalidate:()=>{throw new Error('stale '+phase);},
+   apply:async()=>{applied++;return 1;},
+  }),/stale/);
+  assert.equal(applied,0);
+ }
+});
+test('guarded managed write gate applies only after confirmation and revalidation',async()=>{
+ const {approveAndApplyManagedRevision}=await import('../src/main/confirm-managed-apply.ts');
+ const order:string[]=[];
+ const result=await approveAndApplyManagedRevision({
+  confirm:async()=>{order.push('confirm');return {response:1};},
+  revalidate:()=>{order.push('scan-and-proposal');},
+  apply:async()=>{order.push('apply');return 'ok';},
+ });
+ assert.equal(result,'ok');
+ assert.deepEqual(order,['confirm','scan-and-proposal','apply']);
+});
+test('guarded real IPC executes approval gate ahead of managed write',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:apply-repair-guarded'");
+ const end=main.indexOf("ipcMain.handle('usshm:apply-repair'",start);
+ assert.ok(start>=0&&end>start);
+ const handler=main.slice(start,end);
+ assert.match(handler,/await approveAndApplyManagedRevision\(/);
+ assert.match(handler,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(handler,/pendingApprovals\.require\(q\.proposalId,scanSnapshot\.scanId\)/);
+});
