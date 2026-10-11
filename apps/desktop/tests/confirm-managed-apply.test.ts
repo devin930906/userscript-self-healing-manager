@@ -74,9 +74,9 @@ test('guarded real IPC executes approval gate ahead of managed write',async()=>{
  assert.match(handler,/pendingApprovals\.require\(q\.proposalId,scanSnapshot\.scanId\)/);
 });
 
-test('same-token replacement proposal after native dialog cannot activate different hashes',async()=>{
+test('actual inspectPending shape is approved only when native consent and snapshot still match',async()=>{
  const {approveAndApplyManagedRevision,assertManagedProposalSnapshot}=await import('../src/main/confirm-managed-apply.ts');
- const original={proposalId:'id',scriptId:'script',proposedHash:'before',previousHash:'old'};
+ const original={scriptId:'script',proposedHash:'new-sha',previousHash:'old-sha',newSelector:'.new'};
  const current={...original};
  let writes=0;
  const run=async(response:number,mutate:()=>void=()=>{},scanValid=true)=>{
@@ -95,7 +95,7 @@ test('same-token replacement proposal after native dialog cannot activate differ
   await assert.rejects(run(response),/not approved/);
   assert.equal(writes,0);
  }
- for(const key of ['proposalId','scriptId','proposedHash','previousHash'] as const){
+ for(const key of ['scriptId','proposedHash','previousHash','newSelector'] as const){
   writes=0;
   await assert.rejects(run(1,()=>{current[key]='changed';}),/proposal.*changed/i);
   assert.equal(writes,0,key);
