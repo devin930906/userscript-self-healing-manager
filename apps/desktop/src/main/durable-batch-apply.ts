@@ -4,6 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {createRepairTaskQueue,type RepairTaskStatus} from '../../../../packages/scan-service/src/repair-task-queue.ts';
 import {openRepairCheckpointStore} from '../../../../packages/scan-service/src/repair-checkpoint-store.ts';
+import {reserveManagedScriptWrites} from './managed-script-lease.ts';
 
 function assertTrustedAncestors(directory:string):void{
  for(let current=resolve(directory);;current=dirname(current)){
@@ -49,6 +50,9 @@ export async function executeDurableApprovedBatch<T>(input:{
     (input.onRegisterCancel!==undefined&&typeof input.onRegisterCancel!=='function'))
   throw new Error('Invalid durable repair approval identity');
 
+ // Reserve the script before the first await, across BOTH managed write paths.
+ const releaseManagedScript=reserveManagedScriptWrites(input.dataRoot,[input.scriptId]);
+ try{
  assertTrustedAncestors(input.dataRoot);
  const folder=join(input.dataRoot,'repair-queue');
  await mkdir(folder,{recursive:true});
@@ -93,5 +97,10 @@ export async function executeDurableApprovedBatch<T>(input:{
  }finally{
   releaseCancellation();
   store.close();
+ }
+ }finally{
+  // Error, aborted approval, crash-safe checkpoint failure or success must
+  // never leave an in-process lease that blocks all future fresh approvals.
+  releaseManagedScript();
  }
 }
