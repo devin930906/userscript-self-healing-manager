@@ -86,7 +86,13 @@ export async function executeDurableApprovedBatch<T>(input:{
    onCheckpoint:checkpoint=>store.save(checkpoint),
   });
   if(input.onRegisterCancel){
-   const release=input.onRegisterCancel(()=>queue.cancel(),()=>queue.pause(),()=>queue.resume());
+   let release:()=>void;
+   try{
+    release=input.onRegisterCancel(()=>queue.cancel(),()=>queue.pause(),()=>queue.resume());
+   }catch{
+    // Main may throw an exception containing original source, paths or tokens.
+    throw new Error('Native batch cancellation registration failed; fresh review required');
+   }
    if(typeof release!=='function')throw new Error('Invalid batch cancellation registration');
    releaseCancellation=release;
   }
