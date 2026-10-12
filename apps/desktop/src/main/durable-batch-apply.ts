@@ -90,6 +90,13 @@ export async function executeDurableApprovedBatch<T>(input:{
    if(typeof release!=='function')throw new Error('Invalid batch cancellation registration');
    releaseCancellation=release;
   }
+  // Immediate Main cancellation during registration precedes run(), so
+  // commit the cancelled/zero-attempt terminal state without attempting a
+  // preflight or replaying this approval. The API still reports no write.
+  if(queue.snapshot().cancelled){
+   await store.save(queue.checkpoint());
+   throw new Error('Durable batch repair cancelled; fresh review required');
+  }
   const final=await queue.run();
   if(final.items.length!==1||final.items[0]?.status!=='completed'||!written)
    throw new Error('Durable batch repair blocked or failed; fresh review required');
