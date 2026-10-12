@@ -78,6 +78,7 @@ const api={
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>ipcRenderer.invoke('usshm:suggest-repairs-bulk',input),
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>ipcRenderer.invoke('usshm:propose-repair',input),
  proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>ipcRenderer.invoke('usshm:propose-batch-repair',input),
+ applyMultiScriptBatch:(input:{scanId:string;jobs:{itemIndex:number;proposalId:string}[];approved:true;stopOnFailure?:boolean})=>ipcRenderer.invoke('usshm:apply-multi-script-batch',input),
  applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-batch-repair',input),
  applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-batch-repair-guarded',input),
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>ipcRenderer.invoke('usshm:apply-repair',input),
