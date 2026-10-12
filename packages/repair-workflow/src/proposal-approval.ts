@@ -1,3 +1,5 @@
+const SAFE_RECEIPT_ID=/^[A-Za-z0-9_.:-]{1,128}$/;
+
 /**
  * Short-lived, Main-process-only approval receipt bound to one static scan.
  * The user must review and apply promptly: old DOM candidates and edit
@@ -32,8 +34,8 @@ export class ProposalApprovalGate{
   }
  }
  register(proposalId:string,scanId:string):void{
-  if(typeof proposalId!=='string'||!proposalId||
-     typeof scanId!=='string'||!scanId)
+  if(typeof proposalId!=='string'||!SAFE_RECEIPT_ID.test(proposalId)||
+     typeof scanId!=='string'||!SAFE_RECEIPT_ID.test(scanId))
    throw new Error('Invalid repair approval identity');
   const time=this.getTime();
   this.purge(time);
