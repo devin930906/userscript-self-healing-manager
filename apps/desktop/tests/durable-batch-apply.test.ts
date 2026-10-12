@@ -168,3 +168,19 @@ test('FR-029 Main native control registration failure is generic and releases th
  assert.equal(value,'fresh','failed registration may not retain a managed-script write lock');
  assert.equal(written,1);
 }));
+
+
+test('FR-029 a case-only spelling of a consumed native approval UUID cannot replay on any filesystem',async()=>fixture(async root=>{
+ const lower='abcdef12-3456-4abc-8def-1234567890ab';
+ const upper=lower.toUpperCase();
+ let writes=0;
+ const task=(approvalId:string)=>({
+  dataRoot:root,approvalId,scriptId:'same-reviewed-source',
+  preflight:()=>true,write:async()=>{writes++;return 'written';},
+ });
+ assert.equal(await executeDurableApprovedBatch(task(lower)),'written');
+ await assert.rejects(executeDurableApprovedBatch(task(upper)),
+  /checkpoint|review|replay|unavailable/i,
+  'UUID identity must not depend on Linux case-sensitive journal filenames');
+ assert.equal(writes,1,'one logical approval cannot authorize a second managed write');
+}));
