@@ -25,6 +25,16 @@ export async function waitForTrustedRendererReady(
   if(state!==null){
    // Never wait away a security violation or a navigation into a different
    // frame/document. Only transient incomplete preload or CDP context is polled.
+   // CDP response shapes can be incomplete after a context reset. Never
+   // interpret an untyped/malformed probe as a safe transient preload delay.
+   if(typeof state.href!=='string'||
+      !['loading','interactive','complete'].includes(state.readyState)||
+      typeof state.topLevel!=='boolean'||
+      typeof state.hasGetAppInfo!=='boolean'||
+      typeof state.hasGenericInvoke!=='boolean'||
+      typeof state.hasNode!=='boolean'||
+      typeof state.hasRawIpc!=='boolean')
+    throw new Error('Malformed trusted renderer readiness probe');
    if(state.href!==options.expectedUrl||!state.topLevel)
     throw new Error('Untrusted renderer document or frame during readiness check');
    if(state.hasNode||state.hasRawIpc||state.hasGenericInvoke)
