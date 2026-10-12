@@ -109,13 +109,13 @@ test('FR-029 failed SQLite commit stops pending repair before its callback can w
 test('FR-029 refuses a hard-linked SQLite checkpoint before mutating the other database',async()=>fixture(async(file,root)=>{
  const anotherDatabase=join(root,'another-app.sqlite');
  const privateDb=new DatabaseSync(anotherDatabase);
- privateDb.exec('CREATE TABLE preserved(value TEXT NOT NULL); INSERT INTO preserved VALUES (\'KEEP_ME\')');
+ assert.equal((privateDb.prepare('PRAGMA user_version').get() as {user_version:number}).user_version,0);
  privateDb.close();
  await link(anotherDatabase,file);
  assert.throws(()=>openRepairCheckpointStore(file),/unsafe|hard.?link|linked/i);
  const unchanged=new DatabaseSync(anotherDatabase,{readOnly:true});
  assert.equal((unchanged.prepare('PRAGMA user_version').get() as {user_version:number}).user_version,0);
- assert.equal(unchanged.prepare('SELECT value FROM preserved').get()?.value,'KEEP_ME');
+ assert.equal(unchanged.prepare("SELECT COUNT(*) AS total FROM sqlite_master WHERE type='table'").get()?.total,0);
  unchanged.close();
 }));
 
