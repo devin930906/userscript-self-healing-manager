@@ -12,6 +12,8 @@ export interface ReadOnlyDomContractResult {
  readonly status:ReadOnlyDomVerdict;
  readonly reason:string;
  readonly matchCount:number|null;
+ /** First trusted DOM sample for a completed count-change assertion; otherwise null. */
+ readonly initialMatchCount:number|null;
  readonly attempts:1|2;
  readonly evidenceLevel:'V1';
  readonly V2:'blocked';
@@ -102,8 +104,8 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
   throw new Error('A supported static literal document selector is required');
  if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||typeof deps.wait!=='function')
   throw new Error('Invalid DOM test dependencies');
- const build=(status:ReadOnlyDomVerdict,reason:string,count:number|null,attempts:1|2):ReadOnlyDomContractResult=>({
-  caseId,expectation,status,reason,matchCount:count,attempts,
+ const build=(status:ReadOnlyDomVerdict,reason:string,count:number|null,attempts:1|2,initialMatchCount:number|null=null):ReadOnlyDomContractResult=>({
+  caseId,expectation,status,reason,matchCount:count,initialMatchCount,attempts,
   evidenceLevel:'V1',V2:'blocked',V3:'not-configured',V4:'not-configured',
   functionalVerified:false,managerVerified:false,
  });
@@ -151,7 +153,7 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
     return build(first!==count?'passed':'failed',
      first!==count?'Top-document DOM match count changed between two read-only samples; no userscript behavior verified':
      'Top-document DOM match count did not change between two read-only samples',
-     count,2);
+     count,2,first);
    }
    if(first!==count)return build('needs-review','DOM match count was unstable between samples',null,2);
    if(expectation==='unique'&&count===1&&firstIdentity!==identity)

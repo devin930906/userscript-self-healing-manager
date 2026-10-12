@@ -1085,7 +1085,13 @@ function App(){
    </div>
    {contractEvidence&&contractEvidence.selectorIndex===repairIndex&&<div className="notice">
     <b>命名 DOM 合约：</b>{contractEvidence.result.caseId} · 结果：{contractEvidence.result.status==='passed'?'通过（仅 DOM）':contractEvidence.result.status==='failed'?'未满足 DOM 条件':'需要复核'}
-    · 连续检查 {contractEvidence.result.attempts} 次 · 匹配数量 {contractEvidence.result.matchCount??'不确定'} · 等级 {contractEvidence.result.evidenceLevel} · V3/V4：未配置
+    · 连续检查 {contractEvidence.result.attempts} 次
+    {contractEvidence.result.expectation==='count-changed'?
+     (contractEvidence.result.initialMatchCount!==null&&contractEvidence.result.matchCount!==null?
+      <> · 初次匹配数 {contractEvidence.result.initialMatchCount} → 最终匹配数 {contractEvidence.result.matchCount}</>:
+      <> · 数量变化无法确认（证据不足）</>):
+     <> · 匹配数量 {contractEvidence.result.matchCount??'不确定'}</>}
+    · 等级 {contractEvidence.result.evidenceLevel} · V3/V4：未配置
     <small>{contractEvidence.result.reason}；不能据此认定 Tampermonkey 已注入或脚本功能已修复。</small>
    </div>}
    <div className="toolbar">

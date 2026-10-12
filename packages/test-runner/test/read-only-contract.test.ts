@@ -202,3 +202,35 @@ test('FR-025 count-change is not inferred from a replaced element when the obser
  assert.equal(result.functionalVerified,false);
  assert.equal(result.managerVerified,false);
 });
+
+
+test('FR-025 count-change carries bounded first and second read-only match counts without promoting V1',async()=>{
+ const changed=await runReadOnlyDomContract({
+  ...request('exists','querySelectorAll'),expectation:'count-changed',
+  deps:deps([sample('missing',0,'querySelectorAll'),sample('found',3,'querySelectorAll')]),
+ });
+ assert.equal(changed.status,'passed');
+ assert.equal(changed.initialMatchCount,0);
+ assert.equal(changed.matchCount,3);
+ assert.equal(changed.attempts,2);
+ assert.equal(changed.evidenceLevel,'V1');
+ assert.equal(changed.functionalVerified,false);
+ assert.equal(changed.managerVerified,false);
+ const unchanged=await runReadOnlyDomContract({
+  ...request('exists','querySelectorAll'),expectation:'count-changed',
+  deps:deps([sample('found',2,'querySelectorAll'),sample('found',2,'querySelectorAll')]),
+ });
+ assert.equal(unchanged.status,'failed');
+ assert.equal(unchanged.initialMatchCount,2);
+ assert.equal(unchanged.matchCount,2);
+});
+test('FR-025 incomplete or contradictory second sample never exposes the first DOM count as an authoritative transition',async()=>{
+ const inconclusive=await runReadOnlyDomContract({
+  ...request('exists','querySelectorAll'),expectation:'count-changed',
+  deps:deps([sample('found',2,'querySelectorAll'),sample('blocked',null,'querySelectorAll')]),
+ });
+ assert.equal(inconclusive.status,'needs-review');
+ assert.equal(inconclusive.initialMatchCount,null);
+ assert.equal(inconclusive.matchCount,null);
+ assert.equal(inconclusive.functionalVerified,false);
+});

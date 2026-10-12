@@ -73,3 +73,16 @@ test('FR-025 switching the DOM expectation synchronously revokes in-flight V1 ev
  assert.match(flow,/finally\s*\{\s*if\(contractGeneration\.current\.isCurrent\(token\)\)/,
   'late request cleanup must not clear a newer in-flight validation');
 });
+
+
+test('FR-025 desktop exposes baseline-to-final V1 count transition only when both observations are verified',()=>{
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ const view=ui.split('{contractEvidence&&contractEvidence.selectorIndex===repairIndex&&')[1]?.split('<div className="toolbar">')[0]??'';
+ assert.match(view,/contractEvidence\.result\.expectation==='count-changed'/);
+ assert.match(view,/contractEvidence\.result\.initialMatchCount!==null/);
+ assert.match(view,/contractEvidence\.result\.matchCount!==null/);
+ assert.match(view,/初次匹配数/);
+ assert.match(view,/最终匹配数/);
+ assert.match(view,/无法确认/, 'insufficient or invalid CDP evidence cannot be presented as a numeric transition');
+ assert.match(view,/不能据此认定 Tampermonkey 已注入或脚本功能已修复/);
+});
