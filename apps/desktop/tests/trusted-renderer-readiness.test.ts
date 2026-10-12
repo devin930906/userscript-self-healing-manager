@@ -83,3 +83,19 @@ test('QA-048 malformed CDP snapshot fails immediately without treating it as pre
   assert.equal(calls,1,'malformed CDP result cannot exhaust transient retry budget');
  }
 });
+
+test('QA-048 rejects missing options and noncallable callbacks before touching CDP',async()=>{
+ const badOptions:unknown[]=[
+  undefined,null,{}, {...options(),pause:null},
+  {...options(),assertAlive:undefined}, {...options(),attempts:101},
+  {...options(),expectedUrl:'https://example.invalid/'},
+ ];
+ for(const candidate of badOptions){
+  let probes=0;
+  await assert.rejects(waitForTrustedRendererReady(async()=>{probes++;return ready;},
+   candidate as Parameters<typeof waitForTrustedRendererReady>[1]),/Unsafe trusted renderer readiness options/);
+  assert.equal(probes,0,'invalid readiness configuration must not invoke CDP');
+ }
+ await assert.rejects(waitForTrustedRendererReady(null as unknown as ()=>Promise<TrustedRendererState|null>,
+  options()),/Unsafe trusted renderer readiness options/);
+});
