@@ -133,3 +133,24 @@ test('FR-030 revocation during asynchronous Main preflight cannot authorize a st
  assert.deepEqual(result,{queued:0,running:0,completed:2,failed:0,blocked:1,cancelled:0});
  assert.deepEqual(persisted(root,groupId,tasks),[['blocked',1],['completed',1],['completed',1]]);
 }));
+
+
+test('FR-029 synchronous Main cancellation before multi-batch run commits cancelled rows without writing',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items();
+ let writes=0,preflights=0,released=0;
+ tasks.forEach(task=>{
+  task.preflight=async()=>{preflights++;return true;};
+  task.write=async()=>{writes++;};
+ });
+ const result=await executeDurableApprovedBatchSet({
+  dataRoot:root,groupId,items:tasks,
+  onRegisterControls:controls=>{controls.cancel();return ()=>{released++;};},
+ });
+ assert.deepEqual(result,{queued:0,running:0,completed:0,failed:0,blocked:0,cancelled:3});
+ assert.equal(preflights,0);
+ assert.equal(writes,0);
+ assert.equal(released,1,'Main cancellation registration is cleaned up');
+ assert.deepEqual(persisted(root,groupId,tasks),[
+  ['cancelled',0],['cancelled',0],['cancelled',0],
+ ],'all prestart cancellation states must be recoverably committed');
+}));
