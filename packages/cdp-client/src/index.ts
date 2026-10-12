@@ -4,6 +4,7 @@ import {isAbsolute,win32} from 'node:path';
 import {ensureWritableDataRoot} from '../../runtime-paths/src/index.ts';
 import {lstat} from 'node:fs/promises';
 import {validateCdpPageSocket,validateCdpBrowserSocket} from './endpoint.ts';
+import {assertWindowsPeExecutable} from './pe-executable.ts';
 import type {SocketLike} from './snapshot.ts';
 
 export interface ChromeTarget {type:string;id:string;url:string;webSocketDebuggerUrl?:string|undefined}
@@ -307,6 +308,11 @@ export async function launchSelectedChrome({executablePath,port=9223,isolatedPro
  // Do not mistake a pre-existing debugger (or another loopback service) for
  // the newly requested Chrome process.
  await assertChromeDebuggerPortFree(port);
+ // QA-002: a harmless-sounding filename and a plausible byte length cannot
+ // authorize arbitrary bytes as a Chrome executable. Format-check before
+ // spawning; the subsequent authenticated CDP handshake still proves the
+ // browser protocol, not the binary's publisher/signature.
+ await assertWindowsPeExecutable(executablePath);
  if(isolatedProfileDir!==undefined)await ensureWritableDataRoot(isolatedProfileDir);
  return startVerifiedChromeChild({
   spawnChrome:()=>spawn(executablePath,buildChromeLaunchArgs(port,{isolatedProfileDir}),
