@@ -8,6 +8,7 @@ import {checkUserscriptPageScope} from '../../candidate-engine/src/page-scope.ts
 import {summarizeLiveLocatorCheck} from './health.ts';
 import {projectVerificationLevels,type VerificationProjection} from './verification-levels.ts';
 import {classifyReadOnlyFault,type ReadOnlyFault} from './fault-classification.ts';
+import {assertCredentialFreePageUrl} from './page-url-safety.ts';
 
 export type BatchDomStatus='locator-missing'|'dom-present'|'needs-review'|'no-evidence'|'out-of-scope'|'skipped'|'error';
 export interface BatchDomItem {
@@ -92,6 +93,7 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
  if(items.length>25)throw new Error('Batch safety limit exceeded: maximum 25 scripts per operation');
  if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||target.id.length>128||
     typeof target.url!=='string'||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP page target');
+ assertCredentialFreePageUrl(target.url);
  // Authentication must precede even the first page-identity callback: a
  // future scan adapter must never receive a remote or mismatched debugger.
  validateCdpPageSocket(target);
