@@ -96,3 +96,23 @@ test('FR-029 both Electron Main batch apply paths use the durable pre-write queu
   assert.match(handler,/approveAndApplyManagedRevision\(/);
  }
 });
+
+
+test('FR-029 synchronous native cancellation before a one-script run persists cancelled/zero-attempts',async()=>fixture(async root=>{
+ const approvalId=randomUUID(),scriptId='early-cancel';
+ let preflights=0,writes=0,releases=0;
+ await assert.rejects(executeDurableApprovedBatch({
+  dataRoot:root,approvalId,scriptId,
+  preflight:()=>{preflights++;return true;},
+  write:async()=>{writes++;return {ok:true};},
+  onRegisterCancel:cancel=>{cancel();return ()=>{releases++;};},
+ }),/cancel|blocked|fresh review/i);
+ assert.equal(preflights,0);
+ assert.equal(writes,0);
+ assert.equal(releases,1);
+ const journal=openRepairCheckpointStore(file(root,approvalId));
+ try{
+  assert.deepEqual(journal.load([{id:approvalId,scriptId}])?.items.map(row=>[row.status,row.attempts]),
+   [['cancelled',0]],'cancelled journal must not be empty or replayable');
+ }finally{journal.close();}
+}));
