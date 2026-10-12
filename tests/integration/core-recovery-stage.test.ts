@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,readdir,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,rm,writeFile,symlink,unlink,rmdir,access} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {DatabaseSync} from 'node:sqlite';
 import {openDatabase,migrateDatabase,createScriptRepository} from '../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
-import {createCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
+import {createCoreRecoveryBundle,verifyCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
 import {stageCoreRecoveryForOfflineReview} from '../../packages/repair-workflow/src/core-recovery-stage.ts';
 
 const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
@@ -73,4 +73,66 @@ test('offline recovery refuses a modified backup before creating its new output'
   snapshotDirectory:backup,activeDataRoot:source,destination
  }),/hash|mismatch|integrity|size/i);
  await assert.rejects(readFile(join(destination,'registry.sqlite')),/ENOENT/);
+}));
+
+/**
+ * Junctions/reparse points in an ANCESTOR are not visible when lstat() checks
+ * only the final backup directory. All test paths are synthetic and temporary.
+ */
+test('QA-060 standalone core bundle verification refuses an ancestor directory symlink/junction',async t=>fixture(async({root,backup})=>{
+ const alias=join(root,'alias-to-root');
+ try{
+  try{await symlink(root,alias,process.platform==='win32'?'junction':'dir');}
+  catch(error){
+   if(['EPERM','EACCES','ENOTSUP','ENOSYS'].includes((error as NodeJS.ErrnoException).code??'')){
+    t.skip('Runner cannot create a directory symlink/junction');return;
+   }
+   throw error;
+  }
+  const aliasedBackup=join(alias,'backup');
+  assert.deepEqual(await readFile(join(aliasedBackup,'manifest.json')),
+   await readFile(join(backup,'manifest.json')),'fixture must resolve to identical bytes');
+  await assert.rejects(verifyCoreRecoveryBundle({snapshotDirectory:aliasedBackup}),
+   /symlink|junction|reparse|unsafe|linked/i,
+   'valid snapshot bytes do not authorize traversing an unselected parent junction');
+ }finally{
+  try{await unlink(alias);}
+  catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT'){
+    if(['EPERM','EISDIR'].includes((error as NodeJS.ErrnoException).code??''))await rmdir(alias);
+    else throw error;
+   }
+  }
+ }
+}));
+
+test('QA-060 offline staging rejects symlink/junction ancestors in both snapshot and active Data',async t=>fixture(async({root,source,backup})=>{
+ const alias=join(root,'alias-to-root');
+ try{
+  try{await symlink(root,alias,process.platform==='win32'?'junction':'dir');}
+  catch(error){
+   if(['EPERM','EACCES','ENOTSUP','ENOSYS'].includes((error as NodeJS.ErrnoException).code??'')){
+    t.skip('Runner cannot create a directory symlink/junction');return;
+   }
+   throw error;
+  }
+  const cases=[
+   {snapshotDirectory:join(alias,'backup'),activeDataRoot:source,destination:join(root,'no-stage-from-aliased-backup')},
+   {snapshotDirectory:backup,activeDataRoot:join(alias,'active-Data'),destination:join(root,'no-stage-from-aliased-data')},
+  ];
+  for(const input of cases){
+   await assert.rejects(stageCoreRecoveryForOfflineReview(input),
+    /symlink|junction|reparse|unsafe|linked/i,
+    'untrusted parent alias must fail BEFORE claiming the recovery target');
+   await assert.rejects(access(input.destination),{code:'ENOENT'});
+  }
+ }finally{
+  try{await unlink(alias);}
+  catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT'){
+    if(['EPERM','EISDIR'].includes((error as NodeJS.ErrnoException).code??''))await rmdir(alias);
+    else throw error;
+   }
+  }
+ }
 }));

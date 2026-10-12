@@ -7,17 +7,13 @@ import {DatabaseSync} from 'node:sqlite';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {assertRegistryV1SnapshotSchema} from '../../persistence/src/index.ts';
 import {assertJournalSchemaSafety} from '../../job-journal/src/index.ts';
-import {verifyCoreRecoveryBundle} from './core-recovery.ts';
+import {assertUnlinkedRecoveryDirectory,verifyCoreRecoveryBundle} from './core-recovery.ts';
 
 const hex=/^[a-f0-9]{64}$/;
 const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/;
 type HashedFile={path:string;sha256:string;bytes:number};
 const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
 
-async function safeDirectory(folder:string){
- const info=await lstat(folder);
- if(!info.isDirectory()||info.isSymbolicLink())throw new Error('Unsafe offline recovery directory');
-}
 async function readBoundedManifest(path:string):Promise<Buffer>{
  const info=await lstat(path);
  if(!info.isFile()||info.isSymbolicLink()||info.size>1024*1024)
@@ -62,9 +58,9 @@ export async function stageCoreRecoveryForOfflineReview({
    typeof p!=='string'||!isAbsolute(p)))
   throw new Error('Absolute offline recovery paths required');
  const source=resolve(snapshotDirectory),active=resolve(activeDataRoot),target=resolve(destination);
- await safeDirectory(source);
- await safeDirectory(active);
- await safeDirectory(dirname(target));
+ await assertUnlinkedRecoveryDirectory(source);
+ await assertUnlinkedRecoveryDirectory(active);
+ await assertUnlinkedRecoveryDirectory(dirname(target));
  // Protect both source snapshot and currently running Data from accidental
  // nesting, symlink/junction aliases, and recursive self-copy.
  await assertRecoveryDestinationOutsideSource(source,target);

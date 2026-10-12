@@ -17,9 +17,29 @@ function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
   Object.keys(value).length===keys.length&&
   keys.every(k=>Object.prototype.hasOwnProperty.call(value,k));
 }
+/**
+ * Reject symlinks and Windows junctions in EVERY directory component before
+ * touching recovery bytes. lstat() of the leaf alone follows linked parents.
+ * This is a preflight, not a race-free defense against concurrent renames.
+ */
+export async function assertUnlinkedRecoveryDirectory(path:string):Promise<void>{
+ if(typeof path!=='string'||!isAbsolute(path))
+  throw new Error('Unsafe core recovery directory path');
+ const chain:string[]=[];
+ for(let current=resolve(path);;){
+  chain.push(current);
+  const parent=dirname(current);
+  if(parent===current)break;
+  current=parent;
+ }
+ for(const component of chain.reverse()){
+  const stat=await lstat(component);
+  if(!stat.isDirectory()||stat.isSymbolicLink())
+   throw new Error('Unsafe core recovery directory: symlink or junction ancestor');
+ }
+}
 async function directory(path:string){
- const stat=await lstat(path);
- if(!stat.isDirectory()||stat.isSymbolicLink())throw new Error('Unsafe core recovery directory');
+ await assertUnlinkedRecoveryDirectory(path);
 }
 async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;bytes:number}>{
  const original=await lstat(file);
