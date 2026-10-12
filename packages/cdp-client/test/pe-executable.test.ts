@@ -48,6 +48,29 @@ test('QA-002 valid bounded PE32+ and PE32 headers pass ONLY the format preflight
  }
 }));
 
+test('QA-002 refuses contradictory PE machine/magic and truncated optional headers before Chrome spawn',async()=>fixture(async root=>{
+ const invalid=[
+  // 64-bit machine must use PE32+ (0x20b), not a PE32 optional header.
+  (()=>{const b=validPe(0x8664);b.writeUInt16LE(0x10b,152);return b;})(),
+  // 32-bit x86 machine must use PE32 (0x10b), not PE32+.
+  (()=>{const b=validPe(0x014c);b.writeUInt16LE(0x20b,152);return b;})(),
+  // COFF size 2 is enough to store a fake magic but not a PE32+ optional header.
+  (()=>{const b=validPe();b.writeUInt16LE(2,148);return b;})(),
+  // 96 bytes cannot hold the complete mandatory PE32+ fixed fields.
+  (()=>{const b=validPe();b.writeUInt16LE(96,148);return b;})(),
+  // 95 bytes cannot hold the mandatory PE32 fixed fields.
+  (()=>{const b=validPe(0x014c);b.writeUInt16LE(95,148);return b;})(),
+ ];
+ for(const [index,bytes] of invalid.entries()){
+  const path=join(root,'inconsistent-chrome-'+index+'.exe');
+  await writeFile(path,bytes);
+  await assert.rejects(assertWindowsPeExecutable(path),/invalid|PE|executable|header/i,
+   'A syntactically contradictory PE must fail the read-only executable preflight');
+  await assert.rejects(launchSelectedChrome({executablePath:path,port:9239}),
+   /invalid|PE|executable|header/i,'An inconsistent executable must never reach Chrome spawn');
+ }
+}));
+
 test('QA-002 symlink or truncated PE header is never accepted by the direct preflight',async()=>fixture(async root=>{
  const truncated=join(root,'short.exe');
  await writeFile(truncated,Buffer.from('MZ'));

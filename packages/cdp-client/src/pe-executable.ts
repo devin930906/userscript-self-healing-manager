@@ -32,9 +32,14 @@ export async function assertWindowsPeExecutable(path:string):Promise<void>{
   const sections=pe.readUInt16LE(6);
   const optionalBytes=pe.readUInt16LE(20);
   const magic=pe.readUInt16LE(24);
-  if(![0x014c,0x8664,0xaa64].includes(machine)||sections<1||sections>96||
-     optionalBytes<2||offset+24+optionalBytes>opened.size||
-     (magic!==0x10b&&magic!==0x20b))throw invalid();
+  // PE32 uses x86; x64 and ARM64 use PE32+. The fixed optional header
+  // must fit in SizeOfOptionalHeader before Windows is asked to launch it.
+  const expectedMagic=machine===0x014c?0x10b:
+   machine===0x8664||machine===0xaa64?0x20b:null;
+  const minOptionalBytes=expectedMagic===0x10b?96:112;
+  if(expectedMagic===null||magic!==expectedMagic||sections<1||sections>96||
+     optionalBytes<minOptionalBytes||offset+24+optionalBytes>opened.size)
+   throw invalid();
   const after=await handle.stat();
   const atPath=await lstat(path);
   if(!after.isFile()||after.size!==opened.size||
