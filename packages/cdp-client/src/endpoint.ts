@@ -2,7 +2,9 @@
 function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
  if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid CDP port');
  if(typeof endpoint!=='string'||endpoint.length<1||endpoint.length>2048)throw new Error('Invalid CDP debugger socket length');
- const parsed=new URL(endpoint);
+ let parsed:URL;
+ try { parsed=new URL(endpoint); }
+ catch { throw new Error('Invalid CDP debugger socket URL'); }
  if(parsed.protocol!=='ws:'||!['127.0.0.1','localhost'].includes(parsed.hostname)||parsed.username||parsed.password||parsed.search||parsed.hash)
   throw new Error('CDP WebSocket must use a credential-free loopback endpoint');
  if(parsed.port!==String(port))throw new Error('CDP debugger socket port mismatch');
