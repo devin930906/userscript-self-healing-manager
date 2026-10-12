@@ -37,7 +37,7 @@ test('FR-029 rejected async preflight is durably blocked on SQLite before Main c
 
 test('FR-029 revoked live consent during running progress persists blocked status',async()=>withStore(async(store,file)=>{
  let writes=0;
- const task=newTask(async()=>{writes++;});
+ const task={id:'review-1',scriptId:'managed-script-1',approved:true,execute:async()=>{writes++;}};
  const queue=createRepairTaskQueue([task],{
   onProgress:state=>{if(state.items[0]?.status==='running')task.approved=false;},
   onCheckpoint:checkpoint=>store.save(checkpoint),
