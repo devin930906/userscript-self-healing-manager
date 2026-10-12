@@ -57,7 +57,9 @@ export async function executeDurableApprovedBatch<T>(input:{
  const folder=join(input.dataRoot,'repair-queue');
  await mkdir(folder,{recursive:true});
  assertTrustedAncestors(folder);
- const destination=join(folder,input.approvalId+'.sqlite');
+ // UUID identity is case-insensitive on every supported filesystem.
+ // Normalize only the exclusive journal filename, not the reviewed approval.
+ const destination=join(folder,input.approvalId.toLowerCase()+'.sqlite');
  // 'wx' makes first use of this approval atomic, even across processes.
  // Never delete/reuse an interrupted checkpoint just to restart the write.
  let reservation:Awaited<ReturnType<typeof open>>;
