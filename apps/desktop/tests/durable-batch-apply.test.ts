@@ -145,3 +145,26 @@ test('FR-029 native control cleanup failure cannot leak a SQLite checkpoint hand
    'a cleanup error must not erase the checkpoint of an already committed write');
  }finally{store.close();}
 }));
+
+
+test('FR-029 Main native control registration failure is generic and releases the managed script lease',async()=>fixture(async root=>{
+ const approvalId=randomUUID(),scriptId='registration-error';
+ let written=0,caught:unknown;
+ try{
+  await executeDurableApprovedBatch({
+   dataRoot:root,approvalId,scriptId,
+   preflight:()=>true,write:async()=>{written++;return 'old';},
+   onRegisterCancel:()=>{throw Error('PRIVATE_NATIVE_REGISTRATION_CONTEXT');},
+  });
+ }catch(error){caught=error;}
+ assert.equal(written,0,'registration failure must never start a managed write');
+ assert.ok(caught instanceof Error);
+ assert.doesNotMatch(caught.message,/PRIVATE_NATIVE_REGISTRATION_CONTEXT/);
+ assert.match(caught.message,/registration|fresh review/i);
+ const value=await executeDurableApprovedBatch({
+  dataRoot:root,approvalId:randomUUID(),scriptId,
+  preflight:()=>true,write:async()=>{written++;return 'fresh';},
+ });
+ assert.equal(value,'fresh','failed registration may not retain a managed-script write lock');
+ assert.equal(written,1);
+}));
