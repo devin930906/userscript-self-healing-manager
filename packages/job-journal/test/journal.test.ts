@@ -213,3 +213,44 @@ test('persistent diagnosis rejects fabricated V1 failed and skipped grades befor
   }
  }finally{journal.close();}
 }));
+
+
+test('FR-039 diagnosis v1 rejects incompatible WITHOUT ROWID STRICT and hidden generated columns before startup',async()=>{
+ for(const variation of ['WITHOUT ROWID','STRICT','GENERATED_HIDDEN'] as const){
+  await withJournal(async file=>{
+   const malformed=new DatabaseSync(file);
+   try{
+    const additional=variation==='GENERATED_HIDDEN'?
+     ',unreviewed TEXT GENERATED ALWAYS AS (status) VIRTUAL':'';
+    const suffix=variation==='GENERATED_HIDDEN'?'':variation;
+    malformed.exec(`CREATE TABLE journal_runs (
+     run_id TEXT PRIMARY KEY,session_key TEXT NOT NULL,page_origin TEXT NOT NULL,document_key TEXT NOT NULL,
+     total_items INTEGER NOT NULL,processed_items INTEGER NOT NULL DEFAULT 0,
+     dom_present INTEGER NOT NULL DEFAULT 0,locator_missing INTEGER NOT NULL DEFAULT 0,
+     needs_review INTEGER NOT NULL DEFAULT 0,errors INTEGER NOT NULL DEFAULT 0,
+     status TEXT NOT NULL CHECK(status IN ('running','completed','cancelled','interrupted','failed')),
+     started_at TEXT NOT NULL,updated_at TEXT NOT NULL${additional}
+    ) ${suffix};
+    CREATE TABLE journal_items (
+     run_id TEXT NOT NULL REFERENCES journal_runs(run_id) ON DELETE CASCADE,
+     item_index INTEGER NOT NULL,status TEXT NOT NULL,checked INTEGER NOT NULL,
+     found INTEGER NOT NULL,missing INTEGER NOT NULL,needs_review INTEGER NOT NULL,
+     verification_v0 TEXT NOT NULL,verification_v1 TEXT NOT NULL,
+     PRIMARY KEY(run_id,item_index)
+    );
+    PRAGMA user_version=1;`);
+   }finally{malformed.close();}
+   let issue:unknown;
+   try{const improperlyAccepted=openDiagnosisJournal(file);improperlyAccepted.close();}
+   catch(error){issue=error;}
+   assert.ok(issue instanceof Error,`${variation} must be rejected before a diagnosis journal can mutate or list data`);
+   assert.match(issue.message,/schema|layout|hidden|strict|rowid|incompatible/i);
+   const verified=new DatabaseSync(file,{readOnly:true});
+   try{
+    assert.equal(verified.prepare('PRAGMA user_version').get()?.user_version,1);
+    const state=verified.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('journal_runs','journal_items')").get() as {n:number};
+    assert.equal(state.n,2,'unsafe schema remains untouched for explicit forensic recovery');
+   }finally{verified.close();}
+  });
+ }
+});
