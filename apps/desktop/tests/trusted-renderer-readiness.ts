@@ -15,7 +15,9 @@ export async function waitForTrustedRendererReady(
  probe:()=>Promise<TrustedRendererState|null>,
  options:{expectedUrl:string;attempts:number;pause:()=>Promise<void>;assertAlive:()=>void}
 ):Promise<void>{
- if(!Number.isSafeInteger(options.attempts)||options.attempts<1||options.attempts>100||
+ if(typeof probe!=='function'||!options||typeof options!=='object'||
+    typeof options.pause!=='function'||typeof options.assertAlive!=='function'||
+    !Number.isSafeInteger(options.attempts)||options.attempts<1||options.attempts>100||
     typeof options.expectedUrl!=='string'||!options.expectedUrl.startsWith('file://'))
   throw new Error('Unsafe trusted renderer readiness options');
  for(let attempt=0;attempt<options.attempts;attempt++){
