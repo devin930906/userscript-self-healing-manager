@@ -3,6 +3,7 @@ import {join,isAbsolute} from 'node:path';
 import {readdir,lstat} from 'node:fs/promises';
 import {commitManagedCurrent} from './current-activation.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
 export interface ManagedRevision {readonly hash:string;readonly kind:'original'|'revision';readonly fileName:string;readonly verified:true}
 const hashBytes=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
@@ -16,7 +17,8 @@ async function assertDirectory(path:string):Promise<void>{
  if(info.isSymbolicLink()||!info.isDirectory())throw new Error('Unsafe managed directory: symlink or non-directory');
 }
 async function assertHierarchy(root:string,folder:string):Promise<void>{
- await assertDirectory(root);
+ // Checking only the leaf misses a junction in an earlier Data ancestor.
+ await assertUnlinkedRecoveryDirectory(root);
  await assertDirectory(join(root,'managed'));
  await assertDirectory(folder);
 }
