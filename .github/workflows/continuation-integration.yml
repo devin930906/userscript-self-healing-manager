@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/v01-continuation
+  pull_request:
+    branches:
+      - feat/v01-continuation
 
 permissions:
   contents: read
