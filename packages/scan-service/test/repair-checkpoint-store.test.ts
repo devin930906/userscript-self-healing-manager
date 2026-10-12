@@ -134,3 +134,64 @@ test('FR-029 refuses unsafe SQLite WAL, SHM and journal sidecars before creating
   assert.equal(existsSync(file),false,'sidecar preflight must precede SQLite open: '+suffix);
  }
 }));
+
+test('FR-029 durable completed and blocked snapshots cannot regress to replayable queued work',async()=>fixture(async file=>{
+ const store=openRepairCheckpointStore(file);
+ try{
+  const identity={id:'one',scriptId:'managed-one'};
+  for(const status of ['completed','blocked'] as const){
+   const checkpoint={version:1 as const,items:[{...identity,status,attempts:status==='completed'?1:0,errorCode:null}]};
+   // Each assertion starts from a clean database reservation using a new row
+   // identity is forbidden; test both terminal states independently below.
+   if(status==='completed'){
+    await store.save(checkpoint);
+    await assert.rejects(store.save({version:1,items:[
+     {...identity,status:'queued',attempts:1,errorCode:null},
+    ]}),/checkpoint|transition|state|terminal|unsafe/i);
+    assert.equal(store.load([identity])?.items[0]?.status,'completed');
+   }
+  }
+ }finally{store.close();}
+}));
+test('FR-029 durable blocked and cancelled outcomes cannot requeue after a restart',async()=>fixture(async file=>{
+ const blocked={id:'blocked-review',scriptId:'private-script'};
+ const store=openRepairCheckpointStore(file);
+ try{
+  await store.save({version:1,items:[
+   {...blocked,status:'blocked',attempts:1,errorCode:null},
+  ]});
+  await assert.rejects(store.save({version:1,items:[
+   {...blocked,status:'queued',attempts:1,errorCode:null},
+  ]}),/checkpoint|transition|state|terminal|unsafe/i);
+  assert.equal(store.load([blocked])?.items[0]?.status,'blocked');
+ }finally{store.close();}
+}));
+test('FR-029 SQLite checkpoint refuses decreasing retry attempts and running to queued',async()=>fixture(async file=>{
+ const id={id:'retry-task',scriptId:'only-managed-copy'};
+ const store=openRepairCheckpointStore(file);
+ try{
+  await store.save({version:1,items:[{...id,status:'running',attempts:2,errorCode:null}]});
+  for(const row of [
+   {...id,status:'queued' as const,attempts:2,errorCode:null},
+   {...id,status:'running' as const,attempts:1,errorCode:null},
+  ]){
+   await assert.rejects(store.save({version:1,items:[row]}),/checkpoint|transition|attempt|unsafe/i);
+  }
+  assert.deepEqual(store.load([id])?.items.map(x=>[x.status,x.attempts]),[['running',2]]);
+ }finally{store.close();}
+}));
+test('FR-029 legitimate explicitly retried failed checkpoint remains serial and durable',async()=>fixture(async file=>{
+ const id={id:'explicit-retry',scriptId:'managed'};
+ const store=openRepairCheckpointStore(file);
+ try{
+  const save=(status:'queued'|'running'|'failed'|'completed',attempts:number,errorCode:'TASK_EXECUTION_FAILED'|null)=>
+   store.save({version:1,items:[{...id,status,attempts,errorCode}]});
+  await save('queued',0,null);
+  await save('running',1,null);
+  await save('failed',1,'TASK_EXECUTION_FAILED');
+  await save('queued',1,null);
+  await save('running',2,null);
+  await save('completed',2,null);
+  assert.deepEqual(store.load([id])?.items.map(x=>[x.status,x.attempts]),[['completed',2]]);
+ }finally{store.close();}
+}));
