@@ -25,6 +25,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 import { resolveDataRoot } from '../../../packages/runtime-paths/src/index.ts';
+import {waitForTrustedRendererReady,type TrustedRendererState} from './trusted-renderer-readiness.ts';
 
 function securityScratchRoot(env: NodeJS.ProcessEnv, fallback: string): string {
   return env.RUNNER_TEMP || fallback;
@@ -331,6 +332,44 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     cdp = await connectCdp(target.webSocketDebuggerUrl);
     await cdp.call('Runtime.enable');
     await cdp.call('Page.enable');
+
+    // /json/list can expose the correct file:// target before its preload
+    // bridge or default execution context is ready. Only poll incomplete
+    // loading states. Wrong frame/origin or unsafe native access fails now.
+    await waitForTrustedRendererReady(async ():Promise<TrustedRendererState|null>=>{
+      const response=await cdp!.call('Runtime.evaluate',{
+        expression:`(()=>{
+          return {
+            href:location.href,readyState:document.readyState,
+            topLevel:window.top===window,
+            hasGetAppInfo:typeof window.ussm?.getAppInfo==='function',
+            hasGenericInvoke:typeof window.ussm?.invoke!=='undefined',
+            hasNode:typeof window.require!=='undefined',
+            hasRawIpc:typeof window.ipcRenderer!=='undefined'
+          };
+        })()`,
+        returnByValue:true,awaitPromise:false,
+      }).catch((error:unknown)=>{
+        // Navigation briefly invalidates the default context; never swallow
+        // unrelated CDP errors or a permanently missing privileged bridge.
+        if(/Cannot find default execution context|Execution context was destroyed|Cannot find context with specified id/i.test(String(error)))
+          return null;
+        throw error;
+      });
+      if(response===null)return null;
+      if(response.exceptionDetails)
+        throw new Error('Trusted renderer readiness evaluation failed');
+      const value=(response.result as {value?:TrustedRendererState}|undefined)?.value;
+      return value??null;
+    },{
+      expectedUrl:trustedUrl,
+      attempts:60,
+      pause:async()=>{await delay(100);},
+      assertAlive:()=>{
+        if(spawnError)throw new Error('Electron launch failed before preload readiness');
+        if(exit)throw new Error(exitFailure(exit)??'Electron exited before preload readiness');
+      },
+    });
 
     async function evaluate<T>(expression: string): Promise<T> {
       if (spawnError) throw new Error('Electron launch failed: ' + spawnError.message);
