@@ -55,3 +55,21 @@ test('FR-025 named count-change contract crosses Main IPC, preload types and ren
  assert.match(handler,/probePageLocators\(page,locators,\{includeNodeFingerprints:true\}\)/);
  assert.doesNotMatch(handler,/Runtime\.evaluate|writeFile\(|execute\(/);
 });
+
+
+test('FR-025 switching the DOM expectation synchronously revokes in-flight V1 evidence and frees the old request slot',()=>{
+ const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ const selector=ui.split('<label>DOM 合约预期<select')[1]?.split('</select>')[0]??'';
+ assert.ok(selector,'named DOM expectation control must be available');
+ assert.match(selector,/onChange=\{e=>\{/);
+ assert.match(selector,/contractGeneration\.current\.invalidate\(\)/,
+  'late response cannot overwrite the newly selected named DOM contract');
+ assert.match(selector,/if\(contractActive\.current\)\{contractActive\.current=false;setBusy\(false\);\}/,
+  'a revoked old V1 observation must not leave the UI stuck busy');
+ assert.match(selector,/setContractExpectation\(/);
+ assert.match(selector,/setContractEvidence\(null\)/);
+ const flow=ui.split('async function runDomContract()')[1]?.split('async function suggestBulkRepairs')[0]??'';
+ assert.match(flow,/contractGeneration\.current\.isCurrent\(token\)/);
+ assert.match(flow,/finally\{if\(contractGeneration\.current\.isCurrent\(token\)\)/,
+  'late request cleanup must not clear a newer in-flight validation');
+});
