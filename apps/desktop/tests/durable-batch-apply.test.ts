@@ -116,3 +116,32 @@ test('FR-029 synchronous native cancellation before a one-script run persists ca
    [['cancelled',0]],'cancelled journal must not be empty or replayable');
  }finally{journal.close();}
 }));
+
+
+test('FR-029 native control cleanup failure cannot leak a SQLite checkpoint handle or private callback text',async t=>fixture(async root=>{
+ const approvalId=randomUUID(),scriptId='release-failure';
+ const close=DatabaseSync.prototype.close;
+ const closeSpy=t.mock.method(DatabaseSync.prototype,'close',function(this:DatabaseSync){
+  return close.call(this);
+ });
+ let writes=0,observed:unknown;
+ try{
+  await executeDurableApprovedBatch({
+   dataRoot:root,approvalId,scriptId,
+   preflight:()=>true,
+   write:async()=>{writes++;return 'written';},
+   onRegisterCancel:()=>()=>{throw Error('PRIVATE_NATIVE_CLEANUP_DETAIL');},
+  });
+ }catch(error){observed=error;}
+ assert.equal(writes,1,'the cleanup failure happens only after the managed write completes');
+ assert.ok(observed instanceof Error,'a failed cleanup must be reported, not silently ignored');
+ assert.equal(closeSpy.mock.callCount(),2,
+  'both the checkpoint SQLite connection and the managed write lease connection must close even if Main cleanup throws');
+ assert.doesNotMatch(observed.message,/PRIVATE_NATIVE_CLEANUP_DETAIL/,
+  'trusted callback errors must not leak private data through Main');
+ const store=openRepairCheckpointStore(file(root,approvalId));
+ try{
+  assert.equal(store.load([{id:approvalId,scriptId}])?.items[0]?.status,'completed',
+   'a cleanup error must not erase the checkpoint of an already committed write');
+ }finally{store.close();}
+}));
