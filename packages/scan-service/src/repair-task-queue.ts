@@ -146,6 +146,11 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   rows[index]=Object.freeze({...rows[index]!,status,attempts,errorCode});
   emit();
  };
+ // Terminal audit states must be durably committed, not merely shown in memory.
+ const persistTerminal=async(index:number,status:'blocked'|'cancelled')=>{
+  update(index,status);
+  await commit();
+ };
  const run=async():Promise<RepairTaskSnapshot>=>{
   if(stopped)throw new Error('Cancelled repair queue cannot be restarted');
   if(active)throw new Error('Repair queue is already running');
@@ -154,23 +159,23 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
    // New queue state is durable before any requested repair starts.
    await commit();
    for(let i=0;i<planned.length;i++){
-    if(stopped)break;
+    if(stopped){await commit();break;}
     if(rows[i]!.status!=='queued')continue;
-    if(!(await gate.waitUntilReady())||stopped)break;
+    if(!(await gate.waitUntilReady())||stopped){await commit();break;}
     const task=planned[i]!;
     // The caller cannot mutate the approval field after a queue starts:
     // however, approval is re-checked before every dispatch.
-    if(task.approved!==true||task.permissionSource.approved!==true){update(i,'blocked');continue;}
+    if(task.approved!==true||task.permissionSource.approved!==true){await persistTerminal(i,'blocked');continue;}
     update(i,'running',rows[i]!.attempts+1);
     // Progress listeners run synchronously at the last dispatch boundary.
     // They may revoke consent or cancel the queue before the operation
     // callback has actually started: check both again after notification.
-    if(stopped){update(i,'cancelled');break;}
-    if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
+    if(stopped){await persistTerminal(i,'cancelled');break;}
+    if(task.permissionSource.approved!==true){await persistTerminal(i,'blocked');continue;}
     // A progress observer may pause while this row is newly marked running.
     // No callback is dispatched until the user explicitly resumes it.
-    if(!(await gate.waitUntilReady())||stopped){update(i,'cancelled');break;}
-    if(task.permissionSource.approved!==true){update(i,'blocked');continue;}
+    if(!(await gate.waitUntilReady())||stopped){await persistTerminal(i,'cancelled');break;}
+    if(task.permissionSource.approved!==true){await persistTerminal(i,'blocked');continue;}
     if(beforeDispatch){
      let validated=false;
      while(!validated){
@@ -193,7 +198,12 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
       }
       validated=true;
      }
-     if(!validated){if(stopped)break;continue;}
+     if(!validated){
+      // Persist cancelled/revoked/denied before leaving the preflight gate.
+      await commit();
+      if(stopped)break;
+      continue;
+     }
     }
     if(onCheckpoint){
      // The running state must be durably recorded BEFORE any file write.
