@@ -27,6 +27,7 @@ const api={
  getAppInfo:()=>ipcRenderer.invoke('usshm:app-info'),
  getRepairQueueRecovery:()=>ipcRenderer.invoke('usshm:repair-queue-recovery'),
  getRepairQueueActivity:()=>ipcRenderer.invoke('usshm:repair-queue-activity'),
+ cancelBatchRepair:(input:{proposalId:string})=>ipcRenderer.invoke('usshm:cancel-batch-repair',input),
  backupRegistry:()=>ipcRenderer.invoke('usshm:backup-registry'),
  backupJournal:()=>ipcRenderer.invoke('usshm:backup-journal'),
  exportManagedRecovery:()=>ipcRenderer.invoke('usshm:export-managed-recovery'),
