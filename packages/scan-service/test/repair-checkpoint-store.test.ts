@@ -135,37 +135,35 @@ test('FR-029 refuses unsafe SQLite WAL, SHM and journal sidecars before creating
  }
 }));
 
-test('FR-029 durable completed and blocked snapshots cannot regress to replayable queued work',async()=>fixture(async file=>{
+test('FR-029 persisted completed state cannot revert to queued or rerun as failed',async()=>fixture(async file=>{
+ const identity={id:'one',scriptId:'managed-one'};
  const store=openRepairCheckpointStore(file);
  try{
-  const identity={id:'one',scriptId:'managed-one'};
-  for(const status of ['completed','blocked'] as const){
-   const checkpoint={version:1 as const,items:[{...identity,status,attempts:status==='completed'?1:0,errorCode:null}]};
-   // Each assertion starts from a clean database reservation using a new row
-   // identity is forbidden; test both terminal states independently below.
-   if(status==='completed'){
-    await store.save(checkpoint);
+  await store.save({version:1,items:[{...identity,status:'completed',attempts:1,errorCode:null}]});
+  for(const row of [
+   {...identity,status:'queued' as const,attempts:1,errorCode:null},
+   {...identity,status:'failed' as const,attempts:2,errorCode:'TASK_EXECUTION_FAILED' as const},
+  ]){
+   await assert.rejects(store.save({version:1,items:[row]}),/checkpoint|transition|state|terminal|unsafe/i);
+  }
+  assert.equal(store.load([identity])?.items[0]?.status,'completed');
+ }finally{store.close();}
+}));
+test('FR-029 blocked or cancelled terminal state cannot be requeued',async()=>{
+ for(const status of ['blocked','cancelled'] as const){
+  await fixture(async file=>{
+   const identity={id:'review',scriptId:'private-managed-script'};
+   const store=openRepairCheckpointStore(file);
+   try{
+    await store.save({version:1,items:[{...identity,status,attempts:1,errorCode:null}]});
     await assert.rejects(store.save({version:1,items:[
      {...identity,status:'queued',attempts:1,errorCode:null},
     ]}),/checkpoint|transition|state|terminal|unsafe/i);
-    assert.equal(store.load([identity])?.items[0]?.status,'completed');
-   }
-  }
- }finally{store.close();}
-}));
-test('FR-029 durable blocked and cancelled outcomes cannot requeue after a restart',async()=>fixture(async file=>{
- const blocked={id:'blocked-review',scriptId:'private-script'};
- const store=openRepairCheckpointStore(file);
- try{
-  await store.save({version:1,items:[
-   {...blocked,status:'blocked',attempts:1,errorCode:null},
-  ]});
-  await assert.rejects(store.save({version:1,items:[
-   {...blocked,status:'queued',attempts:1,errorCode:null},
-  ]}),/checkpoint|transition|state|terminal|unsafe/i);
-  assert.equal(store.load([blocked])?.items[0]?.status,'blocked');
- }finally{store.close();}
-}));
+    assert.equal(store.load([identity])?.items[0]?.status,status);
+   }finally{store.close();}
+  });
+ }
+});
 test('FR-029 SQLite checkpoint refuses decreasing retry attempts and running to queued',async()=>fixture(async file=>{
  const id={id:'retry-task',scriptId:'only-managed-copy'};
  const store=openRepairCheckpointStore(file);
