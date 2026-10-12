@@ -397,23 +397,30 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     });
 
     await t.test('iframe must load marker and have an executable CDP context', async () => {
-      const outcome = await evaluate<{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}>(`(async()=>{
+      // QA-048: never keep a CDP Runtime.evaluate command pending while a
+      // srcdoc iframe performs asynchronous navigation/load. Chrome may
+      // suspend the original execution context and never answer that command.
+      await evaluate<boolean>(`(()=>{
         const frame=document.createElement('iframe');
         frame.id='usshm-security-probe';
         frame.srcdoc='<!doctype html><html><body><span id="proof">FRAME_MARKER_44</span></body></html>';
-        const done=new Promise((resolve,reject)=>{
-          frame.addEventListener('load',()=>resolve(true),{once:true});
-          frame.addEventListener('error',()=>reject(new Error('iframe load error')),{once:true});
-          setTimeout(()=>reject(new Error('iframe load timeout or CSP denial')),3000);
-        });
         document.body.append(frame);
-        await done;
-        if(!frame.contentWindow||!frame.contentDocument)throw new Error('iframe execution context missing');
-        const marker=frame.contentDocument.getElementById('proof')?.textContent;
-        if(marker!=='FRAME_MARKER_44')throw new Error('iframe content marker missing');
-        return {loaded:true,marker,bridge:typeof frame.contentWindow.ussm,
-          ipc:typeof frame.contentWindow.ipcRenderer,node:typeof frame.contentWindow.require};
+        return true;
       })()`);
+      let outcome:{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}|undefined;
+      for(let attempt=0;attempt<30;attempt++){
+        const probe=await evaluate<{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}|null>(`(()=>{
+          const frame=document.getElementById('usshm-security-probe');
+          if(!frame?.contentWindow||!frame.contentDocument)return null;
+          const marker=frame.contentDocument.getElementById('proof')?.textContent;
+          if(marker!=='FRAME_MARKER_44')return null;
+          return {loaded:true,marker,bridge:typeof frame.contentWindow.ussm,
+            ipc:typeof frame.contentWindow.ipcRenderer,node:typeof frame.contentWindow.require};
+        })()`);
+        if(probe){outcome=probe;break;}
+        await delay(100);
+      }
+      assert.ok(outcome,'iframe marker unavailable after bounded readiness probes');
       assert.equal(outcome.loaded,true);
       assert.equal(outcome.marker,'FRAME_MARKER_44');
       const tree=await cdp!.call('Page.getFrameTree');
