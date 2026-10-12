@@ -24,7 +24,13 @@ export interface RepairTaskSnapshot {
  readonly cancelled:boolean;
  readonly running:boolean;
 }
+export interface RepairTaskCheckpoint {
+ readonly version:1;
+ readonly items:readonly RepairTaskRow[];
+}
 export interface RepairTaskQueue {
+ /** Sanitized, serializable checkpoint; never contains a callback or approval. */
+ checkpoint():RepairTaskCheckpoint;
  run():Promise<RepairTaskSnapshot>;
  retryFailed():Promise<RepairTaskSnapshot>;
  pause():boolean;
@@ -47,14 +53,20 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   onProgress?:(snapshot:RepairTaskSnapshot)=>void;
   /** Separate trusted pre-write hash/backup/approval check, never invoked on unapproved jobs. */
   beforeDispatch?:(row:RepairTaskRow)=>Promise<boolean>|boolean;
+  /** Caller's trusted durable store must commit before executing each write. */
+  onCheckpoint?:(checkpoint:RepairTaskCheckpoint)=>Promise<void>;
+  /** Completed rows are historical only; all other recovered work is blocked. */
+  recovery?:RepairTaskCheckpoint;
  }={},
 ):RepairTaskQueue{
  if(!Array.isArray(tasks)||!tasks.length||tasks.length>1000)
   throw new Error('Invalid repair task queue budget');
  if(!options||typeof options!=='object'||Array.isArray(options)||
     (options.onProgress!==undefined&&typeof options.onProgress!=='function')||
-    (options.beforeDispatch!==undefined&&typeof options.beforeDispatch!=='function'))
+    (options.beforeDispatch!==undefined&&typeof options.beforeDispatch!=='function')||
+    (options.onCheckpoint!==undefined&&typeof options.onCheckpoint!=='function'))
   throw new Error('Invalid repair task queue options');
+ const onCheckpoint=options.onCheckpoint;
  // Pin the pre-write gate itself against post-approval caller mutation.
  const beforeDispatch=options.beforeDispatch;
  const ids=new Set<string>();
@@ -73,18 +85,57 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   id:task.id,scriptId:task.scriptId,approved:task.approved,
   execute:task.execute,permissionSource:task,
  }));
+ const recovered=options.recovery;
+ if(recovered!==undefined){
+  const fields=(x:object)=>Object.keys(x).sort().join(',');
+  if(!recovered||typeof recovered!=='object'||Array.isArray(recovered)||
+     fields(recovered)!=='items,version'||recovered.version!==1||
+     !Array.isArray(recovered.items)||recovered.items.length!==planned.length)
+   throw new Error('Invalid repair queue recovery checkpoint');
+  const rowFields='attempts,errorCode,id,scriptId,status';
+  const validStatuses=new Set<RepairTaskStatus>(['queued','running','completed','failed','blocked','cancelled']);
+  for(let i=0;i<planned.length;i++){
+   const row=recovered.items[i];
+   if(!row||typeof row!=='object'||Array.isArray(row)||
+      fields(row)!==rowFields||row.id!==planned[i]!.id||
+      row.scriptId!==planned[i]!.scriptId||
+      !validStatuses.has(row.status)||
+      !Number.isSafeInteger(row.attempts)||row.attempts<0||row.attempts>1000000||
+      ![null,'TASK_EXECUTION_FAILED'].includes(row.errorCode)||
+      ((row.status==='completed'||row.status==='failed'||row.status==='running')&&row.attempts<1)||
+      (row.status==='failed'&&row.errorCode!=='TASK_EXECUTION_FAILED')||
+      (row.status!=='failed'&&row.errorCode!==null))
+    throw new Error('Invalid repair queue recovery row or task identity');
+  }
+ }
  const gate=new BatchPauseGate();
  let active=false,stopped=false;
  // Every pause invalidates any asynchronous hash/backup verification in flight.
  let pauseEpoch=0;
- const rows:RepairTaskRow[]=planned.map(t=>({
-  id:t.id,scriptId:t.scriptId,status:t.approved?'queued':'blocked',
-  attempts:0,errorCode:null,
- }));
+ const rows:RepairTaskRow[]=planned.map((t,i)=>{
+  const prior=recovered?.items[i];
+  return Object.freeze({
+   id:t.id,scriptId:t.scriptId,
+   // Unfinished/failed/queued/running means an interrupted or uncertain
+   // operation: never inherit stale approval, even if task.approved is true.
+   status:prior?(prior.status==='completed'?'completed':'blocked'):
+    t.approved?'queued':'blocked',
+   attempts:prior?.attempts??0,errorCode:null,
+  });
+ });
  const snapshot=():RepairTaskSnapshot=>Object.freeze({
   items:Object.freeze(rows.map(row=>Object.freeze({...row}))),
   paused:gate.isPaused,cancelled:stopped,running:active,
  });
+ const checkpoint=():RepairTaskCheckpoint=>Object.freeze({
+  version:1,
+  items:Object.freeze(rows.map(row=>Object.freeze({...row}))),
+ });
+ const commit=async()=>{
+  if(!onCheckpoint)return;
+  try{await onCheckpoint(checkpoint());}
+  catch{throw new Error('Repair queue checkpoint persistence failed');}
+ };
  const emit=()=>{
   // An optional UI observer cannot make a completed job become a failed
   // filesystem operation. Journal persistence is a separate release gate.
@@ -100,6 +151,8 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   if(active)throw new Error('Repair queue is already running');
   active=true;emit();
   try{
+   // New queue state is durable before any requested repair starts.
+   await commit();
    for(let i=0;i<planned.length;i++){
     if(stopped)break;
     if(rows[i]!.status!=='queued')continue;
@@ -142,14 +195,26 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
      }
      if(!validated){if(stopped)break;continue;}
     }
-    try{
-     await task.execute();
-     // Cancellation is not rollback. An in-flight operation that completed
-     // must be reflected as completed rather than falsely called cancelled.
-     update(i,'completed');
-    }catch{
-     update(i,'failed',rows[i]!.attempts,'TASK_EXECUTION_FAILED');
+    if(onCheckpoint){
+     // The running state must be durably recorded BEFORE any file write.
+     // A pause/revocation/cancel during persistence invalidates this dispatch.
+     const epochBeforeCommit=pauseEpoch;
+     try{await commit();}
+     catch{update(i,'blocked');throw new Error('Repair queue checkpoint persistence failed');}
+     if(stopped){update(i,'cancelled');await commit();break;}
+     if(task.permissionSource.approved!==true){update(i,'blocked');await commit();continue;}
+     if(gate.isPaused||pauseEpoch!==epochBeforeCommit){
+      update(i,'blocked');await commit();continue;
+     }
     }
+    let executionFailed=false;
+    try{await task.execute();}catch{executionFailed=true;}
+    // A confirmed completion is not rolled back by cancellation. If the
+    // trailing commit fails, the previous persisted 'running' state remains
+    // uncertain and recovery blocks it instead of replaying the write.
+    if(executionFailed)update(i,'failed',rows[i]!.attempts,'TASK_EXECUTION_FAILED');
+    else update(i,'completed');
+    await commit();
    }
   }finally{
    active=false;emit();
@@ -170,7 +235,7 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   return run();
  };
  return Object.freeze({
-  run,retryFailed,
+  checkpoint,run,retryFailed,
   pause:()=>{const paused=gate.pause();if(paused)pauseEpoch++;return paused;},
   resume:()=>gate.resume(),
   cancel:()=>{
