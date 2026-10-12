@@ -3,6 +3,7 @@ import {lstat,mkdir,readdir,readFile,writeFile} from 'node:fs/promises';
 import {isAbsolute,join,resolve,dirname} from 'node:path';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
 export interface ManagedRecoveryFile {
  readonly path:string;
@@ -24,8 +25,10 @@ const ID=/^[A-Za-z0-9_-]{1,64}$/;
 const LIMIT_FILES=5000, LIMIT_TOTAL=256*1024*1024, LIMIT_EACH=512*1024;
 async function safeDir(path:string):Promise<boolean>{
  try{
-  const stat=await lstat(path);
-  if(stat.isSymbolicLink()||!stat.isDirectory())throw new Error('Unsafe managed recovery directory');
+  // Every ancestor must be a real directory, not only the final leaf.
+  // An aliased source or target parent must be rejected before reading
+  // private managed revisions or claiming an export destination.
+  await assertUnlinkedRecoveryDirectory(path);
   return true;
  }catch(e){
   if((e as NodeJS.ErrnoException).code==='ENOENT')return false;

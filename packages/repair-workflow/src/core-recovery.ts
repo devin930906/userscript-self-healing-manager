@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
 import {lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {DatabaseSync} from 'node:sqlite';
@@ -16,27 +17,6 @@ function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
  return !!value&&typeof value==='object'&&!Array.isArray(value)&&
   Object.keys(value).length===keys.length&&
   keys.every(k=>Object.prototype.hasOwnProperty.call(value,k));
-}
-/**
- * Reject symlinks and Windows junctions in EVERY directory component before
- * touching recovery bytes. lstat() of the leaf alone follows linked parents.
- * This is a preflight, not a race-free defense against concurrent renames.
- */
-export async function assertUnlinkedRecoveryDirectory(path:string):Promise<void>{
- if(typeof path!=='string'||!isAbsolute(path))
-  throw new Error('Unsafe core recovery directory path');
- const chain:string[]=[];
- for(let current=resolve(path);;){
-  chain.push(current);
-  const parent=dirname(current);
-  if(parent===current)break;
-  current=parent;
- }
- for(const component of chain.reverse()){
-  const stat=await lstat(component);
-  if(!stat.isDirectory()||stat.isSymbolicLink())
-   throw new Error('Unsafe core recovery directory: symlink or junction ancestor');
- }
 }
 async function directory(path:string){
  await assertUnlinkedRecoveryDirectory(path);

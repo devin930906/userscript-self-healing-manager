@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,readdir,rm,symlink,writeFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,rm,symlink,writeFile,unlink,rmdir,access} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {verifyManagedRecovery} from '../../packages/repair-workflow/src/managed-export.ts';
 
 async function exporter(){
  const api=await import('../../packages/repair-workflow/src/managed-export.ts').catch(()=>({})) as {
@@ -110,4 +111,71 @@ test('managed recovery verification rejects modified archive and traversal manif
   await writeFile(join(folder,'manifest.json'),JSON.stringify(manifest));
   await assert.rejects(verify!({snapshotDirectory:folder}),/path|unsafe|traversal|manifest/i);
  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+async function cleanupRecoveryAlias(alias:string):Promise<void>{
+ try{await unlink(alias);}
+ catch(error){
+  const code=(error as NodeJS.ErrnoException).code;
+  if(code==='ENOENT')return;
+  if(code==='EPERM'||code==='EISDIR')await rmdir(alias); // Junction itself only, never recursive
+  else throw error;
+ }
+}
+async function createRecoveryAlias(root:string,t:import('node:test').TestContext):Promise<boolean>{
+ try{
+  await symlink(root,join(root,'untrusted-parent-alias'),process.platform==='win32'?'junction':'dir');
+  return true;
+ }catch(error){
+  if(['EPERM','EACCES','ENOTSUP','ENOSYS'].includes((error as NodeJS.ErrnoException).code??'')){
+   t.skip('Windows runner cannot create Junction; no bypass is accepted silently');
+   return false;
+  }
+  throw error;
+ }
+}
+
+test('QA-060 managed snapshot verification rejects byte-identical archives behind a parent junction',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-managed-parent-verify-'));
+ const alias=join(root,'untrusted-parent-alias');
+ let made=false;
+ try{
+  const source=join(root,'Data');await mkdir(source);await fixture(source);
+  const backup=join(root,'managed-backup');
+  await (await exporter())({managedRoot:source,destination:backup});
+  made=await createRecoveryAlias(root,t);
+  if(!made)return;
+  const aliased=join(alias,'managed-backup');
+  assert.deepEqual(await readFile(join(aliased,'manifest.json')),
+   await readFile(join(backup,'manifest.json')),'fixture must demonstrate same verified bytes');
+  await assert.rejects(verifyManagedRecovery({snapshotDirectory:aliased}),
+   /symlink|junction|unsafe|reparse|linked/i,
+   'managed recovery must not follow an untrusted parent link');
+ }finally{
+  if(made)await cleanupRecoveryAlias(alias);
+  await rm(root,{recursive:true,force:true});
+ }
+});
+
+test('QA-060 managed archive export rejects parent junctions in source and destination before mkdir',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-managed-parent-export-'));
+ const alias=join(root,'untrusted-parent-alias');
+ let made=false;
+ try{
+  const source=join(root,'Data');await mkdir(source);await fixture(source);
+  made=await createRecoveryAlias(root,t);
+  if(!made)return;
+  for(const input of [
+   {managedRoot:join(alias,'Data'),destination:join(root,'blocked-aliased-source')},
+   {managedRoot:source,destination:join(alias,'blocked-aliased-output')},
+  ]){
+   await assert.rejects((await exporter())(input),
+    /symlink|junction|unsafe|reparse|linked/i,
+    'untrusted parent alias must fail before any output directory is claimed');
+   await assert.rejects(access(input.destination),{code:'ENOENT'});
+  }
+ }finally{
+  if(made)await cleanupRecoveryAlias(alias);
+  await rm(root,{recursive:true,force:true});
+ }
 });
