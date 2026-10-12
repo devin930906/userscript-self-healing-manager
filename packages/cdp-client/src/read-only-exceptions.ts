@@ -1,5 +1,6 @@
 import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
+import {assertCredentialFreePageUrl} from './page-url-safety.ts';
 import {assertStablePageDocument,confirmPageIdentity,type ConfirmedPageIdentity} from './page-identity.ts';
 import type {SocketLike} from './snapshot.ts';
 
@@ -51,6 +52,7 @@ export async function observeReadOnlyPageExceptions(
  if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||
     typeof target.url!=='string'||!/^https?:\/\//i.test(target.url))
   throw new Error('Invalid CDP page target for exception observation');
+ assertCredentialFreePageUrl(target.url);
  const endpoint=validateCdpPageSocket(target);
  const confirm=options.confirm??confirmPageIdentity;
  const before=await confirm(target);
