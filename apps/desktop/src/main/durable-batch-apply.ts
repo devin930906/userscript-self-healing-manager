@@ -66,10 +66,10 @@ export async function executeDurableApprovedBatch<T>(input:{
  }
  await reservation.close();
  const store=openRepairCheckpointStore(destination);
+ let releaseCancellation:()=>void=()=>{};
  try{
   let written=false;
   let output:T|undefined;
-  let releaseCancellation:()=>void=()=>{};
   const queue=createRepairTaskQueue([{
    id:input.approvalId,scriptId:input.scriptId,approved:true,
    execute:async()=>{
