@@ -38,7 +38,10 @@ export function createRepairQueueActivity(){
   observe(id:string,status:RepairTaskStatus):void{
    if(typeof id!=='string'||!UUID.test(id)||!STATES.includes(status))
     throw new Error('Invalid repair queue activity state or identity');
-   const prior=states.get(id);
+   // UUIDs denote one approval regardless of hexadecimal letter casing.
+   // Case variants must neither double-count progress nor reset terminal state.
+   const key=id.toLowerCase();
+   const prior=states.get(key);
    if(prior&&!ALLOWED[prior].includes(status))
     throw new Error('Unsafe terminal repair queue activity transition');
    // Keep at most LIMIT session observations. Evict only historical,
@@ -53,7 +56,7 @@ export function createRepairQueueActivity(){
     if(states.size>=LIMIT)
      throw new Error('Repair queue activity capacity reached');
    }
-   states.set(id,status);
+   states.set(key,status);
   },
   snapshot,
  });

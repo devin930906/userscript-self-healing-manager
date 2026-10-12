@@ -84,3 +84,21 @@ test('FR-029 both native-approved Main write IPC handlers report Main-owned acti
  assert.match(ui,/修复队列进度/);
  assert.doesNotMatch(ui,/window\.ussm\.retryRecovered|window\.ussm\.resumeRecovered/);
 });
+
+
+test('FR-029 native queue activity treats uppercase and lowercase of one approval UUID as the same monotonic identity',()=>{
+ const upper='ABCDEF12-3456-4ABC-8DEF-1234567890AB';
+ const lower=upper.toLowerCase();
+ const activity=createRepairQueueActivity();
+ activity.observe(upper,'queued');
+ activity.observe(lower,'running');
+ assert.deepEqual(activity.snapshot(),{
+  queued:0,running:1,completed:0,failed:0,blocked:0,cancelled:0,
+ },'one approval cannot be counted as two running queue identities');
+ activity.observe(upper,'completed');
+ assert.throws(()=>activity.observe(lower,'running'),/terminal|transition|activity/i,
+  'case variants must not bypass terminal transition guards');
+ assert.deepEqual(activity.snapshot(),{
+  queued:0,running:0,completed:1,failed:0,blocked:0,cancelled:0,
+ });
+});
