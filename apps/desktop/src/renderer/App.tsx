@@ -44,6 +44,7 @@ declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  getRepairQueueRecovery:()=>Promise<RepairQueueRecoverySummary>;
  getRepairQueueActivity:()=>Promise<RepairQueueActivitySummary>;
+ cancelBatchRepair:(input:{proposalId:string})=>Promise<boolean>;
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
@@ -663,6 +664,14 @@ function App(){
   }catch{setError('批量修复预览失败：源文件或已有受管修订可能发生变化，请重新扫描并检查候选。');}
   finally{setBusy(false);}
  }
+ async function cancelCurrentBatchRepair(){
+  if(!batchApplying||!batchRepairProposal)return;
+  try{
+   const cancelled=await window.ussm.cancelBatchRepair({proposalId:batchRepairProposal.proposalId});
+   if(cancelled)setMessage('已向主进程请求取消当前批量修复；正在写入的修订可能已经完成，请以最终受管修订记录及队列状态为准。');
+   else setMessage('没有可取消的当前批量修复；可能仍处于确认流程，或写入已完成。');
+  }catch{setError('无法安全取消当前批量修复；请检查最终受管修订状态。');}
+ }
  async function applyBatchRepair(){
   if(!result||focused===null||!batchRepairProposal||busy)return;
   setBusy(true);setBatchApplying(true);setError('');
@@ -816,6 +825,11 @@ function App(){
       <p>仅展示主进程的状态汇总，不包含脚本路径或审批身份。完成只表示受管写入，不代表 V2/V3/V4 验收完成。</p>
      </div><span className="pill">只读进度 · 不可重放</span></div>
     </section>}
+   {batchApplying&&<section className="panel" role="status">
+    <div className="panel-head"><div><h2>当前已审批批量任务</h2>
+     <p>取消只阻止尚未开始的写入；正在写入的修订可能已经完成，不能假称回滚。</p>
+    </div><button type="button" onClick={()=>void cancelCurrentBatchRepair()}>取消当前批量修复</button></div>
+   </section>}
    <section className="stats"><div className="stat"><label>资料库脚本</label><strong>{history.length}</strong><span>SQLite 本地索引</span></div><div className="stat"><label>本次处理</label><strong>{result?.processedCount??0}</strong><span>逐文件隔离</span></div><div className="stat"><label>解析错误</label><strong className={result?.errorCount?'warn':''}>{result?.errorCount??0}</strong><span>待人工检查</span></div><div className="stat"><label>动态 Selector</label><strong>{result?.items.reduce((sum,x)=>sum+x.runtimeRequiredCount,0)??0}</strong><span>需要运行时确认</span></div></section>
    <section className="panel">
     <div className="panel-head"><div><h2>SQLite 索引备份</h2>

@@ -36,6 +36,8 @@ export async function executeDurableApprovedBatch<T>(input:{
  write:()=>Promise<T>;
  /** Observes only the public enum status, never a script ID or file path. */
  onProgress?:(status:RepairTaskStatus)=>void;
+ /** Main-owned cancellation lease; never a renderer-controlled callback. */
+ onRegisterCancel?:(cancel:()=>void)=>(()=>void);
 }):Promise<T>{
  if(!input||typeof input!=='object'||Array.isArray(input)||
     typeof input.dataRoot!=='string'||!isAbsolute(input.dataRoot)||
@@ -43,7 +45,8 @@ export async function executeDurableApprovedBatch<T>(input:{
     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(input.approvalId)||
     typeof input.scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(input.scriptId)||
     typeof input.preflight!=='function'||typeof input.write!=='function'||
-    (input.onProgress!==undefined&&typeof input.onProgress!=='function'))
+    (input.onProgress!==undefined&&typeof input.onProgress!=='function')||
+    (input.onRegisterCancel!==undefined&&typeof input.onRegisterCancel!=='function'))
   throw new Error('Invalid durable repair approval identity');
 
  assertTrustedAncestors(input.dataRoot);
@@ -63,6 +66,7 @@ export async function executeDurableApprovedBatch<T>(input:{
  }
  await reservation.close();
  const store=openRepairCheckpointStore(destination);
+ let releaseCancellation:()=>void=()=>{};
  try{
   let written=false;
   let output:T|undefined;
@@ -77,11 +81,17 @@ export async function executeDurableApprovedBatch<T>(input:{
    onProgress:status=>input.onProgress?.(status.items[0]!.status),
    onCheckpoint:checkpoint=>store.save(checkpoint),
   });
+  if(input.onRegisterCancel){
+   const release=input.onRegisterCancel(()=>queue.cancel());
+   if(typeof release!=='function')throw new Error('Invalid batch cancellation registration');
+   releaseCancellation=release;
+  }
   const final=await queue.run();
   if(final.items.length!==1||final.items[0]?.status!=='completed'||!written)
    throw new Error('Durable batch repair blocked or failed; fresh review required');
   return output as T;
  }finally{
+  releaseCancellation();
   store.close();
  }
 }
