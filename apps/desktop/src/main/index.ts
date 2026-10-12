@@ -3,6 +3,7 @@ import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './co
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
+import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -62,6 +63,7 @@ const batchEvidence=new BatchEvidenceStore();
 const diagnosisRequests=new DiagnosisRequestGate();
 const pendingApprovals=new ProposalApprovalGate();
 const repairQueueActivity=createRepairQueueActivity();
+const repairQueueCancellation=createActiveBatchCancellation();
 const authorizedRoots=new Set<string>();
 let approvedChromePath:string|null=null;
 function distributionMode():DistributionMode{
@@ -111,6 +113,16 @@ async function bootstrap():Promise<void>{
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:cancel-batch-repair',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {proposalId?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||
+     Object.keys(q).sort().join(',')!=='proposalId'||
+     typeof q.proposalId!=='string'||
+     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(q.proposalId))
+   throw new Error('Invalid active batch cancellation request');
+  return repairQueueCancellation.cancel(q.proposalId);
+ });
  ipcMain.handle('usshm:repair-queue-activity',event=>{
   assertSender(event);
   return repairQueueActivity.snapshot();
@@ -904,6 +916,7 @@ async function bootstrap():Promise<void>{
       return true;
      },
      onProgress:status=>repairQueueActivity.observe(proposalId,status),
+     onRegisterCancel:cancel=>repairQueueCancellation.attach(proposalId,cancel),
      write:()=>batchRepairs.applyBatch({proposalId,approved:true}),
     }),
    });
@@ -967,6 +980,7 @@ async function bootstrap():Promise<void>{
       return true;
      },
      onProgress:status=>repairQueueActivity.observe(proposalId,status),
+     onRegisterCancel:cancel=>repairQueueCancellation.attach(proposalId,cancel),
      write:()=>batchRepairs.applyBatch({proposalId,approved:true}),
     }),
    });
