@@ -1,6 +1,7 @@
 import type {BatchDomItem,BatchDomResult} from './batch-dom.ts';
 import type {BatchPauseGate} from './pause-gate.ts';
 import {classifyReadOnlyFault} from './fault-classification.ts';
+import {assertCredentialFreePageUrl} from './page-url-safety.ts';
 
 /** Narrow contract for Electron's explicitly consented 25-script batch IPC. */
 export interface PaginatedDomPage extends BatchDomResult {
@@ -117,6 +118,7 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
 }):void{
  if(!onlyDataFields(page,PAGE_FIELDS)||!Array.isArray(page.items))
   throw new Error('Invalid paginated DOM page payload');
+ assertCredentialFreePageUrl(page.pageUrl);
  const count=Math.min(25,total-offset);
  if(page.validationLevel!=='dom-only'||page.pageTargetId!==targetId||
     !page.pageUrl||!/^https?:\/\//.test(page.pageUrl)||
