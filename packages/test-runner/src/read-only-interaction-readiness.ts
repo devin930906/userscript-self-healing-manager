@@ -3,6 +3,7 @@ import {asCss,type LiteralLocator,type LocatorProbeResult} from '../../cdp-clien
 import type {ReadOnlyVisibilityEvidence} from '../../cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyEventListenerEvidence} from '../../cdp-client/src/read-only-event-listeners.ts';
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
+import {assertCredentialFreePageUrl} from '../../cdp-client/src/page-url-safety.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 
 export type ReadinessStatus='potentially-ready'|'blocked'|'needs-review';
@@ -68,6 +69,7 @@ export async function runReadOnlyInteractionReadiness({
  if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||
     target.id.length>128||typeof target.url!=='string'||!/^https?:\/\//.test(target.url))
   throw new Error('Invalid readiness CDP target');
+ assertCredentialFreePageUrl(target.url);
  validateCdpPageSocket(target);
  if(typeof caseId!=='string'||!/^[A-Za-z0-9_.:-]{1,100}$/.test(caseId))
   throw new Error('Invalid read-only readiness case ID');
