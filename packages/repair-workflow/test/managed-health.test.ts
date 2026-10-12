@@ -144,3 +144,30 @@ test('unrelated files do not falsely trigger orphan staging diagnostics',async()
  await writeFile(join(folder,'.current.user.js.staging-not-a-uuid.tmp'),'unrelated diagnostic');
  assert.deepEqual(await probe(root),{status:'healthy',archiveCount:1,activeHash:sha});
 }));
+
+
+test('FR-028 health inspection marks a managed-root with a junction ancestor unsafe instead of healthy',async t=>{
+ const base=await mkdtemp(join(tmpdir(),'usshm-managed-health-parent-alias-'));
+ const real=join(base,'real'),alias=join(base,'alias'),managedRoot=join(real,'Data');
+ const folder=join(managedRoot,'managed','script-1');
+ try{
+  const original='synthetic verified userscript';
+  await archive(folder,original);
+  await writeFile(join(folder,'current.user.js'),original);
+  assert.equal((await probe(managedRoot)).status,'healthy',
+   'a real directory must remain accepted');
+  try{
+   await symlink(real,alias,process.platform==='win32'?'junction':'dir');
+  }catch(error){
+   if(['EPERM','EACCES','ENOTSUP'].includes((error as NodeJS.ErrnoException).code??'')){
+    t.skip('Directory junction unavailable on this runner');return;
+   }
+   throw error;
+  }
+  const report=await probe(join(alias,'Data'));
+  assert.deepEqual(report,{status:'unsafe',archiveCount:0,activeHash:null},
+   'linked parent must never appear healthy or reveal the active script hash');
+  assert.equal(await readFile(join(folder,'current.user.js'),'utf8'),original,
+   'read-only integrity inspection must not rewrite the original managed copy');
+ }finally{await rm(base,{recursive:true,force:true})}
+});
