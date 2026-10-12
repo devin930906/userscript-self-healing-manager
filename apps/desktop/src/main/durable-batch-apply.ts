@@ -50,7 +50,14 @@ export async function executeDurableApprovedBatch<T>(input:{
  const destination=join(folder,input.approvalId+'.sqlite');
  // 'wx' makes first use of this approval atomic, even across processes.
  // Never delete/reuse an interrupted checkpoint just to restart the write.
- const reservation=await open(destination,'wx',0o600);
+ let reservation:Awaited<ReturnType<typeof open>>;
+ try{
+  reservation=await open(destination,'wx',0o600);
+ }catch{
+  // Never leak private userData paths (including on EEXIST). Even a failed
+  // reservation cannot grant permission to replay an earlier approval.
+  throw new Error('Durable repair checkpoint unavailable; fresh review required');
+ }
  await reservation.close();
  const store=openRepairCheckpointStore(destination);
  try{
