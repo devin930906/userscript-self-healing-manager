@@ -151,8 +151,10 @@ test('transient registry lookup and write errors retain causes without fabricate
   };
   const results=await importPaths({paths,recursive:false,repository:failures});
   assert.deepEqual(results.map(result=>result.status),['unreadable','unreadable','imported']);
-  assert.match(results[0]?.message??'',/registry lookup failed.*SQLITE_BUSY.*lookup root cause 001/i);
-  assert.match(results[1]?.message??'',/registry write failed.*SQLITE_READONLY.*write root cause 002/i);
+  assert.match(results[0]?.message??'',/registry lookup failed.*SQLITE_BUSY/i);
+  assert.doesNotMatch(results[0]?.message??'',/lookup root cause 001/i);
+  assert.match(results[1]?.message??'',/registry write failed.*SQLITE_READONLY/i);
+  assert.doesNotMatch(results[1]?.message??'',/write root cause 002/i);
   for(const index of [0,1]){
    assert.equal(results[index]?.scriptId,undefined,'failed import must not expose a fabricated script ID');
    assert.equal(results[index]?.analysis,undefined,'failed import must not expose an analysis as imported');
