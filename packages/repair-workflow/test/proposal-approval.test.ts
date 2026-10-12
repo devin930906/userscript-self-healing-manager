@@ -27,3 +27,24 @@ test('bounded pending proposals reject unbounded unactioned preview creation',()
  for(let i=0;i<100;i++)gate.register('proposal-'+i,'scan-A');
  assert.throws(()=>gate.register('overflow','scan-A'),/limit|too many|capacity/i);
 });
+
+
+test('FR-023 approval receipts reject unbounded or control-character identities without allocating pending slots',()=>{
+ const gate=new ProposalApprovalGate();
+ for(const [proposalId,scanId] of [
+  ['x'.repeat(10_000),'scan-A'],
+  ['proposal-one','s'.repeat(10_000)],
+  ['proposal\nnewline','scan-A'],
+  ['proposal-one','scan\u0000private'],
+  [' proposal ','scan-A'],
+ ]){
+  assert.throws(()=>gate.register(proposalId,scanId),
+   /invalid|identity|scan|proposal|budget/i,
+   'Invalid approval and scan identifiers must be rejected before storage');
+ }
+ assert.doesNotThrow(()=>gate.register('proposal-one','scan-A'));
+ assert.doesNotThrow(()=>gate.require('proposal-one','scan-A'));
+ for(let i=1;i<100;i++)gate.register('bounded-'+i,'scan-A');
+ assert.throws(()=>gate.register('capacity-exceeded','scan-A'),/limit/i,
+  'Only successfully validated receipts should occupy the 100-item approval budget');
+});
