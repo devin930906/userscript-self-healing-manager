@@ -23,7 +23,7 @@ export function serializeDomBatchReport(
    typeof row.path!=='string'||row.path.length>4096||
    row.scriptId!==null&&(typeof row.scriptId!=='string'||row.scriptId.length>128)||
    !statuses.has(row.status))throw new Error('Invalid DOM diagnosis row');
-  for(const [field,cap] of [['checked',50],['found',50],['missing',50],['needsReview',10000]] as const){
+  for(const [field,cap] of [['checked',50],['found',50],['missing',50],['needsReview',50]] as const){
    if(!Number.isSafeInteger(row[field])||row[field]<0||row[field]>cap)throw new Error('Invalid DOM diagnosis counts');
   }
   // Reviewed-but-not-probed dynamic/iframe selectors are legitimate:
@@ -34,16 +34,23 @@ export function serializeDomBatchReport(
    row.status==='needs-review'&&row.needsReview>0;
   if(!uncheckedReview&&row.found+row.missing+row.needsReview!==row.checked)
    throw new Error('Inconsistent DOM diagnosis counts');
-  if(row.status==='dom-present'&&(row.checked===0||row.found!==row.checked||
-     row.missing!==0||row.needsReview!==0))
-   throw new Error('Contradictory DOM-present status');
-  if(row.status==='locator-missing'&&row.missing===0)
-   throw new Error('Contradictory locator-missing status');
+  const ordinaryZero=row.checked===0&&row.found===0&&row.missing===0&&row.needsReview===0;
+  const statusValid=row.status==='dom-present'?
+   row.checked>0&&row.found===row.checked&&row.missing===0&&row.needsReview===0:
+   row.status==='locator-missing'?row.checked>0&&row.missing>0:
+   row.status==='needs-review'?row.needsReview>0&&row.missing===0:
+   ordinaryZero;
+  if(!statusValid)throw new Error('Contradictory DOM diagnosis status and counters');
   const v=row.verification;
   if(!v||!validationStates.has(v.V0)||!validationStates.has(v.V1)||
    v.V2!=='blocked'||v.V3!=='not-configured'||v.V4!=='not-configured'||
    v.functionalVerified!==false||v.managerVerified!==false)
    throw new Error('Invalid or overstated userscript verification');
+  if(v.V0==='not-configured'||(v.V1==='passed'||v.V1==='failed')&&v.V0!=='passed'||
+   v.V1==='not-configured'&&row.status!=='no-evidence'||
+   row.status==='no-evidence'&&v.V0==='passed'&&v.V1!=='not-configured'||
+   v.highestVerified!==(v.V1==='passed'?'V1':v.V0==='passed'?'V0':null))
+   throw new Error('Invalid DOM verification level evidence');
   if(v.V1==='passed'&&(row.status!=='dom-present'||row.checked<1||row.found!==row.checked))
    throw new Error('Unsupported DOM evidence verification claim');
   if(v.V1==='failed'&&(row.status!=='locator-missing'||row.checked<1||row.missing<1))
