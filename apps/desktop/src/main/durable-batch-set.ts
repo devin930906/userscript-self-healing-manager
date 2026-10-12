@@ -147,6 +147,13 @@ export async function executeDurableApprovedBatchSet(input:{
    if(typeof detached!=='function')throw new Error('Invalid Main multi-batch control lease');
    release=detached;
   }
+  // A trusted Main control may cancel synchronously while registering,
+  // before run() starts. Persist that terminal snapshot explicitly; run()
+  // deliberately refuses to restart an already cancelled queue.
+  if(queue.snapshot().cancelled){
+   await store.save(queue.checkpoint());
+   return count(queue.snapshot());
+  }
   const final=await queue.run();
   return count(final);
  }finally{
