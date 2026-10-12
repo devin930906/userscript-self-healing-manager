@@ -9,12 +9,10 @@ try{
  process.stdout.write('ACQUIRED\n');
  process.stdin.resume();
  process.stdin.once('data',()=>{
-  try{release();process.stdout.write('RELEASED\n');}
-  catch{process.exitCode=1;}
-  process.exit(process.exitCode??0);
+  try{release();process.stdout.write('RELEASED\n',()=>process.exit(0));}
+  catch{process.exit(1);}
  });
 }catch{
  // Never print private paths or OS error details to CI logs.
- process.stdout.write('DENIED\n');
- process.exit(0);
+ process.stdout.write('DENIED\n',()=>process.exit(0));
 }
