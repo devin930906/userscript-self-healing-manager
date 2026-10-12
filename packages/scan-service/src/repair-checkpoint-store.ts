@@ -35,8 +35,12 @@ function directoryAndFile(file:string):void{
  for(const entry of [file,file+'-wal',file+'-shm',file+'-journal']){
   try{
    const info=lstatSync(entry);
+   // A valid queue checkpoint stores <=300 KiB of JSON; SQLite's WAL
+   // auto-checkpoint and rollback files do not need unbounded disk budgets.
+   // Reject giant pre-existing sidecars before SQLite can parse or map them.
+   const maxBytes=entry===file?4*1024*1024:64*1024*1024;
    if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
-      (entry===file&&info.size>4*1024*1024))
+      !Number.isSafeInteger(info.size)||info.size>maxBytes)
     throw new Error('Unsafe SQLite checkpoint file or sidecar: linked or invalid file');
   }catch(error){
    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
