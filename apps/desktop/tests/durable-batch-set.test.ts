@@ -4,7 +4,6 @@ import {randomUUID} from 'node:crypto';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {DatabaseSync} from 'node:sqlite';
 import {executeDurableApprovedBatchSet} from '../src/main/durable-batch-set.ts';
 import {openRepairCheckpointStore} from '../../../packages/scan-service/src/repair-checkpoint-store.ts';
 
@@ -14,7 +13,7 @@ async function fixture(run:(root:string)=>Promise<void>){
 }
 function items(){
  return ['a','b','c'].map(name=>({
-  approvalId:randomUUID(),scriptId:'managed-'+name,preflight:async()=>true,
+  approvalId:randomUUID(),scriptId:'managed-'+name,approved:true as boolean,preflight:async()=>true,
   write:async()=>{},
  }));
 }
@@ -77,6 +76,7 @@ test('FR-030 duplicate script identities and unreviewed inputs fail before any d
   [tasks[0]!,{...tasks[1]!,scriptId:tasks[0]!.scriptId}],
   [tasks[0]!,{...tasks[1]!,approvalId:tasks[0]!.approvalId}],
   [tasks[0]!,{...tasks[1]!,scriptId:'../PRIVATE'}],
+  [tasks[0]!,{...tasks[1]!,approved:false}],
  ];
  let writes=0;
  tasks.forEach(t=>{t.write=async()=>{writes++;};});
