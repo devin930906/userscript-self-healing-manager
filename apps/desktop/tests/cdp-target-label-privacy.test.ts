@@ -32,8 +32,11 @@ test('RG-07 Main must declassify CDP page display URLs before a renderer IPC res
  const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
  const handler=main.split("ipcMain.handle('usshm:cdp-status'")[1]?.split("ipcMain.handle('usshm:manager-targets'")[0]??'';
  assert.ok(handler,'verified CDP status IPC must remain registered');
- assert.match(handler,/displayCdpPageOrigin\(page\.url\)/);
+ assert.match(handler,/origin:\s*displayCdpPageOrigin\(page\.url\)/);
  assert.doesNotMatch(handler,/url:\s*page\.url\b/,'never send the full browser-discovered URL to renderer');
  assert.match(handler,/getVerifiedChromeStatus/);
  assert.match(handler,/pages:status\.pages\.map/);
+ const renderer=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ assert.match(renderer,/p\.origin\.slice\(0,130\)/);
+ assert.doesNotMatch(renderer,/p\.url\.slice\(0,130\)/);
 });
