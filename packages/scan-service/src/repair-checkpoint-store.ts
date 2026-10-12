@@ -28,12 +28,19 @@ function directoryAndFile(file:string):void{
   if(!info.isDirectory()||info.isSymbolicLink())
    throw new Error('Unsafe SQLite checkpoint directory: linked ancestor');
  }
- try{
-  const info=lstatSync(file);
-  if(!info.isFile()||info.isSymbolicLink()||info.size>4*1024*1024)
-   throw new Error('Unsafe SQLite checkpoint file: symlink or invalid file');
- }catch(error){
-  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+ // SQLite may create or reuse these adjacent files during its first open.
+ // Refuse aliases and non-regular entries before SQLite can read or write them.
+ // A hard link to another database (or WAL) would otherwise bypass lstat's
+ // symlink guard and let us mutate a file outside the intended checkpoint.
+ for(const entry of [file,file+'-wal',file+'-shm',file+'-journal']){
+  try{
+   const info=lstatSync(entry);
+   if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
+      (entry===file&&info.size>4*1024*1024))
+    throw new Error('Unsafe SQLite checkpoint file or sidecar: linked or invalid file');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
  }
 }
 function validRow(row:unknown,withNames:boolean):row is RepairTaskRow{
