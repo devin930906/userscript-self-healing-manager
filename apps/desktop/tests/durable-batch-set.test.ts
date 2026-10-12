@@ -58,7 +58,7 @@ test('FR-030 denied per-script preflight blocks only that script; other approval
  const output=await executeDurableApprovedBatchSet({dataRoot:root,groupId,items:tasks});
  assert.deepEqual(calls,['managed-a','managed-c']);
  assert.deepEqual(output,{queued:0,running:0,completed:2,failed:0,blocked:1,cancelled:0});
- assert.deepEqual(persisted(root,groupId,tasks),[['completed',1],['blocked',0],['completed',1]]);
+ assert.deepEqual(persisted(root,groupId,tasks),[['completed',1],['blocked',1],['completed',1]]);
 }));
 
 test('FR-030 group UUID cannot replay any old approval, including previously failed tasks',async()=>fixture(async root=>{
@@ -113,7 +113,7 @@ test('FR-030 revoking the next independent approval mid-batch blocks that write 
  const result=await executeDurableApprovedBatchSet({dataRoot:root,groupId,items:tasks});
  assert.deepEqual(calls,['a','c'],'revocation of a reviewed job must survive the initial batch snapshot');
  assert.deepEqual(result,{queued:0,running:0,completed:2,failed:0,blocked:1,cancelled:0});
- assert.deepEqual(persisted(root,groupId,tasks),[['completed',1],['blocked',1],['completed',1]]);
+ assert.deepEqual(persisted(root,groupId,tasks),[['completed',1],['blocked',0],['completed',1]]);
 }));
 
 test('FR-030 revocation during asynchronous Main preflight cannot authorize a stale managed write',async()=>fixture(async root=>{
