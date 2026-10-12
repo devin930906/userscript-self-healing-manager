@@ -1,5 +1,5 @@
 import {lstatSync} from 'node:fs';
-import {mkdir,open} from 'node:fs/promises';
+import {mkdir,open,readdir} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {createRepairTaskQueue,type RepairTaskSnapshot} from '../../../../packages/scan-service/src/repair-task-queue.ts';
 import {openRepairCheckpointStore} from '../../../../packages/scan-service/src/repair-checkpoint-store.ts';
@@ -101,7 +101,18 @@ export async function executeDurableApprovedBatchSet(input:{
  const folder=join(input.dataRoot,'repair-queue');
  await mkdir(folder,{recursive:true});
  assertTrustedAncestors(folder);
- const destination=join(folder,input.groupId+'.sqlite');
+ // Case-only aliases must not reserve a second batch group on Linux.
+ // Keep original trusted approval IDs in queue snapshots unchanged.
+ const destination=join(folder,input.groupId.toLowerCase()+'.sqlite');
+ // Alpha releases could leave an uppercase/mixed-case group journal on
+ // case-sensitive filesystems. Treat every case alias as the same spent
+ // approval, without opening or trusting the old checkpoint bytes.
+ try{
+  const taken=(await readdir(folder)).some(name=>name.toLowerCase()===input.groupId.toLowerCase()+'.sqlite');
+  if(taken)throw new Error('Previously reserved group journal');
+ }catch{
+  throw new Error('Durable multi-batch checkpoint unavailable; fresh review required');
+ }
  // Atomic across processes; old/partially-created group is never reopened
  // for execution. Never delete a checkpoint to reauthorize its original jobs.
  try{

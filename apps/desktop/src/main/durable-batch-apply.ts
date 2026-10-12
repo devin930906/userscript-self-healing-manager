@@ -1,4 +1,4 @@
-import {open} from 'node:fs/promises';
+import {open,readdir} from 'node:fs/promises';
 import {lstatSync} from 'node:fs';
 import {mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
@@ -57,7 +57,18 @@ export async function executeDurableApprovedBatch<T>(input:{
  const folder=join(input.dataRoot,'repair-queue');
  await mkdir(folder,{recursive:true});
  assertTrustedAncestors(folder);
- const destination=join(folder,input.approvalId+'.sqlite');
+ // UUID identity is case-insensitive on every supported filesystem.
+ // Normalize only the exclusive journal filename, not the reviewed approval.
+ const destination=join(folder,input.approvalId.toLowerCase()+'.sqlite');
+ // Before this version, Linux could persist an uppercase/mixed-case UUID
+ // filename. Such a legacy checkpoint is still a consumed approval, even
+ // when its contents are incomplete or corrupt; never create a fresh alias.
+ try{
+  const taken=(await readdir(folder)).some(name=>name.toLowerCase()===input.approvalId.toLowerCase()+'.sqlite');
+  if(taken)throw new Error('Previously reserved journal');
+ }catch{
+  throw new Error('Durable repair checkpoint unavailable; fresh review required');
+ }
  // 'wx' makes first use of this approval atomic, even across processes.
  // Never delete/reuse an interrupted checkpoint just to restart the write.
  let reservation:Awaited<ReturnType<typeof open>>;

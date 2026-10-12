@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {randomUUID} from 'node:crypto';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,mkdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {executeDurableApprovedBatchSet} from '../src/main/durable-batch-set.ts';
@@ -220,4 +220,38 @@ test('FR-030 rejects case-only alias of one approval UUID before any multi-scrip
   /ENOENT/,
   'duplicate approval must be rejected before reserving a durable checkpoint',
  );
+}));
+
+
+test('FR-030 a consumed multi-batch group UUID cannot replay with changed letter casing on Linux',async()=>fixture(async root=>{
+ const lower='bcdefa12-3456-4abc-8def-1234567890ab';
+ const upper=lower.toUpperCase();
+ let writes=0;
+ const first=items(),second=items();
+ for(const task of [...first,...second]){
+  task.write=async()=>{writes++;};
+ }
+ const baseline=await executeDurableApprovedBatchSet({dataRoot:root,groupId:lower,items:first});
+ assert.equal(baseline.completed,3);
+ await assert.rejects(
+  executeDurableApprovedBatchSet({dataRoot:root,groupId:upper,items:second}),
+  /checkpoint|review|replay|unavailable/i,
+  'same group UUID cannot gain a second execution on a case-sensitive filesystem');
+ assert.equal(writes,3,'consumed group approval cannot dispatch the second batch');
+}));
+
+
+test('FR-030 legacy upper-case multi-batch group journal blocks later lower-case group replay on Linux',async()=>fixture(async root=>{
+ const lower='bcdefa12-3456-4abc-8def-1234567890ab';
+ await mkdir(join(root,'repair-queue'));
+ await writeFile(join(root,'repair-queue',lower.toUpperCase()+'.sqlite'),Buffer.from('OLD_GROUP'));
+ let writes=0;
+ const jobs=items();
+ jobs.forEach(job=>{job.write=async()=>{writes++;};});
+ await assert.rejects(
+  executeDurableApprovedBatchSet({dataRoot:root,groupId:lower,items:jobs}),
+  /checkpoint|review|replay|unavailable/i,
+  'legacy spelling must be counted as consumed even when its SQLite is incomplete',
+ );
+ assert.equal(writes,0);
 }));
