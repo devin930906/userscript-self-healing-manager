@@ -79,9 +79,10 @@ export async function executeDurableApprovedBatchSet(input:{
      typeof item.scriptId!=='string'||!SCRIPT.test(item.scriptId)||
      item.approved!==true||
      typeof item.preflight!=='function'||typeof item.write!=='function'||
-     approvedIds.has(item.approvalId)||scripts.has(item.scriptId))
+     approvedIds.has(item.approvalId.toLowerCase())||scripts.has(item.scriptId))
    throw new Error('Invalid duplicate or unapproved managed repair task identity');
-  approvedIds.add(item.approvalId);scripts.add(item.scriptId);
+  // UUID identity is case-insensitive: two spellings must not reuse one approval.
+  approvedIds.add(item.approvalId.toLowerCase());scripts.add(item.scriptId);
   return Object.freeze({
    approvalId:item.approvalId,scriptId:item.scriptId,
    // Preserve the trusted Main approval source so later revocation is live.

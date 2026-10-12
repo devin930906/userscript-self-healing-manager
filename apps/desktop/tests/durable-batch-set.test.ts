@@ -201,3 +201,23 @@ test('FR-030 Main multi-batch native control registration failure cannot leak er
  assert.equal(fresh.completed,3);
  assert.equal(written,3,'a separate fresh approval must work after failed native registration');
 }));
+
+
+test('FR-030 rejects case-only alias of one approval UUID before any multi-script write or journal reservation',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items(),calls:string[]=[];
+ const approvalId='abcdef12-3456-4abc-8def-1234567890ab';
+ tasks[0]!.approvalId=approvalId;
+ tasks[1]!.approvalId=approvalId.toUpperCase();
+ tasks.forEach(task=>{task.write=async()=>{calls.push(task.scriptId);};});
+ await assert.rejects(
+  executeDurableApprovedBatchSet({dataRoot:root,groupId,items:tasks}),
+  /duplicate|approval|identity/i,
+  'one logical UUID must never authorize two different managed script writes',
+ );
+ assert.deepEqual(calls,[],'no managed write may begin');
+ await assert.rejects(
+  readFile(join(root,'repair-queue',groupId+'.sqlite')),
+  /ENOENT/,
+  'duplicate approval must be rejected before reserving a durable checkpoint',
+ );
+}));
