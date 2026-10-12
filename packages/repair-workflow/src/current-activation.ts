@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {basename,dirname,isAbsolute,join} from 'node:path';
 import {open,lstat,rename,link,unlink,mkdir,rmdir,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
 const MAX_BYTES=512*1024;
 const CHUNK=64*1024;
@@ -34,6 +35,9 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
  // operation on the target volume, unlike a JS Set or a pre-rename lstat.
  // Never guess that an existing lock is stale: a paused writer may be alive.
  // A crash requires explicit offline lock recovery after all app instances stop.
+ // An exported low-level publisher must independently reject Data parents
+ // reached through symlinks/Junctions; caller-only preflights are insufficient.
+ await assertUnlinkedRecoveryDirectory(dirname(activePath));
  const lockPath=activePath+'.write-lock';
  try{await mkdir(lockPath,{mode:0o700});}
  catch(error){
@@ -94,6 +98,9 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   // This narrows the window but does not offer a hostile-process atomic CAS
   // on Windows. Cooperating managed writers still honor the directory lease.
   if(beforePublish)await beforePublish();
+  // Narrow the rename window if an uncooperative process swaps a parent
+  // during staging. This preflight is not an atomic hostile-process CAS.
+  await assertUnlinkedRecoveryDirectory(dirname(activePath));
   await validateCurrent();
   if(expectedActiveHash===null){
    try{await link(stage,activePath);}
