@@ -16,6 +16,6 @@ export function validateCdpPageSocket(target:{id:string;webSocketDebuggerUrl?:st
 }
 export function validateCdpBrowserSocket(endpoint:string,port=9223):string{
  const parsed=assertLocalDebuggerSocket(endpoint,port);
- if(!/^\/devtools\/browser\/[^/]+$/.test(parsed.pathname))throw new Error('CDP browser socket identity mismatch');
+ if(!/^\/devtools\/browser\/[A-Za-z0-9_-]+$/.test(parsed.pathname))throw new Error('CDP browser socket identity mismatch');
  return endpoint;
 }
