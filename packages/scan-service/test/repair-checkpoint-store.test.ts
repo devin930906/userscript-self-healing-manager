@@ -193,3 +193,20 @@ test('FR-029 legitimate explicitly retried failed checkpoint remains serial and 
   assert.deepEqual(store.load([id])?.items.map(x=>[x.status,x.attempts]),[['completed',2]]);
  }finally{store.close();}
 }));
+
+
+test('FR-029 rejects oversized SQLite WAL SHM journal sidecars before opening or creating a checkpoint',async()=>fixture(async(_unused,root)=>{
+ const {open}=await import('node:fs/promises');
+ for(const suffix of ['-wal','-shm','-journal']){
+  const file=join(root,'oversized-'+suffix.slice(1)+'.sqlite');
+  const sidecar=await open(file+suffix,'wx');
+  try{await sidecar.truncate(65*1024*1024);}finally{await sidecar.close();}
+  assert.equal(existsSync(file),false,'primary checkpoint did not exist before preflight');
+  const error=openingError(file);
+  assert.ok(error instanceof Error,'oversized SQLite sidecar must fail closed');
+  assert.match(error.message,/unsafe|sidecar|size|budget|oversiz/i,
+   'reject at sidecar preflight rather than surfacing a raw SQLite exception');
+  assert.equal(existsSync(file),false,
+   'sidecar budget rejection must occur BEFORE SQLite may create the primary checkpoint');
+ }
+}));
