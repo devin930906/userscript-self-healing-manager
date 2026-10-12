@@ -45,6 +45,8 @@ declare global {interface Window{ussm:{
  getRepairQueueRecovery:()=>Promise<RepairQueueRecoverySummary>;
  getRepairQueueActivity:()=>Promise<RepairQueueActivitySummary>;
  cancelBatchRepair:(input:{proposalId:string})=>Promise<boolean>;
+ pauseBatchRepair:(input:{proposalId:string})=>Promise<boolean>;
+ resumeBatchRepair:(input:{proposalId:string})=>Promise<boolean>;
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
@@ -109,6 +111,7 @@ function App(){
  const [repairQueueRecovery,setRepairQueueRecovery]=useState<RepairQueueRecoverySummary|null>(null);
  const [repairQueueActivity,setRepairQueueActivity]=useState<RepairQueueActivitySummary|null>(null);
  const [batchApplying,setBatchApplying]=useState(false);
+ const [batchPaused,setBatchPaused]=useState(false);
  const [browserProfiles,setBrowserProfiles]=useState<BrowserProfile[]>([]);
  const [browserProfileHealth,setBrowserProfileHealth]=useState<'empty'|'ready'|'write-locked'|'invalid'|null>(null);
  const [selectedBrowserProfileId,setSelectedBrowserProfileId]=useState('');
@@ -664,6 +667,26 @@ function App(){
   }catch{setError('批量修复预览失败：源文件或已有受管修订可能发生变化，请重新扫描并检查候选。');}
   finally{setBusy(false);}
  }
+ async function pauseCurrentBatchRepair(){
+  if(!batchApplying||!batchRepairProposal)return;
+  try{
+   const accepted=await window.ussm.pauseBatchRepair({proposalId:batchRepairProposal.proposalId});
+   if(accepted){
+    setBatchPaused(true);
+    setMessage('已请求暂停当前批量修复；尚未写入的任务继续等待。恢复时将重新验证受管写入许可、扫描状态和文件哈希。');
+   }else setMessage('当前没有可暂停的任务，或此任务已经暂停、进入写入、或已结束。');
+  }catch{setError('无法安全暂停当前批量修复。');}
+ }
+ async function resumeCurrentBatchRepair(){
+  if(!batchApplying||!batchRepairProposal)return;
+  try{
+   const accepted=await window.ussm.resumeBatchRepair({proposalId:batchRepairProposal.proposalId});
+   if(accepted){
+    setBatchPaused(false);
+    setMessage('恢复请求已发送；系统将重新验证许可和扫描状态，旧的写入前检查结果不可复用。');
+   }else setMessage('当前没有处于暂停状态的活动批量修复。');
+  }catch{setError('无法安全恢复当前批量修复。');}
+ }
  async function cancelCurrentBatchRepair(){
   if(!batchApplying||!batchRepairProposal)return;
   try{
@@ -674,7 +697,7 @@ function App(){
  }
  async function applyBatchRepair(){
   if(!result||focused===null||!batchRepairProposal||busy)return;
-  setBusy(true);setBatchApplying(true);setError('');
+  setBusy(true);setBatchApplying(true);setBatchPaused(false);setError('');
   try{
    const receipt=await window.ussm.applyBatchRepair({
     scanId:result.scanId,itemIndex:focused,proposalId:batchRepairProposal.proposalId,
@@ -685,11 +708,11 @@ function App(){
    setBatchRepairProposal(null);setBulkRepairResults(null);
    setMessage('已批准保存多处选择器至同一份受管修订：'+receipt.hash+'。原始脚本未修改，也未自动安装至 Tampermonkey；V2/V3/V4 未验证。');
   }catch{setError('批量修复保存失败：预览已失效、源文件被修改或存在并发修订；不会自动覆盖原始脚本。');}
-  finally{setBatchApplying(false);setBusy(false);}
+  finally{setBatchPaused(false);setBatchApplying(false);setBusy(false);}
  }
  async function applyBatchRepairGuarded(){
   if(!result||focused===null||!batchRepairProposal||!targetId||busy)return;
-  setWatchEnabled(false);setBusy(true);setBatchApplying(true);setError('');
+  setWatchEnabled(false);setBusy(true);setBatchApplying(true);setBatchPaused(false);setError('');
   try{
    const evidence=await window.ussm.applyBatchRepairGuarded({
     scanId:result.scanId,itemIndex:focused,proposalId:batchRepairProposal.proposalId,
@@ -707,7 +730,7 @@ function App(){
    }
   }catch{
    setError('批量修复 V1 检查无法安全启动：授权、原件、页面或修订可能已变更。');
-  }finally{setBatchApplying(false);setBusy(false);}
+  }finally{setBatchPaused(false);setBatchApplying(false);setBusy(false);}
  }
  async function suggestRepair(){if(focused===null||!targetId||!result||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
@@ -828,7 +851,11 @@ function App(){
    {batchApplying&&<section className="panel" role="status">
     <div className="panel-head"><div><h2>当前已审批批量任务</h2>
      <p>取消只阻止尚未开始的写入；正在写入的修订可能已经完成，不能假称回滚。</p>
-    </div><button type="button" onClick={()=>void cancelCurrentBatchRepair()}>取消当前批量修复</button></div>
+    </div><div className="toolbar">
+     {!batchPaused?<button type="button" onClick={()=>void pauseCurrentBatchRepair()}>暂停当前批量修复</button>:
+      <button type="button" onClick={()=>void resumeCurrentBatchRepair()}>恢复当前批量修复</button>}
+     <button type="button" onClick={()=>void cancelCurrentBatchRepair()}>取消当前批量修复</button>
+    </div></div>
    </section>}
    <section className="stats"><div className="stat"><label>资料库脚本</label><strong>{history.length}</strong><span>SQLite 本地索引</span></div><div className="stat"><label>本次处理</label><strong>{result?.processedCount??0}</strong><span>逐文件隔离</span></div><div className="stat"><label>解析错误</label><strong className={result?.errorCount?'warn':''}>{result?.errorCount??0}</strong><span>待人工检查</span></div><div className="stat"><label>动态 Selector</label><strong>{result?.items.reduce((sum,x)=>sum+x.runtimeRequiredCount,0)??0}</strong><span>需要运行时确认</span></div></section>
    <section className="panel">
