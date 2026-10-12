@@ -101,7 +101,9 @@ export async function executeDurableApprovedBatchSet(input:{
  const folder=join(input.dataRoot,'repair-queue');
  await mkdir(folder,{recursive:true});
  assertTrustedAncestors(folder);
- const destination=join(folder,input.groupId+'.sqlite');
+ // Case-only aliases must not reserve a second batch group on Linux.
+ // Keep original trusted approval IDs in queue snapshots unchanged.
+ const destination=join(folder,input.groupId.toLowerCase()+'.sqlite');
  // Atomic across processes; old/partially-created group is never reopened
  // for execution. Never delete a checkpoint to reauthorize its original jobs.
  try{
