@@ -25,7 +25,8 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 import { resolveDataRoot } from '../../../packages/runtime-paths/src/index.ts';
-import {waitForTrustedRendererReady,type TrustedRendererState} from './trusted-renderer-readiness.ts';
+import {waitForTrustedRendererReady} from './trusted-renderer-readiness.ts';
+import type {TrustedRendererState} from './trusted-renderer-readiness.ts';
 
 function securityScratchRoot(env: NodeJS.ProcessEnv, fallback: string): string {
   return env.RUNNER_TEMP || fallback;
