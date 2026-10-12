@@ -3,7 +3,7 @@ import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {readRepairCheckpointSummary} from '../../../../packages/scan-service/src/repair-checkpoint-store.ts';
 
 const CHECKPOINT=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.sqlite$/i;
-const SIDECAR=/\.sqlite-(?:wal|shm|journal)$/i;
+const SIDECAR=/^(.*\.sqlite)-(?:wal|shm|journal)$/i;
 const MAX_ENTRIES=256;
 
 export interface RepairQueueRecoverySummary{
@@ -49,8 +49,21 @@ export function inspectRepairQueueRecovery(dataRoot:string):RepairQueueRecoveryS
  try{entries=readdirSync(folder);}
  catch{return {...result,unreadable:1};}
  if(entries.length>MAX_ENTRIES)return {...result,unreadable:1};
+ // A WAL, SHM or rollback-journal suffix is not itself evidence of a valid
+ // checkpoint. Unpaired/invalid sidecars can be evidence of a crash or
+ // tampering, and must not disappear from the startup recovery summary.
+ // Match Windows case-insensitive filenames without resolving or opening any
+ // sidecar path (the SQLite reader separately validates existing sidecars).
+ const names=new Set(entries.map(name=>process.platform==='win32'?name.toLowerCase():name));
  for(const name of entries){
-  if(SIDECAR.test(name))continue;
+  const sidecar=SIDECAR.exec(name);
+  if(sidecar){
+   const database=sidecar[1]!;
+   const expected=process.platform==='win32'?database.toLowerCase():database;
+   if(CHECKPOINT.test(database)&&names.has(expected))continue;
+   result.unreadable++;
+   continue;
+  }
   if(!CHECKPOINT.test(name)){
    result.unreadable++;
    continue;
