@@ -221,3 +221,21 @@ test('FR-030 rejects case-only alias of one approval UUID before any multi-scrip
   'duplicate approval must be rejected before reserving a durable checkpoint',
  );
 }));
+
+
+test('FR-030 a consumed multi-batch group UUID cannot replay with changed letter casing on Linux',async()=>fixture(async root=>{
+ const lower='bcdefa12-3456-4abc-8def-1234567890ab';
+ const upper=lower.toUpperCase();
+ let writes=0;
+ const first=items(),second=items();
+ for(const task of [...first,...second]){
+  task.write=async()=>{writes++;};
+ }
+ const baseline=await executeDurableApprovedBatchSet({dataRoot:root,groupId:lower,items:first});
+ assert.equal(baseline.completed,3);
+ await assert.rejects(
+  executeDurableApprovedBatchSet({dataRoot:root,groupId:upper,items:second}),
+  /checkpoint|review|replay|unavailable/i,
+  'same group UUID cannot gain a second execution on a case-sensitive filesystem');
+ assert.equal(writes,3,'consumed group approval cannot dispatch the second batch');
+}));
