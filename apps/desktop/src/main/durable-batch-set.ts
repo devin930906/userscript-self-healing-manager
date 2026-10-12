@@ -141,9 +141,16 @@ export async function executeDurableApprovedBatchSet(input:{
    },
   });
   if(onRegisterControls){
-   const detached=onRegisterControls(Object.freeze({
-    cancel:()=>queue.cancel(),pause:()=>queue.pause(),resume:()=>queue.resume(),
-   }));
+   let detached:()=>void;
+   try{
+    detached=onRegisterControls(Object.freeze({
+     cancel:()=>queue.cancel(),pause:()=>queue.pause(),resume:()=>queue.resume(),
+    }));
+   }catch{
+    // Registration callbacks are trusted, but their thrown messages are not
+    // guaranteed free of user-private source or filesystem context.
+    throw new Error('Native multi-batch control registration failed; fresh review required');
+   }
    if(typeof detached!=='function')throw new Error('Invalid Main multi-batch control lease');
    release=detached;
   }
