@@ -43,6 +43,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
  getRepairQueueRecovery:()=>Promise<RepairQueueRecoverySummary>;
+ getRepairQueueActivity:()=>Promise<RepairQueueActivitySummary>;
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
@@ -98,10 +99,15 @@ interface BrowserProfile {id:string;name:string;executablePath:string;isDefault:
 interface RepairQueueRecoverySummary{
  checkpointFiles:number;completed:number;needsReview:number;uncertain:number;unreadable:number;
 }
+interface RepairQueueActivitySummary{
+ queued:number;running:number;completed:number;failed:number;blocked:number;cancelled:number;
+}
 const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
  const [repairQueueRecovery,setRepairQueueRecovery]=useState<RepairQueueRecoverySummary|null>(null);
+ const [repairQueueActivity,setRepairQueueActivity]=useState<RepairQueueActivitySummary|null>(null);
+ const [batchApplying,setBatchApplying]=useState(false);
  const [browserProfiles,setBrowserProfiles]=useState<BrowserProfile[]>([]);
  const [browserProfileHealth,setBrowserProfileHealth]=useState<'empty'|'ready'|'write-locked'|'invalid'|null>(null);
  const [selectedBrowserProfileId,setSelectedBrowserProfileId]=useState('');
@@ -181,6 +187,17 @@ function App(){
   void window.ussm.getRepairQueueRecovery().then(setRepairQueueRecovery)
    .catch(()=>setRepairQueueRecovery({checkpointFiles:0,completed:0,needsReview:0,uncertain:0,unreadable:1}));
  },[]);
+ useEffect(()=>{
+  // Main-only, identity-free status; no source paths or approval handles.
+  let current=true;
+  const refresh=()=>{void window.ussm.getRepairQueueActivity().then(value=>{
+   if(current)setRepairQueueActivity(value);
+  }).catch(()=>{if(current)setRepairQueueActivity(null);});};
+  refresh();
+  if(!batchApplying)return ()=>{current=false;};
+  const interval=setInterval(refresh,1000);
+  return ()=>{current=false;clearInterval(interval);};
+ },[batchApplying]);
  useEffect(()=>{void Promise.all([window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth()])
   .then(([items,health])=>{
    setBrowserProfiles(items);
@@ -648,7 +665,7 @@ function App(){
  }
  async function applyBatchRepair(){
   if(!result||focused===null||!batchRepairProposal||busy)return;
-  setBusy(true);setError('');
+  setBusy(true);setBatchApplying(true);setError('');
   try{
    const receipt=await window.ussm.applyBatchRepair({
     scanId:result.scanId,itemIndex:focused,proposalId:batchRepairProposal.proposalId,
@@ -659,11 +676,11 @@ function App(){
    setBatchRepairProposal(null);setBulkRepairResults(null);
    setMessage('已批准保存多处选择器至同一份受管修订：'+receipt.hash+'。原始脚本未修改，也未自动安装至 Tampermonkey；V2/V3/V4 未验证。');
   }catch{setError('批量修复保存失败：预览已失效、源文件被修改或存在并发修订；不会自动覆盖原始脚本。');}
-  finally{setBusy(false);}
+  finally{setBatchApplying(false);setBusy(false);}
  }
  async function applyBatchRepairGuarded(){
   if(!result||focused===null||!batchRepairProposal||!targetId||busy)return;
-  setWatchEnabled(false);setBusy(true);setError('');
+  setWatchEnabled(false);setBusy(true);setBatchApplying(true);setError('');
   try{
    const evidence=await window.ussm.applyBatchRepairGuarded({
     scanId:result.scanId,itemIndex:focused,proposalId:batchRepairProposal.proposalId,
@@ -681,7 +698,7 @@ function App(){
    }
   }catch{
    setError('批量修复 V1 检查无法安全启动：授权、原件、页面或修订可能已变更。');
-  }finally{setBusy(false);}
+  }finally{setBatchApplying(false);setBusy(false);}
  }
  async function suggestRepair(){if(focused===null||!targetId||!result||pageProbe?.probe.checks[repairIndex]?.status!=='missing')return;
   setBusy(true);setError('');setRepairCandidates(null);setRepairProposal(null);
@@ -788,6 +805,16 @@ function App(){
       以及 {repairQueueRecovery.unreadable} 个无法安全读取的检查点。</p>
       <p>请检查受管修订完整性，再重新扫描并审批。不会自动恢复旧授权，也不会重新执行原始脚本。</p>
      </div><span className="pill">离线只读 · 禁止自动重放</span></div>
+    </section>}
+   {repairQueueActivity&&
+    (batchApplying||Object.values(repairQueueActivity).some(count=>count>0))&&
+    <section className="panel" role="status">
+     <div className="panel-head"><div><h2>修复队列进度 · 本次会话</h2>
+      <p>排队 {repairQueueActivity.queued} 项 · 写入中 {repairQueueActivity.running} 项 ·
+      完成 {repairQueueActivity.completed} 项 · 失败 {repairQueueActivity.failed} 项 ·
+      阻断 {repairQueueActivity.blocked} 项 · 取消 {repairQueueActivity.cancelled} 项。</p>
+      <p>仅展示主进程的状态汇总，不包含脚本路径或审批身份。完成只表示受管写入，不代表 V2/V3/V4 验收完成。</p>
+     </div><span className="pill">只读进度 · 不可重放</span></div>
     </section>}
    <section className="stats"><div className="stat"><label>资料库脚本</label><strong>{history.length}</strong><span>SQLite 本地索引</span></div><div className="stat"><label>本次处理</label><strong>{result?.processedCount??0}</strong><span>逐文件隔离</span></div><div className="stat"><label>解析错误</label><strong className={result?.errorCount?'warn':''}>{result?.errorCount??0}</strong><span>待人工检查</span></div><div className="stat"><label>动态 Selector</label><strong>{result?.items.reduce((sum,x)=>sum+x.runtimeRequiredCount,0)??0}</strong><span>需要运行时确认</span></div></section>
    <section className="panel">
