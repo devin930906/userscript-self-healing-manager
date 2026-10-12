@@ -22,6 +22,8 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit locked dependency advisories (RG-02; high or critical must fail)
+        run: npm audit --audit-level=high --ignore-scripts
       - name: Run all tests
         run: npm test
       - name: Strict TypeScript checks
