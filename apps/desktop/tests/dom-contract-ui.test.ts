@@ -34,3 +34,24 @@ test('named DOM contracts retrieve author ShadowRoot context without claiming a 
  assert.match(handler,/summarize:captureDomSummary/);
  assert.match(handler,/confirm:confirmPageIdentity/);
 });
+
+
+test('FR-025 named count-change contract crosses Main IPC, preload types and renderer without V3/V4 promotion',()=>{
+ const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
+ const preload=readFileSync('apps/desktop/src/preload/index.ts','utf8');
+ const renderer=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
+ const handler=main.split("ipcMain.handle('usshm:run-dom-contract'")[1]?.split("ipcMain.handle('usshm:")[0]??'';
+ assert.match(handler,/expectation:'exists'\|'unique'\|'count-changed'/,
+  'Main validates the only 3 supported named read-only contracts');
+ assert.match(handler,/q\.expectation!=='count-changed'/,
+  'Main rejects unknown requested expectations before CDP or script data access');
+ assert.match(preload,/expectation:'exists'\|'unique'\|'count-changed'/);
+ assert.match(renderer,/expectation:'exists'\|'unique'\|'count-changed'/);
+ assert.match(renderer,/useState<'exists'\|'unique'\|'count-changed'>/);
+ assert.match(renderer,/<option value="count-changed">DOM 匹配数量变化（V1，只读）<\/option>/);
+ assert.match(renderer,/V2 未验证，V3\/V4：未配置/);
+ assert.match(handler,/approved:true,target:selected/);
+ assert.match(handler,/confirm:confirmPageIdentity/);
+ assert.match(handler,/probePageLocators\(page,locators,\{includeNodeFingerprints:true\}\)/);
+ assert.doesNotMatch(handler,/Runtime\.evaluate|writeFile\(|execute\(/);
+});
