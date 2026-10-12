@@ -63,7 +63,11 @@ export async function exportManagedRecovery(input:{
  await mkdir(target,{recursive:false,mode:0o700});
  const files:ManagedRecoveryFile[]=[];
  let total=0;
- if(managedExists){
+ // An installed application can have a pre-created but empty Data/managed.
+ // The closed manifest lists files, not directories: exporting an unlisted
+ // empty managed/ would make this otherwise valid zero-script backup fail
+ // its own independent verification and block core Data recovery.
+ if(scriptIds.length>0){
   await mkdir(join(target,'managed'));
   for(const scriptId of scriptIds){
    if(!ID.test(scriptId))throw new Error('Unsafe managed script directory name');
