@@ -5,6 +5,9 @@ function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
  let parsed:URL;
  try { parsed=new URL(endpoint); }
  catch { throw new Error('Invalid CDP debugger socket URL'); }
+ // Reject URL parser normalization (including dot segments and percent-encoded
+ // traversal) before binding any browser/page target to a debugger socket.
+ if(parsed.href!==endpoint)throw new Error('Noncanonical CDP debugger socket URL');
  if(parsed.protocol!=='ws:'||!['127.0.0.1','localhost'].includes(parsed.hostname)||parsed.username||parsed.password||parsed.search||parsed.hash)
   throw new Error('CDP WebSocket must use a credential-free loopback endpoint');
  if(parsed.port!==String(port))throw new Error('CDP debugger socket port mismatch');
