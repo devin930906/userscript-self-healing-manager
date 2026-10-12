@@ -91,9 +91,13 @@ test('FR-030 managed writer lease refuses giant pre-existing WAL SHM journal sid
   const sidecar=await open(database+suffix,'wx');
   try{await sidecar.truncate(65*1024*1024);}finally{await sidecar.close();}
   assert.equal(existsSync(database),false,'only a synthetic sidecar exists before lease preflight');
-  assert.throws(()=>reserveManagedScriptWrites(root,[id]),
-   /unsafe|concurrent|lease|size|sidecar/i,
-   'the oversized SQLite sidecar must be rejected safely');
+  let refusal:unknown;
+  try{
+   const release=reserveManagedScriptWrites(root,[id]);
+   release(); // Always release a mistakenly accepted SQLite lease on RED CI.
+  }catch(error){refusal=error;}
+  assert.ok(refusal instanceof Error,'oversized sidecar must fail closed');
+  assert.match(refusal.message,/unsafe|concurrent|lease|size|sidecar/i);
   assert.equal(existsSync(database),false,
    'rejection must happen before SQLite creates a managed write-lock database');
  }
