@@ -23,6 +23,7 @@ import {captureCandidateNodes} from '../packages/cdp-client/src/candidate-snapsh
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../packages/candidate-engine/src/bulk.ts';
 import {savePreferredChromePath,loadPreferredChromePath} from '../packages/cdp-client/src/preferred-chrome.ts';
+import {assertWindowsPeExecutable} from '../packages/cdp-client/src/pe-executable.ts';
 import {createBrowserProfile,listBrowserProfiles,setDefaultBrowserProfile,resolveBrowserProfileForLaunch} from '../packages/cdp-client/src/browser-profiles.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
@@ -52,6 +53,8 @@ const candidates=[
 let executable;
 for(const path of candidates){try{await access(path);executable=path;break;}catch{}}
 if(!executable)throw new Error('Chrome is not installed in the Windows runner; cannot claim browser CDP smoke PASS');
+// Apply QA-002 production preflight to the REAL chosen Chrome, including pinned 155.
+await assertWindowsPeExecutable(executable);
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-chrome-smoke-'));
 // Mirror trusted Main's final on-disk revision check, not a mocked SHA:
