@@ -25,6 +25,7 @@ window.addEventListener('drop',(event:DragEvent)=>{
 },true);
 const api={
  getAppInfo:()=>ipcRenderer.invoke('usshm:app-info'),
+ getRepairQueueRecovery:()=>ipcRenderer.invoke('usshm:repair-queue-recovery'),
  backupRegistry:()=>ipcRenderer.invoke('usshm:backup-registry'),
  backupJournal:()=>ipcRenderer.invoke('usshm:backup-journal'),
  exportManagedRecovery:()=>ipcRenderer.invoke('usshm:export-managed-recovery'),
