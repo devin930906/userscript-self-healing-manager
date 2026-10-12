@@ -57,7 +57,7 @@ declare global {interface Window{ussm:{
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
- runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique';approved:true})=>Promise<ReadOnlyDomContractResult>;
+ runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>Promise<ReadOnlyDomContractResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  listDiagnosisHistory:()=>Promise<JournalRun[]>;
@@ -158,7 +158,7 @@ function App(){
  const [watchError,setWatchError]=useState('');
  const watchRunning=useRef(false);
  const [repairIndex,setRepairIndex]=useState(0);const [repairNew,setRepairNew]=useState('');
- const [contractExpectation,setContractExpectation]=useState<'exists'|'unique'>('unique');
+ const [contractExpectation,setContractExpectation]=useState<'exists'|'unique'|'count-changed'>('unique');
  const [contractEvidence,setContractEvidence]=useState<{selectorIndex:number;result:ReadOnlyDomContractResult}|null>(null);
  const contractGeneration=useRef(new LatestRequestGate());
  const contractActive=useRef(false);
@@ -625,7 +625,7 @@ function App(){
    });
    if(contractGeneration.current.isCurrent(token)){
     setContractEvidence({selectorIndex:selectedLocator,result:evidence});
-    setMessage('双次 DOM 合约核验完成；只证明指定定位器的当前 DOM 状态，不代表脚本业务功能通过。');
+    setMessage(expectation==='count-changed'?'双次只读 DOM 数量变化核验完成；即使变化也不证明由用户脚本引起，V2 未验证，V3/V4：未配置。':'双次 DOM 合约核验完成；只证明指定定位器的当前 DOM 状态，不代表脚本业务功能通过。');
    }
   }catch(error){
    if(contractGeneration.current.isCurrent(token))setError('DOM 合约核验失败：'+summarizeSafeDesktopError(error));
@@ -1076,8 +1076,8 @@ function App(){
    {pageProbe&&<div className="notice"><b>DOM 文档节点：</b>{pageProbe.summary.nodeCount} · 文档：{pageProbe.summary.documentCount} · 作者 Shadow Tree 节点：{pageProbe.summary.authorShadowTreeNodes} · 已检查 {pageProbe.checkedLocators}/{pageProbe.totalLocators} 个定位器；仅当前 document 作用域，不代表油猴脚本功能通过。{pageProbe.summary.authorShadowTreeNodes>0&&<strong> Shadow DOM 内的定位器未被顶层 document 检查覆盖，需复核。</strong>}</div>}
    {pageProbe?.probe.checks.map((check,index)=><div className="selector" key={index}><div className="selector-top"><span>{check.method}</span><b>{check.status==='found'?'当前匹配':check.status==='missing'&&pageProbe.summary.authorShadowTreeNodes>0?'需复核（Shadow DOM）':check.status==='missing'?'无匹配':check.status==='ambiguous'?'多重匹配':check.status==='blocked'?'无法核验':'需要运行时确认'}</b></div><code>{check.expression}</code><small>匹配数：{check.matchCount===null?'未知':check.matchCount} · {check.reason}</small></div>)}
    <div className="toolbar">
-    <label>DOM 合约预期<select aria-label="DOM 合约条件" value={contractExpectation} onChange={e=>{setContractExpectation(e.target.value as 'exists'|'unique');setContractEvidence(null);}}>
-     <option value="unique">唯一匹配</option><option value="exists">至少一个匹配</option>
+    <label>DOM 合约预期<select aria-label="DOM 合约条件" value={contractExpectation} onChange={e=>{setContractExpectation(e.target.value as 'exists'|'unique'|'count-changed');setContractEvidence(null);}}>
+     <option value="unique">唯一匹配</option><option value="exists">至少一个匹配</option><option value="count-changed">DOM 匹配数量变化（V1，只读）</option>
     </select></label>
     <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
      onClick={()=>void runDomContract()}>双次 DOM 合约核验（V1，只读）</button>

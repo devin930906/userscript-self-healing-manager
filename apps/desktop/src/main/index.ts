@@ -680,11 +680,11 @@ async function bootstrap():Promise<void>{
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;
-   expectation:'exists'|'unique';approved:boolean}|null;
+   expectation:'exists'|'unique'|'count-changed';approved:boolean}|null;
   if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
    !Number.isSafeInteger(q.selectorIndex)||q.selectorIndex<0||
    typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128||
-   (q.expectation!=='exists'&&q.expectation!=='unique'))
+   (q.expectation!=='exists'&&q.expectation!=='unique'&&q.expectation!=='count-changed'))
    throw new Error('Explicit target, selector, expectation and consent required');
   const scanSnapshot=scanSessions.require(q.scanId);
   const item=scanSnapshot.items[q.itemIndex];
