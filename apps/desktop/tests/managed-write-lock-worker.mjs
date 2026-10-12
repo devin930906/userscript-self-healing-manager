@@ -11,9 +11,10 @@ try{
  process.stdin.once('data',()=>{
   try{release();process.stdout.write('RELEASED\n');}
   catch{process.exitCode=1;}
-  process.stdin.pause();
+  process.exit(process.exitCode??0);
  });
 }catch{
  // Never print private paths or OS error details to CI logs.
  process.stdout.write('DENIED\n');
+ process.exit(0);
 }
