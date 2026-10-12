@@ -16,6 +16,11 @@ function pathModule(path: string) {
 }
 
 export function resolveDataRoot(input: DataRootInput): string {
+  // Runtime inputs can outlive their TypeScript contract (IPC, migrated settings).
+  // Never silently interpret an unknown mode as portable ZIP and relocate Data.
+  if (!['installed','portable-exe','portable-zip'].includes(input?.distributionMode)) {
+    throw new Error('Invalid or unsupported distribution mode');
+  }
   if (input.distributionMode === 'installed') {
     if (!pathModule(input.osUserDataDirectory).isAbsolute(input.osUserDataDirectory)) throw new Error('User data root must be absolute');
     return input.osUserDataDirectory;
