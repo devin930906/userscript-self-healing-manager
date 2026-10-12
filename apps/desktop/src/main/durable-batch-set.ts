@@ -83,7 +83,8 @@ export async function executeDurableApprovedBatchSet(input:{
   approvedIds.add(item.approvalId);scripts.add(item.scriptId);
   return Object.freeze({
    approvalId:item.approvalId,scriptId:item.scriptId,
-   preflight:item.preflight,write:item.write,
+   // Preserve the trusted Main approval source so later revocation is live.
+   approvalSource:item,preflight:item.preflight,write:item.write,
   });
  });
  const stopOnFailure=input.stopOnFailure===true;
@@ -109,13 +110,19 @@ export async function executeDurableApprovedBatchSet(input:{
   const byId=new Map(reviewed.map(row=>[row.approvalId,row]));
   let queue!:ReturnType<typeof createRepairTaskQueue>;
   queue=createRepairTaskQueue(reviewed.map(row=>({
-   id:row.approvalId,scriptId:row.scriptId,approved:true,
+   id:row.approvalId,scriptId:row.scriptId,
+   // The queue re-checks this live approval after async preflight and after
+   // checkpoint persistence, immediately before dispatching a managed write.
+   get approved(){return row.approvalSource.approved===true;},
    execute:row.write,
   })),{
    beforeDispatch:async row=>{
     const operation=byId.get(row.id);
-    if(!operation)return false;
-    try{return await operation.preflight()===true;}catch{return false;}
+    if(!operation||operation.approvalSource.approved!==true)return false;
+    try{
+     const verified=await operation.preflight();
+     return verified===true&&operation.approvalSource.approved===true;
+    }catch{return false;}
    },
    onCheckpoint:state=>store.save(state),
    onProgress:state=>{
