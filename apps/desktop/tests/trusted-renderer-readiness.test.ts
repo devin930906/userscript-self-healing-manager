@@ -66,3 +66,20 @@ test('QA-048 real Electron integration must execute readiness gate before securi
  assert.ok(gate>=0&&trust>gate,'readiness barrier must be awaited after CDP enable and before any security probes');
  assert.match(integration,/import \{waitForTrustedRendererReady\} from '\.\/trusted-renderer-readiness\.ts'/);
 });
+
+test('QA-048 malformed CDP snapshot fails immediately without treating it as preload latency',async()=>{
+ const malformed:unknown[]=[
+  {}, {...ready,href:undefined}, {...ready,readyState:'destroyed'},
+  {...ready,topLevel:'true'}, {...ready,hasGetAppInfo:1},
+  {...ready,hasGenericInvoke:undefined}, {...ready,hasNode:null},
+  {...ready,hasRawIpc:'false'},
+ ];
+ for(const value of malformed){
+  let calls=0;
+  await assert.rejects(waitForTrustedRendererReady(async()=>{
+   calls++;
+   return value as TrustedRendererState;
+  },options()),/Malformed trusted renderer readiness probe/);
+  assert.equal(calls,1,'malformed CDP result cannot exhaust transient retry budget');
+ }
+});
