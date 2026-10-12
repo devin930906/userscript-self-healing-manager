@@ -1,6 +1,7 @@
 /** Reject CDP redirects to unrelated services on the same computer. */
 function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
  if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid CDP port');
+ if(typeof endpoint!=='string'||endpoint.length<1||endpoint.length>2048)throw new Error('Invalid CDP debugger socket length');
  const parsed=new URL(endpoint);
  if(parsed.protocol!=='ws:'||!['127.0.0.1','localhost'].includes(parsed.hostname)||parsed.username||parsed.password||parsed.search||parsed.hash)
   throw new Error('CDP WebSocket must use a credential-free loopback endpoint');
@@ -8,14 +9,15 @@ function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
  return parsed;
 }
 export function validateCdpPageSocket(target:{id:string;webSocketDebuggerUrl?:string|undefined},port=9223):string{
+ if(!target||typeof target!=='object')throw new Error('CDP page target identity mismatch');
  const endpoint=target.webSocketDebuggerUrl;
  if(!endpoint)throw new Error('CDP page target has no debugger socket');
  const parsed=assertLocalDebuggerSocket(endpoint,port);
- if(typeof target.id!=='string'||!/^[A-Za-z0-9_-]+$/.test(target.id)||parsed.pathname!=='/devtools/page/'+target.id)throw new Error('CDP page target identity mismatch');
+ if(typeof target.id!=='string'||target.id.length>128||!/^[A-Za-z0-9_-]+$/.test(target.id)||parsed.pathname!=='/devtools/page/'+target.id)throw new Error('CDP page target identity mismatch');
  return endpoint;
 }
 export function validateCdpBrowserSocket(endpoint:string,port=9223):string{
  const parsed=assertLocalDebuggerSocket(endpoint,port);
- if(!/^\/devtools\/browser\/[A-Za-z0-9_-]+$/.test(parsed.pathname))throw new Error('CDP browser socket identity mismatch');
+ if(parsed.pathname.length>146||!/^\/devtools\/browser\/[A-Za-z0-9_-]+$/.test(parsed.pathname))throw new Error('CDP browser socket identity mismatch');
  return endpoint;
 }
