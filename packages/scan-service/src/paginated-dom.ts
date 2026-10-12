@@ -14,13 +14,52 @@ export interface CompletedDomBatch extends BatchDomResult {
 export interface PaginatedDomProgress extends BatchDomResult {
  readonly remainingItems:number;
 }
+// The IPC bridge must not forward arbitrary exception text or extra object fields.
+const PAGE_FIELDS=new Set(['validationLevel','pageTargetId','pageUrl','pageDocumentToken',
+ 'startIndex','totalItems','remainingItems','items']);
+const ROW_FIELDS=new Set(['index','scriptId','path','status','checked','found','missing',
+ 'needsReview','reason','diagnostic','verification']);
+const VERIFICATION_FIELDS=new Set(['V0','V1','V2','V3','V4','highestVerified',
+ 'functionalVerified','managerVerified']);
+const FRAME_REASON='iframe browsing context detected; top-document evidence cannot verify nested frames';
+const SHADOW_REASONS=[
+ 'Author Shadow DOM detected; top-document selector miss cannot inspect nested ShadowRoot',
+ 'Shadow DOM context evidence unavailable; top-document selector miss is not conclusive',
+];
+const INTERNAL_REASONS=new Set([
+ 'No valid static analysis',
+ 'Selector count exceeds batch safety limit',
+ 'Userscript page-scope rules exceed the safe evaluation budget or are malformed',
+ 'Invalid page URL','Only HTTP(S) CDP pages are supported',
+ 'Page matches @exclude-match','Unsupported @exclude-match prevents safe scope confirmation',
+ 'Page matches @exclude','Unsupported @exclude prevents safe scope confirmation',
+ 'Missing or unsupported @match/@include rule',
+ 'Selected page is not covered by @match/@include',
+ 'No selectors identified','Only dynamic or non-document locators',
+ 'CDP locator probe failed','CDP evidence identity or shape mismatch',
+ 'DOM recheck unverified; cannot certify a locator failure',
+ FRAME_REASON,...SHADOW_REASONS,
+ ...SHADOW_REASONS.map(reason=>FRAME_REASON+'; '+reason),
+]);
+/** Structured-clone results contain only own enumerable data properties. */
+function onlyDataFields(value:unknown,allowed:ReadonlySet<string>):boolean{
+ if(!value||typeof value!=='object'||Array.isArray(value))return false;
+ return Reflect.ownKeys(value).every(key=>{
+  if(typeof key!=='string'||!allowed.has(key))return false;
+  const descriptor=Object.getOwnPropertyDescriptor(value,key);
+  return descriptor?.enumerable===true&&Object.hasOwn(descriptor,'value');
+ });
+}
+
 /**
  * Every page is an IPC evidence boundary. Script/page identity alone does not
  * validate per-script counts or claimed verification levels.
  */
 function assertValidDomRow(row:BatchDomItem|undefined):void{
- if(!row||typeof row!=='object'||Array.isArray(row))
-  throw new Error('Invalid paginated DOM evidence row');
+ if(!onlyDataFields(row,ROW_FIELDS))
+  throw new Error('Invalid paginated DOM evidence row payload');
+ if(row.reason!==undefined&&!INTERNAL_REASONS.has(row.reason))
+  throw new Error('Invalid paginated DOM reason: untrusted diagnostic text');
  const {checked,found,missing,needsReview,status}=row;
  if(![checked,found,missing,needsReview].every(n=>Number.isSafeInteger(n)&&n>=0)||
     checked>50||(checked===0?(found!==0||missing!==0||needsReview>50):
@@ -50,7 +89,7 @@ function assertValidDomRow(row:BatchDomItem|undefined):void{
  }
  const v=row.verification;
  if(v!==undefined){
-  if(!v||typeof v!=='object'||Array.isArray(v)||
+  if(!onlyDataFields(v,VERIFICATION_FIELDS)||
      !['passed','failed','skipped','blocked','not-configured'].includes(v.V0)||
      !['passed','failed','skipped','blocked','not-configured'].includes(v.V1)||
      v.V2!=='blocked'||v.V3!=='not-configured'||v.V4!=='not-configured'||
@@ -68,6 +107,8 @@ function requireValidPage(page:PaginatedDomPage,{offset,total,targetId,pageUrl,p
  pageDocumentToken:string|null;
  expectedItems:readonly {scriptId?:string|undefined;path:string}[]|undefined;
 }):void{
+ if(!onlyDataFields(page,PAGE_FIELDS)||!Array.isArray(page.items))
+  throw new Error('Invalid paginated DOM page payload');
  const count=Math.min(25,total-offset);
  if(page.validationLevel!=='dom-only'||page.pageTargetId!==targetId||
     !page.pageUrl||!/^https?:\/\//.test(page.pageUrl)||
