@@ -42,6 +42,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
 
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
+ getRepairQueueRecovery:()=>Promise<RepairQueueRecoverySummary>;
  backupRegistry:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  backupJournal:()=>Promise<{canceled:boolean;path?:string;sha256?:string;bytes?:number}>;
  exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
@@ -94,9 +95,13 @@ declare global {interface Window{ussm:{
  exportDomReport:(input:{scanId:string;targetId:string;format:'json'|'markdown'})=>Promise<{canceled:boolean;path?:string}>;
 }}}
 interface BrowserProfile {id:string;name:string;executablePath:string;isDefault:boolean}
+interface RepairQueueRecoverySummary{
+ checkpointFiles:number;completed:number;needsReview:number;uncertain:number;unreadable:number;
+}
 const nameOf=(path:string)=>path.replace(/\\/g,'/').split('/').at(-1)||path;
 function App(){
  const [appInfo,setAppInfo]=useState<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}|null>(null);
+ const [repairQueueRecovery,setRepairQueueRecovery]=useState<RepairQueueRecoverySummary|null>(null);
  const [browserProfiles,setBrowserProfiles]=useState<BrowserProfile[]>([]);
  const [browserProfileHealth,setBrowserProfileHealth]=useState<'empty'|'ready'|'write-locked'|'invalid'|null>(null);
  const [selectedBrowserProfileId,setSelectedBrowserProfileId]=useState('');
@@ -171,6 +176,11 @@ function App(){
  useEffect(()=>{exceptionGeneration.current.invalidate();setExceptionEvidence(null);setExceptionBusy(false);},[targetId,cdp,chromePath]);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
+ useEffect(()=>{
+  // A failed recovery read is NEVER equivalent to "no interrupted writes".
+  void window.ussm.getRepairQueueRecovery().then(setRepairQueueRecovery)
+   .catch(()=>setRepairQueueRecovery({checkpointFiles:0,completed:0,needsReview:0,uncertain:0,unreadable:1}));
+ },[]);
  useEffect(()=>{void Promise.all([window.ussm.listBrowserProfiles(),window.ussm.browserProfileHealth()])
   .then(([items,health])=>{
    setBrowserProfiles(items);
@@ -770,6 +780,15 @@ function App(){
    <div className="sidebar-bottom">V{appInfo?.version??'0.1'} · {appInfo?.distributionMode??'preview'}<div className="dim">本地数据 · 不上传脚本</div></div>
   </aside>
   <main className="main"><header><div><div className="eyebrow">USERSCRIPT MAINTENANCE</div><h1>油猴脚本智能自愈管理器</h1><p>批量检查源码中的 DOM 依赖，定位潜在失效点，记录可追溯的静态分析结果。</p></div><span className="status-dot">●　离线分析模式</span></header>
+   {repairQueueRecovery&&(repairQueueRecovery.needsReview>0||repairQueueRecovery.unreadable>0)&&
+    <section className="panel" role="status">
+     <div className="panel-head"><div><h2>批量修复中断记录 · 需要重新确认</h2>
+      <p>发现 {repairQueueRecovery.needsReview} 项需要复核的修复记录、
+      {repairQueueRecovery.uncertain} 项可能在写入期间中断，
+      以及 {repairQueueRecovery.unreadable} 个无法安全读取的检查点。</p>
+      <p>请检查受管修订完整性，再重新扫描并审批。不会自动恢复旧授权，也不会重新执行原始脚本。</p>
+     </div><span className="pill">离线只读 · 禁止自动重放</span></div>
+    </section>}
    <section className="stats"><div className="stat"><label>资料库脚本</label><strong>{history.length}</strong><span>SQLite 本地索引</span></div><div className="stat"><label>本次处理</label><strong>{result?.processedCount??0}</strong><span>逐文件隔离</span></div><div className="stat"><label>解析错误</label><strong className={result?.errorCount?'warn':''}>{result?.errorCount??0}</strong><span>待人工检查</span></div><div className="stat"><label>动态 Selector</label><strong>{result?.items.reduce((sum,x)=>sum+x.runtimeRequiredCount,0)??0}</strong><span>需要运行时确认</span></div></section>
    <section className="panel">
     <div className="panel-head"><div><h2>SQLite 索引备份</h2>

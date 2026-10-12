@@ -2,6 +2,7 @@ import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
+import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -108,6 +109,10 @@ async function bootstrap():Promise<void>{
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:repair-queue-recovery',event=>{
+  assertSender(event);
+  return inspectRepairQueueRecovery(dataRoot);
+ });
  ipcMain.handle('usshm:backup-registry',async event=>{
   assertSender(event);
   // The renderer does not supply a path, database handle or source filename:

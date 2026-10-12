@@ -199,3 +199,30 @@ export function openRepairCheckpointStore(file:string){
   },
  };
 }
+
+
+/** Read-only recovery triage after desktop restart.
+ * No repair identities, script bytes, paths, approval handles or exception
+ * messages leave this function. Never execute or restore a pending task.
+ * Missing/incomplete/corrupt journals fail closed for the caller to flag.
+ */
+export function readRepairCheckpointSummary(file:string):{
+ total:number;completed:number;needsReview:number;uncertain:number;
+}{
+ directoryAndFile(file);
+ const db=new DatabaseSync(file,{readOnly:true});
+ try{
+  assertSchema(db);
+  const raw=db.prepare('SELECT payload FROM repair_checkpoints WHERE slot=1').get() as
+   {payload:unknown}|undefined;
+  if(!raw)throw new Error('Incomplete repair checkpoint; fresh review required');
+  const state=decode(raw.payload);
+  const rows=state.rows;
+  return Object.freeze({
+   total:rows.length,
+   completed:rows.filter(row=>row.status==='completed').length,
+   needsReview:rows.filter(row=>row.status!=='completed').length,
+   uncertain:rows.filter(row=>row.status==='running').length,
+  });
+ }finally{db.close();}
+}
