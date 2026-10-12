@@ -7,7 +7,8 @@ import {DatabaseSync} from 'node:sqlite';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {assertRegistryV1SnapshotSchema} from '../../persistence/src/index.ts';
 import {assertJournalSchemaSafety} from '../../job-journal/src/index.ts';
-import {assertUnlinkedRecoveryDirectory,verifyCoreRecoveryBundle} from './core-recovery.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
+import {verifyCoreRecoveryBundle} from './core-recovery.ts';
 
 const hex=/^[a-f0-9]{64}$/;
 const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/;
