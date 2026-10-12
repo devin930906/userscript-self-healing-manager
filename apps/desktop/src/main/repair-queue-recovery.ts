@@ -16,7 +16,8 @@ export interface RepairQueueRecoverySummary{
  /** Incomplete, malformed, unsafe or uninspectable journal entries. */
  readonly unreadable:number;
 }
-const empty=():RepairQueueRecoverySummary=>({
+type MutableSummary={-readonly [K in keyof RepairQueueRecoverySummary]:number};
+const empty=():MutableSummary=>({
  checkpointFiles:0,completed:0,needsReview:0,uncertain:0,unreadable:0,
 });
 function assertTrustedDirectory(directory:string){
