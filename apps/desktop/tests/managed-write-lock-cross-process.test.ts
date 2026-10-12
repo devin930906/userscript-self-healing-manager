@@ -44,7 +44,16 @@ async function childAttempt(root:string,script:string){
   });
   assert.equal(code,0,'synthetic worker must release cleanly');
  };
- return {status,close};
+ const terminate=async()=>{
+  if(child.exitCode!==null||child.signalCode!==null)return;
+  const exited=new Promise<void>((resolve,reject)=>{
+   const timeout=setTimeout(()=>reject(new Error('Abnormal worker exit timed out')),15000);
+   child.once('exit',()=>{clearTimeout(timeout);resolve();});
+  });
+  child.kill();
+  await exited;
+ };
+ return {status,close,terminate};
 }
 
 test('FR-030 a different real Node process cannot acquire the same managed source lease',async()=>fixture(async root=>{
@@ -82,4 +91,17 @@ test('FR-030 independent managed scripts keep independent OS-level leases',async
   try{assert.equal(other.status,'ACQUIRED','different script must not be blocked by an unrelated lease');}
   finally{await other.close();}
  }finally{release();}
+}));
+
+test('FR-030 kernel-backed SQLite lock is released after abnormal child process termination',async()=>fixture(async root=>{
+ const holder=await childAttempt(root,'managed-crash');
+ try{
+  assert.equal(holder.status,'ACQUIRED');
+  assert.throws(()=>reserveManagedScriptWrites(root,['managed-crash']),
+   /concurrent|unsafe|already active|fresh review/i);
+  // No graceful release IPC. OS must free SQLite locks when child exits.
+  await holder.terminate();
+  const release=reserveManagedScriptWrites(root,['managed-crash']);
+  release();
+ }finally{await holder.terminate();}
 }));
