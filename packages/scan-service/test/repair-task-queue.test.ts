@@ -319,3 +319,34 @@ test('revoking a task during the first retry progress callback blocks it without
  assert.deepEqual(result.items.map(row=>row.status),['completed','blocked']);
  assert.deepEqual(invoked,['a','b','a']);
 });
+
+
+test('FR-029 failed retry checkpoint cannot leave an implicitly runnable previously failed repair',async()=>{
+ let writes=0,denyRetryCheckpoint=true;
+ const q=createRepairTaskQueue([{
+  id:'retry-checkpoint',scriptId:'managed-script',approved:true,
+  execute:async()=>{writes++;if(writes===1)throw Error('PRIVATE_TRANSIENT_FAILURE');},
+ }],{
+  onCheckpoint:async cp=>{
+   const row=cp.items[0]!;
+   if(denyRetryCheckpoint&&row.status==='queued'&&row.attempts===1)
+    throw Error('PRIVATE_JOURNAL_WRITE_FAILURE');
+  },
+ });
+ assert.equal((await q.run()).items[0]?.status,'failed');
+ assert.equal(writes,1);
+ await assert.rejects(q.retryFailed(),error=>
+  error instanceof Error&&/checkpoint|persist/i.test(error.message)&&
+  !error.message.includes('PRIVATE_JOURNAL_WRITE_FAILURE'));
+ assert.equal(q.snapshot().items[0]?.status,'failed',
+  'failed persistence must not grant queued approval for a subsequent plain run');
+ assert.equal(q.snapshot().items[0]?.attempts,1);
+ const subsequent=await q.run();
+ assert.equal(writes,1,'plain run must not silently replay an unsuccessfully persisted retry');
+ assert.equal(subsequent.items[0]?.status,'failed');
+ denyRetryCheckpoint=false;
+ const approvedRetry=await q.retryFailed();
+ assert.equal(writes,2);
+ assert.equal(approvedRetry.items[0]?.status,'completed');
+ assert.equal(approvedRetry.items[0]?.attempts,2);
+});
