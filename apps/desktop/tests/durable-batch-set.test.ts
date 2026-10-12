@@ -154,3 +154,28 @@ test('FR-029 synchronous Main cancellation before multi-batch run commits cancel
   ['cancelled',0],['cancelled',0],['cancelled',0],
  ],'all prestart cancellation states must be recoverably committed');
 }));
+
+
+test('FR-030 Main controls cleanup must redact private errors while leaving completed group checkpoints recoverable',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items();
+ let observed:unknown,writes=0;
+ tasks.forEach(task=>{task.write=async()=>{writes++;};});
+ try{
+  await executeDurableApprovedBatchSet({
+   dataRoot:root,groupId,items:tasks,
+   onRegisterControls:()=>()=>{throw Error('PRIVATE_GROUP_CONTROL_RELEASE_DETAIL');},
+  });
+ }catch(error){observed=error;}
+ assert.equal(writes,3,'cleanup errors cannot retroactively undo a committed write');
+ assert.ok(observed instanceof Error,'a failed cleanup must be reported');
+ assert.doesNotMatch(observed.message,/PRIVATE_GROUP_CONTROL_RELEASE_DETAIL/,
+  'Main-only control cleanup must never propagate user-private detail');
+ assert.match(observed.message,/cleanup|fresh review/i);
+ assert.deepEqual(persisted(root,groupId,tasks),[
+  ['completed',1],['completed',1],['completed',1],
+ ],'all completed repairs remain durably recoverable despite cleanup exception');
+ const next=await executeDurableApprovedBatchSet({
+  dataRoot:root,groupId:randomUUID(),items:items(),
+ });
+ assert.equal(next.completed,3,'the managed-script writer lease must be released for a new, independent approval');
+}));

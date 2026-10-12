@@ -157,7 +157,13 @@ export async function executeDurableApprovedBatchSet(input:{
   const final=await queue.run();
   return count(final);
  }finally{
-  try{release();}finally{store.close();}
+  // Both resources must be released regardless of an observer callback
+  // failure. Never expose a Main control cleanup exception containing
+  // private identity, source or path information to the renderer.
+  let cleanupFailed=false;
+  try{release();}catch{cleanupFailed=true;}
+  try{store.close();}catch{cleanupFailed=true;}
+  if(cleanupFailed)throw new Error('Durable multi-batch cleanup failed; fresh review required');
  }
  }finally{
   // Always release group ownership after success, failure, cancellation,
