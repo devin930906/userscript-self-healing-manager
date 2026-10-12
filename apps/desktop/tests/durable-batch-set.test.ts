@@ -179,3 +179,25 @@ test('FR-030 Main controls cleanup must redact private errors while leaving comp
  });
  assert.equal(next.completed,3,'the managed-script writer lease must be released for a new, independent approval');
 }));
+
+
+test('FR-030 Main multi-batch native control registration failure cannot leak error text or strand managed write leases',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items();
+ let written=0,caught:unknown;
+ tasks.forEach(task=>{task.write=async()=>{written++;};});
+ try{
+  await executeDurableApprovedBatchSet({
+   dataRoot:root,groupId,items:tasks,
+   onRegisterControls:()=>{throw Error('PRIVATE_MULTI_REGISTRATION_CONTEXT');},
+  });
+ }catch(error){caught=error;}
+ assert.equal(written,0);
+ assert.ok(caught instanceof Error);
+ assert.doesNotMatch(caught.message,/PRIVATE_MULTI_REGISTRATION_CONTEXT/);
+ assert.match(caught.message,/registration|fresh review/i);
+ const fresh=await executeDurableApprovedBatchSet({
+  dataRoot:root,groupId:randomUUID(),items:tasks.map(t=>({...t,approvalId:randomUUID()})),
+ });
+ assert.equal(fresh.completed,3);
+ assert.equal(written,3,'a separate fresh approval must work after failed native registration');
+}));
