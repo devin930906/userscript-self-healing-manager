@@ -37,7 +37,7 @@ export async function executeDurableApprovedBatch<T>(input:{
  /** Observes only the public enum status, never a script ID or file path. */
  onProgress?:(status:RepairTaskStatus)=>void;
  /** Main-owned cancellation lease; never a renderer-controlled callback. */
- onRegisterCancel?:(cancel:()=>void)=>(()=>void);
+ onRegisterCancel?:(cancel:()=>void,pause:()=>boolean,resume:()=>void)=>(()=>void);
 }):Promise<T>{
  if(!input||typeof input!=='object'||Array.isArray(input)||
     typeof input.dataRoot!=='string'||!isAbsolute(input.dataRoot)||
@@ -82,7 +82,7 @@ export async function executeDurableApprovedBatch<T>(input:{
    onCheckpoint:checkpoint=>store.save(checkpoint),
   });
   if(input.onRegisterCancel){
-   const release=input.onRegisterCancel(()=>queue.cancel());
+   const release=input.onRegisterCancel(()=>queue.cancel(),()=>queue.pause(),()=>queue.resume());
    if(typeof release!=='function')throw new Error('Invalid batch cancellation registration');
    releaseCancellation=release;
   }
