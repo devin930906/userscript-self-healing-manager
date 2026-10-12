@@ -26,20 +26,28 @@ const SHADOW_REASONS=[
  'Author Shadow DOM detected; top-document selector miss cannot inspect nested ShadowRoot',
  'Shadow DOM context evidence unavailable; top-document selector miss is not conclusive',
 ];
-const INTERNAL_REASONS=new Set([
- 'No valid static analysis',
- 'Selector count exceeds batch safety limit',
- 'Userscript page-scope rules exceed the safe evaluation budget or are malformed',
- 'Invalid page URL','Only HTTP(S) CDP pages are supported',
- 'Page matches @exclude-match','Unsupported @exclude-match prevents safe scope confirmation',
- 'Page matches @exclude','Unsupported @exclude prevents safe scope confirmation',
- 'Missing or unsupported @match/@include rule',
- 'Selected page is not covered by @match/@include',
- 'No selectors identified','Only dynamic or non-document locators',
- 'CDP locator probe failed','CDP evidence identity or shape mismatch',
- 'DOM recheck unverified; cannot certify a locator failure',
- FRAME_REASON,...SHADOW_REASONS,
- ...SHADOW_REASONS.map(reason=>FRAME_REASON+'; '+reason),
+// Do not accept contradictory combinations of a trusted reason and a claimed
+// status: a forged V1 pass with a genuine CDP failure string is still false.
+const REASON_STATUS=new Map<string,BatchDomItem['status']>([
+ ['No valid static analysis','skipped'],
+ ['Selector count exceeds batch safety limit','error'],
+ ['Userscript page-scope rules exceed the safe evaluation budget or are malformed','needs-review'],
+ ['Invalid page URL','out-of-scope'],
+ ['Only HTTP(S) CDP pages are supported','out-of-scope'],
+ ['Page matches @exclude-match','out-of-scope'],
+ ['Unsupported @exclude-match prevents safe scope confirmation','needs-review'],
+ ['Page matches @exclude','out-of-scope'],
+ ['Unsupported @exclude prevents safe scope confirmation','needs-review'],
+ ['Missing or unsupported @match/@include rule','needs-review'],
+ ['Selected page is not covered by @match/@include','out-of-scope'],
+ ['No selectors identified','no-evidence'],
+ ['Only dynamic or non-document locators','needs-review'],
+ ['CDP locator probe failed','error'],
+ ['CDP evidence identity or shape mismatch','error'],
+ ['DOM recheck unverified; cannot certify a locator failure','needs-review'],
+ [FRAME_REASON,'needs-review'],
+ ...SHADOW_REASONS.map((reason):[string,BatchDomItem['status']]=>[reason,'needs-review']),
+ ...SHADOW_REASONS.map((reason):[string,BatchDomItem['status']]=>[FRAME_REASON+'; '+reason,'needs-review']),
 ]);
 /** Structured-clone results contain only own enumerable data properties. */
 function onlyDataFields(value:unknown,allowed:ReadonlySet<string>):boolean{
@@ -58,8 +66,8 @@ function onlyDataFields(value:unknown,allowed:ReadonlySet<string>):boolean{
 function assertValidDomRow(row:BatchDomItem|undefined):void{
  if(!row||!onlyDataFields(row,ROW_FIELDS))
   throw new Error('Invalid paginated DOM evidence row payload');
- if(row.reason!==undefined&&!INTERNAL_REASONS.has(row.reason))
-  throw new Error('Invalid paginated DOM reason: untrusted diagnostic text');
+ if(row.reason!==undefined&&REASON_STATUS.get(row.reason)!==row.status)
+  throw new Error('Invalid paginated DOM reason versus status evidence');
  const {checked,found,missing,needsReview,status}=row;
  if(![checked,found,missing,needsReview].every(n=>Number.isSafeInteger(n)&&n>=0)||
     checked>50||(checked===0?(found!==0||missing!==0||needsReview>50):
