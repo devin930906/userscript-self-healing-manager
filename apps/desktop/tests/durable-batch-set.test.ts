@@ -103,3 +103,33 @@ test('FR-030 Main cancellation during a pending preflight stops all queued tasks
  assert.deepEqual(output,{queued:0,running:0,completed:0,failed:0,blocked:0,cancelled:3});
  assert.deepEqual(persisted(root,groupId,tasks),[['cancelled',1],['cancelled',0],['cancelled',0]]);
 }));
+
+
+test('FR-030 revoking the next independent approval mid-batch blocks that write while other jobs proceed',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items(),calls:string[]=[];
+ tasks[0]!.write=async()=>{calls.push('a');tasks[1]!.approved=false;};
+ tasks[1]!.write=async()=>{calls.push('b');};
+ tasks[2]!.write=async()=>{calls.push('c');};
+ const result=await executeDurableApprovedBatchSet({dataRoot:root,groupId,items:tasks});
+ assert.deepEqual(calls,['a','c'],'revocation of a reviewed job must survive the initial batch snapshot');
+ assert.deepEqual(result,{queued:0,running:0,completed:2,failed:0,blocked:1,cancelled:0});
+ assert.deepEqual(persisted(root,groupId,tasks),[['completed',1],['blocked',0],['completed',1]]);
+}));
+
+test('FR-030 revocation during asynchronous Main preflight cannot authorize a stale managed write',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items();
+ let entered!:()=>void,finish!:()=>void;
+ const started=new Promise<void>(resolve=>{entered=resolve;});
+ const release=new Promise<void>(resolve=>{finish=resolve;});
+ let writes=0;
+ tasks[0]!.preflight=async()=>{entered();await release;return true;};
+ tasks[0]!.write=async()=>{writes++;};
+ const pending=executeDurableApprovedBatchSet({dataRoot:root,groupId,items:tasks});
+ await started;
+ tasks[0]!.approved=false;
+ finish();
+ const result=await pending;
+ assert.equal(writes,0,'stale asynchronous approval must not dispatch any managed write');
+ assert.deepEqual(result,{queued:0,running:0,completed:2,failed:0,blocked:1,cancelled:0});
+ assert.deepEqual(persisted(root,groupId,tasks),[['blocked',1],['completed',1],['completed',1]]);
+}));
