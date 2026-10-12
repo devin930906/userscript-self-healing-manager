@@ -93,7 +93,7 @@ test('FR-029 desktop cancel IPC is sender-guarded and only applies to active Mai
   const start=main.indexOf("ipcMain.handle('"+channel+"'");
   const end=main.indexOf("ipcMain.handle('",start+12);
   assert.ok(start>=0&&end>start);
-  assert.match(main.slice(start,end),/onRegisterCancel:cancel=>repairQueueCancellation\.attach\(proposalId,cancel\)/);
+  assert.match(main.slice(start,end),/onRegisterCancel:\(cancel,pause,resume\)=>repairQueueCancellation\.attach\(proposalId,cancel,\{pause,resume\}\)/);
  }
  assert.match(preload,/cancelBatchRepair:\(input:\{proposalId:string\}\)=>ipcRenderer\.invoke\('usshm:cancel-batch-repair',input\)/);
  assert.match(ui,/window\.ussm\.cancelBatchRepair\(/);
