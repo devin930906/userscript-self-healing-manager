@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {randomUUID} from 'node:crypto';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {randomUUID,createHash} from 'node:crypto';
+import {mkdtemp,rm,mkdir,open} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
+import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {executeDurableApprovedBatch} from '../src/main/durable-batch-apply.ts';
 import {executeDurableApprovedBatchSet} from '../src/main/durable-batch-set.ts';
+import {reserveManagedScriptWrites} from '../src/main/managed-script-lease.ts';
 
 async function fixture(run:(root:string)=>Promise<void>){
  const root=await mkdtemp(join(tmpdir(),'usshm-shared-main-lease-'));
@@ -75,4 +77,24 @@ test('FR-030 unrelated managed scripts may be processed in separate Main executi
   assert.deepEqual(calls,['b']);
  }finally{hold.release();await first;}
  assert.deepEqual(calls,['b','a']);
+}));
+
+
+test('FR-030 managed writer lease refuses giant pre-existing WAL SHM journal sidecars before opening a lock database',async()=>fixture(async root=>{
+ const folder=join(root,'managed-write-locks');
+ await mkdir(folder);
+ for(const suffix of ['-wal','-shm','-journal']){
+  const id='oversized-lease-'+suffix.substring(1);
+  const key=createHash('sha256').update('USSHM-MANAGED-WRITE-LEASE-v1:')
+   .update(id.toLowerCase()).digest('hex');
+  const database=join(folder,key+'.sqlite');
+  const sidecar=await open(database+suffix,'wx');
+  try{await sidecar.truncate(65*1024*1024);}finally{await sidecar.close();}
+  assert.equal(existsSync(database),false,'only a synthetic sidecar exists before lease preflight');
+  assert.throws(()=>reserveManagedScriptWrites(root,[id]),
+   /unsafe|concurrent|lease|size|sidecar/i,
+   'the oversized SQLite sidecar must be rejected safely');
+  assert.equal(existsSync(database),false,
+   'rejection must happen before SQLite creates a managed write-lock database');
+ }
 }));
