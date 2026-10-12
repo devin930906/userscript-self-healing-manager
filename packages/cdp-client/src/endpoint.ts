@@ -11,7 +11,7 @@ export function validateCdpPageSocket(target:{id:string;webSocketDebuggerUrl?:st
  const endpoint=target.webSocketDebuggerUrl;
  if(!endpoint)throw new Error('CDP page target has no debugger socket');
  const parsed=assertLocalDebuggerSocket(endpoint,port);
- if(!target.id||parsed.pathname!=='/devtools/page/'+encodeURIComponent(target.id))throw new Error('CDP page target identity mismatch');
+ if(typeof target.id!=='string'||!/^[A-Za-z0-9_-]+$/.test(target.id)||parsed.pathname!=='/devtools/page/'+target.id)throw new Error('CDP page target identity mismatch');
  return endpoint;
 }
 export function validateCdpBrowserSocket(endpoint:string,port=9223):string{
