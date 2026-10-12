@@ -30,8 +30,11 @@ function safeLeaseFile(file:string):void{
  for(const p of [file,file+'-journal',file+'-wal',file+'-shm']){
   try{
    const info=lstatSync(p);
+   // The Main write lease itself holds only a tiny SQLite transaction.
+   // Bound even existing WAL/SHM/journal files before allowing SQLite open.
+   const maxBytes=p===file?4*1024*1024:64*1024*1024;
    if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
-      (p===file&&info.size>4*1024*1024))
+      !Number.isSafeInteger(info.size)||info.size>maxBytes)
     throw new Error('Unsafe managed write lease file or SQLite sidecar');
   }catch(error){
    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
