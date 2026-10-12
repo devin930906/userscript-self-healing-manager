@@ -4,7 +4,7 @@ import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-cli
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 import {assertCredentialFreePageUrl} from '../../cdp-client/src/page-url-safety.ts';
 
-export type ReadOnlyDomExpectation='exists'|'unique';
+export type ReadOnlyDomExpectation='exists'|'unique'|'count-changed';
 export type ReadOnlyDomVerdict='passed'|'failed'|'needs-review';
 export interface ReadOnlyDomContractResult {
  readonly caseId:string;
@@ -93,7 +93,8 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
  validateCdpPageSocket(target);
  if(typeof caseId!=='string'||!/^[A-Za-z0-9_.:-]{1,100}$/.test(caseId))
   throw new Error('Invalid DOM test case id');
- if(expectation!=='exists'&&expectation!=='unique')throw new Error('Unsupported DOM contract');
+ if(expectation!=='exists'&&expectation!=='unique'&&expectation!=='count-changed')
+  throw new Error('Unsupported DOM contract');
  if(!locator||locator.runtimeRequired||!['querySelector','querySelectorAll','getElementById',
   'getElementsByClassName','getElementsByName'].includes(locator.method)||
   typeof locator.expression!=='string'||!locator.expression.trim()||locator.expression.length>1024||
@@ -143,6 +144,15 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
    }
    await guard();
   }else{
+   if(expectation==='count-changed'){
+    // This proves only a top-document count transition in two read-only
+    // samples. It cannot attribute the change to a userscript, interaction,
+    // business outcome, extension injection or any GM_* API.
+    return build(first!==count?'passed':'failed',
+     first!==count?'Top-document DOM match count changed between two read-only samples; no userscript behavior verified':
+     'Top-document DOM match count did not change between two read-only samples',
+     count,2);
+   }
    if(first!==count)return build('needs-review','DOM match count was unstable between samples',null,2);
    if(expectation==='unique'&&count===1&&firstIdentity!==identity)
     return build('needs-review','Unique DOM node identity changed between samples',null,2);

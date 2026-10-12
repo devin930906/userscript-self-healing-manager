@@ -158,3 +158,47 @@ test('contradictory collection status cannot produce a passing V1 DOM contract',
   }
  }
 });
+
+
+test('FR-025 named read-only DOM count-change contract observes a change without claiming user-script functionality',async()=>{
+ const sampleA=sample('missing',0,'querySelectorAll');
+ const sampleB=sample('found',1,'querySelectorAll');
+ const requestForChange={...request('exists','querySelectorAll'),
+  expectation:'count-changed' as unknown as Parameters<typeof runReadOnlyDomContract>[0]['expectation']};
+ const observed=await runReadOnlyDomContract({...requestForChange,deps:deps([sampleA,sampleB])});
+ assert.equal(observed.status,'passed');
+ assert.equal(observed.matchCount,1);
+ assert.equal(observed.attempts,2);
+ assert.equal(observed.evidenceLevel,'V1');
+ assert.equal(observed.V2,'blocked');
+ assert.equal(observed.V3,'not-configured');
+ assert.equal(observed.V4,'not-configured');
+ assert.equal(observed.functionalVerified,false);
+ assert.equal(observed.managerVerified,false);
+});
+test('FR-025 count-change assertion returns failed when two confirmed top-document counts are unchanged',async()=>{
+ const unchanged=sample('found',2,'querySelectorAll');
+ const expectation='count-changed' as unknown as Parameters<typeof runReadOnlyDomContract>[0]['expectation'];
+ const result=await runReadOnlyDomContract({...request('exists','querySelectorAll'),expectation,deps:deps([unchanged,unchanged])});
+ assert.equal(result.status,'failed');
+ assert.match(result.reason,/count|change|unchanged/i);
+ assert.equal(result.V3,'not-configured');
+});
+test('FR-025 count-change assertion cannot pass across a navigation that invalidates pinned page identity',async()=>{
+ const expectation='count-changed' as unknown as Parameters<typeof runReadOnlyDomContract>[0]['expectation'];
+ const d=deps([sample('missing',0,'querySelectorAll'),sample('found',1,'querySelectorAll')],['a','a','a','b']);
+ await assert.rejects(
+  runReadOnlyDomContract({...request('exists','querySelectorAll'),expectation,deps:d}),
+  /document|loader|identity|navigation/i);
+});
+
+
+test('FR-025 count-change is not inferred from a replaced element when the observed match count stayed one',async()=>{
+ const expectation='count-changed' as unknown as Parameters<typeof runReadOnlyDomContract>[0]['expectation'];
+ const first={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'a'.repeat(64)}]};
+ const second={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'b'.repeat(64)}]};
+ const result=await runReadOnlyDomContract({...request('exists'),expectation,deps:deps([first,second])});
+ assert.notEqual(result.status,'passed');
+ assert.equal(result.functionalVerified,false);
+ assert.equal(result.managerVerified,false);
+});
