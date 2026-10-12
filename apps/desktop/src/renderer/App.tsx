@@ -83,7 +83,7 @@ declare global {interface Window{ussm:{
  defaultBrowserProfile:(input:{profileId:string})=>Promise<BrowserProfile>;
  removeBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{deleted:boolean}>;
  launchBrowserProfile:(input:{profileId:string;approved:true})=>Promise<{started:boolean;port:number;isolated:true}>;
-  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}>;
+  pickChrome:()=>Promise<string|null>;launchChrome:()=>Promise<{started:boolean;port:number}>;launchIsolatedChrome:()=>Promise<{started:boolean;port:number;isolated:true}>;getCdpStatus:()=>Promise<{browser:string;protocolVersion:string|null;pages:{id:string;origin:string}[]}>;
  getManagerTargets:(input:{approved:true})=>Promise<UserscriptManagerTargetReport>;
  observePageExceptions:(input:{targetId:string;approved:true})=>Promise<PassivePageExceptionEvidence>;
  pickFiles:()=>Promise<string[]>;pickDirectory:()=>Promise<string|null>;
@@ -119,7 +119,7 @@ function App(){
  const [diagnosisHistory,setDiagnosisHistory]=useState<JournalRun[]|null>(null);
  const [error,setError]=useState('');const [message,setMessage]=useState('');const [focused,setFocused]=useState<number|null>(null);
  const [search,setSearch]=useState('');const [dragging,setDragging]=useState(false);
- const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;url:string}[]}|null>(null);
+ const [chromePath,setChromePath]=useState('');const [cdp,setCdp]=useState<{browser:string;protocolVersion:string|null;pages:{id:string;origin:string}[]}|null>(null);
  const [managerTargetReport,setManagerTargetReport]=useState<UserscriptManagerTargetReport|null>(null);
  const [managerBusy,setManagerBusy]=useState(false);
  const managerTargetGeneration=useRef(new LatestRequestGate());
@@ -895,7 +895,7 @@ function App(){
 
      <p className="dim">如 Chrome 136+ 的现有资料目录禁用远程调试，可主动使用隔离模式；资料保存在本软件 Data/Chrome-CDP-Profile。不会使用原有 Chrome 的登录状态或扩展，需要自行安装 Tampermonkey 与测试脚本。</p>
     {cdp&&<div className="notice">检测到本机 CDP：{cdp.browser} · 当前可见 Page Targets：{cdp.pages.length} · Protocol {cdp.protocolVersion||'未知'} · 未验证是否为已选择的 Chrome</div>}
-    {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map(p=><option key={p.id} value={p.id}>{p.url.slice(0,130)}</option>)}</select></div>}
+    {cdp&&cdp.pages.length>0&&<div className="toolbar"><label htmlFor="cdp-page">选择正在浏览的网页：</label><select id="cdp-page" aria-label="CDP 页面目标" value={targetId} onChange={e=>{setTargetId(e.target.value);setPageProbe(null);setRepairCandidates(null);setRepairNew('');setRepairProposal(null);}}><option value="">— 请明确选择目标网页 —</option>{cdp.pages.map((p,i)=><option key={p.id} value={p.id}>{p.origin.slice(0,130)} · 页面 {i+1}</option>)}</select></div>}
     <div className="toolbar">
      <button className="secondary" disabled={!targetId||!cdp||busy||exceptionBusy}
       onClick={()=>void observePageExceptions()}>{exceptionBusy?'观察中…':'观察网页异常（只计数）'}</button>

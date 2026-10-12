@@ -22,6 +22,7 @@ import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-re
 import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive-report.ts';
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getVerifiedChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
+import {displayCdpPageOrigin} from '../../../../packages/cdp-client/src/page-label.ts';
 import {inspectKnownUserscriptManagerTargets} from '../../../../packages/cdp-client/src/manager-targets.ts';
 import {loadPreferredChromePath,savePreferredChromePath} from '../../../../packages/cdp-client/src/preferred-chrome.ts';
 import {listBrowserProfiles,createBrowserProfile,renameBrowserProfile,setDefaultBrowserProfile,removeBrowserProfile,resolveBrowserProfileForLaunch,inspectBrowserProfileRegistry} from '../../../../packages/cdp-client/src/browser-profiles.ts';
@@ -391,7 +392,7 @@ async function bootstrap():Promise<void>{
   await launchSelectedChrome({executablePath:approvedChromePath,port:9223,isolatedProfileDir});
   return {started:true,port:9223,isolated:true};
  });
- ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getVerifiedChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,url:page.url}))};});
+ ipcMain.handle('usshm:cdp-status',async event=>{assertSender(event);const status=await getVerifiedChromeStatus({port:9223});return {browser:status.browser,protocolVersion:status.protocolVersion,pages:status.pages.map(page=>({id:page.id,origin:displayCdpPageOrigin(page.url)}))};});
  ipcMain.handle('usshm:manager-targets',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {approved?:unknown}|null;
