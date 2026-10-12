@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,writeFile,readFile,rm,mkdir,readdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,mkdir,readdir,symlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {commitManagedCurrent} from '../src/current-activation.ts';
@@ -61,4 +61,30 @@ test('activation of an archived revision requires an exact expected predecessor,
  const updated=await activateManagedRevision({managedRoot:root,scriptId:'script-one',
   hash:successorHash,approved:true,expectedCurrentHash:initialHash});
  assert.deepEqual(await readFile(updated.activePath),successor);
+}));
+
+
+test('FR-028 direct managed current activation refuses a linked ancestor before external files change',async(t)=>inTemp(async(root)=>{
+ const actual=join(root,'outside-real'),alias=join(root,'inside-alias');
+ await mkdir(actual);
+ const current=join(actual,'current.user.js'),initial=Buffer.from('synthetic approved immutable file');
+ await writeFile(current,initial);
+ try{await symlink(actual,alias,process.platform==='win32'?'junction':'dir');}
+ catch(e){
+  if(['EPERM','EACCES','ENOTSUP'].includes((e as NodeJS.ErrnoException).code??'')){
+   t.skip('Filesystem directory link not permitted on this host');return;
+  }
+  throw e;
+ }
+ await assert.rejects(
+  commitManagedCurrent({activePath:join(alias,'current.user.js'),
+   bytes:Buffer.from('malicious external overwrite'),
+   expectedActiveHash:sha(initial)}),
+  /unsafe|linked|junction|symlink|ancestor|directory/i,
+  'low-level managed publisher must not assume every caller checked every ancestor',
+ );
+ assert.deepEqual(await readFile(current),initial,
+  'an external file reached through a linked ancestor must not be overwritten');
+ assert.deepEqual(await readdir(actual),['current.user.js'],
+  'unsafe publication cannot leave a lock or staging file in the external directory');
 }));
