@@ -2,7 +2,7 @@ import {open} from 'node:fs/promises';
 import {lstatSync} from 'node:fs';
 import {mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
-import {createRepairTaskQueue} from '../../../../packages/scan-service/src/repair-task-queue.ts';
+import {createRepairTaskQueue,type RepairTaskStatus} from '../../../../packages/scan-service/src/repair-task-queue.ts';
 import {openRepairCheckpointStore} from '../../../../packages/scan-service/src/repair-checkpoint-store.ts';
 
 function assertTrustedAncestors(directory:string):void{
@@ -34,13 +34,16 @@ export async function executeDurableApprovedBatch<T>(input:{
  scriptId:string;
  preflight:()=>boolean|Promise<boolean>;
  write:()=>Promise<T>;
+ /** Observes only the public enum status, never a script ID or file path. */
+ onProgress?:(status:RepairTaskStatus)=>void;
 }):Promise<T>{
  if(!input||typeof input!=='object'||Array.isArray(input)||
     typeof input.dataRoot!=='string'||!isAbsolute(input.dataRoot)||
     typeof input.approvalId!=='string'||
     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(input.approvalId)||
     typeof input.scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(input.scriptId)||
-    typeof input.preflight!=='function'||typeof input.write!=='function')
+    typeof input.preflight!=='function'||typeof input.write!=='function'||
+    (input.onProgress!==undefined&&typeof input.onProgress!=='function'))
   throw new Error('Invalid durable repair approval identity');
 
  assertTrustedAncestors(input.dataRoot);
@@ -71,6 +74,7 @@ export async function executeDurableApprovedBatch<T>(input:{
    },
   }],{
    beforeDispatch:async()=>await input.preflight()===true,
+   onProgress:status=>input.onProgress?.(status.items[0]!.status),
    onCheckpoint:checkpoint=>store.save(checkpoint),
   });
   const final=await queue.run();

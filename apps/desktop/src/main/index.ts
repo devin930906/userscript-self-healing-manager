@@ -2,6 +2,7 @@ import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
+import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -60,6 +61,7 @@ const scanSessions=new ScanSessionCoordinator<ScanBatchResult>();
 const batchEvidence=new BatchEvidenceStore();
 const diagnosisRequests=new DiagnosisRequestGate();
 const pendingApprovals=new ProposalApprovalGate();
+const repairQueueActivity=createRepairQueueActivity();
 const authorizedRoots=new Set<string>();
 let approvedChromePath:string|null=null;
 function distributionMode():DistributionMode{
@@ -109,6 +111,10 @@ async function bootstrap():Promise<void>{
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:repair-queue-activity',event=>{
+  assertSender(event);
+  return repairQueueActivity.snapshot();
+ });
  ipcMain.handle('usshm:repair-queue-recovery',event=>{
   assertSender(event);
   return inspectRepairQueueRecovery(dataRoot);
@@ -897,6 +903,7 @@ async function bootstrap():Promise<void>{
       assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
       return true;
      },
+     onProgress:status=>repairQueueActivity.observe(proposalId,status),
      write:()=>batchRepairs.applyBatch({proposalId,approved:true}),
     }),
    });
@@ -959,6 +966,7 @@ async function bootstrap():Promise<void>{
       assertBatchProposalSnapshot(trusted,batchRepairs.inspectPending(proposalId));
       return true;
      },
+     onProgress:status=>repairQueueActivity.observe(proposalId,status),
      write:()=>batchRepairs.applyBatch({proposalId,approved:true}),
     }),
    });
