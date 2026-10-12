@@ -67,6 +67,7 @@ declare global {interface Window{ussm:{
  suggestRepairsBulk:(input:{scanId:string;itemIndex:number;targetId:string;approved:true;offset?:number})=>Promise<BulkCandidateResult>;
  proposeRepair:(input:{scanId:string;itemIndex:number;selectorIndex:number;newSelector:string})=>Promise<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}>;
  proposeBatchRepair:(input:{scanId:string;itemIndex:number;changes:{selectorIndex:number;newSelector:string}[]})=>Promise<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string}>;
+ applyMultiScriptBatch:(input:{scanId:string;jobs:{itemIndex:number;proposalId:string}[];approved:true;stopOnFailure?:boolean})=>Promise<{queued:number;running:number;completed:number;failed:number;blocked:number;cancelled:number}>;
  applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
  applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:string;activePath:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
@@ -177,7 +178,8 @@ function App(){
  const probeGeneration=useRef(new LatestRequestGate());
  const probeActive=useRef(false);
  const [repairProposal,setRepairProposal]=useState<{proposalId:string;oldSelector:string;newSelector:string;preview:string;baseHash:string;proposedHash:string}|null>(null);
- const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string}|null>(null);
+ const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string;itemIndex:number;scanId:string}|null>(null);
+ const [stagedMultiScriptJobs,setStagedMultiScriptJobs]=useState<{itemIndex:number;scriptId:string;proposalId:string;proposedHash:string}[]>([]);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
@@ -217,6 +219,7 @@ function App(){
  useEffect(()=>{setWatchEnabled(false);setWatchStatus(null);setWatchCheckedAt('');setWatchError('');},[focused,targetId]);
  useEffect(()=>{bulkGeneration.current.invalidate();if(bulkActive.current){bulkActive.current=false;setBusy(false);}setBulkRepairResults(null);},[focused,targetId,result]);
  useEffect(()=>{setBatchRepairProposal(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{setStagedMultiScriptJobs([]);},[result]);
  useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;batchPauseGate.current?.cancel();batchPauseGate.current=null;setBatchPaused(false);if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
@@ -659,13 +662,44 @@ function App(){
   if(changes.length<2){setMessage('至少需要两个已唯一验证的 DOM 候选才能准备批量修复；目前没有执行任何写入。');return;}
   setBusy(true);setError('');setBatchRepairProposal(null);
   try{
+   const approvalIndex=focused,approvalScanId=result.scanId;
    const reviewed=await window.ussm.proposeBatchRepair({
-    scanId:result.scanId,itemIndex:focused,changes,
+    scanId:approvalScanId,itemIndex:approvalIndex,changes,
    });
-   setBatchRepairProposal(reviewed);
+   setBatchRepairProposal({...reviewed,itemIndex:approvalIndex,scanId:approvalScanId});
    setMessage('已生成 '+reviewed.changes.length+' 处选择器的批量修复预览，尚未保存任何修订。V2/V3/V4 未验证。');
   }catch{setError('批量修复预览失败：源文件或已有受管修订可能发生变化，请重新扫描并检查候选。');}
   finally{setBusy(false);}
+ }
+ function stageCurrentMultiScriptRepair(){
+  if(!result||focused===null||!batchRepairProposal||
+     batchRepairProposal.itemIndex!==focused||batchRepairProposal.scanId!==result.scanId||
+     !result.items[focused]?.scriptId)return;
+  const scriptId=result.items[focused]!.scriptId!;
+  setStagedMultiScriptJobs(current=>{
+   const without=current.filter(row=>row.scriptId.toLowerCase()!==scriptId.toLowerCase());
+   return [...without,{itemIndex:focused,scriptId,proposalId:batchRepairProposal.proposalId,
+    proposedHash:batchRepairProposal.proposedHash}].slice(0,8);
+  });
+  setMessage('已暂存该脚本已分别审核的修复预览；尚未写入。请选择其他脚本并审核预览，至少两份不同脚本才能统一提交。');
+ }
+ async function applyStagedMultiScriptBatch(){
+  if(!result||busy||stagedMultiScriptJobs.length<2)return;
+  setBusy(true);setBatchApplying(true);setError('');
+  try{
+   const summary=await window.ussm.applyMultiScriptBatch({
+    scanId:result.scanId,approved:true,
+    jobs:stagedMultiScriptJobs.map(row=>({itemIndex:row.itemIndex,proposalId:row.proposalId})),
+   });
+   setStagedMultiScriptJobs([]);
+   setBatchRepairProposal(null);setManagedRevisions(null);setManagedHealth(null);
+   setMessage('多脚本受管修复完成：成功 '+summary.completed+'，失败 '+summary.failed+
+    '，阻止 '+summary.blocked+'，取消 '+summary.cancelled+
+    '。仅代表受管写入结果，原始脚本未覆盖；V2/V3/V4 未验证。');
+  }catch{
+   setStagedMultiScriptJobs([]);
+   setError('多脚本原生审批或受管修复失败；旧授权不可重放。请逐份重新检查并生成修复预览。');
+  }finally{setBatchApplying(false);setBusy(false);}
  }
  async function pauseCurrentBatchRepair(){
   if(!batchApplying||!batchRepairProposal)return;
@@ -1105,8 +1139,17 @@ function App(){
      <div className="dim">基础 SHA-256：{batchRepairProposal.baseHash} · 预期修订 SHA-256：{batchRepairProposal.proposedHash}</div>
      {batchRepairProposal.changes.map((x,i)=><p key={i}>源码选择器 #{x.selectorIndex+1} · 第 {x.line} 行、第 {x.column} 列 · {x.method}：<code>{x.oldSelector}</code> → <code>{x.newSelector}</code></p>)}
      <pre>{batchRepairProposal.preview}</pre>
+     <button type="button" disabled={busy||focused===null||batchRepairProposal.itemIndex!==focused||batchRepairProposal.scanId!==result?.scanId} onClick={stageCurrentMultiScriptRepair}>添加当前修复预览到多脚本队列</button>
      <button type="button" disabled={busy} onClick={()=>void applyBatchRepair()}>批准保存批量修复（受管副本）</button>
      <button type="button" disabled={busy||!targetId||!cdp} onClick={()=>void applyBatchRepairGuarded()}>批准保存并双次核验批量修复（V1）</button>
+    </div>}
+    {stagedMultiScriptJobs.length>0&&<div className="notice">
+     <b>多脚本受管修复队列 · 已分别审核 {stagedMultiScriptJobs.length} 份脚本</b>
+     <p>每份脚本的选择器预览须分别审核；统一批准前由 Main 再次核验每份授权、原脚本哈希和预览差异，不运行网页脚本，不覆盖原件。</p>
+     {stagedMultiScriptJobs.map(row=><p key={row.proposalId}>脚本 #{row.itemIndex+1} · 预期修订 SHA-256：<code>{row.proposedHash}</code>
+      <button type="button" className="secondary" disabled={busy} onClick={()=>setStagedMultiScriptJobs(prev=>prev.filter(x=>x.proposalId!==row.proposalId))}>移出队列</button></p>)}
+     <button type="button" disabled={busy||stagedMultiScriptJobs.length<2} onClick={()=>void applyStagedMultiScriptBatch()}>统一批准执行多脚本修复</button>
+     <small>V2/V3/V4 未验证。任一任务失败仍由独立受管检查点记录，取消的旧审批不能重放。</small>
     </div>}
     {bulkRepairResults&&<div className="notice">
      <p><b>批量缺失选择器建议</b>：当前前 50 个定位器中可检查的缺失 {bulkRepairResults.totalMissing} 处；已处理 {bulkRepairResults.checkedMissing} 处{bulkRepairResults.remainingMissing>0?`，还有 ${bulkRepairResults.remainingMissing} 处未检查`:''}。仅为 DOM 证据，不自动修改代码。</p>

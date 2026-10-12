@@ -2,6 +2,8 @@ import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
+import {executeDurableApprovedBatchSet} from './durable-batch-set.ts';
+import {parseMultiScriptBatchRequest} from './multi-script-batch-request.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
@@ -889,6 +891,95 @@ async function bootstrap():Promise<void>{
   }
   pendingApprovals.register(proposal.proposalId,scanSnapshot.scanId);
   return proposal;
+ });
+ ipcMain.handle('usshm:apply-multi-script-batch',async(event,input:unknown)=>{
+  assertSender(event);
+  // Renderer submits only opaque, previously inspected approval identities.
+  // Every actual source, script ID, patch, hash and write callback is resolved
+  // again from a trusted Main scan and Main-owned batch proposal.
+  const q=parseMultiScriptBatchRequest(input);
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const seenScripts=new Set<string>(),seenProposals=new Set<string>();
+  const reviewed=q.jobs.map(raw=>{
+   const row=raw as {itemIndex?:unknown;proposalId?:unknown}|null;
+   if(!row||typeof row!=='object'||Array.isArray(row)||
+      Object.keys(row).sort().join(',')!=='itemIndex,proposalId'||
+      !Number.isSafeInteger(row.itemIndex)||Number(row.itemIndex)<0||
+      typeof row.proposalId!=='string'||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(row.proposalId)||
+      seenProposals.has(row.proposalId.toLowerCase()))
+    throw new Error('Invalid or duplicated per-script batch approval');
+   const proposalId=row.proposalId;
+   const item=scanSnapshot.items[Number(row.itemIndex)];
+   const approved=batchRepairs.inspectPending(proposalId);
+   if(!item?.scriptId||!item.analysis||!withinAuthorized(item.path)||
+      !approved||approved.scriptId!==item.scriptId||
+      !/^[A-Za-z0-9_-]{1,64}$/.test(item.scriptId)||
+      seenScripts.has(item.scriptId.toLowerCase()))
+    throw new Error('Stale or repeated script in multi-script repair approval');
+   pendingApprovals.require(proposalId,scanSnapshot.scanId);
+   seenProposals.add(proposalId.toLowerCase());
+   seenScripts.add(item.scriptId.toLowerCase());
+   return Object.freeze({
+    proposalId,scriptId:item.scriptId,sourcePath:item.path,
+    sourceHash:item.analysis.sourceSha256,reviewed:approved,
+   });
+  });
+  // Per-item check is repeated before Main confirms, after the native dialog,
+  // immediately before queue dispatch and again before the managed callback.
+  // A missing/stale approval is blocked for that script, not an authorization
+  // to reuse an earlier inspected patch.
+  const revalidate=async(row:(typeof reviewed)[number]):Promise<boolean>=>{
+   pendingApprovals.require(row.proposalId,scanSnapshot.scanId);
+   scanSessions.assertCurrent(scanSnapshot);
+   assertBatchProposalSnapshot(row.reviewed,batchRepairs.inspectPending(row.proposalId));
+   if(!withinAuthorized(row.sourcePath))throw new Error('Scanned script authorization revoked');
+   const info=await lstat(row.sourcePath);
+   if(!info.isFile()||info.isSymbolicLink())
+    throw new Error('Unsafe original script; rescan required');
+   const bytes=await readPinnedRegularFile(row.sourcePath,{maxBytes:512*1024,expected:info});
+   if(createHash('sha256').update(bytes).digest('hex')!==row.sourceHash)
+    throw new Error('Original script changed since approved scan');
+   pendingApprovals.require(row.proposalId,scanSnapshot.scanId);
+   scanSessions.assertCurrent(scanSnapshot);
+   assertBatchProposalSnapshot(row.reviewed,batchRepairs.inspectPending(row.proposalId));
+   return true;
+  };
+  try{
+   for(const row of reviewed)await revalidate(row);
+   const groupId=randomUUID();
+   return await approveAndApplyManagedRevision({
+    confirm:()=>dialog.showMessageBox(mainWindow,{
+     type:'warning',title:'统一批准多份脚本的受管修复',
+     message:'确认分别审核过的 '+reviewed.length+' 份脚本修订依次写入受管副本？',
+     detail:'每份脚本都会重新核对授权、源文件哈希和预览差异。原始脚本不变；失败隔离；不会安装到油猴管理器。V2/V3/V4 未验证。',
+     buttons:['取消','确认逐项应用'],defaultId:0,cancelId:0,noLink:true,
+    }),
+    revalidate:async()=>{for(const row of reviewed)await revalidate(row);},
+    apply:()=>executeDurableApprovedBatchSet({
+     dataRoot,groupId,stopOnFailure:q.stopOnFailure===true,
+     items:reviewed.map(row=>({
+      approvalId:row.proposalId,scriptId:row.scriptId,
+      // Revocation of the pending proposal is observed by the durable
+      // queue's live permission checks, not just at group construction.
+      get approved(){return batchRepairs.inspectPending(row.proposalId)!==null;},
+      preflight:async()=>{
+       try{return await revalidate(row);}catch{return false;}
+      },
+      write:async()=>{
+       await revalidate(row);
+       return batchRepairs.applyBatch({proposalId:row.proposalId,approved:true});
+      },
+     })),
+     onRegisterControls:controls=>repairQueueCancellation.attach(
+      groupId,controls.cancel,{pause:controls.pause,resume:controls.resume}),
+    }),
+   });
+  }finally{
+   // No old approval survives either a dismissal, a partial failure, or
+   // successful completion; a new multi-script action needs fresh proposals.
+   for(const row of reviewed)pendingApprovals.consume(row.proposalId);
+  }
  });
  ipcMain.handle('usshm:apply-batch-repair',async(event,input:unknown)=>{
   assertSender(event);
