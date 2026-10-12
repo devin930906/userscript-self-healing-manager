@@ -93,3 +93,24 @@ test('an arbitrary web page with a claimed extension ID or a malformed extension
  ]);
  assert.deepEqual((await run(s)).observed,[]);
 });
+
+test('manager target discovery redacts injected transport constructor errors',async()=>{
+ const secret='private-ws-token-in-factory-error';
+ await assert.rejects(inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:browser,expectedProduct:product,
+  socketFactory:()=>{throw new Error(secret);},
+ }),error=>{
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'CDP manager target socket initialization failed');
+  assert.doesNotMatch(error.message,/private-ws-token/);
+  return true;
+ });
+});
+test('manager target discovery rejects invalid custom socket interfaces before CDP communication',async()=>{
+ for(const socket of [null,{}, {send:()=>{}}, {addEventListener:()=>{},removeEventListener:()=>{},send:()=>{}}]){
+  await assert.rejects(inspectKnownUserscriptManagerTargets({
+   approved:true,browserEndpoint:browser,expectedProduct:product,
+   socketFactory:()=>socket as unknown as BrowserSocket,
+  }),/Invalid CDP manager target socket interface/);
+ }
+});
