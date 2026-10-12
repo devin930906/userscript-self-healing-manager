@@ -416,7 +416,12 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
           if(marker!=='FRAME_MARKER_44')return null;
           return {loaded:true,marker,bridge:typeof frame.contentWindow.ussm,
             ipc:typeof frame.contentWindow.ipcRenderer,node:typeof frame.contentWindow.require};
-        })()`);
+        })()`).catch((error:unknown)=>{
+          // An iframe navigation may briefly replace CDP's default execution
+          // context; retry only that bounded transient, never security errors.
+          if(/Cannot find default execution context|Execution context was destroyed|Cannot find context with specified id/i.test(String(error)))return null;
+          throw error;
+        });
         if(probe){outcome=probe;break;}
         await delay(100);
       }
