@@ -12,7 +12,7 @@ test('CDP page socket accepts canonical Chrome page target IDs',()=>{
 test('CDP page socket rejects noncanonical target IDs even if the URL percent-encodes them',()=>{
  for(const id of ['','.', '..','a/b','a\\b','a b','a%2Fb','a.b','bad?fragment','abc#hash','💡']){
   const endpoint='ws://127.0.0.1:9223/devtools/page/'+encodeURIComponent(id);
-  assert.throws(()=>validateCdpPageSocket({id,webSocketDebuggerUrl:endpoint}),/identity mismatch/,id);
+  assert.throws(()=>validateCdpPageSocket({id,webSocketDebuggerUrl:endpoint}),/identity mismatch|Noncanonical CDP debugger socket URL/,id);
  }
 });
 
