@@ -55,6 +55,16 @@ export function inspectRepairQueueRecovery(dataRoot:string):RepairQueueRecoveryS
  // Match Windows case-insensitive filenames without resolving or opening any
  // sidecar path (the SQLite reader separately validates existing sidecars).
  const names=new Set(entries.map(name=>process.platform==='win32'?name.toLowerCase():name));
+ // Old Alpha builds used the caller's UUID spelling in SQLite filenames.
+ // On case-sensitive filesystems, two files may represent ONE approval.
+ // Never report either alias as independently completed work.
+ const seenApprovals=new Set<string>(),ambiguousApprovals=new Set<string>();
+ for(const name of entries){
+  if(!CHECKPOINT.test(name))continue;
+  const identity=name.toLowerCase();
+  if(seenApprovals.has(identity))ambiguousApprovals.add(identity);
+  seenApprovals.add(identity);
+ }
  for(const name of entries){
   const sidecar=SIDECAR.exec(name);
   if(sidecar){
@@ -69,6 +79,10 @@ export function inspectRepairQueueRecovery(dataRoot:string):RepairQueueRecoveryS
    continue;
   }
   result.checkpointFiles++;
+  if(ambiguousApprovals.has(name.toLowerCase())){
+   result.unreadable++;
+   continue;
+  }
   try{
    const summary=readRepairCheckpointSummary(join(folder,name));
    result.completed+=summary.completed;
