@@ -61,3 +61,38 @@ test('rollback rejects symlinked managed current file and leaves outside target 
  await assert.rejects(activateManagedRevision({managedRoot:root,scriptId:'my-script',hash:originalHash,approved:true}),/symlink/i);
  assert.equal(await readFile(external,'utf8'),'outside safety marker');
 }));
+
+
+test('FR-028 refuses a managed-root path routed through an ancestor symlink or Windows junction before rollback',async(t)=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-history-parent-alias-'));
+ const realRoot=join(root,'real'),alias=join(root,'alias');
+ const source='const marker="trusted-revision";\\n',sha=hash(source);
+ const managedRoot=join(realRoot,'Data');
+ const folder=join(managedRoot,'managed','script-a');
+ try{
+  await mkdir(folder,{recursive:true});
+  await writeFile(join(folder,'original-'+sha+'.user.js'),source);
+  try{
+   await symlink(realRoot,alias,process.platform==='win32'?'junction':'dir');
+  }catch(error){
+   if(['EPERM','EACCES','ENOTSUP'].includes((error as NodeJS.ErrnoException).code??'')){
+    t.skip('Windows runner cannot create a directory junction');
+    return;
+   }
+   throw error;
+  }
+  const routed=join(alias,'Data');
+  await assert.rejects(
+   listManagedRevisions({managedRoot:routed,scriptId:'script-a'}),
+   /unsafe|symlink|junction|ancestor|directory/i,
+   'read-only revision inventory must not trust linked ancestor directories',
+  );
+  await assert.rejects(
+   activateManagedRevision({managedRoot:routed,scriptId:'script-a',hash:sha,approved:true}),
+   /unsafe|symlink|junction|ancestor|directory/i,
+   'approved rollback must fail closed before writing via a linked parent',
+  );
+  await assert.rejects(readFile(join(folder,'current.user.js')),{code:'ENOENT'});
+  assert.equal(await readFile(join(folder,'original-'+sha+'.user.js'),'utf8'),source);
+ }finally{await rm(root,{recursive:true,force:true})}
+});
