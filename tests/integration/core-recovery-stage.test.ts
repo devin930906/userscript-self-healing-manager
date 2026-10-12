@@ -98,9 +98,10 @@ test('QA-060 standalone core bundle verification refuses an ancestor directory s
  }finally{
   try{await unlink(alias);}
   catch(error){
-   if((error as NodeJS.ErrnoException).code==='ENOENT')return;
-   if(['EPERM','EISDIR'].includes((error as NodeJS.ErrnoException).code??''))await rmdir(alias);
-   else throw error;
+   if((error as NodeJS.ErrnoException).code!=='ENOENT'){
+    if(['EPERM','EISDIR'].includes((error as NodeJS.ErrnoException).code??''))await rmdir(alias);
+    else throw error;
+   }
   }
  }
 }));
@@ -128,9 +129,10 @@ test('QA-060 offline staging rejects symlink/junction ancestors in both snapshot
  }finally{
   try{await unlink(alias);}
   catch(error){
-   if((error as NodeJS.ErrnoException).code==='ENOENT')return;
-   if(['EPERM','EISDIR'].includes((error as NodeJS.ErrnoException).code??''))await rmdir(alias);
-   else throw error;
+   if((error as NodeJS.ErrnoException).code!=='ENOENT'){
+    if(['EPERM','EISDIR'].includes((error as NodeJS.ErrnoException).code??''))await rmdir(alias);
+    else throw error;
+   }
   }
  }
 }));
