@@ -3,6 +3,7 @@ import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './co
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
 import {executeDurableApprovedBatchSet} from './durable-batch-set.ts';
+import {parseMultiScriptBatchRequest} from './multi-script-batch-request.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
@@ -896,13 +897,7 @@ async function bootstrap():Promise<void>{
   // Renderer submits only opaque, previously inspected approval identities.
   // Every actual source, script ID, patch, hash and write callback is resolved
   // again from a trusted Main scan and Main-owned batch proposal.
-  const q=input as {scanId?:unknown;jobs?:unknown;approved?:unknown;stopOnFailure?:unknown}|null;
-  const fields=q&&typeof q==='object'&&!Array.isArray(q)?Object.keys(q).sort().join(','):'';
-  if(!q||(fields!=='approved,jobs,scanId'&&fields!=='approved,jobs,scanId,stopOnFailure')||
-     q.approved!==true||typeof q.scanId!=='string'||
-     !Array.isArray(q.jobs)||q.jobs.length<2||q.jobs.length>8||
-     (q.stopOnFailure!==undefined&&typeof q.stopOnFailure!=='boolean'))
-   throw new Error('Two or more separately reviewed managed script approvals required');
+  const q=parseMultiScriptBatchRequest(input);
   const scanSnapshot=scanSessions.require(q.scanId);
   const seenScripts=new Set<string>(),seenProposals=new Set<string>();
   const reviewed=q.jobs.map(raw=>{
