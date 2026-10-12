@@ -56,7 +56,7 @@ function onlyDataFields(value:unknown,allowed:ReadonlySet<string>):boolean{
  * validate per-script counts or claimed verification levels.
  */
 function assertValidDomRow(row:BatchDomItem|undefined):void{
- if(!onlyDataFields(row,ROW_FIELDS))
+ if(!row||!onlyDataFields(row,ROW_FIELDS))
   throw new Error('Invalid paginated DOM evidence row payload');
  if(row.reason!==undefined&&!INTERNAL_REASONS.has(row.reason))
   throw new Error('Invalid paginated DOM reason: untrusted diagnostic text');
