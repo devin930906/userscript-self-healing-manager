@@ -53,7 +53,10 @@ test('Task 7 batch: duplicate input is skipped, unreadable and parse failures ar
   assert.equal(result.items[1]?.analysis,undefined);
   assert.equal(result.items[2]?.scriptId,undefined);
   assert.equal(result.items[2]?.status,'unreadable');
-  assert.ok(result.items[2]?.diagnostics.some(diagnostic=>diagnostic.includes('ENOENT') && diagnostic.includes(absent)), 'missing direct-file path must preserve its ENOENT cause and exact path');
+  assert.ok(result.items[2]?.diagnostics.some(diagnostic=>diagnostic.includes('ENOENT')),
+   'missing direct-file error must preserve the safe ENOENT code');
+  assert.ok(result.items[2]?.diagnostics.every(diagnostic=>!diagnostic.includes(absent)),
+   'diagnostics must not repeat a private path; item.path already retains the selected file identity');
   assert.ok(result.items[3]?.diagnostics.length,'parse failure must retain diagnostics');
   assert.equal(repository.list().length,3,'duplicate and unreadable items must not create records; parse-error remains recorded');
   assert.deepEqual(repository.list().map(record=>record.path).sort(),[first,invalid,last].sort());
