@@ -40,7 +40,13 @@ export async function inspectKnownUserscriptManagerTargets({
   throw new Error('Verified Chrome browser product required');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
   throw new Error('Invalid manager discovery timeout');
- const socket=(socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ let socket:SocketLike;
+ try { socket=(socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint); }
+ catch { throw new Error('CDP manager target socket initialization failed'); }
+ if(!socket||typeof socket.addEventListener!=='function'||
+    typeof socket.removeEventListener!=='function'||
+    typeof socket.send!=='function'||typeof socket.close!=='function')
+  throw new Error('Invalid CDP manager target socket interface');
  return await new Promise<UserscriptManagerTargetReport>((resolve,reject)=>{
   let done=false,id=0,expected=0,method:'Browser.getVersion'|'Target.getTargets'='Browser.getVersion';
   const finish=(error?:Error,report?:UserscriptManagerTargetReport)=>{
