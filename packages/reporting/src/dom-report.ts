@@ -48,6 +48,7 @@ export function serializeDomBatchReport(
    throw new Error('Invalid or overstated userscript verification');
   if(v.V0==='not-configured'||(v.V1==='passed'||v.V1==='failed')&&v.V0!=='passed'||
    v.V1==='not-configured'&&row.status!=='no-evidence'||
+   row.status==='no-evidence'&&v.V0==='passed'&&v.V1!=='not-configured'||
    v.highestVerified!==(v.V1==='passed'?'V1':v.V0==='passed'?'V0':null))
    throw new Error('Invalid DOM verification level evidence');
   if(v.V1==='passed'&&(row.status!=='dom-present'||row.checked<1||row.found!==row.checked))
