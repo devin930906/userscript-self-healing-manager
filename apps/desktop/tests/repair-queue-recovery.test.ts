@@ -76,3 +76,32 @@ test('FR-029 recovery status crosses an explicitly named trusted Main IPC and re
  assert.match(ui,/重新扫描并审批/);
  assert.doesNotMatch(ui,/window\.ussm\.retryRecovered|window\.ussm\.resumeRecovered/);
 });
+
+
+test('FR-029 orphan SQLite WAL/SHM/journal sidecars without a matching UUID checkpoint are not silently ignored',async()=>fixture(async root=>{
+ const folder=join(root,'repair-queue');
+ await mkdir(folder);
+ const validOrphan=randomUUID();
+ const suffixes=['-wal','-shm','-journal'];
+ for(const suffix of suffixes){
+  await writeFile(join(folder,validOrphan+'.sqlite'+suffix),'ORPHAN_PRIVATE');
+  await writeFile(join(folder,'not-a-uuid.sqlite'+suffix),'INVALID_PRIVATE');
+ }
+ const result=inspectRepairQueueRecovery(root);
+ assert.deepEqual(result,{
+  checkpointFiles:0,completed:0,needsReview:0,uncertain:0,unreadable:6,
+ },'each unpaired or malformed sidecar is a recovery warning, not a clean state');
+ assert.doesNotMatch(JSON.stringify(result),/ORPHAN_PRIVATE|INVALID_PRIVATE|not-a-uuid/);
+}));
+
+test('FR-029 ordinary SQLite WAL/SHM sidecars paired with a live valid checkpoint do not create false alarms',async()=>fixture(async root=>{
+ const folder=join(root,'repair-queue');
+ await mkdir(folder);
+ const db=openRepairCheckpointStore(join(folder,randomUUID()+'.sqlite'));
+ try{
+  await db.save({version:1,items:[record('ACTIVE','completed',1)]});
+  assert.deepEqual(inspectRepairQueueRecovery(root),{
+   checkpointFiles:1,completed:1,needsReview:0,uncertain:0,unreadable:0,
+  });
+ }finally{db.close();}
+}));
