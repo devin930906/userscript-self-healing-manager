@@ -37,8 +37,11 @@ export async function assertWindowsPeExecutable(path:string):Promise<void>{
   const expectedMagic=machine===0x014c?0x10b:
    machine===0x8664||machine===0xaa64?0x20b:null;
   const minOptionalBytes=expectedMagic===0x10b?96:112;
+  // The COFF NumberOfSections declares a fixed 40-byte table immediately
+  // after the optional header. Reject truncated tables before any spawn.
+  const sectionTableEnd=offset+24+optionalBytes+sections*40;
   if(expectedMagic===null||magic!==expectedMagic||sections<1||sections>96||
-     optionalBytes<minOptionalBytes||offset+24+optionalBytes>opened.size)
+     optionalBytes<minOptionalBytes||sectionTableEnd>opened.size)
    throw invalid();
   const after=await handle.stat();
   const atPath=await lstat(path);
