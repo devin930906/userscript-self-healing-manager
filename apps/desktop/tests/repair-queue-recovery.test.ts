@@ -105,3 +105,23 @@ test('FR-029 ordinary SQLite WAL/SHM sidecars paired with a live valid checkpoin
   });
  }finally{db.close();}
 }));
+
+
+test('FR-029 recovery refuses to count case-only aliases of one historical UUID as two completed approvals',async t=>fixture(async root=>{
+ // NTFS merges these names already; Linux needs explicit UUID canonicalization.
+ if(process.platform==='win32'){t.skip('requires case-sensitive checkpoint filenames');return;}
+ const folder=join(root,'repair-queue');
+ await mkdir(folder);
+ const lower='abcdef12-3456-4abc-8def-1234567890ab';
+ const upper=lower.toUpperCase();
+ for(const name of [lower,upper]){
+  const store=openRepairCheckpointStore(join(folder,name+'.sqlite'));
+  try{await store.save({version:1,items:[record('PRIVATE_ALIAS','completed',1)]});}
+  finally{store.close();}
+ }
+ const found=inspectRepairQueueRecovery(root);
+ assert.deepEqual(found,{
+  checkpointFiles:2,completed:0,needsReview:0,uncertain:0,unreadable:2,
+ },'two physical SQLite files for one UUID must be treated as ambiguous, not two approvals');
+ assert.doesNotMatch(JSON.stringify(found),/PRIVATE_ALIAS|abcdef12|ABCDEF12/);
+}));
