@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { resolveDataRoot, ensureWritableDataRoot } from '../src/index.ts';
 import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join,win32 } from 'node:path';
 
 test('installed application keeps userData outside the binary folder', () => {
   assert.equal(resolveDataRoot({ distributionMode: 'installed', exeDirectory: 'C:\\Program Files\\USSHM', osUserDataDirectory: 'C:\\Users\\Public\\AppData\\USSHM' }), 'C:\\Users\\Public\\AppData\\USSHM');
@@ -25,4 +25,22 @@ test('writable data root is created without deleting existing settings', async()
   const root=await mkdtemp(join(tmpdir(),'usshm-data-'));const target=join(root,'Data');
   try { await ensureWritableDataRoot(target);const {writeFile}=await import('node:fs/promises'); await writeFile(join(target,'settings.json'),'{}'); await ensureWritableDataRoot(target);assert.equal(await readFile(join(target,'settings.json'),'utf8'),'{}');}
   finally {await rm(root,{recursive:true,force:true});}
+});
+
+
+test('FR-046 rejects unrecognized runtime distribution mode rather than silently using ZIP Data path',()=>{
+ const input={
+  exeDirectory:'D:\\USSHM-App',
+  osUserDataDirectory:'D:\\USSHM-UserData',
+  portableExternalDirectory:'D:\\External',
+ };
+ for(const distributionMode of ['portable-zip ', 'portable-ex', 'preview','installed-v2',''] as const){
+  assert.throws(
+   ()=>resolveDataRoot({...input,distributionMode} as unknown as Parameters<typeof resolveDataRoot>[0]),
+   /distribution|mode|invalid|unsupported/i,
+   'Unknown mode '+JSON.stringify(distributionMode)+' must never select a potentially unrelated writable Data directory',
+  );
+ }
+ assert.equal(resolveDataRoot({...input,distributionMode:'installed'}),input.osUserDataDirectory);
+ assert.equal(resolveDataRoot({...input,distributionMode:'portable-zip'}),win32.join(input.exeDirectory,'Data'));
 });
