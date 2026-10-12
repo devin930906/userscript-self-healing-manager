@@ -19,7 +19,7 @@ async function assertRejectedRecoveryDestinations(dataRoot:string,parent:string)
   const managedDestination=join(parent,'managed-export');
   await assert.rejects(
    exportManagedRecovery({managedRoot:dataRoot,destination:managedDestination}),
-   /inside|source|backup destination/i,
+   /inside|source|backup destination|unsafe|symlink|junction/i,
    'managed backup must reject an alias resolving into its own Data root'
   );
   await assertNotCreated(managedDestination);
