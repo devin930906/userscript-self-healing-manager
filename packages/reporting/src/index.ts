@@ -1,10 +1,9 @@
 import type {ScanBatchResult} from '../../scan-service/src/index.ts';
 import {projectVerificationLevels} from '../../scan-service/src/verification-levels.ts';
-const escapeMarkdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[|`]/g,'\\const escapeMarkdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[|`]/g,'\\$&').replace(/\r?\n/g,' ');').replace(/\r?\n/g,' ');
+const escapeMarkdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[|`]/g,'\\$&').replace(/\r?\n/g,' ');
 /**
- * A static report is an exportable artifact, not a trusted error log.
- * Full paths identify local accounts; arbitrary parser/FS exceptions may
- * embed source content, credentials, URLs or private directories.
+ * Static reports cross a privacy boundary: do not serialize local account
+ * directory names, raw filesystem errors, source snippets or embedded URLs.
  */
 const reportFileName=(path:string):string=>{
  const last=path.replace(/\\/g,'/').split('/').at(-1)??'';
