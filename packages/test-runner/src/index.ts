@@ -2,6 +2,7 @@ import type {ChromeTarget} from '../../cdp-client/src/index.ts';
 import {asCss,type LiteralLocator,type LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
+import {assertCredentialFreePageUrl} from '../../cdp-client/src/page-url-safety.ts';
 
 export type ReadOnlyDomExpectation='exists'|'unique';
 export type ReadOnlyDomVerdict='passed'|'failed'|'needs-review';
@@ -86,6 +87,7 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
  if(approved!==true)throw new Error('Explicit DOM contract approval required');
  if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||target.id.length>128||
     typeof target.url!=='string'||!/^https?:\/\//i.test(target.url))throw new Error('Invalid CDP target');
+ assertCredentialFreePageUrl(target.url);
  // The contract is a public orchestration boundary: do not assume an
  // injected confirm/probe adapter checked the CDP target before being called.
  validateCdpPageSocket(target);
