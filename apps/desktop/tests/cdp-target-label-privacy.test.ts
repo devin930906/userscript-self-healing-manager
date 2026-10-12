@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
-import {displayCdpPageOrigin} from '../../packages/cdp-client/src/page-label.ts';
+import {displayCdpPageOrigin} from '../../../packages/cdp-client/src/page-label.ts';
 
 test('RG-07 Chrome page picker never receives username, password, private path, query tokens or fragment',()=>{
  const label=displayCdpPageOrigin('https://alice:SUPER_SECRET@private.example.invalid/accounts/alice/recovery?access_token=SECRET_ACCESS#private-chat');
