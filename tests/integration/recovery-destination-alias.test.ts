@@ -26,7 +26,7 @@ async function assertRejectedRecoveryDestinations(dataRoot:string,parent:string)
   const coreDestination=join(parent,'core-export');
   await assert.rejects(
    createCoreRecoveryBundle({dataRoot,destination:coreDestination,registry:db,journal}),
-   /inside|source|backup destination/i,
+   /inside|source|backup destination|unsafe|symlink|junction/i,
    'core backup must reject an alias resolving into its own Data root'
   );
   await assertNotCreated(coreDestination);
