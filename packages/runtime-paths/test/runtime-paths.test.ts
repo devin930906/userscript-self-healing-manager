@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { resolveDataRoot, ensureWritableDataRoot } from '../src/index.ts';
 import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join,win32 } from 'node:path';
 
 test('installed application keeps userData outside the binary folder', () => {
   assert.equal(resolveDataRoot({ distributionMode: 'installed', exeDirectory: 'C:\\Program Files\\USSHM', osUserDataDirectory: 'C:\\Users\\Public\\AppData\\USSHM' }), 'C:\\Users\\Public\\AppData\\USSHM');
@@ -42,5 +42,5 @@ test('FR-046 rejects unrecognized runtime distribution mode rather than silently
   );
  }
  assert.equal(resolveDataRoot({...input,distributionMode:'installed'}),input.osUserDataDirectory);
- assert.equal(resolveDataRoot({...input,distributionMode:'portable-zip'}),join(input.exeDirectory,'Data'));
+ assert.equal(resolveDataRoot({...input,distributionMode:'portable-zip'}),win32.join(input.exeDirectory,'Data'));
 });
