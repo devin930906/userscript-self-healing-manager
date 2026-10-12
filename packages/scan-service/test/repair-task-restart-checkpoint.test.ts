@@ -99,7 +99,10 @@ test('FR-029 cancellation while awaiting a durable running checkpoint never invo
    if(state.items[0]?.status==='running'){enter();await pending;}
   }} as any);
  const run=q.run();
- await started;
+ // A missing implementation must FAIL RED promptly, never hang an entire CI
+ // worker waiting for a hook which old code never invokes.
+ await Promise.race([started,new Promise<void>((_,reject)=>
+  setTimeout(()=>reject(new Error('Expected durable running checkpoint was not called')),1000))]);
  q.cancel();
  finish();
  const end=await run;
