@@ -106,13 +106,19 @@ test('FR-029 failed SQLite commit stops pending repair before its callback can w
  assert.equal(executed,0);
 }));
 
+function openingError(file:string):unknown{
+ let opened:ReturnType<typeof openRepairCheckpointStore>|undefined;
+ try{opened=openRepairCheckpointStore(file);return null;}
+ catch(error){return error;}
+ finally{opened?.close();}
+}
 test('FR-029 refuses a hard-linked SQLite checkpoint before mutating the other database',async()=>fixture(async(file,root)=>{
  const anotherDatabase=join(root,'another-app.sqlite');
  const privateDb=new DatabaseSync(anotherDatabase);
  assert.equal((privateDb.prepare('PRAGMA user_version').get() as {user_version:number}).user_version,0);
  privateDb.close();
  await link(anotherDatabase,file);
- assert.throws(()=>openRepairCheckpointStore(file),/unsafe|hard.?link|linked/i);
+ assert.match((openingError(file) as Error|null)?.message??'',/unsafe|hard.?link|linked/i);
  const unchanged=new DatabaseSync(anotherDatabase,{readOnly:true});
  assert.equal((unchanged.prepare('PRAGMA user_version').get() as {user_version:number}).user_version,0);
  assert.equal(unchanged.prepare("SELECT COUNT(*) AS total FROM sqlite_master WHERE type='table'").get()?.total,0);
@@ -124,7 +130,7 @@ test('FR-029 refuses unsafe SQLite WAL, SHM and journal sidecars before creating
   const file=join(root,'blocked-'+suffix.slice(1)+'.sqlite');
   await mkdir(file+suffix);
   assert.equal(existsSync(file),false);
-  assert.throws(()=>openRepairCheckpointStore(file),/unsafe|sidecar|linked/i);
+  assert.match((openingError(file) as Error|null)?.message??'',/unsafe|sidecar|linked/i);
   assert.equal(existsSync(file),false,'sidecar preflight must precede SQLite open: '+suffix);
  }
 }));
