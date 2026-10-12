@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {randomUUID} from 'node:crypto';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,mkdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
@@ -183,4 +183,19 @@ test('FR-029 a case-only spelling of a consumed native approval UUID cannot repl
   /checkpoint|review|replay|unavailable/i,
   'UUID identity must not depend on Linux case-sensitive journal filenames');
  assert.equal(writes,1,'one logical approval cannot authorize a second managed write');
+}));
+
+
+test('FR-029 legacy upper-case SQLite approval checkpoint also blocks new lower-case replay on Linux',async()=>fixture(async root=>{
+ const lower='abcdef12-3456-4abc-8def-1234567890ab';
+ await mkdir(join(root,'repair-queue'));
+ // Simulate an existing older Alpha checkpoint whose filename used its raw UUID.
+ await writeFile(file(root,lower.toUpperCase()),Buffer.from('LEGACY_JOURNAL_DO_NOT_TRUST'));
+ let writes=0;
+ await assert.rejects(executeDurableApprovedBatch({
+  dataRoot:root,approvalId:lower,scriptId:'same-reviewed-source',
+  preflight:()=>true,write:async()=>{writes++;return 'replayed';},
+ }),/checkpoint|review|replay|unavailable/i,
+ 'new canonical filenames must not reauthorize a legacy case-variant journal');
+ assert.equal(writes,0);
 }));
