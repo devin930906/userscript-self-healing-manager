@@ -70,6 +70,6 @@ test('FR-025 switching the DOM expectation synchronously revokes in-flight V1 ev
  assert.match(selector,/setContractEvidence\(null\)/);
  const flow=ui.split('async function runDomContract()')[1]?.split('async function suggestBulkRepairs')[0]??'';
  assert.match(flow,/contractGeneration\.current\.isCurrent\(token\)/);
- assert.match(flow,/finally\{if\(contractGeneration\.current\.isCurrent\(token\)\)/,
+ assert.match(flow,/finally\s*\{\s*if\(contractGeneration\.current\.isCurrent\(token\)\)/,
   'late request cleanup must not clear a newer in-flight validation');
 });
