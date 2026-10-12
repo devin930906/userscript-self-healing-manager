@@ -84,6 +84,27 @@ function decode(serialized:unknown):DiskState{
  if(new Set(rows.map(x=>x.key)).size!==rows.length)unsafe();
  return {version:1,rows};
 }
+/** A durable journal may never turn a finished or abandoned write back into
+ * runnable work. The only requeue is an explicit in-process failed-job retry.
+ * This is a state-machine check, not authentication of an externally edited DB. */
+function assertCheckpointTransition(previous:DiskRow,next:DiskRow):void{
+ const allowed:Record<RepairTaskStatus,readonly RepairTaskStatus[]>={
+  queued:['queued','running','blocked','cancelled'],
+  running:['running','completed','failed','blocked','cancelled'],
+  failed:['failed','queued','blocked','cancelled'],
+  completed:['completed'],
+  blocked:['blocked'],
+  cancelled:['cancelled','blocked'],
+ };
+ if(previous.key!==next.key||!allowed[previous.status].includes(next.status)||
+    next.attempts<previous.attempts||
+    (next.status===previous.status&&next.attempts!==previous.attempts)||
+    (previous.status==='queued'&&next.status==='running'&&next.attempts!==previous.attempts+1)||
+    (previous.status==='failed'&&next.status==='queued'&&next.attempts!==previous.attempts)||
+    ((previous.status==='running'||previous.status==='failed'||previous.status==='cancelled')&&
+     next.attempts!==previous.attempts))
+  throw new Error('Unsafe repair checkpoint state transition');
+}
 function assertSchema(db:DatabaseSync):void{
  const v=(db.prepare('PRAGMA user_version').get() as {user_version:number}).user_version;
  if(v!==1)throw new Error('Unsupported repair checkpoint SQLite schema version');
@@ -145,6 +166,8 @@ export function openRepairCheckpointStore(file:string){
      if(old.rows.length!==state.rows.length||
         old.rows.some((row,i)=>row.key!==state.rows[i]!.key))
       throw new Error('Repair checkpoint task identity mismatch');
+     for(let i=0;i<old.rows.length;i++)
+      assertCheckpointTransition(old.rows[i]!,state.rows[i]!);
     }
     put.run(serialized);
     db.exec('COMMIT');
