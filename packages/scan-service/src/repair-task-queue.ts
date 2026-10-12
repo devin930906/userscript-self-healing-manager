@@ -239,10 +239,24 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   // active=false, letting a reentrant progress listener call run() and seize
   // half of the retry set before this invocation acquires the run lease.
   // run() atomically acquires active=true before its first observer emit.
+  const rearmed:Array<{index:number;previous:RepairTaskRow}>=[];
   for(let i=0;i<planned.length;i++)if(rows[i]!.status==='failed'&&
-   planned[i]!.approved===true&&planned[i]!.permissionSource.approved===true)
+   planned[i]!.approved===true&&planned[i]!.permissionSource.approved===true){
+   rearmed.push({index:i,previous:rows[i]!});
    rows[i]=Object.freeze({...rows[i]!,status:'queued',errorCode:null});
-  return run();
+  }
+  try{return await run();}
+  catch(error){
+   // A failed initial checkpoint must not leave a previously failed job
+   // queued for a later plain run. Preserve already-executed/terminal rows;
+   // restore only rearmed rows that never left the queued state.
+   let restored=false;
+   for(const {index,previous} of rearmed){
+    if(rows[index]?.status==='queued'){rows[index]=previous;restored=true;}
+   }
+   if(restored)emit();
+   throw error;
+  }
  };
  return Object.freeze({
   checkpoint,run,retryFailed,
