@@ -69,15 +69,23 @@ export function assertJournalSchemaSafety(db:DatabaseSync):void{
  for(const [name,columns] of Object.entries(expected)){
   const row=db.prepare("SELECT type FROM sqlite_master WHERE name=? LIMIT 1").get(name) as {type?:string}|undefined;
   if(row?.type!=='table')throw new Error('Missing diagnosis journal schema table');
+  // The v1 journal depends on ordinary rowid tables for stable history order.
+  // STRICT and WITHOUT ROWID layouts are different schemas, not safe upgrades.
+  const layout=db.prepare("SELECT wr,strict FROM pragma_table_list WHERE schema='main' AND name=?")
+   .get(name) as {wr:number;strict:number}|undefined;
+  if(!layout||layout.wr!==0||layout.strict!==0)
+   throw new Error('Incompatible diagnosis journal table layout');
+  // table_info silently omits GENERATED/HIDDEN columns; checking xinfo
+  // rejects extra fields before startup marks interrupted runs or mutates Data.
   // Names below are code-owned constants, not imported data or SQL parameters.
-  const actual=db.prepare(`PRAGMA table_info(${name})`).all() as {
-   name:string;type:string;notnull:number;pk:number;
+  const actual=db.prepare(`PRAGMA table_xinfo(${name})`).all() as {
+   name:string;type:string;notnull:number;pk:number;hidden:number;
   }[];
   if(actual.length!==columns.length||actual.some((c,i)=>{
    const expectedColumn=columns[i]!;
    return c.name!==expectedColumn[0]||c.type.toUpperCase()!==expectedColumn[1]||
-     c.notnull!==expectedColumn[2]||c.pk!==expectedColumn[3];
-  }))throw new Error('Incompatible diagnosis journal schema columns');
+     c.notnull!==expectedColumn[2]||c.pk!==expectedColumn[3]||c.hidden!==0;
+  }))throw new Error('Incompatible diagnosis journal schema columns or hidden fields');
  }
  const foreignKeys=db.prepare('PRAGMA foreign_key_list(journal_items)').all() as {
   table:string;from:string;to:string;on_delete:string;
