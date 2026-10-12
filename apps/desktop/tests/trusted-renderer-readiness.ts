@@ -15,6 +15,24 @@ export async function waitForTrustedRendererReady(
  probe:()=>Promise<TrustedRendererState|null>,
  options:{expectedUrl:string;attempts:number;pause:()=>Promise<void>;assertAlive:()=>void}
 ):Promise<void>{
- // TDD RED scaffold: deliberately does not wait for or verify the renderer.
- void probe; void options;
+ if(!Number.isSafeInteger(options.attempts)||options.attempts<1||options.attempts>100||
+    typeof options.expectedUrl!=='string'||!options.expectedUrl.startsWith('file://'))
+  throw new Error('Unsafe trusted renderer readiness options');
+ for(let attempt=0;attempt<options.attempts;attempt++){
+  options.assertAlive();
+  const state=await probe();
+  options.assertAlive();
+  if(state!==null){
+   // Never wait away a security violation or a navigation into a different
+   // frame/document. Only transient incomplete preload or CDP context is polled.
+   if(state.href!==options.expectedUrl||!state.topLevel)
+    throw new Error('Untrusted renderer document or frame during readiness check');
+   if(state.hasNode||state.hasRawIpc||state.hasGenericInvoke)
+    throw new Error('Unsafe trusted renderer security bridge exposure');
+   if((state.readyState==='interactive'||state.readyState==='complete')&&state.hasGetAppInfo)
+    return;
+  }
+  if(attempt+1<options.attempts)await options.pause();
+ }
+ throw new Error('Trusted renderer preload not ready within bounded probes');
 }
