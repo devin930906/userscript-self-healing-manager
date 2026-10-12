@@ -102,8 +102,13 @@ export async function executeDurableApprovedBatch<T>(input:{
    throw new Error('Durable batch repair blocked or failed; fresh review required');
   return output as T;
  }finally{
-  releaseCancellation();
-  store.close();
+  // A trusted Main control finalizer may itself fail. Always close the
+  // checkpoint SQLite handle (especially on Windows) before releasing the
+  // managed-script lease, and never surface private callback error text.
+  let cleanupFailed=false;
+  try{releaseCancellation();}catch{cleanupFailed=true;}
+  try{store.close();}catch{cleanupFailed=true;}
+  if(cleanupFailed)throw new Error('Durable batch cleanup failed; fresh review required');
  }
  }finally{
   // Error, aborted approval, crash-safe checkpoint failure or success must
