@@ -14,7 +14,7 @@ const validPe=(machine=0x8664)=>{
  const bytes=Buffer.alloc(1024);
  bytes.write('MZ',0,'ascii');
  bytes.writeUInt32LE(128,0x3c);
- bytes.write('PE\\0\\0',128,'binary');
+ bytes.write('PE\0\0',128,'binary');
  bytes.writeUInt16LE(machine,132);
  bytes.writeUInt16LE(3,134);
  bytes.writeUInt16LE(0xf0,148);
