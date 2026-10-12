@@ -191,3 +191,14 @@ test('FR-025 count-change assertion cannot pass across a navigation that invalid
   runReadOnlyDomContract({...request('exists','querySelectorAll'),expectation,deps:d}),
   /document|loader|identity|navigation/i);
 });
+
+
+test('FR-025 count-change is not inferred from a replaced element when the observed match count stayed one',async()=>{
+ const expectation='count-changed' as unknown as Parameters<typeof runReadOnlyDomContract>[0]['expectation'];
+ const first={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'a'.repeat(64)}]};
+ const second={...sample('found',1),checks:[{...sample('found',1).checks[0],nodeFingerprint:'b'.repeat(64)}]};
+ const result=await runReadOnlyDomContract({...request('exists'),expectation,deps:deps([first,second])});
+ assert.notEqual(result.status,'passed');
+ assert.equal(result.functionalVerified,false);
+ assert.equal(result.managerVerified,false);
+});
