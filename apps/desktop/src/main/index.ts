@@ -1,6 +1,7 @@
 import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
+import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -883,7 +884,16 @@ async function bootstrap():Promise<void>{
      scanSessions.assertCurrent(scanSnapshot);
      assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
     },
-    apply:()=>batchRepairs.applyBatch({proposalId,approved:true}),
+    apply:()=>executeDurableApprovedBatch({
+     dataRoot,approvalId:proposalId,scriptId:item.scriptId!,
+     preflight:()=>{
+      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      scanSessions.assertCurrent(scanSnapshot);
+      assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
+      return true;
+     },
+     write:()=>batchRepairs.applyBatch({proposalId,approved:true}),
+    }),
    });
    return {...applied,activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
   }finally{pendingApprovals.consume(q.proposalId);}
@@ -936,7 +946,16 @@ async function bootstrap():Promise<void>{
      scanSessions.assertCurrent(scanSnapshot);
      assertBatchProposalSnapshot(trusted,batchRepairs.inspectPending(proposalId));
     },
-    apply:()=>batchRepairs.applyBatch({proposalId,approved:true}),
+    apply:()=>executeDurableApprovedBatch({
+     dataRoot,approvalId:proposalId,scriptId:item.scriptId!,
+     preflight:()=>{
+      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      scanSessions.assertCurrent(scanSnapshot);
+      assertBatchProposalSnapshot(trusted,batchRepairs.inspectPending(proposalId));
+      return true;
+     },
+     write:()=>batchRepairs.applyBatch({proposalId,approved:true}),
+    }),
    });
   }finally{pendingApprovals.consume(q.proposalId);}
   const safety=await guardAppliedManagedBatchRevision({
