@@ -71,6 +71,30 @@ test('QA-002 refuses contradictory PE machine/magic and truncated optional heade
  }
 }));
 
+test('QA-002 rejects EXE files whose declared section headers extend past EOF',async()=>fixture(async root=>{
+ // e_lfanew=128, COFF header=24, optional header=240, section count=3:
+ // all three 40-byte section headers require at least 512 bytes.
+ const exact=join(root,'pe-section-table-exact.exe');
+ await writeFile(exact,validPe().subarray(0,512));
+ await assert.doesNotReject(assertWindowsPeExecutable(exact),
+  'an exact-fit section table must remain a valid format-only preflight');
+
+ const invalid=[
+  validPe().subarray(0,511),
+  (()=>{const bytes=validPe();bytes.writeUInt16LE(96,134);return bytes;})(),
+  (()=>{const bytes=validPe(0x014c);bytes.writeUInt16LE(21,134);return bytes;})(),
+ ];
+ for(const [index,bytes] of invalid.entries()){
+  const file=join(root,'truncated-section-table-'+index+'.exe');
+  await writeFile(file,bytes);
+  await assert.rejects(assertWindowsPeExecutable(file),/invalid|PE|header/i,
+   'declared section table must be entirely present before any executable spawn');
+  await assert.rejects(launchSelectedChrome({executablePath:file,port:9239}),
+   /invalid|PE|header/i,
+   'never launch a selected executable with a truncated declared section table');
+ }
+}));
+
 test('QA-002 symlink or truncated PE header is never accepted by the direct preflight',async()=>fixture(async root=>{
  const truncated=join(root,'short.exe');
  await writeFile(truncated,Buffer.from('MZ'));
