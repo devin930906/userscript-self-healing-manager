@@ -72,7 +72,7 @@ function decode(serialized:unknown):DiskState{
  const rows:DiskRow[]=[];
  for(const row of r.rows){
   if(!validRow(row,false))unsafe();
-  rows.push(row as DiskRow);
+  rows.push(row as unknown as DiskRow);
  }
  if(new Set(rows.map(x=>x.key)).size!==rows.length)unsafe();
  return {version:1,rows};
