@@ -18,6 +18,79 @@ export function extensionIdFromChromePublicKey(publicKeyBase64:string):string{
   .map(value=>String.fromCharCode(97+(value>>4),97+(value&15))).join('');
 }
 
+/**
+ * Build a fixed-shape query using Violentmonkey's official MV3 client/SW
+ * channel. The manager's extension page reduces its own script inventory to
+ * one boolean before the CDP caller receives any response.
+ */
+function buildViolentmonkeyManagerCommandExpression(
+ command:'GetData'|'ParseScript',data:Record<string,unknown>,requestId:number,responseCode:string,
+):string{
+ const serializedData=JSON.stringify(data);
+ if(!Number.isSafeInteger(requestId)||!serializedData||serializedData.length>16_384)
+  throw new Error('Invalid fixed Violentmonkey manager command');
+ return `new Promise(resolve=>{
+  const endpoint=navigator.serviceWorker;
+  if(!endpoint||typeof endpoint.addEventListener!=='function')return resolve(null);
+  let timer,finished=false;
+  const finish=value=>{
+   if(finished)return;
+   finished=true;clearTimeout(timer);
+   endpoint.removeEventListener('message',onMessage);
+   resolve(value);
+  };
+  const onMessage=event=>{
+   const packet=event.data;
+   if(packet?.id!==${requestId})return;
+   if(packet.err)return finish(JSON.stringify({failed:true}));
+   const value=packet.res;
+   ${responseCode}
+  };
+  endpoint.addEventListener('message',onMessage);
+  timer=setTimeout(()=>finish(null),3500);
+  Promise.resolve(endpoint.ready).then(registration=>{
+   const worker=endpoint.controller||registration.active;
+   if(!worker)return finish(null);
+   worker.postMessage({id:${requestId},msg:{cmd:${JSON.stringify(command)},data:${serializedData}}});
+  }).catch(()=>finish(null));
+ })`;
+}
+
+/**
+ * Build a fixed-shape query using Violentmonkey's official MV3 client/SW
+ * channel. Its script inventory is reduced to one boolean inside the page.
+ */
+export function buildViolentmonkeyFixturePreflightExpression(name:string,namespace:string):string{
+ if(typeof name!=='string'||name.length<1||name.length>160||
+    typeof namespace!=='string'||namespace.length<1||namespace.length>256)
+  throw new Error('Invalid fixed Violentmonkey fixture identity');
+ const serializedName=JSON.stringify(name);
+ const serializedNamespace=JSON.stringify(namespace);
+ return buildViolentmonkeyManagerCommandExpression('GetData',{sizes:false},0x7ffffffe,`
+   const scripts=value?.scripts;
+   if(!Array.isArray(scripts))return finish(JSON.stringify({failed:true}));
+   const found=scripts.some(script=>script?.meta?.name===${serializedName}&&
+    script?.meta?.namespace===${serializedNamespace});
+   finish(JSON.stringify({found}));`);
+}
+
+/** Build an install request that returns only a bounded parser/install receipt. */
+export function buildViolentmonkeyFixtureInstallExpression(code:string):string{
+ if(typeof code!=='string'||code.length<1||code.length>8_192||
+    !code.includes('// @name USSHM Isolated Violentmonkey V4 Fixture')||
+    !code.includes('// @namespace https://usshm.invalid/isolated-fixture'))
+  throw new Error('Invalid fixed Violentmonkey userscript fixture');
+ return buildViolentmonkeyManagerCommandExpression('ParseScript',{
+  code,config:{enabled:1,httpOnly:0,notifyUpdates:null,shouldUpdate:1},
+  custom:{},isNew:true,message:'',bumpDate:true,
+ },0x7ffffffd,`
+   const scriptId=value?.where?.id;
+   const rawErrors=value?.errors;
+   const errors=rawErrors===null?null:Array.isArray(rawErrors)&&rawErrors.length===0?[]:[true];
+   const isNew=value?.isNew===true?true:value?.isNew===false?false:undefined;
+   finish(JSON.stringify({failed:false,where:{id:Number.isSafeInteger(scriptId)&&scriptId>0?scriptId:null},isNew,errors}));`);
+}
+
 /** Validate the exact bounded receipt returned by the pinned ParseScript API. */
 export function assertViolentmonkeyInstallReceipt(
  receipt:unknown,
@@ -33,7 +106,7 @@ export function assertViolentmonkeyInstallReceipt(
  if(!value.where||typeof value.where!=='object'||Array.isArray(value.where))
   reject('script-location');
  // The official ParseScript wrapper may omit isNew from its callback receipt.
- // A read-only GetScript preflight proves absence; an explicit false still wins.
+ // A read-only manager inventory preflight proves absence; explicit false wins.
  if('isNew' in value&&value.isNew!==true)reject('not-new-script');
  if(value.errors!==null&&(!Array.isArray(value.errors)||value.errors.length!==0))
   reject('parser-errors');

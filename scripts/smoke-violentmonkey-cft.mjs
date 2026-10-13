@@ -17,6 +17,7 @@ import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
+ buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
 
@@ -89,33 +90,6 @@ const fixtureMeta={
  name:'USSHM Isolated Violentmonkey V4 Fixture',
  namespace:'https://usshm.invalid/isolated-fixture',
 };
-// The official options app consumes and deletes BGDATA.options during startup.
-// Install this narrow transparent setter before navigation so only the
-// presence bit is captured before that one-shot bootstrap data is discarded.
-const managerPreflightProbe=`(()=>{
- let data;
- Object.defineProperty(globalThis,'BGDATA',{
-  configurable:true,enumerable:true,
-  get(){return data;},
-  set(value){
-   data=value;
-   try{
-    const scripts=globalThis.BGDATA?.options?.scripts;
-    if(Array.isArray(scripts)){
-     const found=scripts.some(script=>script?.meta?.name===${JSON.stringify(fixtureMeta.name)}&&
-      script?.meta?.namespace===${JSON.stringify(fixtureMeta.namespace)});
-     Object.defineProperty(globalThis,'__usshmVmPreflight',{
-      value:JSON.stringify({found}),configurable:true,enumerable:false,writable:false,
-     });
-    }
-   }catch{}
-   Object.defineProperty(globalThis,'BGDATA',{
-    value,writable:true,configurable:true,enumerable:true,
-   });
-  },
- });
-})()`;
-
 async function openCdp(endpoint){
  const socket=new WebSocket(endpoint);
  const pending=new Map();
@@ -186,48 +160,21 @@ async function readFixtureResult(cdp,hasExited){
 }
 
 async function readManagerPreflight(cdp,hasExited){
- const expression='globalThis.__usshmVmPreflight ?? null';
- for(let attempt=0;attempt<50;attempt++){
-  if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
-  try{
-   const answer=await cdp.send('Runtime.evaluate',{expression,returnByValue:true});
-   const value=answer.result?.value;
-   if(typeof value==='string'){
-    if(value.length>512)throw new Error('Violentmonkey manager preflight exceeded its fixed result bound');
-    const receipt=JSON.parse(value);
-    if(typeof receipt?.found==='boolean')return {found:receipt.found};
-    throw new Error('Violentmonkey manager preflight returned an invalid fixed receipt');
-   }
-  }catch(error){
-   if(error instanceof Error&&/fixed result bound|invalid fixed receipt/.test(error.message))throw error;
-  }
-  await delay(100);
- }
- let state={ready:false,bgdata:false,probe:false,bootstrap:false};
+ if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
+ const expression=buildViolentmonkeyFixturePreflightExpression(fixtureMeta.name,fixtureMeta.namespace);
+ let value;
  try{
-  const diagnosticExpression=`(()=>{
-   const data=globalThis.BGDATA;
-   let bootstrap=false;
-   try{bootstrap=Array.from(document.scripts).some(script=>
-    script.src===chrome.runtime.getURL('get-data.js?options'));}catch{}
-   return JSON.stringify({
-    ready:document.readyState==='complete',bgdata:!!data,
-    probe:typeof globalThis.__usshmVmPreflight==='string',bootstrap,
-   });
-  })()`;
-  const answer=await cdp.send('Runtime.evaluate',{expression:diagnosticExpression,returnByValue:true});
-  const value=answer.result?.value;
-  if(typeof value==='string'&&value.length<=512){
-   const observed=JSON.parse(value);
-   state={
-    ready:observed?.ready===true,bgdata:observed?.bgdata===true,
-    probe:observed?.probe===true,
-    bootstrap:observed?.bootstrap===true,
-   };
-  }
- }catch{/* Only fixed boolean diagnostics are allowed to leave the extension page. */}
- throw new Error('Violentmonkey options preflight unavailable: '+
-  Object.entries(state).map(([key,value])=>key+'='+Number(value)).join(','));
+  const answer=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});
+  value=answer.result?.value;
+ }catch{throw new Error('Violentmonkey bounded read-only preflight request failed');}
+ if(typeof value!=='string'||value.length>512)
+  throw new Error('Violentmonkey did not return a bounded read-only fixture preflight');
+ let receipt;
+ try{receipt=JSON.parse(value);}catch{throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');}
+ if(receipt?.failed===true)throw new Error('Violentmonkey read-only preflight returned a fixed failure marker');
+ if(typeof receipt?.found!=='boolean')
+  throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');
+ return {found:receipt.found};
 }
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
@@ -247,7 +194,7 @@ const server=createServer((request,response)=>{
  response.writeHead(404,{'content-type':'text/plain; charset=utf-8'}).end('not found');
 });
 let listening=false,chrome,exited=false,spawnFailure;
-let browserCdp,optionsCdp,pageCdp,optionsProbeIdentifier;
+let browserCdp,optionsCdp,pageCdp;
 try{
  await assertChromeDebuggerPortFree(9223);
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
@@ -285,39 +232,16 @@ try{
  }
  if(!status||!expectedProduct.test(status.browser))throw new Error('Pinned Chrome 155 CDP handshake was not verified');
  browserCdp=await openCdp(status.browserSocket);
- const createdOptions=await browserCdp.send('Target.createTarget',{url:'about:blank'});
+ const createdOptions=await browserCdp.send('Target.createTarget',{url:optionsUrl});
  if(typeof createdOptions.targetId!=='string'||!createdOptions.targetId)
   throw new Error('Violentmonkey options page target could not be created');
- const optionsPage=await waitForPage(createdOptions.targetId,'about:blank',()=>exited);
+ const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
- await optionsCdp.send('Page.enable');
- const probe=await optionsCdp.send('Page.addScriptToEvaluateOnNewDocument',{source:managerPreflightProbe});
- if(typeof probe.identifier!=='string'||!probe.identifier)
-  throw new Error('Violentmonkey options preflight probe could not be installed');
- optionsProbeIdentifier=probe.identifier;
- const navigation=await optionsCdp.send('Page.navigate',{url:optionsUrl});
- if(navigation.errorText)throw new Error('Violentmonkey options page navigation failed');
- await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
- const installMessage={
-  cmd:'ParseScript',
-  data:{
-   code:userScript,
-   config:{enabled:1,httpOnly:0,notifyUpdates:null,shouldUpdate:1},
-   custom:{},isNew:true,message:'',bumpDate:true,
-  },
- };
- const installExpression=`new Promise(resolve=>chrome.runtime.sendMessage(${JSON.stringify(installMessage)},value=>{
-  const failed=!!chrome.runtime.lastError;
-  const scriptId=value?.where?.id;
-  const rawErrors=value?.errors;
-  const errors=rawErrors===null?null:Array.isArray(rawErrors)&&rawErrors.length===0?[]:[true];
-  const isNew=value?.isNew===true?true:value?.isNew===false?false:undefined;
-  resolve(JSON.stringify({failed,where:{id:Number.isSafeInteger(scriptId)&&scriptId>0?scriptId:null},isNew,errors}));
-}))`;
+ const installExpression=buildViolentmonkeyFixtureInstallExpression(userScript);
  const installed=await optionsCdp.send('Runtime.evaluate',{
   expression:installExpression,awaitPromise:true,returnByValue:true,
  });
@@ -372,8 +296,6 @@ try{
  console.error('FAIL isolated Violentmonkey fixture:',error instanceof Error?error.message:'unknown');
  process.exitCode=1;
 }finally{
- if(optionsCdp&&optionsProbeIdentifier)
-  await optionsCdp.send('Page.removeScriptToEvaluateOnNewDocument',{identifier:optionsProbeIdentifier}).catch(()=>{});
  pageCdp?.close();optionsCdp?.close();browserCdp?.close();
  if(chrome?.pid)spawnSync('taskkill',['/PID',String(chrome.pid),'/T','/F'],{stdio:'ignore',timeout:15000});
  if(listening)await new Promise(resolve=>server.close(()=>resolve()));

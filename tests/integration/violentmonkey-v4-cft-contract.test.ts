@@ -5,6 +5,7 @@ import {test} from 'node:test';
 import vm from 'node:vm';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,
+ buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  extensionIdFromChromePublicKey,VIOLENTMONKEY_CFT_RELEASE,
 } from '../../scripts/violentmonkey-v4-contract.ts';
 
@@ -129,56 +130,87 @@ test('official manager workflow stays pinned, loopback-only and outside installe
 
 test('manager discovery follows a fixed-script install whose preflight proves the script was absent',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
- const probe=smoke.indexOf("Page.addScriptToEvaluateOnNewDocument',{source:managerPreflightProbe}");
- const navigate=smoke.indexOf("Page.navigate',{url:optionsUrl}");
+ const options=smoke.indexOf("Target.createTarget',{url:optionsUrl}");
  const preflight=smoke.indexOf('const preflightReceipt=await readManagerPreflight(optionsCdp');
  const install=smoke.indexOf("const installed=await optionsCdp.send('Runtime.evaluate'");
  const inspect=smoke.indexOf('const managerReport=await inspectKnownUserscriptManagerTargets');
- assert.ok(probe>=0&&navigate>probe&&preflight>navigate&&install>preflight&&inspect>install,
-  'the one-shot options inventory is observed before install and manager discovery');
+ assert.ok(options>=0&&preflight>options&&install>preflight&&inspect>install,
+  'the official manager inventory is verified before fixture installation and manager discovery');
 });
 
 test('official manager install callback reduces parser details to a bounded privacy-safe marker',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
- assert.match(smoke,/const rawErrors=value\?\.errors;/);
- assert.match(smoke,/const errors=rawErrors===null\?null:Array\.isArray\(rawErrors\)&&rawErrors\.length===0\?\[\]:\[true\];/);
- assert.match(smoke,/JSON\.stringify\(\{failed,where:\{id:Number\.isSafeInteger\(scriptId\).*isNew,errors\}\)/);
- assert.doesNotMatch(smoke,/errors:value\?\.errors/);
+ const contract=await readFile(resolve('scripts/violentmonkey-v4-contract.ts'),'utf8');
+ assert.match(contract,/const rawErrors=value\?\.errors;/);
+ assert.match(contract,/const errors=rawErrors===null\?null:Array\.isArray\(rawErrors\)&&rawErrors\.length===0\?\[\]:\[true\];/);
+ assert.match(contract,/JSON\.stringify\(\{failed:false,where:\{id:Number\.isSafeInteger\(scriptId\).*isNew,errors\}\)/);
+ assert.doesNotMatch(contract,/errors:value\?\.errors/);
  assert.match(smoke,/typeof installText!=='string'/);
 });
 
 test('read-only manager preflight proves script absence from the official options-page inventory',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
- assert.match(smoke,/globalThis\.BGDATA\?\.options\?\.scripts/);
- assert.match(smoke,/script\?\.meta\?\.name===\$\{JSON\.stringify\(fixtureMeta\.name\)\}\s*&&\s*script\?\.meta\?\.namespace===\$\{JSON\.stringify\(fixtureMeta\.namespace\)\}/);
- assert.match(smoke,/JSON\.stringify\(\{found\}\)/);
- assert.match(smoke,/Object\.defineProperty\(globalThis,'__usshmVmPreflight'/);
- assert.match(smoke,/const expression='globalThis\.__usshmVmPreflight \?\? null'/);
+ assert.match(smoke,/buildViolentmonkeyFixturePreflightExpression\(fixtureMeta\.name,fixtureMeta\.namespace\)/);
  assert.match(smoke,/await readManagerPreflight\(optionsCdp/);
- assert.match(smoke,/const diagnosticExpression=/);
- assert.match(smoke,/probe:typeof globalThis\.__usshmVmPreflight==='string',bootstrap/);
- assert.match(smoke,/Object\.entries\(state\)\.map\(\(\[key,value\]\)=>key\+'='\+Number\(value\)\)/);
+ assert.match(smoke,/typeof value!=='string'\|\|value\.length>512/);
  assert.doesNotMatch(smoke,/cmd:'GetData'|cmd:'GetScript'/);
+ assert.doesNotMatch(smoke,/chrome\.runtime\.sendMessage/);
 });
 
-test('preflight captures only the fixture-presence bit before official one-shot BGDATA consumption',async()=>{
- const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
- const probe=smoke.match(/const managerPreflightProbe=`([\s\S]*?)`;/)?.[1];
- assert.ok(probe,'a pre-navigation options-page probe must be present');
- const executableProbe=probe
-  .replaceAll('${JSON.stringify(fixtureMeta.name)}',JSON.stringify('USSHM Isolated Violentmonkey V4 Fixture'))
-  .replaceAll('${JSON.stringify(fixtureMeta.namespace)}',JSON.stringify('https://usshm.invalid/isolated-fixture'));
- for(const [scripts,expected] of [[[],false],[[{
+test('official MV3 service-worker commands return only bounded fixture receipts and failure markers',async()=>{
+ const run=async(expression:string,response:any,failure?:boolean)=>{
+  const listeners=new Set<(event:any)=>void>();
+  const sent:any[]=[];
+  const endpoint:any={
+   controller:null,
+   addEventListener(type:string,listener:(event:any)=>void){if(type==='message')listeners.add(listener);},
+   removeEventListener(type:string,listener:(event:any)=>void){if(type==='message')listeners.delete(listener);},
+   ready:Promise.resolve({active:{postMessage(message:any){
+    sent.push(message);
+    queueMicrotask(()=>{
+     const data=failure
+      ?{id:message.id,err:{message:'private manager error sentinel'}}
+      :{id:message.id,res:response};
+     for(const listener of listeners)listener({data});
+    });
+   }}}),
+  };
+  const context=vm.createContext({navigator:{serviceWorker:endpoint},setTimeout,clearTimeout,Promise,JSON,Array});
+  const result=await vm.runInContext(expression,context);
+  assert.equal(sent.length,1);
+  assert.ok(['GetData','ParseScript'].includes(sent[0].msg.cmd));
+  if(sent[0].msg.cmd==='GetData'){
+   assert.equal(Object.keys(sent[0].msg.data).join(','),'sizes');
+   assert.equal(sent[0].msg.data.sizes,false);
+  }else{
+   assert.equal(Object.keys(sent[0].msg.data).sort().join(','),'bumpDate,code,config,custom,isNew,message');
+   assert.match(sent[0].msg.data.code,/USSHM Isolated Violentmonkey V4 Fixture/);
+  }
+  assert.ok(Number.isSafeInteger(sent[0].id));
+  return result;
+ };
+ const preflight=buildViolentmonkeyFixturePreflightExpression(
+  'USSHM Isolated Violentmonkey V4 Fixture','https://usshm.invalid/isolated-fixture');
+ const absent=await run(preflight,{scripts:[{meta:{name:'unrelated'},code:'private source sentinel'}]});
+ assert.equal(absent,JSON.stringify({found:false}));
+ assert.doesNotMatch(absent,/private source sentinel/);
+ const present=await run(preflight,{scripts:[{
   meta:{name:'USSHM Isolated Violentmonkey V4 Fixture',namespace:'https://usshm.invalid/isolated-fixture'},
- }],true]] as const){
-  const context=vm.createContext({});
-  vm.runInContext(executableProbe,context);
-  context.bootstrap={options:{scripts}};
-  vm.runInContext('var BGDATA=bootstrap',context);
-  const target=vm.runInContext('globalThis.BGDATA',context);
-  const oneShot=new Proxy(target,{get(object,key){const value=object[key];delete object[key];return value;}});
-  assert.ok(oneShot.options);
-  assert.equal(Object.hasOwn(target,'options'),false,'the fixture models Violentmonkey consuming BGDATA.options');
-  assert.deepEqual(JSON.parse(vm.runInContext('globalThis.__usshmVmPreflight',context)),{found:expected});
- }
+  code:'private source sentinel',
+ }]});
+ assert.equal(present,JSON.stringify({found:true}));
+ const failed=await run(preflight,{},true);
+ assert.equal(failed,JSON.stringify({failed:true}));
+ assert.doesNotMatch(failed,/private manager error sentinel/);
+
+ const fixtureSource='// @name USSHM Isolated Violentmonkey V4 Fixture\n// @namespace https://usshm.invalid/isolated-fixture\nprivate install source sentinel';
+ const install=buildViolentmonkeyFixtureInstallExpression(fixtureSource);
+ const installed=await run(install,{where:{id:7},isNew:true,errors:null});
+ assert.deepEqual(JSON.parse(installed),{failed:false,where:{id:7},isNew:true,errors:null});
+ assert.doesNotMatch(installed,/private install source sentinel/);
+ const parseFailed=await run(install,{where:{id:7},errors:[{message:'private parser error sentinel'}]});
+ assert.deepEqual(JSON.parse(parseFailed),{failed:false,where:{id:7},errors:[true]});
+ assert.doesNotMatch(parseFailed,/private parser error sentinel/);
+ assert.throws(()=>buildViolentmonkeyFixturePreflightExpression('x'.repeat(161),'fixed namespace'),/fixed/i);
+ assert.throws(()=>buildViolentmonkeyFixtureInstallExpression('untrusted source'),/fixed/i);
 });
