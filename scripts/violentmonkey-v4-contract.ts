@@ -316,8 +316,12 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
    const scripts=await chrome.userScripts.getScripts({ids:['1001']});
    const script=Array.isArray(scripts)&&scripts.length===1?scripts[0]:null;
    const ready=script?.id==='1001'&&script.runAt==='document_start'&&script.allFrames===true&&
-    Array.isArray(script.js)&&script.js.length===2&&script.js[0]?.file==='injected-web.js'&&
-    script.js[1]?.file==='injected.js'&&!script.js.some(item=>'code' in item)&&
+    Array.isArray(script.js)&&script.js.length===2&&script.js.every((item,index)=>{
+     if(!item||typeof item!=='object'||'code' in item)return false;
+     const file=Object.getOwnPropertyDescriptor(item,'file');
+     return !!file&&Object.hasOwn(file,'value')&&
+      file.value===(index===0?'injected-web.js':'injected.js');
+    })&&
     Array.isArray(script.matches)&&script.matches.length===1&&script.matches[0]==='<all_urls>'&&
     (script.excludeMatches===undefined||(Array.isArray(script.excludeMatches)&&script.excludeMatches.length===0))&&
     (script.excludeGlobs===undefined||(Array.isArray(script.excludeGlobs)&&script.excludeGlobs.length===0))&&
