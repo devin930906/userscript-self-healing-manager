@@ -303,3 +303,15 @@ test('RG-05 rejects inherited or accessor backed pinned injector script file des
  }
  assert.equal(getterCalls,0);
 });
+
+test('RG-05 rejects inherited official injector registration identity fields',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,
+  js:[{file:'injected-web.js'},{file:'injected.js'}],matches:['<all_urls>']};
+ for(const field of ['id','runAt','allFrames','js','matches']){
+  const script=Object.create({[field]:(base as any)[field]});
+  for(const key of Object.keys(base))if(key!==field)(script as any)[key]=(base as any)[key];
+  const result=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return [script];}}}});
+  assert.equal(result,JSON.stringify({ready:false}),field);
+ }
+});
