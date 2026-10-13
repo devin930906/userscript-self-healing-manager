@@ -19,6 +19,8 @@ import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessExpression,
+ readViolentmonkeyFixtureObservation,
+ buildViolentmonkeyInjectorReadyExpression,buildViolentmonkeyInjectorProbeExpression,
  VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
 
@@ -144,22 +146,6 @@ async function waitForPage(targetId,expectedUrl,hasExited){
  throw new Error('Isolated CFT did not expose the pinned fixture page'+(lastStatus?': '+lastStatus:''));
 }
 
-async function readFixtureResult(cdp,hasExited){
- for(let attempt=0;attempt<72;attempt++){
-  if(hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
-  try{
-   const answer=await cdp.send('Runtime.evaluate',{
-    expression:`document.documentElement?.getAttribute('${resultAttribute}') ?? null`,
-    returnByValue:true,
-   });
-   const value=answer.result?.value;
-   if(typeof value==='string')return JSON.parse(value);
-  }catch{/* Navigation may briefly destroy the current execution context. */}
-  await delay(250);
- }
- throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result');
-}
-
 async function readManagerPreflight(cdp,hasExited){
  if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
  const expression=buildViolentmonkeyFixturePreflightExpression(fixtureMeta.name,fixtureMeta.namespace);
@@ -275,6 +261,19 @@ try{
  }
  if(!await probeAccess())throw new Error('Pinned manager userScripts API remains unavailable after isolated permission setup');
  console.log('PASS isolated pinned manager userScripts capability; no daily browser profile was accessed.');
+ // VM's onInstalled/options initialization may have run before the permission
+ // grant. Await its own initializer now, before navigating to document_start.
+ const initialized=await optionsCdp.send('Runtime.evaluate',{
+  expression:buildViolentmonkeyInjectorReadyExpression(),awaitPromise:true,returnByValue:true,
+ });
+ if(initialized.result?.value!==JSON.stringify({ready:true}))
+  throw new Error('Pinned Violentmonkey official injector initialization failed');
+ const injector=await optionsCdp.send('Runtime.evaluate',{
+  expression:buildViolentmonkeyInjectorProbeExpression(),awaitPromise:true,returnByValue:true,
+ });
+ if(injector.result?.value!==JSON.stringify({ready:true}))
+  throw new Error('Pinned Violentmonkey base injector files were not registered');
+ console.log('PASS isolated official Violentmonkey base injector registration.');
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
@@ -310,15 +309,23 @@ try{
  pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl);
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
- const first=await readFixtureResult(pageCdp,()=>exited);
+ const first=await readViolentmonkeyFixtureObservation({
+  send:pageCdp.send,frameId:identity.frameId,url:fixtureUrl,hasExited:()=>exited,
+ });
  const firstReceipt=assertViolentmonkeyV4FixtureObservation({
   chromeProduct:status.browser,managerVersion:manifest.version,
   managerExtensionId:extensionId,observedManagers:managerReport.observed,
   appV4:managerReport.V4,appManagerVerified:managerReport.managerVerified,
   fixture:first,
  },0);
+ const beforeReload=await pageCdp.send('Page.getFrameTree');
+ const previousLoaderId=beforeReload.frameTree?.frame?.loaderId;
+ if(typeof previousLoaderId!=='string'||!previousLoaderId)
+  throw new Error('Pre-reload fixture document identity is missing');
  await pageCdp.send('Page.reload',{ignoreCache:true});
- const second=await readFixtureResult(pageCdp,()=>exited);
+ const second=await readViolentmonkeyFixtureObservation({
+  send:pageCdp.send,frameId:identity.frameId,url:fixtureUrl,previousLoaderId,hasExited:()=>exited,
+ });
  const secondReceipt=assertViolentmonkeyV4FixtureObservation({
   chromeProduct:status.browser,managerVersion:manifest.version,
   managerExtensionId:extensionId,observedManagers:managerReport.observed,

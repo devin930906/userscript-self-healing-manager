@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {setTimeout as wait} from 'node:timers/promises';
 
 export const VIOLENTMONKEY_CFT_RELEASE=Object.freeze({
  version:'2.49.0',
@@ -58,13 +59,61 @@ export function buildViolentmonkeyUserScriptsAccessExpression():string{
  })()`;
 }
 
+/** TEST ONLY: read a bounded receipt from one fixed loopback fixture document. */
+export async function readViolentmonkeyFixtureObservation(input:{
+ send:(method:string,params?:Record<string,unknown>)=>Promise<any>;
+ frameId:string;url:string;previousLoaderId?:string;
+ hasExited:()=>boolean;delay?:(milliseconds:number)=>Promise<unknown>;
+}):Promise<ViolentmonkeyFixtureObservation['fixture']>{
+ let url:URL;
+ try{url=new URL(input.url);}catch{throw new Error('Invalid isolated fixture identity');}
+ if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||url.pathname!=='/fixture'||
+    url.username||url.password||url.search||url.hash||url.href!==input.url||
+    typeof input.frameId!=='string'||!input.frameId||input.frameId.length>128||
+    input.previousLoaderId!==undefined&&(typeof input.previousLoaderId!=='string'||
+      !input.previousLoaderId||input.previousLoaderId.length>128))
+  throw new Error('Invalid isolated fixture identity');
+ const currentFrame=async()=>{
+  const answer=await input.send('Page.getFrameTree');
+  const frame=answer?.frameTree?.frame;
+  if(frame?.id!==input.frameId||frame.url!==input.url||typeof frame.loaderId!=='string'||
+     !frame.loaderId||frame.loaderId.length>128)
+   throw new Error('Isolated fixture document identity changed');
+  return frame.loaderId as string;
+ };
+ for(let attempt=0;attempt<72;attempt++){
+  if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
+  const before=await currentFrame();
+  if(before!==input.previousLoaderId){
+   const answer=await input.send('Runtime.evaluate',{
+    expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-result') ?? null",
+    returnByValue:true,
+   });
+   if(answer?.exceptionDetails)throw new Error('Isolated GM fixture evaluation failed');
+   const after=await currentFrame();
+   if(after!==before)throw new Error('Isolated fixture document identity changed');
+   const value=answer?.result?.value;
+   if(value!==undefined&&value!==null){
+    if(typeof value!=='string'||value.length>1024)throw new Error('Invalid bounded GM fixture receipt');
+    let receipt;
+    try{receipt=JSON.parse(value);}catch{throw new Error('Invalid bounded GM fixture receipt');}
+    if(!receipt||typeof receipt!=='object'||Array.isArray(receipt))
+     throw new Error('Invalid bounded GM fixture receipt');
+    return receipt;
+   }
+  }
+  await (input.delay??wait)(250);
+ }
+ throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result');
+}
+
 /**
  * Build a fixed-shape query using Violentmonkey's official MV3 client/SW
  * channel. The manager's extension page reduces its own script inventory to
  * one boolean before the CDP caller receives any response.
  */
 function buildViolentmonkeyManagerCommandExpression(
- command:'GetData'|'ParseScript',data:Record<string,unknown>,requestId:number,responseCode:string,
+ command:'GetData'|'ParseScript'|'GetInjectorError',data:Record<string,unknown>,requestId:number,responseCode:string,
 ):string{
  const serializedData=JSON.stringify(data);
  if(!Number.isSafeInteger(requestId)||!serializedData||serializedData.length>16_384)
@@ -94,6 +143,27 @@ function buildViolentmonkeyManagerCommandExpression(
    worker.postMessage({id:${requestId},msg:{cmd:${JSON.stringify(command)},data:${serializedData}}});
   }).catch(()=>finish(null));
  })`;
+}
+
+/** TEST ONLY: initialize the official injector after Chrome grants permission. */
+export function buildViolentmonkeyInjectorReadyExpression():string{
+ return buildViolentmonkeyManagerCommandExpression('GetInjectorError',{},0x7ffffffc,`
+   finish(JSON.stringify({ready:value===undefined||value===null}));`);
+}
+
+/** Return only a boolean for the exact pinned manager's base injector files. */
+export function buildViolentmonkeyInjectorProbeExpression():string{
+ return `(async()=>{
+  try{
+   const scripts=await chrome.userScripts.getScripts({ids:['1001']});
+   const script=Array.isArray(scripts)&&scripts.length===1?scripts[0]:null;
+   const ready=script?.id==='1001'&&script.runAt==='document_start'&&script.allFrames===true&&
+    Array.isArray(script.js)&&script.js.length===2&&script.js[0]?.file==='injected-web.js'&&
+    script.js[1]?.file==='injected.js'&&!script.js.some(item=>'code' in item)&&
+    Array.isArray(script.matches)&&script.matches.includes('<all_urls>');
+   return JSON.stringify({ready:!!ready});
+  }catch{return JSON.stringify({ready:false});}
+ })()`;
 }
 
 /**
