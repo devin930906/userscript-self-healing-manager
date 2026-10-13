@@ -19,7 +19,7 @@ test('frame identity redacts throwing page URL accessor and never opens a socket
 test('frame identity rejects missing or non-string expected page URLs before socket creation',async()=>{
  for(const url of [undefined,null,42,{},'',Symbol('secret')]){
   let opened=false;
-  await assert.rejects(confirmPageIdentity({...safeTarget,url} as typeof safeTarget,{socketFactory:()=>{opened=true;throw new Error('unexpected socket');}}),/Invalid expected page URL/);
+  await assert.rejects(confirmPageIdentity({...safeTarget,url} as unknown as typeof safeTarget,{socketFactory:()=>{opened=true;throw new Error('unexpected socket');}}),/Invalid expected page URL/);
   assert.equal(opened,false);
  }
 });
