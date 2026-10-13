@@ -1,6 +1,6 @@
 import type {ScanBatchResult} from '../../scan-service/src/index.ts';
 import {projectVerificationLevels} from '../../scan-service/src/verification-levels.ts';
-const escapeMarkdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[\\|`!\[\]()*_]/g,'\\replace(/[|`]/g,'\\$&')').replace(/\r?\n/g,' ');
+const escapeMarkdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[\\|`!\[\]()*_]/g,'\\$&').replace(/\r?\n/g,' ');
 /**
  * Static reports cross a privacy boundary: do not serialize local account
  * directory names, raw filesystem errors, source snippets or embedded URLs.
