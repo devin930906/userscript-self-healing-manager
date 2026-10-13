@@ -325,7 +325,9 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
      return !!file&&Object.hasOwn(file,'value')&&
       file.value===(index===0?'injected-web.js':'injected.js');
     })&&
-    Array.isArray(script.matches)&&script.matches.length===1&&script.matches[0]==='<all_urls>'&&
+    Array.isArray(script.matches)&&script.matches.length===1&&
+    (()=>{const scope=Object.getOwnPropertyDescriptor(script.matches,'0');
+     return !!scope&&Object.hasOwn(scope,'value')&&scope.value==='<all_urls>';})()&&
     ['excludeMatches','excludeGlobs','includeGlobs'].every(key=>{
      if(!Object.hasOwn(script,key))return !(key in script);
      const field=Object.getOwnPropertyDescriptor(script,key);
