@@ -71,3 +71,37 @@ test('RG-07 valid generated reason, canonical error classification and V-levels 
  assert.equal(result.items[0]?.verification?.V2,'blocked');
  assert.equal(result.items[0]?.diagnostic?.origin,'unknown');
 });
+
+test('RG-07 paginated IPC rejects malformed script identifiers and path values before any renderer publication',async()=>{
+ const badRows=[
+  {...good,path:null},
+  {...good,path:{privatePath:'/tmp/PRIVATE_ACCOUNT_CANARY'}},
+  {...good,path:['PRIVATE_ACCOUNT_CANARY']},
+  {...good,path:''},
+  {...good,path:'x'.repeat(4097)},
+  {...good,scriptId:{privateToken:'CANARY'}},
+  {...good,scriptId:1},
+  {...good,scriptId:''},
+  {...good,scriptId:'a'.repeat(129)},
+ ];
+ for(const item of badRows)await refusesPayload(page(item));
+});
+
+test('RG-07 paginated IPC still publishes bounded string identity or explicitly unknown scriptId',async()=>{
+ for(const item of [
+  {...good,path:'nested/synthetic.user.js',scriptId:'known_script-01'},
+  {...good,path:'unknown.user.js',scriptId:null},
+ ]){
+  let published=0;
+  const result=await collectPagedDomDiagnosis({
+   total:1,targetId,
+   requestPage:async()=>page(item),
+   isCancelled:()=>false,
+   onProgress:()=>{published++;},
+  });
+  assert.equal(published,1);
+  assert.equal(result.items[0]?.path,item.path);
+  assert.equal(result.items[0]?.scriptId,item.scriptId);
+ }
+});
+
