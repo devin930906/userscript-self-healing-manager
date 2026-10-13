@@ -3,7 +3,7 @@ import {projectVerificationLevels} from '../../scan-service/src/verification-lev
 /** Strip control characters that could forge rows or reverse displayed audit labels. */
 const neutralizeMarkdownControls=(value:string):string=>value
  .replace(/\r\n|[\r\n\u2028\u2029]/g,' ')
- .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+ .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
   char=>'[U+'+char.codePointAt(0)!.toString(16).toUpperCase()+']')
  // Terminal control bytes must never execute when a Markdown report is viewed in a console.
  .replace(/[\u0000-\u001f\u007f]/g,' ');
