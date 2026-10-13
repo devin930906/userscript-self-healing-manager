@@ -134,3 +134,12 @@ test('manager discovery follows a fixed-script install whose preflight proves th
  assert.ok(preflight>=0&&install>preflight&&inspect>install,
   'manager discovery follows an absent-script preflight and installation that starts the worker');
 });
+
+test('official manager install callback reduces parser details to a bounded privacy-safe marker',async()=>{
+ const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ assert.match(smoke,/const rawErrors=value\?\.errors;/);
+ assert.match(smoke,/const errors=rawErrors===null\?null:Array\.isArray\(rawErrors\)&&rawErrors\.length===0\?\[\]:\[true\];/);
+ assert.match(smoke,/JSON\.stringify\(\{failed,where:\{id:Number\.isSafeInteger\(scriptId\).*isNew,errors\}\)/);
+ assert.doesNotMatch(smoke,/errors:value\?\.errors/);
+ assert.match(smoke,/typeof installText!=='string'/);
+});

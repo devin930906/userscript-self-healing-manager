@@ -244,14 +244,20 @@ try{
  };
  const installExpression=`new Promise(resolve=>chrome.runtime.sendMessage(${JSON.stringify(installMessage)},value=>{
   const failed=!!chrome.runtime.lastError;
-  resolve(JSON.stringify({failed,where:{id:value?.where?.id},isNew:value?.isNew,errors:value?.errors}));
+  const scriptId=value?.where?.id;
+  const rawErrors=value?.errors;
+  const errors=rawErrors===null?null:Array.isArray(rawErrors)&&rawErrors.length===0?[]:[true];
+  const isNew=value?.isNew===true?true:value?.isNew===false?false:undefined;
+  resolve(JSON.stringify({failed,where:{id:Number.isSafeInteger(scriptId)&&scriptId>0?scriptId:null},isNew,errors}));
 }))`;
  const installed=await optionsCdp.send('Runtime.evaluate',{
   expression:installExpression,awaitPromise:true,returnByValue:true,
  });
  const installText=installed.result?.value;
- if(typeof installText!=='string'||installText.length>2048)
-  throw new Error('Violentmonkey did not return a bounded fixture-install receipt');
+ if(typeof installText!=='string')
+  throw new Error('Violentmonkey did not return a bounded fixture-install receipt: missing-result');
+ if(installText.length>512)
+  throw new Error('Violentmonkey did not return a bounded fixture-install receipt: oversized');
  const installReceipt=JSON.parse(installText);
  if(installReceipt.failed)
   throw new Error('Violentmonkey rejected the fixed synthetic userscript fixture');
