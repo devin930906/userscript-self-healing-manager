@@ -24,6 +24,13 @@ export async function assertRecoveryDestinationOutsideSource(
  if(typeof sourceDirectory!=='string'||typeof destination!=='string'||
     !isAbsolute(sourceDirectory)||!isAbsolute(destination))
   throw new Error('Absolute source and backup destination are required');
+ // A Junction/symlink is resolved by the filesystem before a following
+ // '..', while lexical resolve() erases that link before our realpath guard.
+ // Reject the ambiguous input before any path normalization. This is a
+ // preflight; it does not lock directories against concurrent renames.
+ if(sourceDirectory.split(/[\\/]/).includes('..')||
+    destination.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe recovery backup parent traversal');
  const source=resolve(sourceDirectory),target=resolve(destination);
  if(isWithin(source,target))
   throw new Error('Recovery backup destination cannot be inside source Data');
