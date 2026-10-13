@@ -1,60 +1,60 @@
-# Stable P0 实现锚点与验收证据矩阵
+# Stable P0 实现与验收证据台账
 
-**核对日期：2026-10-11（马来西亚时间）｜版本：0.1.0-alpha.5｜全局状态：NOT STABLE**
+**核对日期：2026-10-13（UTC）｜版本：0.1.0-alpha.5｜全局状态：NOT STABLE**
 
-本表对应 [FR 产品要求](../requirements/product-requirements.md)、[QA 测试矩阵](test-and-acceptance.md) 和 [RG-01~09 阻断追踪 Issue #51](https://github.com/devin930906/userscript-self-healing-manager/issues/51)。**实现锚点仅表明源文件存在且属于关联模块，不证明完整功能已实现，更不表示通过真实环境验收。** `PARTIAL` 表示部分代码/受控 CI 证据存在但未完整认证；`BLOCKED` 表示正式发行门禁缺实际关键证据。全量 CI 成功不等于任一行可自动标记 Stable 完成。
+本表对应[FR 产品要求](../requirements/product-requirements.md)、[QA 测试矩阵](test-and-acceptance.md)及 [RG-01~09 阻断追踪 Issue #51](https://github.com/devin930906/userscript-self-healing-manager/issues/51)。每行分别记录源代码锚点、自动化测试文件、测试范围、可追溯的真实夹具/环境证据，以及仍然缺少的验收。**源文件或测试文件存在不表示相应 FR 已完成；CI 通过不表示真实环境验收通过。** `PARTIAL` 表示实现或受控测试有部分证据；`BLOCKED` 表示 Stable 的必要证据缺失。`RECORDED` 只描述单独列出的环境和夹具范围；`MISSING` / `BLOCKED` 表示没有可引用的实际验收记录。
 
-| FR ID | 实现锚点 | 证据状态 | 仍待验证或缺失 |
-|---|---|---|---|
-| FR-001 | `packages/cdp-client/src/preferred-chrome.ts` | PARTIAL | Chrome 路径选择与目标机器 GUI/权限矩阵尚未完整验收 |
-| FR-002 | `packages/cdp-client/src/browser-profiles.ts` | PARTIAL | 多 profile 生命周期及 Windows 用户数据分离尚待目标机器验收 |
-| FR-003 | `packages/cdp-client/src/index.ts` | PARTIAL | CDP 启动在全部 Chrome 版本和端口情形尚未全覆盖 |
-| FR-004 | `packages/cdp-client/src/endpoint.ts` | PARTIAL | 进程归属、异常握手和完整 Chrome 兼容矩阵仍需核查 |
-| FR-005 | `packages/cdp-client/src/preferred-chrome.ts` | PARTIAL | 端口占用与进程回收的全部实际环境路径未认证 |
-| FR-007 | `packages/script-registry/src/index.ts` | PARTIAL | QA-010 受控 50 文件导入通过；真实用户目录权限仍需验收 |
-| FR-008 | `apps/desktop/src/preload/trusted-drop-sequence.ts` | PARTIAL | 拖放系统交互及全部拒绝/取消路径未独立认证 |
-| FR-009 | `packages/script-registry/src/index.ts` | PARTIAL | 文件夹扫描基本实现；隐藏路径及跨平台大量文件仍需验收 |
-| FR-010 | `packages/source-analyzer/src/index.ts` | PARTIAL | 静态元数据与诊断测试存在；真实样本兼容范围未认证 |
-| FR-011 | `packages/source-analyzer/src/index.ts` | PARTIAL | AST 静态提取覆盖部分构造；真实复杂脚本覆盖率未认证 |
-| FR-012 | `packages/source-analyzer/src/index.ts` | PARTIAL | 动态表达式受控标记；实际执行前仍必须隔离复核 |
-| FR-013 | `packages/source-analyzer/src/index.ts` | PARTIAL | PR #45/#46 修复回退链及预算；复杂跨作用域语义未全部认证 |
-| FR-014 | `packages/candidate-engine/src/page-scope.ts` | PARTIAL | 静态 URL 规则与授权场景映射已有实现，登录状态场景仍不完整 |
-| FR-015 | `packages/cdp-client/src/snapshot.ts` | PARTIAL | 只读 DOM/CDP 路径有测试，全部 frame/shadow/runtime 情形未认证 |
-| FR-016 | `packages/cdp-client/src/read-only-visibility.ts` | PARTIAL | DOM 只读证据/稳定性有限支持；真实交互断言尚未完整 |
-| FR-018 | `packages/scan-service/src/fault-classification.ts` | PARTIAL | PR #52/#53 已接入安全归因；网页异常采集和可核验脚本堆栈未完成 |
-| FR-019 | `packages/source-analyzer/src/index.ts` | PARTIAL | 行列/函数等静态来源已提取，完整现场证据链 UI 尚待认证 |
-| FR-020 | `packages/scan-service/src/batch-dom.ts` | PARTIAL | 重检/iframe/shadow 降级存在；实际复杂页面环境修复范围未认证 |
-| FR-021 | `packages/candidate-engine/src/index.ts` | PARTIAL | 候选排序实现与合成测试存在；真实脚本准确率/误报率未认证 |
-| FR-022 | `packages/patch-engine/src/index.ts` | PARTIAL | 受约束补丁与原字节保护有测试，真实迁移与覆盖范围未认证 |
-| FR-023 | `packages/repair-workflow/src/proposal-approval.ts` | PARTIAL | 同意/修订检查存在；完整用户审核和独立发布安全审查未完成 |
-| FR-024 | `packages/scan-service/src/verification-levels.ts` | PARTIAL | V0/V1 限定验证；V2 blocked、V3/V4 not-configured，禁止当作整套完成 |
-| FR-025 | `packages/test-runner/src/index.ts` | PARTIAL | 安全只读测试契约部分存在；完整 V2/V3 功能行为测试未认证 |
-| FR-027 | `packages/patch-engine/src/immutable-archive.ts` | PARTIAL | 备份与事务测试存在；实际跨故障场景的不可逆覆盖尚待验证 |
-| FR-028 | `packages/repair-workflow/src/history.ts` | PARTIAL | 历史/回滚能力已有部分实现；真实损坏/升级/中断矩阵未全验收 |
-| FR-029 | `packages/scan-service/src/repair-task-queue.ts` | PARTIAL | 队列暂停取消单测存在；跨进程持久化和生产级恢复仍需验收 |
-| FR-030 | `packages/repair-workflow/src/guarded-batch-v1.ts` | PARTIAL | QA-034 受控 30 项诊断隔离通过；真实并发写入冲突仍需最终认证 |
-| FR-039 | `packages/persistence/src/index.ts` | PARTIAL | SQLite/schema 测试存在；实际版本升级与迁移完整矩阵未认证 |
-| FR-040 | `packages/reporting/src/index.ts` | PARTIAL | JSON/Markdown 报告基础实现；完整审查/回滚可追溯输出待验收 |
-| FR-041 | `packages/contracts/src/audit-trace.ts` | PARTIAL | 审计链契约存在；端到端 job→candidate→test→approval→revision 仍需核查 |
-| FR-045 | `scripts/package-windows.ps1` | BLOCKED | 正式三发行包尚未从最终 Stable Tag 构建并独立启动验证 |
-| FR-046 | `packages/runtime-paths/src/index.ts` | BLOCKED | 正式安装、便携 EXE、ZIP Data 目录隔离缺少三包实机证据 |
-| FR-047 | `packages/repair-workflow/src/core-recovery.ts` | BLOCKED | 三包升级迁移、损坏恢复及 Windows 10/11 独立验收尚未完成 |
-| FR-048 | `scripts/windows-release-gate.mjs` | BLOCKED | 正式三包同源、SHA、供应链审核及发布包完整验收未完成 |
+| FR ID | 实现锚点 | 自动化测试锚点 | 自动化测试范围 | 真实夹具／环境证据 | 状态与尚缺证据 |
+|---|---|---|---|---|---|
+| FR-001 | `packages/cdp-client/src/preferred-chrome.ts` | `packages/cdp-client/test/preferred-chrome.test.ts` | MODULE：受控可执行文件、路径和端口条件 | MISSING: 未记录 Windows 10/11 目标机上的 Chrome 路径、GUI 与权限矩阵验收。 | PARTIAL [CODE GAP] [TEST GAP] [ENV BLOCKED]：Chrome 版本和目标机启动条件尚未完整实现并验收。 |
+| FR-002 | `packages/cdp-client/src/browser-profiles.ts` | `packages/cdp-client/test/browser-profiles.test.ts`；`packages/cdp-client/test/browser-profile-health.test.ts` | MODULE：临时目录中的 profile 隔离和注册表恢复 | MISSING: 未记录 Windows 用户配置目录、并行运行和重启后的独立验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：Windows profile 生命周期及用户数据隔离仍待实机核对。 |
+| FR-003 | `packages/cdp-client/src/index.ts` | `packages/cdp-client/test/browser-handshake.test.ts`；`packages/cdp-client/test/cdp.test.ts` | MODULE：受控 CDP 握手和 socket 行为 | MISSING: 未记录支持范围内各 Chrome 版本、启动方式和端口组合的实机验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：完整启动、握手和回收兼容矩阵缺失。 |
+| FR-004 | `packages/cdp-client/src/endpoint.ts` | `packages/cdp-client/test/endpoint-input-bounds.test.ts`；`packages/cdp-client/test/endpoint-normalization.test.ts` | MODULE：伪造 endpoint、输入边界和规范化 | MISSING: 未记录真实进程归属、异常握手以及错误端口服务的完整 Windows 验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：目标进程身份和实际故障矩阵尚未完整核验。 |
+| FR-005 | `packages/cdp-client/src/preferred-chrome.ts` | `packages/cdp-client/test/preferred-chrome.test.ts`；`packages/cdp-client/test/failed-launch-cleanup.test.ts` | MODULE：模拟启动失败与清理 | MISSING: 未记录实际端口冲突、外部 Chrome 保留和进程回收验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：真实进程和端口竞争路径尚未完成目标机验收。 |
+| FR-007 | `packages/script-registry/src/index.ts` | `packages/scan-service/test/qa010-fifty-file-acceptance.test.ts`；`packages/script-registry/test/import.test.ts` | DIRECT QA-010：50 个输入、SQLite 索引及源文件字节检查；其余为模块测试 | RECORDED: QA-010 使用 Windows hosted runner、临时**合成**文件和 SQLite；commit `5afa48e9efb629d16d31ff7f882271fc2c8f0273`，Development CI [#38143874876](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38143874876)。不是用户目录验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：真实用户目录 ACL、路径异常和大目录行为未验收。 |
+| FR-008 | `apps/desktop/src/preload/trusted-drop-sequence.ts` | `apps/desktop/tests/trusted-drop-sequence.test.ts`；`apps/desktop/tests/trusted-drop.test.ts` | MODULE：renderer/preload 拖放授权与顺序合同 | MISSING: 未记录 Windows 原生文件拖放、拒绝、取消和权限提示的 GUI 验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：真实系统交互和拒绝/取消路径仍缺。 |
+| FR-009 | `packages/script-registry/src/index.ts` | `packages/script-registry/test/import-boundaries.test.ts`；`packages/script-registry/test/import-pinned-read.test.ts` | MODULE：临时目录、路径边界和 pinned read | MISSING: 未记录真实用户目录 ACL、隐藏路径和跨平台大目录扫描验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：目标机目录权限及大量真实文件仍需验证。 |
+| FR-010 | `packages/source-analyzer/src/index.ts` | `packages/source-analyzer/test/selectors.test.ts` | MODULE：合成 metadata 与静态 selector 样例 | MISSING: 未记录由用户提供且获准的真实脚本样本兼容性验收。 | PARTIAL [CODE GAP] [TEST GAP]：静态 metadata 边界与真实样本覆盖面不完整。 |
+| FR-011 | `packages/source-analyzer/src/index.ts` | `packages/source-analyzer/test/selectors.test.ts`；`packages/source-analyzer/test/event-binding-shadowing.test.ts` | DIRECT：AST 静态 DOM/event 绑定与 shadowing 样例 | MISSING: 仅有合成源码夹具；复杂真实脚本语义覆盖率未测量。 | PARTIAL [CODE GAP] [TEST GAP]：复杂真实脚本、作用域和动态行为尚未完整认证。 |
+| FR-012 | `packages/source-analyzer/src/index.ts` | `packages/source-analyzer/test/selectors.test.ts`；`packages/source-analyzer/test/task5-fixtures.test.ts` | MODULE：动态表达式被标为 runtime-required；不执行脚本 | MISSING: 无动态 selector 的受控真实网页验证记录；执行前隔离和授权范围仍未认证。 | PARTIAL [CODE GAP] [TEST GAP] [ENV BLOCKED]：动态 selector 的可信运行时确认链尚未完成。 |
+| FR-013 | `packages/source-analyzer/src/index.ts` | `packages/source-analyzer/test/task5-fixtures.test.ts` | DIRECT：回退链、source range、动态和超预算合成脚本 | MISSING: 未记录获准真实脚本集上的语义正确性和预算验收。 | PARTIAL [CODE GAP] [TEST GAP]：复杂跨作用域表达式和真实脚本兼容性仍缺。 |
+| FR-014 | `packages/candidate-engine/src/page-scope.ts` | `packages/candidate-engine/test/page-scope.test.ts` | MODULE：合成 URL 与 userscript scope 匹配样例 | MISSING: 未记录需登录、重定向和不同页面状态下的真实网站验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：登录状态和实际站点变化场景尚未覆盖。 |
+| FR-015 | `packages/cdp-client/src/snapshot.ts` | `packages/cdp-client/test/snapshot.test.ts`；`packages/cdp-client/test/candidate-snapshot.test.ts` | MODULE：snapshot 截断和候选证据边界 | RECORDED: 开发分支 commit `d1bceedc0d4714187c11722c6302f360b0353d04` 的 Development CI [#38331705976](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38331705976) 与 Continuation integration [#38331706054](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38331706054) 成功，包含 Chrome 155 CDP 兼容检查；受控浏览器/合成页面，不是用户网站。 | PARTIAL [CODE GAP] [ENV BLOCKED]：全部 frame、shadow、runtime 和实际页面形态未认证。 |
+| FR-016 | `packages/cdp-client/src/read-only-visibility.ts` | `packages/cdp-client/test/read-only-visibility.test.ts`；`apps/desktop/tests/read-only-visibility-ui.test.ts` | MODULE：受控页面的只读可见性证据和 UI 传递 | RECORDED: 同一 commit 的 Chrome 155 CDP 兼容检查使用受控合成页面；没有真实网页交互验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：复杂 frame/shadow 和用户页面状态仍未完整核验。 |
+| FR-018 | `packages/scan-service/src/fault-classification.ts` | `packages/cdp-client/test/read-only-exceptions.test.ts`；`packages/scan-service/test/fr018-fault-attribution.test.ts`；`packages/scan-service/test/fr018-paginated-fault-integrity.test.ts` | DIRECT：只读异常计数、伪造归因拒绝和未知来源保留 | RECORDED: [PR #57](https://github.com/devin930906/userscript-self-healing-manager/pull/57) 在隔离 Chrome/本地合成 fixture 观察到合成异常；异常来源保持 unknown，不能证明真实网页或 userscript manager 归因。 | PARTIAL [CODE GAP] [TEST GAP] [ENV BLOCKED]：真实 manager 来源映射和完整异常证据链仍缺。 |
+| FR-019 | `packages/source-analyzer/src/index.ts` | `packages/source-analyzer/test/selectors.test.ts`；`packages/source-analyzer/test/task5-fixtures.test.ts` | MODULE：合成源码中的 source range 和静态调用位置 | MISSING: 未记录真实脚本上行列、函数和运行时现场之间的端到端证据验收。 | PARTIAL [CODE GAP] [TEST GAP]：完整 UI 现场证据链和实际脚本校验尚缺。 |
+| FR-020 | `packages/scan-service/src/batch-dom.ts` | `packages/scan-service/test/batch-dom.test.ts`；`packages/scan-service/test/paginated-dom.test.ts` | MODULE：受控 adapter 的分页、重检与隔离样例 | MISSING: 未记录真实复杂页面中的 frame、shadow、并发和降级验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：真实页面覆盖范围和边缘状态仍未确认。 |
+| FR-021 | `packages/candidate-engine/src/index.ts` | `packages/candidate-engine/test/candidates.test.ts`；`packages/candidate-engine/test/evidence-budget.test.ts` | MODULE：合成候选排序、证据预算与歧义样例 | MISSING: 未在代表性真实脚本/站点集上测量 top-1 准确率、召回率或误报率。 | PARTIAL [CODE GAP] [TEST GAP]：代表性真实样本和质量指标尚未建立。 |
+| FR-022 | `packages/patch-engine/src/index.ts` | `packages/patch-engine/test/patch.test.ts`；`packages/patch-engine/test/batch-patch.test.ts` | MODULE：合成文本、source hash 和 patch 边界 | MISSING: 未记录真实版本升级、外部编辑和目标机失败恢复验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：真实迁移及覆盖冲突矩阵仍缺。 |
+| FR-023 | `packages/repair-workflow/src/proposal-approval.ts` | `packages/repair-workflow/test/proposal-approval.test.ts`；`packages/repair-workflow/test/proposal-approval-expiry.test.ts` | MODULE：本地审批凭据、过期和输入边界 | MISSING: 未记录完整用户审核 UI 验收或独立安全审查记录。 | PARTIAL [CODE GAP] [TEST GAP]：真实用户审核流程及独立安全审查尚未完成。 |
+| FR-024 | `packages/scan-service/src/verification-levels.ts` | `packages/scan-service/test/verification-levels.test.ts`；`packages/scan-service/test/paginated-evidence-validation.test.ts`；`packages/test-runner/test/read-only-probe-capability.test.ts` | DIRECT：V0/V1 和 V2/V3/V4 不越级合同；受控 CDP adapter | RECORDED: 合成/受控测试可验证等级不会越级；未证明 V2/V3/V4 用户功能。 | PARTIAL [CODE GAP] [ENV BLOCKED]：V2 blocked、V3/V4 not-configured；真实功能及 manager 证据缺失。 |
+| FR-025 | `packages/test-runner/src/index.ts` | `packages/test-runner/test/read-only-contract.test.ts`；`packages/test-runner/test/read-only-interaction-readiness.test.ts` | DIRECT：只读 DOM 断言和不支持 locator 的拒绝 | MISSING: 未记录具名真实功能契约在目标 manager 中的端到端验收。 | PARTIAL [CODE GAP] [TEST GAP] [ENV BLOCKED]：完整 V2/V3 功能行为测试和真实页面合同尚缺。 |
+| FR-027 | `packages/patch-engine/src/immutable-archive.ts` | `packages/patch-engine/test/immutable-archive.test.ts`；`packages/patch-engine/test/batch-apply.test.ts` | MODULE：临时源文件、快照不可变性和写入合同 | MISSING: 未记录真实磁盘故障、进程强杀、文件锁后逐字节恢复验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：跨故障与不可逆覆盖恢复矩阵未完成。 |
+| FR-028 | `packages/repair-workflow/src/history.ts` | `packages/repair-workflow/test/history.test.ts`；`packages/repair-workflow/test/cross-process-activation.test.ts` | MODULE：临时 managed root、路径别名和激活边界 | MISSING: 未记录支持的 Windows 安装形态上的损坏、升级和回滚验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：完整历史迁移及真实中断恢复矩阵仍缺。 |
+| FR-029 | `packages/scan-service/src/repair-task-queue.ts` | `packages/scan-service/test/repair-task-queue.test.ts`；`packages/scan-service/test/repair-task-restart-checkpoint.test.ts`；`packages/scan-service/test/repair-checkpoint-store.test.ts` | DIRECT：队列状态、SQLite checkpoint 和模拟重启 | MISSING: 临时 SQLite/模拟重启不等于 Windows 多进程真实升级或崩溃验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：跨进程持久化和生产恢复条件仍未实机认证。 |
+| FR-030 | `packages/repair-workflow/src/guarded-batch-v1.ts` | `packages/repair-workflow/test/guarded-batch-v1.test.ts`；`packages/scan-service/test/qa034-thirty-item-failure-isolation.test.ts` | DIRECT QA-034：30 项合成 AST 批次，25+5 分页和单项故障隔离 | RECORDED: QA-034 使用合成 AST 和受控 CDP adapter；commit `53b837678f42325c4f9a225d6289c8bc215b5542`，Development CI [#38144816252](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38144816252)。不是真实网页或 manager。 | PARTIAL [CODE GAP] [ENV BLOCKED]：真实并发写入冲突和生产数据验收仍缺。 |
+| FR-039 | `packages/persistence/src/index.ts` | `packages/job-journal/test/journal.test.ts`；`packages/persistence/test/persistence.test.ts`；`packages/persistence/test/schema-downgrade.test.ts` | MODULE：临时 SQLite、schema 约束和迁移拒绝条件 | MISSING: 未记录实际应用旧版本 Data 在 Windows 10/11 安装、升级、回滚的迁移验收。 | PARTIAL [CODE GAP] [ENV BLOCKED]：支持版本的真实数据库迁移矩阵未认证。 |
+| FR-040 | `packages/reporting/src/index.ts` | `packages/reporting/test/report.test.ts`；`packages/reporting/test/static-report-privacy.test.ts` | MODULE：合成报告、导出 schema 与脱敏合同 | MISSING: 未记录真实诊断链生成报告后的独立敏感数据审查。 | PARTIAL [CODE GAP] [TEST GAP]：完整审查/回滚链输出及实际隐私审查尚缺。 |
+| FR-041 | `packages/contracts/src/audit-trace.ts` | `packages/contracts/test/audit-trace.test.ts` | CONTRACT：调用方提供的静态审计快照校验 | MISSING: 未记录真实 job→candidate→test→approval→revision 全链路审计。 | PARTIAL [CODE GAP] [TEST GAP]：端到端关联证据和实际追溯核验未完成。 |
+| FR-045 | `scripts/package-windows.ps1` | `apps/desktop/tests/three-target-release-contract.test.ts`；`apps/desktop/tests/windows-release-gate.test.ts` | RELEASE CONTRACT：静态目标定义和合成 artifact inventory | BLOCKED: 尚未从最终 Stable tag 生成三种发行包，也没有 Win10/11 独立启动记录。 | BLOCKED [ENV BLOCKED]：三包同源构建、独立启动和功能验收未完成。 |
+| FR-046 | `packages/runtime-paths/src/index.ts` | `packages/runtime-paths/test/runtime-paths.test.ts`；`packages/runtime-paths/test/portable-external-unpacked-guard.test.ts` | MODULE：模拟发行模式与临时路径条件 | BLOCKED: 没有 Setup.exe、Portable.exe、完整 ZIP 在目标 Windows 上的真实 Data 隔离记录。 | BLOCKED [CODE GAP] [ENV BLOCKED]：三包安装/便携/ZIP 的实机路径验收未完成。 |
+| FR-047 | `packages/repair-workflow/src/core-recovery.ts` | `tests/integration/core-recovery-bundle.test.ts`；`tests/integration/core-recovery-stage.test.ts`；`apps/desktop/tests/core-recovery-stage-ui.test.ts` | MODULE：本地合成 recovery bundle、manifest 和 stage 合同 | BLOCKED: 没有 Win10/11 三种最终发行包上的升级迁移、损坏恢复或独立验收记录。 | BLOCKED [CODE GAP] [ENV BLOCKED]：真实包、Data 和 Windows 恢复流程尚未完成验收。 |
+| FR-048 | `scripts/windows-release-gate.mjs` | `apps/desktop/tests/windows-release-gate.test.ts`；`tests/integration/windows-zip-central-path.test.ts` | RELEASE CONTRACT：合成文件清单、路径和 checksum manifest | BLOCKED: 没有最终 Stable tag 产物、真实 SHA 校验和 Win10/11 独立发行验收。 | BLOCKED [ENV BLOCKED]：供应链审查、三包实物验收和正式发布证据均缺。 |
 
 ## 条件阻断（原表 P1，但依赖 GM API 时升级为 MVP 阻断）
 
-- **FR-026：BLOCKED**。Userscript Manager 扩展 target 只读观察参见 `packages/cdp-client/src/manager-targets.ts`；它不能替代 Tampermonkey／Violentmonkey 的真实注入、GM Storage、GM Menu 或 V4 验证。若用户最常见脚本依赖 GM API，FR-026 必须作为 MVP 阻断项处理。
+- **FR-026：BLOCKED**。代码锚点：`packages/cdp-client/src/manager-targets.ts`。自动化锚点：`packages/source-analyzer/test/manager-api-inventory.test.ts`、`packages/cdp-client/test/manager-target-discovery.test.ts`；范围只是 GM API 静态盘点和扩展 target 只读发现。真实夹具证据：**BLOCKED:** 没有获准隔离安装的 Tampermonkey／Violentmonkey 实例、GM Storage/Menu/Request 实际权限或 V4 功能运行记录。扩展 target 观察不能替代真实 userscript manager 验收。
 
-## 可追溯的已有自动化证据（范围有限）
+## 台账范围与解释
 
-- [PR #48](https://github.com/devin930906/userscript-self-healing-manager/pull/48) / QA-010：真实 Windows runner 上的 50 份**合成**临时文件和 SQLite 导入验收通过。
-- [PR #50](https://github.com/devin930906/userscript-self-healing-manager/pull/50) / QA-034：30 份合成 AST 脚本，经受控 CDP 适配器进行 25+5 分页，其中一项异常隔离；不是真实网页/manager 的验收。
-- [PR #52](https://github.com/devin930906/userscript-self-healing-manager/pull/52) / FR-018：安全故障代码与未知归因，不能证明网页或脚本错误来源。
-- [PR #53](https://github.com/devin930906/userscript-self-healing-manager/pull/53) / FR-018：分页 IPC 拒绝伪造异常来源，不是 V3/V4 认证。
-- Windows CI 当前运行 Chrome for Testing 155 的 CDP/MV3 **合成扩展**测试，**不等于**实际 Tampermonkey/Violentmonkey V4 验证。
+- 表中的测试路径表示仓库内存在相关自动化测试；它们不表示本次 Stable 验收已执行、全绿或覆盖完整 FR。范围列说明测试是直接 FR 用例、模块回归还是静态发行合同。
+- 只有 `RECORDED` 行列出的 commit、运行和受控夹具可被当作该项范围的记录。QA-010 与 QA-034 的数据均为合成输入；Windows hosted runner 不是用户 Windows 10/11 机器。
+- 当前 Chrome 155 CI / 隔离浏览器夹具不等于真实网站，也不等于 Tampermonkey／Violentmonkey GM V4。它们不能将 FR-026、FR-024 的 V3/V4 或 RG-05 标为完成。
+- FR-045~048 的合同测试验证发行配置和拒绝条件，不验证最终 tag 产物。发布安装包仍须等所有阻断证据齐全后统一构建；本工作未生成中间安装包。
 
 ## 更新准则
 
-1. 每条改为 `VERIFIED` 前必须记录对应具体 FR/QA、测试环境（Windows 版本/Chrome/manager）、完整测试范围、准确 Git commit、GitHub CI Run 或真实验收记录，并核对失败和跳过项；不能凭模块存在或测试数量推断通过。
-2. `BLOCKED` 项必须在最终发行完成并独立验收后才能解除；QA-061~074 / RG-08~09 不能由发行合同测试替代。
-3. 正式 Stable 的最低条件为 **所有 P0 和被提升的条件阻断项完整通过、独立安全审查及 RG-01~09 全部具备证据**，之后才允许最终 Tag/Release 三发行包。
+1. 只有在源代码、自动化用例、实际测试记录三者对齐后才能提高实现/测试状态。把缺少的源代码、直接测试和运行环境分别标成 `[CODE GAP]`、`[TEST GAP]`、`[ENV BLOCKED]`；不要用包数量或 CI 总绿推断功能通过。
+2. 将真实环境证据记录为具体 FR/QA、Windows 版本/Chrome/manager、夹具、完整范围、准确 Git commit、GitHub CI Run 或受控验收记录，并核对失败和跳过项。合成夹具必须注明 synthetic。
+3. `BLOCKED` 发行项必须等最终发行完成并独立验收后才可解除；QA-061~074 / RG-08~09 不能由发行合同测试替代。
+4. Stable 的最低条件仍是全部 P0 和适用的条件阻断项完整通过、独立安全审查及 RG-01~09 均有证据。当前没有门禁可标为完成，尚未授权最终 Tag/Release。
