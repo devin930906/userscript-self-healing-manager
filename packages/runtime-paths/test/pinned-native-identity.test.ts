@@ -86,3 +86,22 @@ test('RG-06 exact BigInt pinned snapshot rejects changed hardlink count with the
   assert.deepEqual(await readFile(alias),bytes,'the reader must never change original bytes');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('RG-06 Windows rejects numeric-only approved file identity but permits exact native approval',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-strict-pinned-'));
+ try{
+  const path=join(dir,'synthetic.user.js'),bytes=Buffer.from('SYNTHETIC_NUMERIC_COLLISION_GUARD');
+  await writeFile(path,bytes);
+  const numeric=await lstat(path),precise=await lstat(path,{bigint:true});
+  if(process.platform==='win32'){
+   await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric}),
+    /native|precise|snapshot|identity|unsafe/i,
+    'Windows numeric-only metadata cannot distinguish proved rounded identity collisions');
+  }else{
+   assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric}),bytes);
+  }
+  assert.deepEqual(await readPinnedRegularFile(path,{
+   maxBytes:512*1024,expected:numeric,expectedNative:precise,
+  }),bytes,'precisely bound source remains readable on all platforms');
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
