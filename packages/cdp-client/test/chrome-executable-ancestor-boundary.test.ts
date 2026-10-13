@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test,type TestContext} from 'node:test';
 import {mkdtemp,mkdir,writeFile,readFile,rename,symlink,rm,access} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,sep} from 'node:path';
 import {savePreferredChromePath,loadPreferredChromePath} from '../src/preferred-chrome.ts';
 import {createBrowserProfile,resolveBrowserProfileForLaunch,listBrowserProfiles} from '../src/browser-profiles.ts';
 
@@ -74,4 +74,26 @@ test('RG-04 retains an ordinary selected Chrome EXE for saved preference and pro
   const selected=await resolveBrowserProfileForLaunch({dataRoot:root,profileId:created.id});
   assert.equal(selected.executablePath,exe);
   assert.equal(selected.isolatedProfileDir,join(root,'Chrome-Profiles',created.id));
+ }));
+
+test('RG-04 Chrome selection refuses a linked ancestor masked by a parent-traversal segment',async t=>
+ fixture(t,async(root,exe,physical)=>{
+  const nested=join(physical,'nested');
+  await mkdir(nested);
+  const alias=join(root,'linked-nested');
+  if(!await junction(t,nested,alias))return;
+  // Do not normalize: a filesystem may resolve the link before resolving
+  // '..', while a lexical ancestor preflight may erase the linked segment.
+  const disguised=alias+sep+'..'+sep+'Chrome.exe';
+  await assert.rejects(
+   savePreferredChromePath({dataRoot:root,executablePath:disguised}),
+   /unsafe Chrome executable.*parent traversal/i,
+  );
+  await assert.rejects(
+   createBrowserProfile({dataRoot:root,name:'Disguised',executablePath:disguised}),
+   /unsafe Chrome executable.*parent traversal/i,
+  );
+  await assert.rejects(access(join(root,'preferred-chrome.json')),{code:'ENOENT'});
+  await assert.rejects(access(join(root,'browser-profiles.json')),{code:'ENOENT'});
+  assert.equal(await readFile(exe,'utf8'),'synthetic Chrome executable placeholder');
  }));
