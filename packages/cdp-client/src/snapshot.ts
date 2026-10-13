@@ -3,6 +3,19 @@ import {validateCdpPageSocket} from './endpoint.ts';
 const MAX_SNAPSHOT_BYTES=5_000_000;
 const MAX_SNAPSHOT_DOCUMENTS=64;
 const MAX_SNAPSHOT_NODES=200_000;
+// Keep private DOM/transport content out of errors returned by the read-only
+// snapshot adapter. Only fixed, internally generated diagnostic codes are safe.
+const SAFE_SNAPSHOT_ERRORS=new Set([
+ 'CDP DOM snapshot payload limit exceeded',
+ 'CDP snapshot failed',
+ 'Invalid DOM snapshot response',
+ 'CDP DOM snapshot document count limit exceeded',
+ 'Invalid DOM snapshot nodes',
+ 'CDP DOM snapshot node count limit exceeded',
+ 'Invalid Shadow DOM snapshot metadata',
+ 'Invalid Shadow DOM snapshot index',
+ 'Invalid Shadow DOM root type',
+]);
 export interface SocketLike {
  addEventListener(type:'open'|'message'|'error'|'close',listener:(event:any)=>void):void;
  removeEventListener(type:'open'|'message'|'error'|'close',listener:(event:any)=>void):void;
@@ -24,7 +37,7 @@ export async function captureDomSummary(target:ChromeTarget,options:{socketFacto
    try{socket.close();}catch{}
    if(error)reject(error);else if(summary)resolve(summary);
   };
-  const onOpen=()=>{try{socket.send(JSON.stringify({id:1,method:'DOMSnapshot.captureSnapshot',params:{computedStyles:[],includePaintOrder:false,includeDOMRects:false}}));}catch(error){complete(error instanceof Error?error:new Error('Cannot send CDP snapshot request'));}};
+  const onOpen=()=>{try{socket.send(JSON.stringify({id:1,method:'DOMSnapshot.captureSnapshot',params:{computedStyles:[],includePaintOrder:false,includeDOMRects:false}}));}catch{complete(new Error('Cannot send CDP snapshot request'));}};
   const onMessage=(event:{data:unknown})=>{
    try{
     if(typeof event.data!=='string'||event.data.length>MAX_SNAPSHOT_BYTES)throw new Error('CDP DOM snapshot payload limit exceeded');
@@ -62,7 +75,11 @@ export async function captureDomSummary(target:ChromeTarget,options:{socketFacto
     }
     complete(undefined,{targetId:target.id,url:target.url,documentCount:documents.length,
       nodeCount:count,authorShadowTreeNodes,validationLevel:'evidence-only'});
-   }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP response'));}
+   }catch(error){
+    const code=error instanceof Error&&SAFE_SNAPSHOT_ERRORS.has(error.message)?
+     error.message:'Invalid CDP response';
+    complete(new Error(code));
+   }
   };
   const onError=()=>complete(new Error('CDP socket error'));
   const onClose=()=>complete(new Error('CDP socket closed before snapshot response'));
