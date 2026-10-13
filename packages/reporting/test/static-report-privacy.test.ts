@@ -78,3 +78,27 @@ test('RG-07 Markdown export treats user-controlled basenames as plain text, neve
  assert.equal(json.items.every((item:{verification:{V3:string}})=>
   item.verification.V3==='not-configured'),true);
 });
+
+
+test('RG-07 Markdown escapes strikethrough basenames and untrusted timestamp markup',()=>{
+ const unsafeTime='2026-10-12T04:00:00.000Z ![REMOTE](https://tracker.invalid/pixel)';
+ const unsafeName='~~HIDDEN~~.user.js';
+ const input:ScanBatchResult={
+  ...report,createdAt:unsafeTime,requestedCount:1,enumeratedCount:1,
+  processedCount:1,passedCount:1,errorCount:0,
+  items:[{path:'C:\\scripts\\'+unsafeName,status:'parsed',
+   selectorCount:0,runtimeRequiredCount:0,diagnostics:[]}],
+ };
+ const markdown=serializeStaticReport(input,'markdown');
+ assert.match(markdown,/\\~\\~HIDDEN\\~\\~\.user\.js/,
+  'a legal Windows basename must not render as Markdown strikethrough');
+ assert.doesNotMatch(markdown,/创建时间：[^\n]*!\[REMOTE\]\(https:/,
+  'a timestamp crossing the report boundary must not create a remote image');
+ assert.match(markdown,/\\!\\\[REMOTE\\\]\\\(https:\/\/tracker\.invalid\/pixel\\\)/,
+  'render the timestamp markup literally and visibly');
+ const json=JSON.parse(serializeStaticReport(input,'json'));
+ assert.equal(json.items[0].path,unsafeName,
+  'plain JSON basename must remain intact');
+ assert.equal(json.createdAt,unsafeTime,
+  'JSON schema and timestamp contents must remain unchanged');
+});
