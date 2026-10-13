@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {createHash} from 'node:crypto';
+import {mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
+import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
+import {createCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
+import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '../../packages/repair-workflow/src/core-recovery-stage.ts';
+
+const sha=(value:Uint8Array)=>createHash('sha256').update(value).digest('hex');
+async function fixture(run:(v:{root:string;source:string;backup:string;stage:string;script:Buffer})=>Promise<void>){
+ const root=await mkdtemp(join(tmpdir(),'usshm-stage-audit-'));
+ try{
+  const source=join(root,'Data'),backup=join(root,'Core-Backup'),stage=join(root,'Offline-Stage');
+  await mkdir(source);
+  const registry=openDatabase(join(source,'registry.sqlite'));
+  migrateDatabase(registry);
+  const journal=openDiagnosisJournal(join(source,'diagnosis-journal.sqlite'));
+  const script=Buffer.from('// ==UserScript==\n// @name Synthetic Offline Audit\n// ==/UserScript==\n');
+  const dir=join(source,'managed','fixture');
+  await mkdir(dir,{recursive:true});
+  await writeFile(join(dir,'original-'+sha(script)+'.user.js'),script);
+  await writeFile(join(dir,'current.user.js'),script);
+  try{await createCoreRecoveryBundle({dataRoot:source,destination:backup,registry,journal});}
+  finally{journal.close();registry.close();}
+  await stageCoreRecoveryForOfflineReview({snapshotDirectory:backup,activeDataRoot:source,destination:stage});
+  await run({root,source,backup,stage,script});
+ }finally{await rm(root,{recursive:true,force:true});}
+}
+test('RG-06 independent offline staging verifier accepts unchanged synthetic stage and leaves Data untouched',async()=>fixture(async({backup,stage,source,script})=>{
+ const before=await readFile(join(source,'managed','fixture','current.user.js'));
+ const audit=await verifyCoreOfflineRecoveryStage({snapshotDirectory:backup,stagedDirectory:stage});
+ assert.deepEqual(audit,{valid:true,fileCount:4,sourceManifestSha256:sha(await readFile(join(backup,'manifest.json')))});
+ assert.deepEqual(await readFile(join(source,'managed','fixture','current.user.js')),before);
+ assert.deepEqual(before,script);
+}));
+for(const scenario of ['changed-file','unexpected-file','tampered-marker','wrong-origin','corrupt-sqlite'] as const){
+ test('RG-06 independent offline stage audit fails closed after '+scenario,async()=>fixture(async({backup,stage,source})=>{
+  const expected=await readFile(join(source,'managed','fixture','current.user.js'));
+  const marker=join(stage,'USSHM-RECOVERY-NOT-ACTIVE.json');
+  if(scenario==='changed-file'){
+   const target=join(stage,'managed','fixture','current.user.js');
+   const before=await readFile(target),changed=Buffer.from(before);
+   changed[16]=changed[16]===65?66:65;
+   await writeFile(target,changed);
+  }else if(scenario==='unexpected-file'){
+   await writeFile(join(stage,'extra-payload.user.js'),'SYNTHETIC_NOT_IN_MANIFEST');
+  }else if(scenario==='corrupt-sqlite'){
+   await writeFile(join(stage,'registry.sqlite'),'INVALID_STAGED_SQLITE');
+  }else{
+   const obj=JSON.parse(await readFile(marker,'utf8')) as Record<string,unknown>;
+   if(scenario==='tampered-marker')obj.activated=true;
+   else obj.sourceManifestSha256='0'.repeat(64);
+   await writeFile(marker,JSON.stringify(obj)+'\n');
+  }
+  await assert.rejects(
+   verifyCoreOfflineRecoveryStage({snapshotDirectory:backup,stagedDirectory:stage}),
+   /offline|stage|source|manifest|marker|hash|changed|mismatch|sqlite|unexpected|unsafe|complete|recovery/i,
+   'a completed but altered offline staging tree is not verified');
+  assert.deepEqual(await readFile(join(source,'managed','fixture','current.user.js')),expected,
+   'audit must not mutate active source Data');
+  assert.deepEqual((await readdir(stage)).includes('USSHM-RECOVERY-NOT-ACTIVE.json'),true);
+ }));
+}
