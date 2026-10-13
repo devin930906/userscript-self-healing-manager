@@ -26,11 +26,15 @@ export async function executeDurableGuardedManagedApply<T extends {hash:string}>
     typeof input.restore!=='function')
   throw new Error('Invalid guarded managed revision predecessor or rollback');
  let written:T|undefined;
+ // A rejecting write may already have activated bytes without returning a
+ // verifiable SHA. Never call that outcome a pre-write approval block.
+ let writeAttempted=false;
  try{
   return await executeDurableApprovedBatch({
    dataRoot:input.dataRoot,approvalId:input.approvalId,scriptId:input.scriptId,
    preflight:input.preflight,
    write:async()=>{
+    writeAttempted=true;
     const receipt=await input.write();
     if(!receipt||typeof receipt.hash!=='string'||!/^[a-f0-9]{64}$/.test(receipt.hash))
      throw new Error('Managed revision activation receipt is unverified');
@@ -55,6 +59,8 @@ export async function executeDurableGuardedManagedApply<T extends {hash:string}>
     throw new Error('Guarded managed repair journal failed; rollback blocked, manual review required');
    throw new Error('Guarded managed repair journal failed; prior revision restored');
   }
+  if(writeAttempted)
+   throw new Error('Guarded managed repair write outcome uncertain; manual review required');
   throw new Error('Durable guarded managed repair blocked; fresh review required');
  }
 }

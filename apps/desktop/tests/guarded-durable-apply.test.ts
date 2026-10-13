@@ -85,3 +85,37 @@ test('FR-029 guarded single-script handler uses durable V1 apply wrapper with tr
  assert.match(handler,/restore:\s*expectedCurrentHash=>repairs\.restore\(/);
  assert.match(handler,/expectedCurrentHash/);
 });
+
+test('FR-029 guarded writer rejecting AFTER activating managed bytes is explicitly uncertain, never a pre-write block',async()=>fixture(async root=>{
+ const path=join(root,'managed.user.js'),old='reviewed managed predecessor',next='new managed bytes before write error';
+ await writeFile(path,old);
+ let attempted=0,restores=0,message='';
+ try{
+  await executeDurableGuardedManagedApply({
+   dataRoot:root,approvalId:randomUUID(),scriptId:'guarded-uncertain',
+   previousHash:digest(old),preflight:()=>true,
+   write:async()=>{attempted++;await writeFile(path,next);throw Error('PRIVATE_SOURCE_AND_DISK_FAILURE');},
+   restore:async()=>{restores++;return {hash:digest(old),activePath:path};},
+  });
+ }catch(error){message=(error as Error).message;}
+ assert.equal(attempted,1);
+ assert.equal(await readFile(path,'utf8'),next,'an attempted activation is not provably rolled back');
+ assert.equal(restores,0,'without an activation SHA no CAS restore is safe');
+ assert.match(message,/uncertain|manual review/i);
+ assert.doesNotMatch(message,/blocked; fresh review|PRIVATE_SOURCE_AND_DISK_FAILURE/i,
+  'a post-activation throw must not be mislabeled as an unwritten task');
+}));
+
+test('FR-029 malformed post-write activation receipt is uncertain, while denied preflight is still blocked',async()=>fixture(async root=>{
+ let writes=0,restores=0;
+ const run=(allowed:boolean)=>executeDurableGuardedManagedApply({
+  dataRoot:root,approvalId:randomUUID(),scriptId:'guarded-no-receipt',
+  previousHash:'a'.repeat(64),preflight:()=>allowed,
+  write:async()=>{writes++;return {hash:'PRIVATE_INVALID_HASH'};},
+  restore:async()=>{restores++;return {hash:'a'.repeat(64),activePath:'unused'};},
+ });
+ await assert.rejects(run(true),/uncertain|manual review/i);
+ assert.equal(writes,1);assert.equal(restores,0);
+ await assert.rejects(run(false),/blocked|fresh review/i);
+ assert.equal(writes,1);assert.equal(restores,0);
+}));
