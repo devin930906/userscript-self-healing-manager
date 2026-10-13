@@ -46,7 +46,12 @@ export async function confirmPageIdentity(
  const timeoutMs=options.timeoutMs??4000;
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000)throw new Error('Invalid frame identity timeout');
  let expected:URL;
- try{expected=new URL(target.url);}catch{throw new Error('Invalid expected page URL');}
+ let expectedUrl:string;
+ try{
+  expectedUrl=target.url;
+  if(typeof expectedUrl!=='string'||expectedUrl.length<1||expectedUrl.length>8192)throw new Error('Invalid URL');
+  expected=new URL(expectedUrl);
+ }catch{throw new Error('Invalid expected page URL');}
  if(!['http:','https:'].includes(expected.protocol))throw new Error('Only HTTP(S) page identity checks are supported');
  const socket=(options.socketFactory??((address:string)=>new WebSocket(address) as unknown as SocketLike))(endpoint);
  return new Promise<ConfirmedPageIdentity>((resolve,reject)=>{
@@ -70,7 +75,7 @@ export async function confirmPageIdentity(
     if(response.error)throw new Error('CDP frame tree rejected');
     const url=response.result?.frameTree?.frame?.url;
     if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL');
-    if(url!==target.url)throw new Error('CDP page URL changed or frame identity mismatch');
+    if(url!==expectedUrl)throw new Error('CDP page URL changed or frame identity mismatch');
     // Record only the number of nested browsing contexts; never expose child
     // URLs (which could contain private query parameters) to UI/reports.
     // Depth and count are bounded independently of the WebSocket response cap.
