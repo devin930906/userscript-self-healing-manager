@@ -139,7 +139,15 @@ export async function verifyBrowserCdpHandshake({
      throw new Error('Invalid CDP browser product/version response');
     finish(undefined,product);
    }catch(error){
-    finish(error instanceof Error?error:new Error('Invalid CDP browser handshake response'));
+    // JSON.parse SyntaxError may quote untrusted CDP data. Only explicitly
+    // fixed in-module diagnostics may cross this browser trust boundary.
+    const message=error instanceof Error?error.message:'';
+    const known=[
+     'Invalid CDP browser handshake response size',
+     'CDP browser handshake command rejected',
+     'Invalid CDP browser product/version response',
+    ].includes(message);
+    finish(new Error(known?message:'Invalid CDP browser handshake response'));
    }
   };
   const onError=()=>finish(new Error('CDP browser handshake socket error'));
