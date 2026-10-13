@@ -20,7 +20,7 @@ async function swapAfterVerification(root:string,replacement:Buffer):Promise<str
 test('RG-06 late unapproved changed-content stage cannot become a visible managed current',async()=>isolate(async root=>{
  const activePath=join(root,'current.user.js');
  const approved=Buffer.from('SYNTHETIC_APPROVED_MANAGED_REVISION');
- const changed=Buffer.from('UNTRUSTED_REPLACEMENT_STAGE_BYTES');
+ const changed=Buffer.from('UNTRUSTED_REPLACEMENT_STAGE_BYTES!!');
  assert.equal(changed.length,approved.length,'same-size substitution must exercise hash protection');
  let originalStage='';
  await assert.rejects(commitManagedCurrent({
