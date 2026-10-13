@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {lstat,rename,writeFile,unlink,mkdir,rmdir} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
 const SETTINGS_NAME='browser-profiles.json';
 const MAX_BYTES=32768;
@@ -22,6 +23,13 @@ function rootPath(dataRoot:string):string{
  if(typeof dataRoot!=='string'||!isAbsolute(dataRoot))
   throw new Error('Absolute application data root required');
  return join(dataRoot,SETTINGS_NAME);
+}
+/** Reject linked Data roots before metadata reads or acquiring write leases.
+ * This preflight blocks existing directory aliases, not hostile concurrent
+ * renames; final Stable recovery still needs independent native acceptance. */
+async function assertRegistryDataRoot(dataRoot:string):Promise<void>{
+ try{await assertUnlinkedRecoveryDirectory(dataRoot);}
+ catch{throw new Error('Unsafe browser profile Data root: symlink or junction ancestor');}
 }
 function validateId(id:string):void{
  if(typeof id!=='string'||!ID.test(id))
@@ -73,6 +81,7 @@ function validateState(raw:unknown):SavedState{
 }
 async function readState(dataRoot:string):Promise<SavedState>{
  const path=rootPath(dataRoot);
+ await assertRegistryDataRoot(dataRoot);
  let info:Awaited<ReturnType<typeof lstat>>;
  try{info=await lstat(path);}
  catch(error){
@@ -88,6 +97,7 @@ async function readState(dataRoot:string):Promise<SavedState>{
 /** Serialize read-modify-write across application processes. Never steal orphaned locks. */
 async function withRegistryWriteLease<T>(dataRoot:string,fn:()=>Promise<T>):Promise<T>{
  const lock=rootPath(dataRoot)+'.write-lock';
+ await assertRegistryDataRoot(dataRoot);
  try{await mkdir(lock,{mode:0o700});}
  catch(error){
   if((error as NodeJS.ErrnoException).code==='EEXIST')
@@ -131,6 +141,8 @@ export async function inspectBrowserProfileRegistry({dataRoot}:{
  dataRoot:string;
 }):Promise<BrowserProfileRegistryHealth>{
  const config=rootPath(dataRoot);
+ try{await assertRegistryDataRoot(dataRoot);}
+ catch{return {status:'invalid',count:null};}
  try{
   const lock=await lstat(config+'.write-lock');
   return {status:lock.isDirectory()&&!lock.isSymbolicLink()?'write-locked':'invalid',count:null};
