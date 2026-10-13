@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {lstat,writeFile,rename,unlink} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
-import {isAbsolute,join} from 'node:path';
+import {dirname,isAbsolute,join} from 'node:path';
 
 const PREFERENCE_FILE='preferred-chrome.json';
 type PreferredChromeState={schemaVersion:1;executablePath:string};
@@ -10,11 +10,15 @@ type PreferredChromeState={schemaVersion:1;executablePath:string};
 async function isValidChromeExe(executablePath:string):Promise<boolean>{
  if(!isAbsolute(executablePath)||!/\.exe$/i.test(executablePath))return false;
  try{
+  // A regular EXE leaf beneath a symlinked/Junction directory can still
+  // redirect an explicitly selected binary. Fail closed before selection.
+  await assertUnlinkedRecoveryDirectory(dirname(executablePath));
   const info=await lstat(executablePath);
   return info.isFile()&&!info.isSymbolicLink();
- }catch(error){
-  if((error as NodeJS.ErrnoException).code==='ENOENT')return false;
-  throw error;
+ }catch{
+  // An optional Chrome preference must remain unselected if the saved
+  // executable path is stale, unreadable, or redirected.
+  return false;
  }
 }
 async function checkConfigPath(path:string):Promise<boolean>{
