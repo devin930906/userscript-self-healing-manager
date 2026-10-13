@@ -8,7 +8,8 @@ const PREFERENCE_FILE='preferred-chrome.json';
 type PreferredChromeState={schemaVersion:1;executablePath:string};
 
 async function isValidChromeExe(executablePath:string):Promise<boolean>{
- if(!isAbsolute(executablePath)||!/\.exe$/i.test(executablePath))return false;
+ if(!isAbsolute(executablePath)||!/\.exe$/i.test(executablePath)||
+    executablePath.split(/[\\/]/).includes('..'))return false;
  try{
   // A regular EXE leaf beneath a symlinked/Junction directory can still
   // redirect an explicitly selected binary. Fail closed before selection.
@@ -36,6 +37,10 @@ export async function savePreferredChromePath({dataRoot,executablePath}:{
  if(!isAbsolute(dataRoot))throw new Error('Absolute application data root required');
  if(!isAbsolute(executablePath))throw new Error('Absolute Chrome executable path required');
  if(!/\.exe$/i.test(executablePath))throw new Error('Selected Chrome executable must be an EXE');
+ // Reject lexical parent traversal before dirname/resolve can erase a
+ // symlinked component in the saved executable's apparent ancestry.
+ if(executablePath.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe Chrome executable parent traversal');
  if(!await isValidChromeExe(executablePath))throw new Error('Chrome executable must be a regular file, not a symlink');
  // A writable preference beneath a linked Data ancestor can redirect an
  // otherwise legitimate user-selected Chrome path outside app-owned storage.
