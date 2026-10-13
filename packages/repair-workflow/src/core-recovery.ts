@@ -80,11 +80,14 @@ async function assertCoreSqliteSnapshots(root:string):Promise<void>{
  * snapshots. Not a cross-store transaction; arbitrary Data/ files, browser
  * profiles and secrets are deliberately excluded. Never restore automatically.
  */
-export async function createCoreRecoveryBundle({dataRoot,destination,registry,journal}:{
+export async function createCoreRecoveryBundle({dataRoot,destination,registry,journal,beforeFinalManifest}:{
  dataRoot:string;destination:string;registry:DatabaseHandle;journal:DiagnosisJournal;
+ /** Internal deterministic fault injection only; never wired from renderer. */
+ beforeFinalManifest?:()=>Promise<void>;
 }):Promise<{path:string;manifestSha256:string}>{
  if(typeof dataRoot!=='string'||typeof destination!=='string'||
-    !isAbsolute(dataRoot)||!isAbsolute(destination)||!(registry instanceof DatabaseSync))
+    !isAbsolute(dataRoot)||!isAbsolute(destination)||!(registry instanceof DatabaseSync)||
+    (beforeFinalManifest!==undefined&&typeof beforeFinalManifest!=='function'))
   throw new Error('Invalid core recovery input');
  const source=resolve(dataRoot),target=resolve(destination);
  await directory(source);
@@ -115,6 +118,25 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  ];
  // Do not certify an invalid journal (even with a valid SHA-256) as complete.
  // A failed preflight leaves this new directory incomplete and review-only.
+ await assertCoreSqliteSnapshots(target);
+ if(beforeFinalManifest)await beforeFinalManifest();
+ // A prior valid snapshot does not prove that independently writable files
+ // remained intact during the other awaited backup and SQLite audits.
+ // Repeat the closed-inventory and byte checks immediately before the only
+ // complete:true marker; an adversarial edit must leave the bundle incomplete.
+ await directory(target);
+ const expectedEntries=['registry.sqlite','diagnosis-journal.sqlite','managed-recovery'].sort();
+ if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedEntries))
+  throw new Error('Unexpected core recovery entries before manifest publication');
+ await verifyManagedRecovery({snapshotDirectory:managed.path});
+ const finalNested=await shaFile(join(managed.path,'manifest.json'),1024*1024);
+ if(finalNested.sha256!==archive.sha256||finalNested.bytes!==archive.bytes)
+  throw new Error('Core recovery nested manifest changed before publication');
+ for(const [name,claim] of [[paths[0],reg],[paths[1],log]] as const){
+  const actual=await shaFile(join(target,name));
+  if(actual.sha256!==claim.sha256||actual.bytes!==claim.bytes)
+   throw new Error('Core recovery SQLite bytes changed before publication');
+ }
  await assertCoreSqliteSnapshots(target);
  const content=Buffer.from(JSON.stringify({
   kind:'usshm-core-recovery-v1',complete:true,atomicAcrossStores:false,
