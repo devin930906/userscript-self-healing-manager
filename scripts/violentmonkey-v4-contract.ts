@@ -220,7 +220,7 @@ function buildViolentmonkeyManagerCommandExpression(
 
 /** Fixed bounded readiness stages: never emit a manager error or script code. */
 export type ViolentmonkeyInjectorReadinessState=
- 'worker-receipt-unavailable'|'official-injector-error'|'base-injector-unregistered'|'ready';
+ 'worker-receipt-unavailable'|'official-injector-error'|'base-injector-unregistered'|'cdp-evaluation-failed'|'ready';
 
 /**
  * TEST ONLY: an isolated Chrome permission grant alone is not evidence of a
@@ -247,9 +247,11 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    response=await input.send('Runtime.evaluate',{
     expression,awaitPromise:true,returnByValue:true,
    });
-  }catch{throw new Error('Isolated manager injector CDP evaluation failed');}
-  if(response?.exceptionDetails)
+  }catch{notify('cdp-evaluation-failed');throw new Error('Isolated manager injector CDP evaluation failed');}
+  if(response?.exceptionDetails){
+   notify('cdp-evaluation-failed');
    throw new Error('Isolated manager injector CDP evaluation failed');
+  }
   return response?.result?.value;
  };
  const notify=(stage:ViolentmonkeyInjectorReadinessState)=>{
