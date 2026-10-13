@@ -52,6 +52,11 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
  await assertUnlinkedRecoveryDirectory(dirname(destinationPath));
  const digest=createHash('sha256').update(bytes).digest('hex');
  const stage=join(dirname(destinationPath),'.'+basename(destinationPath)+'.staging-'+randomUUID()+'.tmp');
+ // A second private hardlink pins the approved file independent of Windows'
+ // approximate inode numbers. A replacement at the stage pathname has one
+ // link, while the original retains its private guard link.
+ const stageGuard=stage+'.guard';
+ let guardCreated=false;
  // Node exposes only approximate file identifiers on some Windows volumes.
  // Pin every available identity field in addition to digest and hardlink count;
  // this is not a substitute for native Win32 FileIdInfo certification.
@@ -60,7 +65,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   Number.isFinite(left.birthtimeMs)&&Number.isFinite(left.mode)&&
   left.dev===right.dev&&left.ino===right.ino&&
   left.birthtimeMs===right.birthtimeMs&&left.mode===right.mode;
- const verify=async(path:string,expectedLinks:1|2=1):Promise<Stats>=>{
+ const verify=async(path:string,expectedLinks:1|2|3=1):Promise<Stats>=>{
   const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink()||info.size!==bytes.length)
    throw new Error('Report staging file identity, type or size mismatch');
@@ -120,10 +125,16 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   await file.sync();
   await file.close();file=undefined;
   approvedStage=await verify(stage);
+  await link(stage,stageGuard);
+  guardCreated=true;
+  if(!sameIdentity(approvedStage,await verify(stage,2))||
+     !sameIdentity(approvedStage,await verify(stageGuard,2)))
+   throw new Error('Report staging guard identity changed');
   if(beforePublish)await beforePublish();
   // Reject changes between the initial staging verification and publication.
   // This also guards test-injected races without touching an existing target.
-  if(!sameIdentity(approvedStage,await verify(stage)))
+  if(!sameIdentity(approvedStage,await verify(stage,2))||
+     !sameIdentity(approvedStage,await verify(stageGuard,2)))
    throw new Error('Report staging identity was replaced before publication');
   try{await link(stage,destinationPath);}
   catch(error){
@@ -136,7 +147,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
   try{
    if(afterPublish)await afterPublish();
-   if(!sameIdentity(approvedStage,await verify(destinationPath,2)))
+   if(!sameIdentity(approvedStage,await verify(destinationPath,3)))
     throw new Error('Report staging identity changed during publication');
   }
   catch(error){
@@ -147,6 +158,13 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
+ if(guardCreated){
+  try{await unlink(stageGuard);}
+  catch(error){
+   if(failure!==undefined)throw new AggregateError([failure,error],'Report staging guard cleanup failed');
+   throw error;
+  }
+ }
  try{await unlink(stage);}
  catch(error){
   if((error as NodeJS.ErrnoException).code!=='ENOENT'){
