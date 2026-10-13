@@ -183,3 +183,38 @@ test('manager socket validation redacts throwing accessor and closes transport',
  });
  assert.equal(closed,1);
 });
+
+test('malformed socket with throwing close getter is rejected with fixed error',async()=>{
+ const secret='private-close-getter-token';
+ const malformed={
+  addEventListener:()=>{},removeEventListener:()=>{},send:undefined,
+  get close(){throw new Error(secret);},
+ };
+ await assert.rejects(inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:browser,expectedProduct:product,
+  socketFactory:()=>malformed as unknown as BrowserSocket,
+ }),error=>{
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'Invalid CDP manager target socket interface');
+  assert.doesNotMatch(error.message,/private-close-getter-token/);
+  return true;
+ });
+});
+
+test('stale captured socket open callback after timeout cannot send CDP',async()=>{
+ const socket=new BrowserSocket();
+ let staleOpen:((event:any)=>void)|undefined;
+ const originalAdd=socket.addEventListener.bind(socket);
+ socket.addEventListener=(event,handler)=>{
+  if(event==='open'){staleOpen=handler;return;}
+  originalAdd(event,handler);
+ };
+ await assert.rejects(inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:browser,expectedProduct:product,timeoutMs:100,
+  socketFactory:()=>socket,
+ }),/timeout/);
+ assert.equal(socket.closed,true);
+ assert.ok(staleOpen);
+ staleOpen(undefined);
+ assert.deepEqual(socket.sent,[]);
+});
