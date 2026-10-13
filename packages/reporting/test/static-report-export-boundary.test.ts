@@ -32,5 +32,5 @@ test('RG-07 static report rejects absent or malformed rows with a privacy-safe e
 test('RG-07 static report preserves valid JSON and Markdown exports',()=>{
  const json=JSON.parse(serializeStaticReport(fixture,'json'));
  assert.equal(json.items[0].path,'safe.user.js');
- assert.match(serializeStaticReport(fixture,'markdown'),/safe\\.user\\.js/);
+ assert.match(serializeStaticReport(fixture,'markdown'),/safe[.]user[.]js/);
 });
