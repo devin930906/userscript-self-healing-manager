@@ -7,13 +7,15 @@ function fixture(outcome:unknown|Error){
  let verified=0,rollbacks:string[]=[];
  const input={
   approved:true,scriptId:'fixture-script',appliedHash:applied,previousHash:original,
+  expectedCaseId:'MANAGED_GUARD_fixture-script:IDX_0',
   verify:async()=>{verified++;if(outcome instanceof Error)throw outcome;return outcome;},
   confirmActiveHash:async()=>applied,
   restore:async(hash:string)=>{rollbacks.push(hash);return {hash,activePath:'C:/Data/managed/fixture-script/current.user.js'};},
  };
  return {input,stats:()=>({verified,rollbacks})};
 }
-const passed={status:'passed',evidenceLevel:'V1',expectation:'unique',attempts:2,matchCount:1,
+const passed={caseId:'MANAGED_GUARD_fixture-script:IDX_0',
+ status:'passed',evidenceLevel:'V1',expectation:'unique',attempts:2,matchCount:1,
  V2:'blocked',V3:'not-configured',V4:'not-configured',
  functionalVerified:false,managerVerified:false};
 

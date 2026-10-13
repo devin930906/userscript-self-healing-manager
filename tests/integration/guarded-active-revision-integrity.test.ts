@@ -16,6 +16,7 @@ const patch='// approved and archived patched userscript';
 const changed='// externally modified private user content';
 const previousHash=hash(prior),appliedHash=hash(patch);
 const goodSingle={
+ caseId:'MANAGED_GUARD_'+scriptId+':IDX_0',
  status:'passed',evidenceLevel:'V1',expectation:'unique',attempts:2,matchCount:1,
  V2:'blocked',V3:'not-configured',V4:'not-configured',
  functionalVerified:false,managerVerified:false,
@@ -50,6 +51,7 @@ async function fixture(fn:(args:{
 test('actual archived current retained only when post-CDP disk integrity matches the activated revision',async()=>fixture(async({root,current,confirmActiveHash,restore})=>{
  const result=await guardAppliedManagedRevision({
   approved:true,scriptId,appliedHash,previousHash,confirmActiveHash,
+  expectedCaseId:'MANAGED_GUARD_'+scriptId+':IDX_0',
   verify:async()=>goodSingle,restore,
  });
  assert.equal(result.status,'retained-v1');
@@ -62,6 +64,7 @@ test('actual archived current retained only when post-CDP disk integrity matches
 test('external edit occurring during single V1 verification blocks false retention and refuses destructive CAS rollback',async()=>fixture(async({current,confirmActiveHash,restore})=>{
  const result=await guardAppliedManagedRevision({
   approved:true,scriptId,appliedHash,previousHash,confirmActiveHash,
+  expectedCaseId:'MANAGED_GUARD_'+scriptId+':IDX_0',
   verify:async()=>{
    await writeFile(current,changed);
    return goodSingle;
@@ -94,6 +97,7 @@ test('an orphan managed write lease cannot be ignored when every DOM check passe
  await mkdir(lock);
  const result=await guardAppliedManagedRevision({
   approved:true,scriptId,appliedHash,previousHash,confirmActiveHash,
+  expectedCaseId:'MANAGED_GUARD_'+scriptId+':IDX_0',
   verify:async()=>goodSingle,restore,
  });
  assert.equal(result.status,'rollback-blocked','do not report verified retention while another writer owns a lock');
