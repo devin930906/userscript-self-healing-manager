@@ -43,13 +43,13 @@
 
 ## 条件阻断（原表 P1，但依赖 GM API 时升级为 MVP 阻断）
 
-- **FR-026：BLOCKED**。代码锚点：`packages/cdp-client/src/manager-targets.ts`。自动化锚点：`packages/source-analyzer/test/manager-api-inventory.test.ts`、`packages/cdp-client/test/manager-target-discovery.test.ts`；范围只是 GM API 静态盘点和扩展 target 只读发现。真实夹具证据：**BLOCKED:** 没有获准隔离安装的 Tampermonkey／Violentmonkey 实例、GM Storage/Menu/Request 实际权限或 V4 功能运行记录。扩展 target 观察不能替代真实 userscript manager 验收。
+- **FR-026：BLOCKED**。产品代码锚点：`packages/cdp-client/src/manager-targets.ts`，仍为只读 target 观察。自动化锚点：`packages/source-analyzer/test/manager-api-inventory.test.ts`、`packages/cdp-client/test/manager-target-discovery.test.ts`、`tests/integration/violentmonkey-v4-cft-contract.test.ts`、`tests/integration/violentmonkey-document-observation.test.ts`。**RECORDED:** commit `d97f856e0c69546e5d31010c77367fbc5d70ad52` 的 [Development CI #38345267474](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38345267474)，在 Windows Server 2025 hosted runner、Chrome for Testing `155.0.8059.39`、官方 SHA-256 固定的 Violentmonkey MV3 `2.49.0` 中完成一个**合成** loopback 脚本的 GM 值跨 reload 保留、菜单注册和 GM 请求。**BLOCKED:** Tampermonkey、用户真实脚本/网站、跨浏览器重启的 GM 持久化和产品 V4 桥接尚未验收。产品 `V4: not-configured`、`managerVerified: false`；隔离夹具通过不提升产品等级。
 
 ## 台账范围与解释
 
 - 表中的测试路径表示仓库内存在相关自动化测试；它们不表示本次 Stable 验收已执行、全绿或覆盖完整 FR。范围列说明测试是直接 FR 用例、模块回归还是静态发行合同。
 - 只有 `RECORDED` 行列出的 commit、运行和受控夹具可被当作该项范围的记录。QA-010 与 QA-034 的数据均为合成输入；Windows hosted runner 不是用户 Windows 10/11 机器。
-- 当前 Chrome 155 CI / 隔离浏览器夹具不等于真实网站，也不等于 Tampermonkey／Violentmonkey GM V4。它们不能将 FR-026、FR-024 的 V3/V4 或 RG-05 标为完成。
+- 当前 Chrome 155 CI / 隔离浏览器夹具不等于用户真实网站。上面的官方 Violentmonkey GM 证据只覆盖指定合成脚本；它不覆盖 Tampermonkey，也不能将 FR-026、产品 FR-024 的 V3/V4 或 RG-05 标为完成。
 - FR-045~048 的合同测试验证发行配置和拒绝条件，不验证最终 tag 产物。发布安装包仍须等所有阻断证据齐全后统一构建；本工作未生成中间安装包。
 
 ## 更新准则
