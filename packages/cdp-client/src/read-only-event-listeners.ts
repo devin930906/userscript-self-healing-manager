@@ -3,6 +3,13 @@ import {validateCdpPageSocket} from './endpoint.ts';
 import {asCss,type LiteralLocator} from './locator-probe.ts';
 import type {SocketLike} from './snapshot.ts';
 
+// Only fixed internal diagnostic codes can escape the CDP listener parser.
+// JSON.parse and transport exceptions may quote sensitive DOM/Chrome content.
+const SAFE_LISTENER_ERRORS=new Set([
+ 'Oversized or invalid listener CDP response',
+ 'Invalid CDP listener response envelope',
+ 'Unexpected CDP listener inspection state',
+]);
 export type DirectListenerStatus='registered'|'none-observed'|'missing'|'ambiguous'|'unknown';
 export interface ReadOnlyEventListenerEvidence {
  readonly targetId:string;
@@ -144,7 +151,11 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
     }
    }catch(error){
     if(objectId&&method!=='Runtime.releaseObject')release(result('unknown'));
-    else end(error instanceof Error?error:new Error('Invalid CDP listener response'));
+    else {
+     const diagnostic=error instanceof Error&&SAFE_LISTENER_ERRORS.has(error.message)?
+      error.message:'Invalid CDP listener response';
+     end(new Error(diagnostic));
+    }
    }
   };
   const onError=()=>end(new Error('CDP listener socket error'));
