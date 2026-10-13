@@ -72,9 +72,16 @@ export async function inspectManagedIntegrity({managedRoot,scriptId}:{
    return outcome(stageLeftover?'staging-leftover':archives.length===0?'empty':'missing-current',archives.length);
   throw error;
  }
- if(info.isSymbolicLink()||!info.isFile()||info.size>512*1024)return outcome('unsafe',archives.length);
+ // Hash equality alone cannot authorize an active file with a foreign
+ // hardlink: its bytes remain writable through the other pathname.
+ if(info.isSymbolicLink()||!info.isFile()||info.size>512*1024||info.nlink!==1)
+  return outcome('unsafe',archives.length);
  let bytes:Buffer;
  try{bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info});}
+ catch{return outcome('unsafe',archives.length);}
+ // Pin-read identity checks do not track link count. A foreign hardlink
+ // created during the read must not receive a healthy certificate either.
+ try{if((await lstat(current)).nlink!==1)return outcome('unsafe',archives.length);}
  catch{return outcome('unsafe',archives.length);}
  const hash=SHA(bytes);
  if(!archives.some(x=>x.hash===hash))return outcome('unarchived-current',archives.length);
