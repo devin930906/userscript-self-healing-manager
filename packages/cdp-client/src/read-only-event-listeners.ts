@@ -45,7 +45,14 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
   validationLevel:'direct-event-listener-read-only',
   V2:'blocked',V3:'not-configured',V4:'not-configured',interactionVerified:false,
  });
- const socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ let socket:SocketLike;
+ try{
+  socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ }catch{
+  // Underlying browser/adapter exceptions may quote a private page URL,
+  // browser profile path or token. Never return the original error/cause.
+  throw new Error('CDP listener socket initialization failed');
+ }
  return await new Promise<ReadOnlyEventListenerEvidence>((resolve,reject)=>{
   let finished=false,seq=0,expected=0,method='';
   let objectId:string|null=null,observed:ReadOnlyEventListenerEvidence|null=null;
