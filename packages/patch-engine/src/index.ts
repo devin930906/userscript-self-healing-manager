@@ -62,7 +62,8 @@ export async function applyManagedPatch({sourcePath,managedRoot,scriptId,draft,e
   throw new Error('Invalid base revision kind for immutable archive path');
  if(!isAbsolute(sourcePath)||!isAbsolute(managedRoot))throw new Error('Absolute source and managed paths required');
  const sourceInfo=await lstat(sourcePath);if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())throw new Error('Source must be a regular file');
- const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:sourceInfo});
+ const sourceNative=await lstat(sourcePath,{bigint:true});
+ const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:sourceInfo,expectedNative:sourceNative});
  if(sha(current)!==expectedHash||draft.baseHash!==expectedHash)throw new Error('Source hash mismatch: stale patch or external edit');
  // Treat even internally supplied drafts as untrusted at this write boundary.
  // A self-consistent SHA does NOT prove that the draft contains only the
@@ -236,7 +237,8 @@ export async function applyManagedPatchBatch({
  const meta=await lstat(sourcePath);
  if(!meta.isFile()||meta.isSymbolicLink()||meta.size>512*1024)
   throw new Error('Batch source must be a small regular file');
- const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:meta});
+ const nativeMeta=await lstat(sourcePath,{bigint:true});
+ const current=await readPinnedRegularFile(sourcePath,{maxBytes:512*1024,expected:meta,expectedNative:nativeMeta});
  if(sha(current)!==expectedHash)
   throw new Error('Batch source hash mismatch after review: stale or external edit');
  // Never trust internally supplied source strings or SHA: rebuild from pinned
