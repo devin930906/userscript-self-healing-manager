@@ -106,3 +106,22 @@ test('RG-06 repeated same-size file replacement never inherits a previously appr
   await rm(away);
  }
 }));
+
+test('RG-06 rejects a stale precise native snapshot even if rounded Stats still match',async()=>fixture(async dir=>{
+ const path=join(dir,'precise-snapshot.user.js');
+ const original=Buffer.from('SYNTHETIC_APPROVED_FILE');
+ await writeFile(path,original);
+ const numeric=await lstat(path);
+ const native=await lstat(path,{bigint:true});
+ const stale=Object.create(native) as typeof native;
+ Object.defineProperty(stale,'ino',{value:native.ino+1n});
+ await assert.rejects(
+  readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric,expectedNative:stale}),
+  /precise|identity|snapshot|changed|replaced/i,
+ );
+ assert.deepEqual(await readFile(path),original,'failed authorization must not mutate the source');
+ assert.deepEqual(
+  await readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric,expectedNative:native}),
+  original,'unchanged precise native snapshot remains readable',
+ );
+}));
