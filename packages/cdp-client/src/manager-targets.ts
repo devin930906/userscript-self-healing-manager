@@ -43,9 +43,13 @@ export async function inspectKnownUserscriptManagerTargets({
  let socket:SocketLike;
  try { socket=(socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint); }
  catch { throw new Error('CDP manager target socket initialization failed'); }
- if(!socket||typeof socket.addEventListener!=='function'||
-    typeof socket.removeEventListener!=='function'||
-    typeof socket.send!=='function'||typeof socket.close!=='function'){
+ let validSocket=false;
+ try{
+  validSocket=!!socket&&typeof socket.addEventListener==='function'&&
+   typeof socket.removeEventListener==='function'&&
+   typeof socket.send==='function'&&typeof socket.close==='function';
+ }catch{ /* Untrusted injected transport accessors must fail closed. */ }
+ if(!validSocket){
   // A partially initialized socket may still hold a live connection.
   // Best-effort cleanup must not leak transport exceptions or override validation.
   try{if(socket&&typeof socket.close==='function')socket.close();}catch{}
