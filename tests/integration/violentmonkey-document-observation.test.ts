@@ -54,7 +54,21 @@ test('a never-reloaded document has a finite observation budget and produces no 
  assert.equal(typeof api.readViolentmonkeyFixtureObservation,'function');
  let reads=0;
  await assert.rejects(()=>api.readViolentmonkeyFixtureObservation(input(async(method:string)=>{
+  if(method==='Runtime.evaluate')return {result:{value:'private page sentinel'}};
   assert.equal(method,'Page.getFrameTree');reads++;return frame('old-loader');
  })),/did not publish/i);
  assert.equal(reads,72);
+});
+
+test('observation timeout prints only a fixed GM stage marker rather than page-controlled diagnostic text',async()=>{
+ for(const [stage,expected] of [['menu-registration','menu-registration'],
+  ['failed-storage-read','failed-storage-read'],['private page sentinel','not-observed']] as const){
+  let evaluations=0;
+  const error=await api.readViolentmonkeyFixtureObservation(input(async(method:string)=>{
+   if(method==='Page.getFrameTree')return frame();
+   return {result:{value:++evaluations<=72?null:stage}};
+  })).catch((error:any)=>error);
+  assert.match(error.message,new RegExp('stage: '+expected));
+  assert.doesNotMatch(error.message,/private page sentinel/);
+ }
 });

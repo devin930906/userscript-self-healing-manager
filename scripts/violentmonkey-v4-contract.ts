@@ -130,7 +130,16 @@ export async function readViolentmonkeyFixtureObservation(input:{
   }
   await (input.delay??wait)(250);
  }
- throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result');
+ const stages=['started','storage-read','storage-readback','menu-registration','gm-request','completed',
+  'failed-started','failed-storage-read','failed-storage-readback','failed-menu-registration','failed-gm-request'];
+ let stage='not-observed';
+ try{
+  const answer=await input.send('Runtime.evaluate',{
+   expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-stage') ?? null",returnByValue:true,
+  });
+  if(stages.includes(answer?.result?.value))stage=answer.result.value;
+ }catch{}
+ throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result; stage: '+stage);
 }
 
 /**

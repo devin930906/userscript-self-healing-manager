@@ -76,3 +76,13 @@ test('development CI must independently inspect compiled artifacts, not only sou
  assert.match(build,/verifyProductionBundles/);
  assert.match(ci,/node scripts\/production-boundary\.mjs dist/);
 });
+
+test('official manager fixture modules cannot enter any production bundle even when execution helpers are tree shaken',()=>{
+ for(const entry of ['main','preload','renderer']){
+  for(const path of ['scripts/violentmonkey-v4-contract.ts','scripts/smoke-violentmonkey-cft.mjs',
+   'C:\\checkout\\scripts\\violentmonkey-v4-contract.ts']){
+   assert.throws(()=>assertProductionModuleGraph({inputs:{[path]:{bytes:1,imports:[]}}},entry),
+    /test-only module/i);
+  }
+ }
+});

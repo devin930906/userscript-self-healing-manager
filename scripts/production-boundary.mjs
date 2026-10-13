@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 
 const FILES=['main.cjs','preload.cjs','renderer.js'];
 const MAX_FILE_BYTES=20*1024*1024;
-const TEST_ONLY_MODULE=/(?:^|\/)(?:scripts\/(?:local-fixture-(?:behavior|interaction)|synthetic-functional-lifecycle)\.ts|(?:apps\/desktop\/tests|packages\/[^/]+\/(?:test|tests)|tests)\/.*)$/;
+const TEST_ONLY_MODULE=/(?:^|\/)(?:scripts\/(?:(?:local-fixture-(?:behavior|interaction)|synthetic-functional-lifecycle|violentmonkey-v4-contract)\.ts|smoke-violentmonkey-cft\.mjs)|(?:apps\/desktop\/tests|packages\/[^/]+\/(?:test|tests)|tests)\/.*)$/;
 const FORBIDDEN_OUTPUT=[
  /Runtime\s*(?:\?\.\s*evaluate\b|\.\s*evaluate\b|\?\.\s*\[\s*['"]evaluate['"]\s*\]|\[\s*['"]evaluate['"]\s*\])/,
  /Input\s*(?:\?\.\s*dispatchMouseEvent\b|\.\s*dispatchMouseEvent\b|\?\.\s*\[\s*['"]dispatchMouseEvent['"]\s*\]|\[\s*['"]dispatchMouseEvent['"]\s*\])/,

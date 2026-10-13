@@ -67,26 +67,36 @@ const userScript=`// ==UserScript==
 // ==/UserScript==
 (async()=>{
  if(location.protocol!=='http:'||location.hostname!=='127.0.0.1'||location.pathname!=='/fixture')return;
+ let stage='started';
+ const mark=value=>document.documentElement.setAttribute('data-usshm-vm-v4-stage',value);
+ mark(stage);
+ try{
  const key='usshm-vm-v4-fixture-counter';
+ mark(stage='storage-read');
  const before=await GM_getValue(key,0);
  const after=Number.isSafeInteger(before)?before+1:-100;
  await GM_setValue(key,after);
+ mark(stage='storage-readback');
  const readback=await GM_getValue(key,-2);
+ mark(stage='menu-registration');
  const menuCommandId=GM_registerMenuCommand('USSHM isolated manager fixture',()=>{
   document.documentElement.setAttribute('data-usshm-vm-v4-menu','called');
  },{id:'usshm-v4-fixture-menu'});
  const finish=(requestStatus,requestBody)=>{
+  mark('completed');
   document.documentElement.setAttribute('${resultAttribute}',JSON.stringify({
    storageBefore:before,storageAfter:after,storageReadback:readback,
    menuCommandId,requestStatus,requestBody,
   }));
  };
+ mark(stage='gm-request');
  GM_xmlhttpRequest({
   method:'GET',url:location.origin+'/gm-request',timeout:5000,
   onload:response=>finish(response.status,response.responseText),
   onerror:()=>finish(-1,''),
   ontimeout:()=>finish(-2,''),
  });
+ }catch{mark('failed-'+stage);}
 })();
 `;
 const fixtureMeta={
