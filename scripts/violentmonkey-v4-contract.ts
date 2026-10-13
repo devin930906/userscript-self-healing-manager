@@ -114,7 +114,9 @@ export async function readViolentmonkeyFixtureObservation(input:{
       !input.previousLoaderId||input.previousLoaderId.length>128))
   throw new Error('Invalid isolated fixture identity');
  const currentFrame=async()=>{
-  const answer=await input.send('Page.getFrameTree');
+  let answer;
+  try{answer=await input.send('Page.getFrameTree');}
+  catch{throw new Error('Isolated fixture frame inspection failed');}
   const frame=answer?.frameTree?.frame;
   if(frame?.id!==input.frameId||frame.url!==input.url||typeof frame.loaderId!=='string'||
      !frame.loaderId||frame.loaderId.length>128)
@@ -127,10 +129,13 @@ export async function readViolentmonkeyFixtureObservation(input:{
   const before=await currentFrame();
   if(before!==input.previousLoaderId){
    observedFreshDocument=true;
-   const answer=await input.send('Runtime.evaluate',{
-    expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-result') ?? null",
-    returnByValue:true,
-   });
+   let answer;
+   try{
+    answer=await input.send('Runtime.evaluate',{
+     expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-result') ?? null",
+     returnByValue:true,
+    });
+   }catch{throw new Error('Isolated GM fixture evaluation failed');}
    if(answer?.exceptionDetails)throw new Error('Isolated GM fixture evaluation failed');
    const after=await currentFrame();
    if(after!==before)throw new Error('Isolated fixture document identity changed');
