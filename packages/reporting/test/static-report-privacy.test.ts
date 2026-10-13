@@ -67,10 +67,10 @@ test('RG-07 Markdown export treats user-controlled basenames as plain text, neve
   'filename must not produce a scripted Markdown link');
  assert.doesNotMatch(rendered,/\|\s*\*PRIVATE_EMPHASIS\*/,
   'filename must not be treated as Markdown emphasis');
- assert.match(rendered,/\\!\\\[PRIVATE_PREVIEW\\\]\\\(https:collector\.invalid/,
+ assert.match(rendered,/\\!\\\[PRIVATE\\_PREVIEW\\\]\\\(https:collector\.invalid/,
   'show the original basename as escaped ordinary text');
- assert.match(rendered,/\\\[PRIVATE_ACTION\\\]\\\(javascript:/);
- assert.match(rendered,/\\\*PRIVATE_EMPHASIS\\\*/);
+ assert.match(rendered,/\\\[PRIVATE\\_ACTION\\\]\\\(javascript:/);
+ assert.match(rendered,/\\\*PRIVATE\\_EMPHASIS\\\*/);
  const json=JSON.parse(serializeStaticReport(input,'json'));
  assert.deepEqual(json.items.map((item:{path:string})=>item.path),
   [imageName,linkName,emphasizedName],
