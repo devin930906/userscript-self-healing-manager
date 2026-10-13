@@ -72,8 +72,8 @@ test('isolated injector initialization never succeeds on missing, false or malfo
   assert.ok(error instanceof Error);
   assert.match(error.message,/injector|manager|readiness/i);
   assert.doesNotMatch(error.message,/private extension detail/);
-  assert.equal(calls,8,'missing or invalid official readiness must exhaust a strict finite bound');
-  assert.equal(delays,7);
+  assert.equal(calls,16,'missing or invalid official readiness must exhaust a strict finite bound');
+  assert.equal(delays,15);
  }
 });
 
@@ -91,7 +91,7 @@ test('isolated injector never accepts official ready unless exact base injector 
   onStatus:(stage:string)=>statuses.push(stage),
  }).catch((e:any)=>e);
  assert.ok(err instanceof Error);
- assert.equal(official,8);assert.equal(probes,8);
+ assert.equal(official,16);assert.equal(probes,16);
  assert.equal(statuses.at(-1),'base-injector-unregistered');
  assert.match(err.message,/base injector/i);
 });
