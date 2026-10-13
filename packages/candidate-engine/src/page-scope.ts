@@ -72,6 +72,8 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
  let url:URL;
  try{url=new URL(pageUrl);}catch{return {status:'blocked',reason:'Invalid page URL'};}
  if(!['http:','https:'].includes(url.protocol))return {status:'blocked',reason:'Only HTTP(S) CDP pages are supported'};
+ // Credential-bearing URL authorities are sensitive and cannot be treated as ordinary page scope.
+ if(url.username||url.password)return {status:'blocked',reason:'Credentialed CDP page URLs are not supported'};
  // An unsupported deny rule must not silently permit a matching allow rule.
  for(const p of meta.raw['exclude-match']??[]){
   const excluded=matchPattern(p,url);
