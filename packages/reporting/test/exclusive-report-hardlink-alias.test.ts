@@ -21,7 +21,8 @@ test('RG-07 report staging refuses a byte-identical external alias before atomic
    assert.equal(staging.length,1);
    await link(join(root,staging[0]!),alias);
    aliased=true;
-   assert.equal((await lstat(alias)).nlink,2);
+   assert.equal((await lstat(alias)).nlink,3,
+    'private guard + staging + unauthorized alias are all visible to link-count checks');
   },
  }),/hard.?link|alias|unsafe|report/i,
  'a private staged report must not be linked to an external filename before publish');
@@ -39,8 +40,8 @@ test('RG-07 report publication reports a hardlink created after linking as untru
  await assert.rejects(writeExclusiveReport({destinationPath:path,content,
   afterPublish:async()=>{
    await link(path,alias);
-   assert.equal((await lstat(path)).nlink,3,
-    'publisher staging + approved destination + outside alias share an inode');
+   assert.equal((await lstat(path)).nlink,4,
+    'private guard + staging + approved destination + outside alias share an inode');
   },
  }),error=>{
   assert.ok(error instanceof UntrustedReportPublicationError);
