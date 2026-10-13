@@ -43,7 +43,7 @@ test('RG-07 dense reports preserve safe diagnostic counts and redact raw text',(
  assert.equal(json.processedCount,1);
  assert.equal(json.items[0].verification.V4,'not-configured');
  const markdown=serializeStaticReport(baseline,'markdown');
- assert.match(markdown,/safe\\.user\\.js/);
+ assert.ok(markdown.includes('safe.user.js'));
  assert.match(markdown,/STATIC_DIAGNOSTIC_REDACTED/);
  assert.doesNotMatch(markdown,/PRIVATE_SCRIPT_SOURCE_MUST_NOT_LEAK/);
 });
