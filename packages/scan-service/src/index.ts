@@ -21,6 +21,10 @@ export async function runStaticScan(request:ScanRequest,deps:{repository:ScriptR
  for(const path of request.paths)
   if(typeof path!=='string'||path.trim().length===0)
    throw new Error('Invalid static scan request');
+ if(!deps||typeof deps!=='object'||!deps.repository||
+    typeof deps.repository.findIdByPath!=='function'||
+    typeof deps.repository.upsert!=='function')
+  throw new Error('Invalid static scan repository');
  if(!Number.isSafeInteger(request.maxFiles)||request.maxFiles<1||request.paths.length>request.maxFiles)throw new Error('limit-exceeded');
  const results=await importPaths({paths:request.paths,recursive:request.recursive,repository:deps.repository,maxFiles:request.maxFiles});
  if(results.length>request.maxFiles)throw new Error('limit-exceeded');
