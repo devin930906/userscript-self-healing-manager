@@ -25,12 +25,16 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
  const original=await lstat(file);
  if(!original.isFile()||original.isSymbolicLink()||original.size>limit)
   throw new Error('Unsafe or oversized recovery snapshot file');
+ // Hash matching is not sufficient if an independent filename can mutate
+ // these supposedly isolated SQLite / manifest recovery files.
+ if(original.nlink!==1)throw new Error('Unsafe recovery snapshot hardlink alias');
  const handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
  try{
   const opened=await handle.stat();
   if(!opened.isFile()||opened.size!==original.size||
      opened.dev!==original.dev||opened.ino!==original.ino)
    throw new Error('Recovery file changed before pinned read');
+  if(opened.nlink!==1)throw new Error('Unsafe recovery snapshot hardlink alias on descriptor');
   const digest=createHash('sha256');
   let count=0;
   for await(const block of handle.createReadStream({autoClose:false})){
@@ -43,6 +47,8 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
   if(count!==opened.size||after.size!==opened.size||pathAfter.size!==opened.size||
      pathAfter.ino!==opened.ino||pathAfter.dev!==opened.dev)
    throw new Error('Recovery snapshot changed during hash verification');
+  if(after.nlink!==1||pathAfter.nlink!==1)
+   throw new Error('Unsafe recovery snapshot hardlink alias after hash verification');
   return {sha256:digest.digest('hex'),bytes:count};
  }finally{await handle.close();}
 }
@@ -99,9 +105,12 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
  const manifestInfo=await lstat(manifestFile);
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe core recovery manifest');
+ if(manifestInfo.nlink!==1)throw new Error('Unsafe core recovery manifest hardlink alias');
  const manifestBytes=await readPinnedRegularFile(manifestFile,{
   maxBytes:1024*1024,expected:manifestInfo
  });
+ if((await lstat(manifestFile)).nlink!==1)
+  throw new Error('Unsafe core recovery manifest hardlink alias after read');
  let manifest:unknown;
  try{manifest=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(manifestBytes));}
  catch{throw new Error('Invalid core recovery manifest encoding or JSON');}
