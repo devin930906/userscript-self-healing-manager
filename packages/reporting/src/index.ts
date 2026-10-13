@@ -6,7 +6,7 @@ const neutralizeMarkdownControls=(value:string):string=>value
  .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]/g,
   char=>'[U+'+char.codePointAt(0)!.toString(16).toUpperCase()+']')
  // Terminal control bytes must never execute when a Markdown report is viewed in a console.
- .replace(/[\u0000-\u001f\u007f]/g,' ');
+ .replace(/[\u0000-\u001f\u007f-\u009f]/g,' ');
 const escapeMarkdown=(value:string)=>neutralizeMarkdownControls(value)
  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
  .replace(/\\/g,'\\\\').replace(/[|`!\[\]()*_~]/g,'\\$&');
