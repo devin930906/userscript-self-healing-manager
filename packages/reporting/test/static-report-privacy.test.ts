@@ -49,3 +49,32 @@ test('RG-07 static Markdown export redacts raw file errors without hiding status
  assert.match(exported,/V0/);
  assert.match(exported,/未运行网页功能测试/);
 });
+
+
+test('RG-07 Markdown export treats user-controlled basenames as plain text, never external image or link markup',()=>{
+ const imageName='![PRIVATE_PREVIEW](https:collector.invalid?token=PRIVATE_QUERY_TOKEN).user.js';
+ const linkName='[PRIVATE_ACTION](javascript:alert(1)).user.js';
+ const emphasizedName='*PRIVATE_EMPHASIS*.user.js';
+ const input:ScanBatchResult={...report,requestedCount:3,enumeratedCount:3,processedCount:3,
+  passedCount:3,errorCount:0,items:[imageName,linkName,emphasizedName].map(name=>({
+   path:'/tmp/synthetic/'+name,status:'parsed' as const,
+   selectorCount:0,runtimeRequiredCount:0,diagnostics:[],
+  }))};
+ const rendered=serializeStaticReport(input,'markdown');
+ assert.doesNotMatch(rendered,/!\[PRIVATE_PREVIEW\]\(https:collector\.invalid/,
+  'filename must not produce an external Markdown image reference');
+ assert.doesNotMatch(rendered,/\[PRIVATE_ACTION\]\(javascript:/,
+  'filename must not produce a scripted Markdown link');
+ assert.doesNotMatch(rendered,/\*PRIVATE_EMPHASIS\*/,
+  'filename must not be treated as Markdown emphasis');
+ assert.match(rendered,/\\!\\\[PRIVATE_PREVIEW\\\]\\\(https:collector\.invalid/,
+  'show the original basename as escaped ordinary text');
+ assert.match(rendered,/\\\[PRIVATE_ACTION\\\]\\\(javascript:/);
+ assert.match(rendered,/\\\*PRIVATE_EMPHASIS\\\*/);
+ const json=JSON.parse(serializeStaticReport(input,'json'));
+ assert.deepEqual(json.items.map((item:{path:string})=>item.path),
+  [imageName,linkName,emphasizedName],
+  'JSON export must preserve safe basename identity for human review');
+ assert.equal(json.items.every((item:{verification:{V3:string}})=>
+  item.verification.V3==='not-configured'),true);
+});
