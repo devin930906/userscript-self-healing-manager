@@ -119,3 +119,16 @@ test('official manager smoke uses the bounded verified injector gate instead of 
  assert.doesNotMatch(script,/const initialized=await optionsCdp\.send\('Runtime\.evaluate'/);
  assert.doesNotMatch(script,/const injector=await optionsCdp\.send\('Runtime\.evaluate'/);
 });
+
+test('RG-05 distinguishes sanitized CDP evaluation failure from official injector-not-ready',async()=>{
+ const stages:string[]=[];
+ const error=await api.waitForVerifiedViolentmonkeyInjector({
+  send:async()=>{throw new Error('PRIVATE_CDP_TRANSPORT_SENTINEL');},
+  hasExited:()=>false,delay:async()=>{},
+  onStatus:(stage:string)=>stages.push(stage),
+ }).catch((cause:any)=>cause);
+ assert.ok(error instanceof Error);
+ assert.deepEqual(stages,['cdp-evaluation-failed']);
+ assert.match(error.message,/CDP evaluation failed/);
+ assert.doesNotMatch(error.message,/PRIVATE_CDP_TRANSPORT_SENTINEL/);
+});
