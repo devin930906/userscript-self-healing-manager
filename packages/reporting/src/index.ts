@@ -21,6 +21,10 @@ const reportFileName=(path:string):string=>{
 const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
 
 export function serializeStaticReport(report:ScanBatchResult,format:'json'|'markdown'):string{
+ if(format!=='json'&&format!=='markdown')
+  throw new Error('Invalid static report format');
+ if(!report||typeof report!=='object'||!Array.isArray(report.items))
+  throw new Error('Invalid static report input');
  // The TypeScript union cannot authenticate an object crossing a runtime
  // export boundary. Reject untrusted status values before either format
  // can render a forged row or inconsistent V0 verification.
