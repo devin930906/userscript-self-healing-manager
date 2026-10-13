@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {constants,type Stats} from 'node:fs';
 import {open,lstat,link,unlink,type FileHandle} from 'node:fs/promises';
 import {basename,dirname,isAbsolute,join} from 'node:path';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
 const MAX_REPORT_BYTES=8*1024*1024;
 const CHUNK_SIZE=64*1024;
@@ -41,6 +42,10 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
  const bytes=Buffer.from(content,'utf8');
  if(bytes.length===0||bytes.length>MAX_REPORT_BYTES)
   throw new Error('Report byte budget exceeded');
+ // The report path may be user-approved while a linked ancestor redirects
+ // its directory. Refuse existing symlinks/Junctions before any staging write.
+ // This is a directory preflight, not an atomic guard against rename races.
+ await assertUnlinkedRecoveryDirectory(dirname(destinationPath));
  const digest=createHash('sha256').update(bytes).digest('hex');
  const stage=join(dirname(destinationPath),'.'+basename(destinationPath)+'.staging-'+randomUUID()+'.tmp');
  // Node exposes only approximate file identifiers on some Windows volumes.
