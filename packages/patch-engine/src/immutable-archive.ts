@@ -33,11 +33,18 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
  if(typeof archivePath!=='string'||!isAbsolute(archivePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
   throw new Error('Invalid immutable archive path or byte budget');
+ // Bind the final published name to the exact approved bytes and one of
+ // the only two managed history kinds. Do this before opening ANY staged file;
+ // exported low-level writers must not trust caller-computed archive names.
+ const expectedHash=digest(bytes);
+ const fileName=basename(archivePath);
+ if(fileName!==`original-${expectedHash}.user.js`&&
+    fileName!==`revision-${expectedHash}.user.js`)
+  throw new Error('Invalid immutable archive name or content hash');
  // An exported low-level writer cannot rely on callers to reject a symlink
  // or Windows Junction in an existing parent of the managed archive path.
  // This is a preflight, not an atomic cross-process pathname lock.
  await assertUnlinkedRecoveryDirectory(dirname(archivePath));
- const expectedHash=digest(bytes);
  const verify=async(path:string,requireSingleLink=false)=>{
   // A preexisting archive hardlinked to another pathname is mutable through
   // that alias, regardless of whether its bytes and SHA match right now.
