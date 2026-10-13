@@ -9,6 +9,18 @@ export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subf
  soleSameOriginSubframe?:Readonly<{frameId:string;loaderId:string;urlFingerprint?:string}>}
 // Process-private key: never expose, persist or log child browsing-context URLs.
 const CHILD_URL_KEY=randomBytes(32);
+// Only these internal fixed codes may be surfaced outside the untrusted CDP
+// socket. Parser errors and dynamic response fields can quote private data.
+const SAFE_FRAME_DIAGNOSTICS=new Set([
+ 'Invalid CDP frame tree response size',
+ 'CDP frame tree rejected',
+ 'Invalid CDP frame tree URL',
+ 'CDP page URL changed or frame identity mismatch',
+ 'Invalid nested CDP frame tree',
+ 'Invalid nested CDP frame list',
+ 'CDP nested frame limit exceeded',
+ 'Invalid main-frame document identity token',
+]);
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
@@ -48,7 +60,7 @@ export async function confirmPageIdentity(
   };
   const onOpen=()=>{
    try{socket.send(JSON.stringify({id:1,method:'Page.getFrameTree'}));}
-   catch(error){complete(error instanceof Error?error:new Error('Cannot request CDP frame identity'));}
+   catch{complete(new Error('Cannot request CDP frame identity'));}
   };
   const onMessage=(event:{data:unknown})=>{
    try{
@@ -57,7 +69,7 @@ export async function confirmPageIdentity(
     if(response.id!==1)return;
     if(response.error)throw new Error('CDP frame tree rejected');
     const url=response.result?.frameTree?.frame?.url;
-    if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL (urlType='+typeof url+', responseFields='+Object.keys(response.result??{}).slice(0,5).join(',')+')');
+    if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL');
     if(url!==target.url)throw new Error('CDP page URL changed or frame identity mismatch');
     // Record only the number of nested browsing contexts; never expose child
     // URLs (which could contain private query parameters) to UI/reports.
@@ -105,7 +117,11 @@ export async function confirmPageIdentity(
      loaderId,
      ...(nestedFrames>0?{subframeCount:nestedFrames}:{}),
      ...(soleSameOriginSubframe?{soleSameOriginSubframe}:{})});
-   }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP frame tree'));}
+   }catch(error){
+    const code=error instanceof Error&&SAFE_FRAME_DIAGNOSTICS.has(error.message)?
+     error.message:'Invalid CDP frame tree response';
+    complete(new Error(code));
+   }
   };
   const onError=()=>complete(new Error('CDP page identity socket error'));
   const onClose=()=>complete(new Error('CDP page identity socket closed before response'));
