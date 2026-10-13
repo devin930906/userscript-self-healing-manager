@@ -33,7 +33,8 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
   // A preexisting archive hardlinked to another pathname is mutable through
   // that alias, regardless of whether its bytes and SHA match right now.
   // New publication itself temporarily has TWO links (staging + final),
-  // so demand isolation only on EEXIST and after staging cleanup.
+  // so demand isolation on private staging *before link*, on EEXIST,
+  // and after private staging cleanup.
   const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink())
    throw new Error('Immutable archive path is a symlink or non-regular file');
@@ -67,7 +68,10 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
   await handle.sync();
   await handle.close();
   handle=undefined;
-  await verify(staging);
+  // Reject a preexisting foreign hardlink before the archive name is
+  // published. Otherwise late failure would still leave an untrusted
+  // hash-named backup visible in the managed store.
+  await verify(staging,true);
   try{
    // link(2) fails with EEXIST instead of overwriting another publisher;
    // the linked bytes were already synced and validated above.
