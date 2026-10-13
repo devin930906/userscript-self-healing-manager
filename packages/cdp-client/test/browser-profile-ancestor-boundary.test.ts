@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {test} from 'node:test';
+import {test,type TestContext} from 'node:test';
 import {mkdtemp,mkdir,writeFile,symlink,rm,access} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -10,7 +10,7 @@ import {
 
 /** Synthetic fixture only: never use an actual user profile or Chrome binary. */
 async function aliasedDataRoot(
- t:Parameters<Parameters<typeof test>[1]>[0],
+ t:TestContext,
  kind:'leaf'|'ancestor',
  run:(realData:string,aliasedData:string,chrome:string,profileId:string)=>Promise<void>,
 ){
