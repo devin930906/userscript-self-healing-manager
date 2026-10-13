@@ -25,6 +25,10 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
   throw new Error('Invalid static report format');
  if(!report||typeof report!=='object'||!Array.isArray(report.items))
   throw new Error('Invalid static report input');
+ // Never relabel runtime/manager evidence as a static scan; reject malformed
+ // timestamps before Markdown escaping or JSON serialization can inspect them.
+ if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
+  throw new Error('Invalid static report metadata');
  // Runtime report rows must be shape-checked before destructuring or
  // serializing diagnostics. Never echo invalid field values in errors.
  if(!report.items.every(item=>item&&typeof item==='object'&&
