@@ -261,3 +261,15 @@ test('RG-05 rejects own accessor CDP result and value without executing getters'
   assert.deepEqual(statuses,['cdp-evaluation-failed']);
  }
 });
+
+test('RG-05 rejects altered official base registration match scopes',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,
+  js:[{file:'injected-web.js'},{file:'injected.js'}]};
+ for(const matches of [['<all_urls>','https://private.example/*'],['https://private.example/*','<all_urls>'],['<all_urls>','<all_urls>']]){
+  const scripts=[{...base,matches}];
+  const result=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return scripts;}}}});
+  assert.equal(result,JSON.stringify({ready:false}));
+  assert.doesNotMatch(result,/private\\.example/);
+ }
+});
