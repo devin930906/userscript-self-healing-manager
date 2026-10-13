@@ -47,6 +47,11 @@ export function verifyCycloneDxSbom(value,{name,version}={}){
      (dependency.dependsOn!==undefined&&(!Array.isArray(dependency.dependsOn)||
       !dependency.dependsOn.every(ref=>typeof ref==='string'&&knownRefs.has(ref)))))
    fail();
+  // Repeated edges and self-links inflate count-only dependency evidence.
+  if(dependency.dependsOn!==undefined&&
+     (new Set(dependency.dependsOn).size!==dependency.dependsOn.length||
+      dependency.dependsOn.includes(dependency.ref)))
+   fail();
   seenNodes.add(dependency.ref);
   dependencyEdges+=dependency.dependsOn?.length??0;
   if(!Number.isSafeInteger(dependencyEdges))fail();
