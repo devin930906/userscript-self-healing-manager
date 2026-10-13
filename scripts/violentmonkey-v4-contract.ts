@@ -325,9 +325,12 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
       file.value===(index===0?'injected-web.js':'injected.js');
     })&&
     Array.isArray(script.matches)&&script.matches.length===1&&script.matches[0]==='<all_urls>'&&
-    (script.excludeMatches===undefined||(Array.isArray(script.excludeMatches)&&script.excludeMatches.length===0))&&
-    (script.excludeGlobs===undefined||(Array.isArray(script.excludeGlobs)&&script.excludeGlobs.length===0))&&
-    (script.includeGlobs===undefined||(Array.isArray(script.includeGlobs)&&script.includeGlobs.length===0));
+    ['excludeMatches','excludeGlobs','includeGlobs'].every(key=>{
+     if(!Object.hasOwn(script,key))return !(key in script);
+     const field=Object.getOwnPropertyDescriptor(script,key);
+     return !!field&&Object.hasOwn(field,'value')&&
+      (field.value===undefined||(Array.isArray(field.value)&&field.value.length===0));
+    });
    return JSON.stringify({ready:!!ready});
   }catch{return JSON.stringify({ready:false});}
  })()`;

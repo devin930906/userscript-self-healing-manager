@@ -315,3 +315,19 @@ test('RG-05 rejects inherited official injector registration identity fields',as
   assert.equal(result,JSON.stringify({ready:false}),field);
  }
 });
+
+test('RG-05 never reads inherited or accessor optional injector scope filters',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,
+  js:[{file:'injected-web.js'},{file:'injected.js'}],matches:['<all_urls>']};
+ for(const field of ['excludeMatches','excludeGlobs','includeGlobs']){
+  let getterCalls=0;
+  const own=Object.defineProperty({...base},field,{get(){getterCalls++;return [];}});
+  const inherited=Object.assign(Object.create({[field]:[]}),base);
+  for(const script of [own,inherited]){
+   const response=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return [script];}}}});
+   assert.equal(response,JSON.stringify({ready:false}),field);
+  }
+  assert.equal(getterCalls,0,field);
+ }
+});
