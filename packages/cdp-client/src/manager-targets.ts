@@ -68,7 +68,7 @@ export async function inspectKnownUserscriptManagerTargets({
   const send=(next:'Browser.getVersion'|'Target.getTargets')=>{
    method=next;expected=++id;socket.send(JSON.stringify({id:expected,method:next}));
   };
-  const onOpen=()=>{try{send('Browser.getVersion');}catch{
+  const onOpen=()=>{if(done)return;try{send('Browser.getVersion');}catch{
    finish(new Error('Cannot request read-only Chrome version'));
   }};
   const onMessage=(event:{data:unknown})=>{
