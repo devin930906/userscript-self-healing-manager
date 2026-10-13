@@ -51,7 +51,7 @@ export async function inspectKnownUserscriptManagerTargets({
   let done=false,id=0,expected=0,method:'Browser.getVersion'|'Target.getTargets'='Browser.getVersion';
   const finish=(error?:Error,report?:UserscriptManagerTargetReport)=>{
    if(done)return;done=true;clearTimeout(timer);
-   for(const [event,handler] of events)socket.removeEventListener(event,handler);
+   for(const [event,handler] of events){try{socket.removeEventListener(event,handler);}catch{}}
    try{socket.close();}catch{}
    if(error)reject(error);
    else if(report)resolve(report);
@@ -123,6 +123,7 @@ export async function inspectKnownUserscriptManagerTargets({
    ['open',onOpen],['message',onMessage],['error',onError],['close',onClose],
   ];
   const timer=setTimeout(()=>finish(new Error('CDP manager target timeout')),timeoutMs);
-  for(const [event,handler] of events)socket.addEventListener(event,handler);
+  try {for(const [event,handler] of events)socket.addEventListener(event,handler);}
+  catch {finish(new Error('CDP manager target listener initialization failed'));}
  });
 }
