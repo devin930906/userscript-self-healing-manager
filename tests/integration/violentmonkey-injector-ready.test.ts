@@ -239,3 +239,25 @@ test('RG-05 does not accept inherited CDP result and value fields',async()=>{
   assert.deepEqual(stages,['cdp-evaluation-failed']);
  }
 });
+
+test('RG-05 rejects own accessor CDP result and value without executing getters',async()=>{
+ for(const field of ['result','value']){
+  let getterCalls=0;
+  const ready=JSON.stringify({ready:true});
+  const response=field==='result'
+   ?Object.defineProperty({},'result',{enumerable:true,get(){getterCalls++;return {value:ready};}})
+   :{result:Object.defineProperty({},'value',{enumerable:true,get(){getterCalls++;return ready;}})};
+  const statuses:string[]=[];
+  let calls=0;
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return response;},
+   hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>statuses.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'Isolated manager injector CDP evaluation failed');
+  assert.equal(getterCalls,0);
+  assert.equal(calls,1);
+  assert.deepEqual(statuses,['cdp-evaluation-failed']);
+ }
+});
