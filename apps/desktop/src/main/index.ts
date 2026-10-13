@@ -1274,7 +1274,22 @@ async function bootstrap():Promise<void>{
      scanSessions.assertCurrent(scanSnapshot);
      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
-    apply:()=>repairs.apply({proposalId,approved:true}),
+    apply:()=>executeDurableApprovedBatch({
+     dataRoot,approvalId:proposalId,scriptId:trusted.scriptId,
+     // Native confirmation must survive a fresh Main-owned scan/review check
+     // immediately before the durable running checkpoint authorizes a write.
+     preflight:()=>{
+      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      scanSessions.assertCurrent(scanSnapshot);
+      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
+      if(!scanSnapshot.items.some(item=>item.scriptId===trusted.scriptId&&withinAuthorized(item.path)))
+       return false;
+      return true;
+     },
+     onProgress:status=>repairQueueActivity.observe(proposalId,status),
+     onRegisterCancel:(cancel,pause,resume)=>repairQueueCancellation.attach(proposalId,cancel,{pause,resume}),
+     write:()=>repairs.apply({proposalId,approved:true}),
+    }),
    });
   }finally{pendingApprovals.consume(q.proposalId);}
   return {...applied,activePath:join(dataRoot,'managed',trusted.scriptId,'current.user.js')};

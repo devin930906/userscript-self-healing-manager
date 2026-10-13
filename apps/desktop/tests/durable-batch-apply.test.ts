@@ -199,3 +199,20 @@ test('FR-029 legacy upper-case SQLite approval checkpoint also blocks new lower-
  'new canonical filenames must not reauthorize a legacy case-variant journal');
  assert.equal(writes,0);
 }));
+
+test('FR-029 single managed approval enters the durable queue before its revision write',async()=>{
+ const main=await readFile(new URL('../src/main/index.ts',import.meta.url),'utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:apply-repair'");
+ const end=main.indexOf("ipcMain.handle('",start+12);
+ assert.ok(start>=0&&end>start,'the single managed repair IPC handler must be registered');
+ const handler=main.slice(start,end);
+ assert.match(handler,/apply:\s*\(\)=>executeDurableApprovedBatch\(\{/,
+  'native confirmation alone must not bypass the durable pre-write checkpoint');
+ assert.match(handler,/dataRoot,approvalId:proposalId,scriptId:trusted\.scriptId/);
+ assert.match(handler,/preflight:\s*\(\)=>\{/);
+ assert.match(handler,/pendingApprovals\.require\(proposalId,scanSnapshot\.scanId\)/);
+ assert.match(handler,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(handler,/assertManagedProposalSnapshot\(trusted,repairs\.inspectPending\(proposalId\)\)/);
+ assert.match(handler,/write:\s*\(\)=>repairs\.apply\(\{proposalId,approved:true\}\)/,
+  'the actual managed-file writer must run only as a queued job');
+});
