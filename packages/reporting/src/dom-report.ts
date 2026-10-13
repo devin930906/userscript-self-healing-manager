@@ -7,10 +7,10 @@ const validationStates=new Set(['passed','failed','skipped','blocked','not-confi
 // Keep the original basename untouched in the JSON evidence projection.
 const markdown=(value:string)=>value
  .replace(/\r\n|[\r\n\u2028\u2029]/g,' ')
- .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+ .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]/g,
   char=>'[U+'+char.codePointAt(0)!.toString(16).toUpperCase()+']')
  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
- .replace(/[|\u0060]/g,'\\$&').replace(/[\u0000-\u001f\u007f]/g,' ');
+ .replace(/[|\u0060]/g,'\\$&').replace(/[\u0000-\u001f\u007f-\u009f]/g,' ');
 // Script basenames are attacker-controlled display text, not Markdown syntax.
 const markdownFileName=(value:string)=>markdown(value).replace(/[!\[\]()*_~]/g,'\\$&');
 /** No raw selectors, DOM text, full local paths, URLs with tokens or CDP loader fingerprints. */
