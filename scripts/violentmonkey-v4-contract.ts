@@ -318,7 +318,10 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
    const ready=script?.id==='1001'&&script.runAt==='document_start'&&script.allFrames===true&&
     Array.isArray(script.js)&&script.js.length===2&&script.js[0]?.file==='injected-web.js'&&
     script.js[1]?.file==='injected.js'&&!script.js.some(item=>'code' in item)&&
-    Array.isArray(script.matches)&&script.matches.length===1&&script.matches[0]==='<all_urls>';
+    Array.isArray(script.matches)&&script.matches.length===1&&script.matches[0]==='<all_urls>'&&
+    (script.excludeMatches===undefined||(Array.isArray(script.excludeMatches)&&script.excludeMatches.length===0))&&
+    (script.excludeGlobs===undefined||(Array.isArray(script.excludeGlobs)&&script.excludeGlobs.length===0))&&
+    (script.includeGlobs===undefined||(Array.isArray(script.includeGlobs)&&script.includeGlobs.length===0));
    return JSON.stringify({ready:!!ready});
   }catch{return JSON.stringify({ready:false});}
  })()`;
