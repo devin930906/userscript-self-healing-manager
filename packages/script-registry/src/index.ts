@@ -112,6 +112,11 @@ export async function importPaths(request:{paths:string[];recursive:boolean;repo
     typeof request.recursive!=='boolean')
   throw new Error('Invalid script import request');
  const {paths,recursive,repository,maxFiles=Number.MAX_SAFE_INTEGER}=request;
+ // Reject missing registry capabilities before touching source files. An
+ // invalid dependency must not be misreported as an unreadable userscript.
+ if(!repository||typeof repository.findIdByPath!=='function'||
+    typeof repository.upsert!=='function')
+  throw new Error('Invalid script import repository');
  if(!Number.isSafeInteger(maxFiles)||maxFiles<1||paths.length>maxFiles)throw new Error('limit-exceeded');
  const output:ImportResult[]=[];
  // Expand directories explicitly; direct file requests preserve invalid-extension feedback.
