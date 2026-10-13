@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,rm,readFile,writeFile,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,rm,readFile,writeFile,symlink,link,lstat,unlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {inspectManagedIntegrity} from '../src/managed-health.ts';
@@ -143,4 +143,24 @@ test('unrelated files do not falsely trigger orphan staging diagnostics',async()
  await writeFile(join(folder,'current.user.js'),'approved revision');
  await writeFile(join(folder,'.current.user.js.staging-not-a-uuid.tmp'),'unrelated diagnostic');
  assert.deepEqual(await probe(root),{status:'healthy',archiveCount:1,activeHash:sha});
+}));
+
+test('RG-06 active managed current with an external hardlink alias never certifies healthy',async()=>withStore(async(root,folder)=>{
+ const sha=await archive(folder,'approved archive bytes','revision');
+ const current=join(folder,'current.user.js');
+ await writeFile(current,'approved archive bytes');
+ assert.deepEqual(await probe(root),{status:'healthy',archiveCount:1,activeHash:sha},
+  'unaliased approved revision stays a valid positive control');
+ const alias=join(root,'synthetic-foreign-current-link.user.js');
+ await link(current,alias);
+ assert.equal((await lstat(current)).nlink,2,'the active current is externally writable via another pathname');
+ const report=await probe(root);
+ assert.deepEqual(report,{status:'unsafe',archiveCount:1,activeHash:null},
+  'same-hash bytes with an external hardlink must never receive a healthy certification');
+ assert.equal((await readFile(alias,'utf8')),'approved archive bytes');
+ assert.equal((await readFile(current,'utf8')),'approved archive bytes',
+  'read-only integrity inspection must leave both names and bytes untouched');
+ await unlink(alias);
+ assert.deepEqual(await probe(root),{status:'healthy',archiveCount:1,activeHash:sha},
+  'removing the foreign alias restores eligibility without modifying approved content');
 }));
