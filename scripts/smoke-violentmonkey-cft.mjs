@@ -18,7 +18,7 @@ import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/m
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
- buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessExpression,
+ buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
  readViolentmonkeyFixtureObservation,
  buildViolentmonkeyInjectorReadyExpression,buildViolentmonkeyInjectorProbeExpression,
  VIOLENTMONKEY_CFT_RELEASE,
@@ -243,19 +243,7 @@ try{
    throw new Error('Isolated Chrome extension settings target could not be created');
   const extensionsPage=await waitForPage(createdExtensions.targetId,extensionsUrl,()=>exited);
   extensionsCdp=await openCdp(extensionsPage.webSocketDebuggerUrl);
-  const enabled=await extensionsCdp.send('Runtime.evaluate',{
-   expression:buildViolentmonkeyUserScriptsAccessExpression(),awaitPromise:true,returnByValue:true,
-  });
-  if(enabled.result?.value!==JSON.stringify({available:true})){
-   // Only fixed markers may be printed, never browser or extension error text.
-   let reason='invalid-receipt';
-   try{
-    const receipt=JSON.parse(enabled.result?.value??'null');
-    if(['page-context','settings-api','identity','version','state','installation',
-        'toggle-unavailable','readback','settings-error'].includes(receipt?.reason))reason=receipt.reason;
-   }catch{}
-   throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
-  }
+  await enableViolentmonkeyUserScriptsAccess(extensionsCdp.send);
   extensionsCdp.close();extensionsCdp=undefined;
   await browserCdp.send('Target.closeTarget',{targetId:createdExtensions.targetId});
  }

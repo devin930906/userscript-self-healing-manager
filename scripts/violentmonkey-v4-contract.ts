@@ -59,6 +59,32 @@ export function buildViolentmonkeyUserScriptsAccessExpression():string{
  })()`;
 }
 
+/** URL discovery can precede the WebUI execution context. Retry only readiness. */
+export async function enableViolentmonkeyUserScriptsAccess(
+ send:(method:string,params:Record<string,unknown>)=>Promise<any>,
+ delay:(milliseconds:number)=>Promise<unknown>=wait,
+):Promise<void>{
+ const reasons=['page-context','settings-api','identity','version','state','installation',
+  'toggle-unavailable','readback','settings-error'];
+ let reason='invalid-receipt';
+ for(let attempt=0;attempt<20;attempt++){
+  const answer=await send('Runtime.evaluate',{
+   expression:buildViolentmonkeyUserScriptsAccessExpression(),awaitPromise:true,returnByValue:true,
+  });
+  let receipt;
+  const text=answer?.result?.value;
+  if(!answer?.exceptionDetails&&typeof text==='string'&&text.length<=256){
+   try{receipt=JSON.parse(text);}catch{}
+  }
+  if(receipt?.available===true&&Object.keys(receipt).length===1)return;
+  reason=receipt?.available===false&&Object.keys(receipt).length===2&&reasons.includes(receipt.reason)
+   ?receipt.reason:'invalid-receipt';
+  if(reason!=='page-context'&&reason!=='settings-api')break;
+  if(attempt<19)await delay(150);
+ }
+ throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
+}
+
 /** TEST ONLY: read a bounded receipt from one fixed loopback fixture document. */
 export async function readViolentmonkeyFixtureObservation(input:{
  send:(method:string,params?:Record<string,unknown>)=>Promise<any>;

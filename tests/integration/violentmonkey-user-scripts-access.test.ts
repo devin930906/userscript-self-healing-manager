@@ -67,3 +67,35 @@ test('permission setup distinguishes an unready Chrome settings API without leak
  assert.equal(rejected,JSON.stringify({available:false,reason:'settings-error'}));
  assert.doesNotMatch(rejected,/private browser sentinel/);
 });
+
+test('Chrome settings setup waits for its actual WebUI context before changing the pinned permission',async()=>{
+ assert.equal(typeof api.enableViolentmonkeyUserScriptsAccess,'function');
+ const responses=['page-context','settings-api',null];
+ let calls=0,waits=0;
+ await api.enableViolentmonkeyUserScriptsAccess(async(method:string,params:any)=>{
+  assert.equal(method,'Runtime.evaluate');
+  assert.equal(params.expression,api.buildViolentmonkeyUserScriptsAccessExpression());
+  const reason=responses[calls++];
+  return {result:{value:JSON.stringify(reason?{available:false,reason}:{available:true})}};
+ },async()=>{waits++;});
+ assert.equal(calls,3);assert.equal(waits,2);
+});
+
+test('settings context retries are bounded and identity or permission failures never get retried',async()=>{
+ assert.equal(typeof api.enableViolentmonkeyUserScriptsAccess,'function');
+ for(const reason of ['identity','version','state','installation','toggle-unavailable','readback','settings-error']){
+  let calls=0;
+  await assert.rejects(()=>api.enableViolentmonkeyUserScriptsAccess(async()=>{
+   calls++;return {result:{value:JSON.stringify({available:false,reason})}};
+  },async()=>{}),new RegExp(reason));
+  assert.equal(calls,1);
+ }
+ let calls=0;
+ await assert.rejects(()=>api.enableViolentmonkeyUserScriptsAccess(async()=>{
+  calls++;return {result:{value:JSON.stringify({available:false,reason:'page-context'})}};
+ },async()=>{}),/page-context/);
+ assert.equal(calls,20);
+ const error=await api.enableViolentmonkeyUserScriptsAccess(async()=>({result:{value:
+  JSON.stringify({available:false,reason:'private browser sentinel'})}}),async()=>{}).catch((e:any)=>e);
+ assert.match(error.message,/invalid-receipt/);assert.doesNotMatch(error.message,/private browser sentinel/);
+});
