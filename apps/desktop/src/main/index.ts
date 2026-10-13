@@ -1020,7 +1020,7 @@ async function bootstrap():Promise<void>{
      assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
     },
     apply:()=>executeDurableApprovedBatch({
-     dataRoot,approvalId:proposalId,scriptId:trusted.scriptId!,
+     dataRoot,approvalId:proposalId,scriptId:item.scriptId!,
      preflight:()=>{
       pendingApprovals.require(proposalId,scanSnapshot.scanId);
       scanSessions.assertCurrent(scanSnapshot);
@@ -1198,7 +1198,7 @@ async function bootstrap():Promise<void>{
      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
     apply:()=>executeDurableGuardedManagedApply({
-     dataRoot,approvalId:proposalId,scriptId:item.scriptId,
+     dataRoot,approvalId:proposalId,scriptId:trusted.scriptId,
      previousHash:trusted.previousHash,
      // The durable queue rechecks native approval, source evidence and page
      // identity before recording the running checkpoint and dispatching write.
