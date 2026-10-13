@@ -3,9 +3,9 @@ import type {BatchDomResult,BatchDomStatus} from '../../scan-service/src/batch-d
 const statuses=new Set<BatchDomStatus>(['locator-missing','dom-present','needs-review','no-evidence','out-of-scope','skipped','error']);
 const validationStates=new Set(['passed','failed','skipped','blocked','not-configured']);
 const markdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
- .replace(/[|\u0060]/g,'\\.replace(/[|\u0060]/g,'\\$&').replace(/[\r\n\u0000-\u001f\u007f]/g,' ');').replace(/[\r\n\u0000-\u001f\u007f]/g,' ');
+ .replace(/[|\u0060]/g,'\\$&').replace(/[\r\n\u0000-\u001f\u007f]/g,' ');
 // Script basenames are attacker-controlled display text, not Markdown syntax.
-const markdownFileName=(value:string)=>markdown(value).replace(/[!\[\]()*_]/g,'\\.replace(/[|\u0060]/g,'\\$&').replace(/[\r\n\u0000-\u001f\u007f]/g,' ');');
+const markdownFileName=(value:string)=>markdown(value).replace(/[!\[\]()*_]/g,'\\$&');
 /** No raw selectors, DOM text, full local paths, URLs with tokens or CDP loader fingerprints. */
 export function serializeDomBatchReport(
  report:BatchDomResult,format:'json'|'markdown',createdAt:string,
