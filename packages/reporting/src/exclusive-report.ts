@@ -95,6 +95,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
  };
  let file:FileHandle|undefined;
  let failure:unknown;
+ let approvedStage:Stats|undefined;
  try{
   file=await open(stage,'wx',0o600);
   const writer:ChunkWriter=writeChunk??(async(handle,chunk,offset)=>
@@ -109,7 +110,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
   await file.sync();
   await file.close();file=undefined;
-  const approvedStage=await verify(stage);
+  approvedStage=await verify(stage);
   if(beforePublish)await beforePublish();
   // Reject changes between the initial staging verification and publication.
   // This also guards test-injected races without touching an existing target.
@@ -145,6 +146,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
  }
  if(failure!==undefined)throw failure;
+ if(!approvedStage)throw new Error('Report staging identity was not established');
  // The private stage link has now been removed. A remaining foreign alias
  // would allow later edits or reads through an unreviewed filesystem path.
  // As above, preserve the visible destination on post-publish uncertainty.
