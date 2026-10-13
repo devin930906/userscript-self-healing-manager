@@ -46,3 +46,37 @@ test('RG-02 SBOM validation errors never reflect dependency names, file paths or
   return true;
  });
 });
+
+test('RG-02 CycloneDX dependency graph refuses dangling references, duplicate component IDs or repeated graph nodes',()=>{
+ const one=sample();
+ const badCases:unknown[]=[
+  {...one,components:[one.components[0],{...one.components[1],'bom-ref':one.components[0]?.['bom-ref']}]},
+  {...one,components:[{...one.components[0],'bom-ref':''},one.components[1]]},
+  {...one,components:[{type:'library',name:'anonymous',version:'1.0.0'},one.components[1]]},
+  {...one,dependencies:[{ref:'pkg:npm/nonexistent@0.0.1',dependsOn:[]}]},
+  {...one,dependencies:[{ref:'pkg:npm/react@19.2.0',dependsOn:['pkg:npm/nonexistent@0.0.1']}]},
+  {...one,dependencies:[
+   {ref:'pkg:npm/react@19.2.0',dependsOn:[]},
+   {ref:'pkg:npm/react@19.2.0',dependsOn:[]},
+  ]},
+ ];
+ for(const bad of badCases){
+  assert.throws(()=>verifyCycloneDxSbom(bad,{name:rootName,version:rootVersion}),
+   /Invalid|incomplete|CycloneDX|SBOM/i,
+   'an SBOM must not claim a dependency graph with dangling or duplicate references');
+ }
+});
+
+test('RG-02 CycloneDX graph accepts a root-to-component edge without leaking raw references',()=>{
+ const rootRef='pkg:npm/userscript-self-healing-manager@0.1.0-alpha.5';
+ const x=sample();
+ const graph={
+  ...x,metadata:{component:{...x.metadata.component,'bom-ref':rootRef}},
+  dependencies:[
+   {ref:rootRef,dependsOn:['pkg:npm/react@19.2.0']},
+   {ref:'pkg:npm/react@19.2.0',dependsOn:[]},
+  ],
+ };
+ assert.deepEqual(verifyCycloneDxSbom(graph,{name:rootName,version:rootVersion}),
+  {componentCount:2,dependencyEdges:1,rootName,rootVersion});
+});
