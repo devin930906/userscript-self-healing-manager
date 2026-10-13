@@ -80,7 +80,14 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
   status,matchCount,pointerBlocked,controlBlocker,interactionVerified:false,
   V2:'blocked',V3:'not-configured',V4:'not-configured',
  });
- const socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ let socket:SocketLike;
+ try{
+  socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ }catch{
+  // Underlying browser/adapter exceptions may quote a private page URL,
+  // browser profile path or token. Never return the original error/cause.
+  throw new Error('CDP visibility socket initialization failed');
+ }
  return await new Promise<ReadOnlyVisibilityEvidence>((resolve,reject)=>{
   let ended=false,nextId=0,expectedId=0,expectedMethod='';
   let nodeId=0,matchCount:number|null=null;
