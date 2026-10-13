@@ -288,3 +288,18 @@ test('RG-05 refuses registered base injector with unexpected exclusion scopes',a
   assert.doesNotMatch(result,/private/);
  }
 });
+
+test('RG-05 rejects inherited or accessor backed pinned injector script file descriptors',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,matches:['<all_urls>']};
+ let getterCalls=0;
+ const forged=[
+  [{file:'injected-web.js'},Object.create({file:'injected.js'})],
+  [Object.defineProperty({},'file',{get(){getterCalls++;return 'injected-web.js';}}),{file:'injected.js'}],
+ ];
+ for(const js of forged){
+  const result=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return [{...base,js}];}}}});
+  assert.equal(result,JSON.stringify({ready:false}));
+ }
+ assert.equal(getterCalls,0);
+});
