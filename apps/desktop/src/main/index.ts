@@ -1232,6 +1232,8 @@ async function bootstrap():Promise<void>{
   const safety=await guardAppliedManagedRevision({
    approved:true,scriptId:item.scriptId,appliedHash:applied.hash,
    previousHash:trusted.previousHash,
+   // Never retain a revision using V1 proof for another script or selector.
+   expectedCaseId:'MANAGED_GUARD_'+item.scriptId.slice(0,24)+':IDX_'+index,
    verify:async()=>{
     if(applied.hash!==trusted.proposedHash)
      throw new Error('The applied bytes no longer match the reviewed patch');
