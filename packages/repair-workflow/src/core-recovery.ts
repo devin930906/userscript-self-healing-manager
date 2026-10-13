@@ -53,6 +53,29 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
  }finally{await handle.close();}
 }
 /**
+ * Independently inspect both committed SQLite backup files before publishing
+ * a manifest that claims complete:true, not only on a later user-run audit.
+ * Reuse exactly the same read-only schema gate during standalone verification.
+ */
+async function assertCoreSqliteSnapshots(root:string):Promise<void>{
+ for(const name of paths.slice(0,2)){
+  const db=new DatabaseSync(join(root,name),{readOnly:true});
+  try{
+   if(db.prepare('PRAGMA integrity_check').get()?.integrity_check!=='ok')
+    throw new Error('Corrupt core SQLite snapshot');
+   if(name==='registry.sqlite'){
+    assertRegistryV1SnapshotSchema(db);
+   }else{
+    if(db.prepare('PRAGMA user_version').get()?.user_version!==1)
+     throw new Error('Invalid core journal schema');
+    assertJournalSchemaSafety(db);
+    if(db.prepare('PRAGMA foreign_key_check').all().length)
+     throw new Error('Invalid core journal foreign keys');
+   }
+  }finally{db.close();}
+ }
+}
+/**
  * Consecutive, independently verified registry, journal, and managed revision
  * snapshots. Not a cross-store transaction; arbitrary Data/ files, browser
  * profiles and secrets are deliberately excluded. Never restore automatically.
@@ -82,6 +105,9 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
   {path:paths[1],sha256:log.sha256,bytes:log.bytes},
   {path:paths[2],sha256:archive.sha256,bytes:archive.bytes}
  ];
+ // Do not certify an invalid journal (even with a valid SHA-256) as complete.
+ // A failed preflight leaves this new directory incomplete and review-only.
+ await assertCoreSqliteSnapshots(target);
  const content=Buffer.from(JSON.stringify({
   kind:'usshm-core-recovery-v1',complete:true,atomicAcrossStores:false,
   scope:'registry+journal+managed-revisions-only',
@@ -135,22 +161,7 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
    throw new Error('Core recovery file hash mismatch');
  }
  // Validate SQLite content, not merely its hash; this is deliberately read-only.
- for(const name of paths.slice(0,2)){
-  const db=new DatabaseSync(join(root,name),{readOnly:true});
-  try{
-   if(db.prepare('PRAGMA integrity_check').get()?.integrity_check!=='ok')
-    throw new Error('Corrupt core SQLite snapshot');
-   if(name==='registry.sqlite'){
-    assertRegistryV1SnapshotSchema(db);
-   }else{
-    if(db.prepare('PRAGMA user_version').get()?.user_version!==1)
-     throw new Error('Invalid core journal schema');
-    assertJournalSchemaSafety(db);
-    if(db.prepare('PRAGMA foreign_key_check').all().length)
-     throw new Error('Invalid core journal foreign keys');
-   }
-  }finally{db.close();}
- }
+ await assertCoreSqliteSnapshots(root);
  await verifyManagedRecovery({snapshotDirectory:join(root,'managed-recovery')});
  return {files:3,valid:true};
 }
