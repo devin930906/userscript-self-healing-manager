@@ -31,10 +31,19 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
   throw new Error('Invalid static report metadata');
  // Runtime report rows must be shape-checked before destructuring or
  // serializing diagnostics. Never echo invalid field values in errors.
- if(!report.items.every(item=>item&&typeof item==='object'&&
-    typeof item.path==='string'&&Array.isArray(item.diagnostics)&&
-    item.diagnostics.every(message=>typeof message==='string')))
-  throw new Error('Invalid static report item');
+ // Array.every() skips holes; a sparse row/diagnostic array would otherwise
+ // become null placeholders in JSON without counting as validated evidence.
+ // for..of visits holes as undefined, so malformed input fails closed.
+ const validItems=():boolean=>{
+  for(const item of report.items){
+   if(!item||typeof item!=='object'||typeof item.path!=='string'||
+      !Array.isArray(item.diagnostics))return false;
+   for(const message of item.diagnostics)
+    if(typeof message!=='string')return false;
+  }
+  return true;
+ };
+ if(!validItems())throw new Error('Invalid static report item');
  // The TypeScript union cannot authenticate an object crossing a runtime
  // export boundary. Reject untrusted status values before either format
  // can render a forged row or inconsistent V0 verification.
