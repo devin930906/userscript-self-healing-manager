@@ -184,3 +184,19 @@ test('RG-05 classifies only exact synthetic CDP transport failures as bounded st
   assert.doesNotMatch(error.message,/PRIVATE_UNTRUSTED_DETAIL/);
  }
 });
+
+test('RG-05 rejects explicit falsy CDP exceptionDetails despite forged ready receipt',async()=>{
+ for(const exceptionDetails of [null,false,0,'']){
+  const statuses:string[]=[];
+  let calls=0;
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return {exceptionDetails,result:{value:JSON.stringify({ready:true})}};},
+   hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>statuses.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.match(error.message,/CDP evaluation failed/);
+  assert.deepEqual(statuses,['cdp-evaluation-failed']);
+  assert.equal(calls,1);
+ }
+});
