@@ -41,8 +41,8 @@ export async function readVerifiedManagedLocator({managedRoot,scriptId,revisionH
  if(!archives.some(entry=>entry.kind==='revision'&&entry.hash===revisionHash))
   throw new Error('Approved managed revision archive not found or corrupt');
  const info=await lstat(current);
- if(!info.isFile()||info.isSymbolicLink())
-  throw new Error('Unsafe managed current symlink or nonregular file');
+ if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1)
+  throw new Error('Unsafe managed current symlink, hardlink alias or nonregular file');
  const bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info});
  if(digest(bytes)!==revisionHash)
   throw new Error('Managed current hash changed since approved revision; refusing stale V1 check');
@@ -55,6 +55,10 @@ export async function readVerifiedManagedLocator({managedRoot,scriptId,revisionH
       'getElementsByName','getElementsByClassName'].includes(locator.method)||
     !locator.expression||locator.expression.length>1024)
   throw new Error('Managed selector index is unsupported, dynamic, or missing');
+ // The pinned descriptor guards byte and pathname identity, but not link
+ // count. Reject a foreign hardlink created during the read/parse as well.
+ if((await lstat(current)).nlink!==1)
+  throw new Error('Unsafe managed current hardlink alias during verification');
  // Do not certify a locator if a different manager began writing during
  // the pinned read/parse. This is a read-only snapshot guard, not a hostile
  // process transaction; guarded V1 repeats verification after DOM probes.
