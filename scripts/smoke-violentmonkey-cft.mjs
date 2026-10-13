@@ -89,6 +89,32 @@ const fixtureMeta={
  name:'USSHM Isolated Violentmonkey V4 Fixture',
  namespace:'https://usshm.invalid/isolated-fixture',
 };
+// The official options app consumes and deletes BGDATA.options during startup.
+// Install this narrow transparent setter before navigation so only the
+// presence bit is captured before that one-shot bootstrap data is discarded.
+const managerPreflightProbe=`(()=>{
+ let data;
+ Object.defineProperty(globalThis,'BGDATA',{
+  configurable:true,enumerable:true,
+  get(){return data;},
+  set(value){
+   data=value;
+   try{
+    const scripts=globalThis.BGDATA?.options?.scripts;
+    if(Array.isArray(scripts)){
+     const found=scripts.some(script=>script?.meta?.name===${JSON.stringify(fixtureMeta.name)}&&
+      script?.meta?.namespace===${JSON.stringify(fixtureMeta.namespace)});
+     Object.defineProperty(globalThis,'__usshmVmPreflight',{
+      value:JSON.stringify({found}),configurable:true,enumerable:false,writable:false,
+     });
+    }
+   }catch{}
+   Object.defineProperty(globalThis,'BGDATA',{
+    value,writable:true,configurable:true,enumerable:true,
+   });
+  },
+ });
+})()`;
 
 async function openCdp(endpoint){
  const socket=new WebSocket(endpoint);
@@ -160,13 +186,7 @@ async function readFixtureResult(cdp,hasExited){
 }
 
 async function readManagerPreflight(cdp,hasExited){
- const expression=`(()=>{
-  const scripts=globalThis.BGDATA?.options?.scripts;
-  if(!Array.isArray(scripts))return null;
-  const found=scripts.some(script=>script?.meta?.name===${JSON.stringify(fixtureMeta.name)}&&
-   script?.meta?.namespace===${JSON.stringify(fixtureMeta.namespace)});
-  return JSON.stringify({found});
- })()`;
+ const expression='globalThis.__usshmVmPreflight ?? null';
  for(let attempt=0;attempt<50;attempt++){
   if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
   try{
@@ -183,7 +203,7 @@ async function readManagerPreflight(cdp,hasExited){
   }
   await delay(100);
  }
- let state={ready:false,bgdata:false,options:false,scripts:false,bootstrap:false};
+ let state={ready:false,bgdata:false,probe:false,bootstrap:false};
  try{
   const diagnosticExpression=`(()=>{
    const data=globalThis.BGDATA;
@@ -191,8 +211,8 @@ async function readManagerPreflight(cdp,hasExited){
    try{bootstrap=Array.from(document.scripts).some(script=>
     script.src===chrome.runtime.getURL('get-data.js?options'));}catch{}
    return JSON.stringify({
-    ready:document.readyState==='complete',bgdata:!!data,options:!!data?.options,
-    scripts:Array.isArray(data?.options?.scripts),bootstrap,
+    ready:document.readyState==='complete',bgdata:!!data,
+    probe:typeof globalThis.__usshmVmPreflight==='string',bootstrap,
    });
   })()`;
   const answer=await cdp.send('Runtime.evaluate',{expression:diagnosticExpression,returnByValue:true});
@@ -201,7 +221,7 @@ async function readManagerPreflight(cdp,hasExited){
    const observed=JSON.parse(value);
    state={
     ready:observed?.ready===true,bgdata:observed?.bgdata===true,
-    options:observed?.options===true,scripts:observed?.scripts===true,
+    probe:observed?.probe===true,
     bootstrap:observed?.bootstrap===true,
    };
   }
@@ -227,7 +247,7 @@ const server=createServer((request,response)=>{
  response.writeHead(404,{'content-type':'text/plain; charset=utf-8'}).end('not found');
 });
 let listening=false,chrome,exited=false,spawnFailure;
-let browserCdp,optionsCdp,pageCdp;
+let browserCdp,optionsCdp,pageCdp,optionsProbeIdentifier;
 try{
  await assertChromeDebuggerPortFree(9223);
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
@@ -265,12 +285,20 @@ try{
  }
  if(!status||!expectedProduct.test(status.browser))throw new Error('Pinned Chrome 155 CDP handshake was not verified');
  browserCdp=await openCdp(status.browserSocket);
- const createdOptions=await browserCdp.send('Target.createTarget',{url:optionsUrl});
+ const createdOptions=await browserCdp.send('Target.createTarget',{url:'about:blank'});
  if(typeof createdOptions.targetId!=='string'||!createdOptions.targetId)
   throw new Error('Violentmonkey options page target could not be created');
- const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
+ const optionsPage=await waitForPage(createdOptions.targetId,'about:blank',()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
+ await optionsCdp.send('Page.enable');
+ const probe=await optionsCdp.send('Page.addScriptToEvaluateOnNewDocument',{source:managerPreflightProbe});
+ if(typeof probe.identifier!=='string'||!probe.identifier)
+  throw new Error('Violentmonkey options preflight probe could not be installed');
+ optionsProbeIdentifier=probe.identifier;
+ const navigation=await optionsCdp.send('Page.navigate',{url:optionsUrl});
+ if(navigation.errorText)throw new Error('Violentmonkey options page navigation failed');
+ await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
@@ -344,6 +372,8 @@ try{
  console.error('FAIL isolated Violentmonkey fixture:',error instanceof Error?error.message:'unknown');
  process.exitCode=1;
 }finally{
+ if(optionsCdp&&optionsProbeIdentifier)
+  await optionsCdp.send('Page.removeScriptToEvaluateOnNewDocument',{identifier:optionsProbeIdentifier}).catch(()=>{});
  pageCdp?.close();optionsCdp?.close();browserCdp?.close();
  if(chrome?.pid)spawnSync('taskkill',['/PID',String(chrome.pid),'/T','/F'],{stdio:'ignore',timeout:15000});
  if(listening)await new Promise(resolve=>server.close(()=>resolve()));

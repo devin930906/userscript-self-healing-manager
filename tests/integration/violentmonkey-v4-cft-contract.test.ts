@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {test} from 'node:test';
+import vm from 'node:vm';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,
  extensionIdFromChromePublicKey,VIOLENTMONKEY_CFT_RELEASE,
@@ -128,11 +129,13 @@ test('official manager workflow stays pinned, loopback-only and outside installe
 
 test('manager discovery follows a fixed-script install whose preflight proves the script was absent',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ const probe=smoke.indexOf("Page.addScriptToEvaluateOnNewDocument',{source:managerPreflightProbe}");
+ const navigate=smoke.indexOf("Page.navigate',{url:optionsUrl}");
  const preflight=smoke.indexOf('const preflightReceipt=await readManagerPreflight(optionsCdp');
  const install=smoke.indexOf("const installed=await optionsCdp.send('Runtime.evaluate'");
  const inspect=smoke.indexOf('const managerReport=await inspectKnownUserscriptManagerTargets');
- assert.ok(preflight>=0&&install>preflight&&inspect>install,
-  'manager discovery follows an absent-script preflight and installation that starts the worker');
+ assert.ok(probe>=0&&navigate>probe&&preflight>navigate&&install>preflight&&inspect>install,
+  'the one-shot options inventory is observed before install and manager discovery');
 });
 
 test('official manager install callback reduces parser details to a bounded privacy-safe marker',async()=>{
@@ -149,9 +152,33 @@ test('read-only manager preflight proves script absence from the official option
  assert.match(smoke,/globalThis\.BGDATA\?\.options\?\.scripts/);
  assert.match(smoke,/script\?\.meta\?\.name===\$\{JSON\.stringify\(fixtureMeta\.name\)\}\s*&&\s*script\?\.meta\?\.namespace===\$\{JSON\.stringify\(fixtureMeta\.namespace\)\}/);
  assert.match(smoke,/JSON\.stringify\(\{found\}\)/);
+ assert.match(smoke,/Object\.defineProperty\(globalThis,'__usshmVmPreflight'/);
+ assert.match(smoke,/const expression='globalThis\.__usshmVmPreflight \?\? null'/);
  assert.match(smoke,/await readManagerPreflight\(optionsCdp/);
  assert.match(smoke,/const diagnosticExpression=/);
- assert.match(smoke,/scripts:Array\.isArray\(data\?\.options\?\.scripts\),bootstrap/);
+ assert.match(smoke,/probe:typeof globalThis\.__usshmVmPreflight==='string',bootstrap/);
  assert.match(smoke,/Object\.entries\(state\)\.map\(\(\[key,value\]\)=>key\+'='\+Number\(value\)\)/);
  assert.doesNotMatch(smoke,/cmd:'GetData'|cmd:'GetScript'/);
+});
+
+test('preflight captures only the fixture-presence bit before official one-shot BGDATA consumption',async()=>{
+ const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ const probe=smoke.match(/const managerPreflightProbe=`([\s\S]*?)`;/)?.[1];
+ assert.ok(probe,'a pre-navigation options-page probe must be present');
+ const executableProbe=probe
+  .replaceAll('${JSON.stringify(fixtureMeta.name)}',JSON.stringify('USSHM Isolated Violentmonkey V4 Fixture'))
+  .replaceAll('${JSON.stringify(fixtureMeta.namespace)}',JSON.stringify('https://usshm.invalid/isolated-fixture'));
+ for(const [scripts,expected] of [[[],false],[[{
+  meta:{name:'USSHM Isolated Violentmonkey V4 Fixture',namespace:'https://usshm.invalid/isolated-fixture'},
+ }],true]] as const){
+  const context=vm.createContext({});
+  vm.runInContext(executableProbe,context);
+  context.bootstrap={options:{scripts}};
+  vm.runInContext('var BGDATA=bootstrap',context);
+  const target=vm.runInContext('globalThis.BGDATA',context);
+  const oneShot=new Proxy(target,{get(object,key){const value=object[key];delete object[key];return value;}});
+  assert.ok(oneShot.options);
+  assert.equal(Object.hasOwn(target,'options'),false,'the fixture models Violentmonkey consuming BGDATA.options');
+  assert.deepEqual(JSON.parse(vm.runInContext('globalThis.__usshmVmPreflight',context)),{found:expected});
+ }
 });
