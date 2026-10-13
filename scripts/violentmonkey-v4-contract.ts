@@ -194,6 +194,64 @@ function buildViolentmonkeyManagerCommandExpression(
  })`;
 }
 
+/** Fixed bounded readiness stages: never emit a manager error or script code. */
+export type ViolentmonkeyInjectorReadinessState=
+ 'worker-receipt-unavailable'|'official-injector-error'|'base-injector-unregistered'|'ready';
+
+/**
+ * TEST ONLY: an isolated Chrome permission grant alone is not evidence of a
+ * ready official manager. Two independently exact receipts must be observed.
+ * Never retry indefinitely or leak private CDP/extension diagnostic details.
+ * This cannot upgrade the application's production V4 status.
+ */
+export async function waitForVerifiedViolentmonkeyInjector(input:{
+ send:(method:string,params:Record<string,unknown>)=>Promise<any>;
+ hasExited:()=>boolean;
+ delay?:(milliseconds:number)=>Promise<unknown>;
+ onStatus?:(stage:ViolentmonkeyInjectorReadinessState)=>void;
+}):Promise<void>{
+ if(!input||typeof input!=='object'||Array.isArray(input)||
+    typeof input.send!=='function'||typeof input.hasExited!=='function'||
+    (input.delay!==undefined&&typeof input.delay!=='function')||
+    (input.onStatus!==undefined&&typeof input.onStatus!=='function'))
+  throw new Error('Invalid isolated manager injector readiness request');
+ const readyReceipt=JSON.stringify({ready:true});
+ const errorReceipt=JSON.stringify({ready:false});
+ const evaluate=async(expression:string):Promise<unknown>=>{
+  let response;
+  try{
+   response=await input.send('Runtime.evaluate',{
+    expression,awaitPromise:true,returnByValue:true,
+   });
+  }catch{throw new Error('Isolated manager injector CDP evaluation failed');}
+  if(response?.exceptionDetails)
+   throw new Error('Isolated manager injector CDP evaluation failed');
+  return response?.result?.value;
+ };
+ const notify=(stage:ViolentmonkeyInjectorReadinessState)=>{
+  try{input.onStatus?.(stage);}catch{}
+ };
+ let stage:ViolentmonkeyInjectorReadinessState='worker-receipt-unavailable';
+ for(let attempt=0;attempt<8;attempt++){
+  if(input.hasExited())throw new Error('Isolated CFT exited during manager injector readiness');
+  const official=await evaluate(buildViolentmonkeyInjectorReadyExpression());
+  if(input.hasExited())throw new Error('Isolated CFT exited during manager injector readiness');
+  if(official===readyReceipt){
+   const base=await evaluate(buildViolentmonkeyInjectorProbeExpression());
+   if(input.hasExited())throw new Error('Isolated CFT exited during manager injector readiness');
+   if(base===readyReceipt){notify('ready');return;}
+   stage='base-injector-unregistered';
+  }else{
+   stage=official===errorReceipt?'official-injector-error':'worker-receipt-unavailable';
+  }
+  notify(stage);
+  if(attempt<7)await (input.delay??wait)(350);
+ }
+ throw new Error(stage==='base-injector-unregistered'
+  ?'Pinned Violentmonkey base injector files were not registered'
+  :'Pinned Violentmonkey official injector readiness was not verified');
+}
+
 /** TEST ONLY: initialize the official injector after Chrome grants permission. */
 export function buildViolentmonkeyInjectorReadyExpression():string{
  return buildViolentmonkeyManagerCommandExpression('GetInjectorError',{},0x7ffffffc,`
