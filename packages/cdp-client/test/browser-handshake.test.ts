@@ -70,3 +70,18 @@ test('RG-07 Chrome readiness failure must not echo private CDP exceptions',async
   if(from==='socket')assert.ok(socketChecks>0,'must exercise rejected WebSocket response');
  }
 });
+
+test('RG-07 malformed Chrome version JSON must not leak parser payload to callers',async()=>{
+ const socket=new FakeBrowserSocket({product:'Chrome/155'});
+ socket.send=(_request:string)=>{
+  queueMicrotask(()=>socket.emit('message',{data:'PRIVATE42'}));
+ };
+ await assert.rejects(verifyBrowserCdpHandshake({
+  endpoint,port:9223,socketFactory:()=>socket,
+ }),error=>{
+  assert.ok(error instanceof Error);
+  assert.match(error.message,/CDP browser handshake/i);
+  assert.doesNotMatch(error.message,/PRIVATE42/);
+  return true;
+ });
+});
