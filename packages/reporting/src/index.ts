@@ -1,6 +1,13 @@
 import type {ScanBatchResult} from '../../scan-service/src/index.ts';
 import {projectVerificationLevels} from '../../scan-service/src/verification-levels.ts';
-const escapeMarkdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\/g,'\\\\').replace(/[|`!\[\]()*_~]/g,'\\$&').replace(/\r?\n/g,' ');
+/** Strip control characters that could forge rows or reverse displayed audit labels. */
+const neutralizeMarkdownControls=(value:string):string=>value
+ .replace(/\r\n|[\r\n\u2028\u2029]/g,' ')
+ .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+  char=>'[U+'+char.codePointAt(0)!.toString(16).toUpperCase()+']');
+const escapeMarkdown=(value:string)=>neutralizeMarkdownControls(value)
+ .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+ .replace(/\\/g,'\\\\').replace(/[|`!\[\]()*_~]/g,'\\$&');
 /**
  * Static reports cross a privacy boundary: do not serialize local account
  * directory names, raw filesystem errors, source snippets or embedded URLs.
