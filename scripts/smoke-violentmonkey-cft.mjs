@@ -14,6 +14,7 @@ import {
  assertChromeDebuggerPortFree,buildChromeLaunchArgs,getVerifiedChromeStatus,getChromeStatus,
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
+import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
@@ -300,7 +301,12 @@ try{
  if(typeof createdFixture.targetId!=='string'||!createdFixture.targetId)
   throw new Error('Loopback GM fixture page target could not be created');
  const fixturePage=await waitForPage(createdFixture.targetId,fixtureUrl,()=>exited);
- const identity=await confirmPageIdentity(fixturePage);
+ const identity=await waitForPinnedFixtureFrame({
+  expectedUrl:fixtureUrl,
+  inspect:()=>confirmPageIdentity(fixturePage),
+  hasExited:()=>exited,
+  pause:()=>delay(250),
+ });
  assert.equal(identity.confirmedUrl,fixtureUrl);
  if(!identity.frameId||!identity.loaderId)throw new Error('Loopback fixture document identity was not pinned');
  pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl);
