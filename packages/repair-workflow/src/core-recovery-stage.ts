@@ -205,3 +205,141 @@ export async function stageCoreRecoveryForOfflineReview({
   JSON.stringify(record,null,2)+'\n',{flag:'wx',mode:0o600});
  return {path:target,fileCount:record.fileCount,sourceManifestSha256};
 }
+
+
+/**
+ * Re-audit an EXISTING, non-active offline staging tree.
+ *
+ * Complements the pre-marker gate: a stage can change after its creator
+ * returns. Only the verified backup inventory is an input to this audit.
+ * This function NEVER activates, restores, repairs or modifies any Data.
+ *
+ * The hashes prove consistency with the selected bundle, not its authorship,
+ * and no path-only audit can prevent a future hostile filesystem mutation.
+ */
+export async function verifyCoreOfflineRecoveryStage({
+ snapshotDirectory,stagedDirectory,
+}:{
+ readonly snapshotDirectory:string;readonly stagedDirectory:string;
+}):Promise<{valid:true;fileCount:number;sourceManifestSha256:string}>{
+ if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory)||
+    typeof stagedDirectory!=='string'||!isAbsolute(stagedDirectory))
+  throw new Error('Absolute offline recovery audit paths required');
+ const source=resolve(snapshotDirectory),stage=resolve(stagedDirectory);
+ await assertUnlinkedRecoveryDirectory(source);
+ await assertUnlinkedRecoveryDirectory(stage);
+ await verifyCoreRecoveryBundle({snapshotDirectory:source});
+ const sourceManifest=await readBoundedManifest(join(source,'manifest.json'));
+ const sourceManifestSha256=digest(sourceManifest);
+ const core=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(sourceManifest)) as {
+  files:HashedFile[];
+ };
+ if(!Array.isArray(core.files)||core.files.length!==3||
+    core.files[0]?.path!=='registry.sqlite'||
+    core.files[1]?.path!=='diagnosis-journal.sqlite'||
+    core.files[2]?.path!=='managed-recovery/manifest.json')
+  throw new Error('Invalid offline stage source inventory');
+ const nestedManifest=await readBoundedManifest(join(source,'managed-recovery','manifest.json'));
+ if(digest(nestedManifest)!==core.files[2].sha256||
+    nestedManifest.length!==core.files[2].bytes)
+  throw new Error('Offline stage source managed manifest changed');
+ const nested=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(nestedManifest)) as {
+  files:HashedFile[];
+ };
+ if(!Array.isArray(nested.files)||nested.files.length>5000)
+  throw new Error('Invalid offline stage managed inventory');
+ const files=nested.files;
+ let sum=0;
+ const listed=new Set<string>();
+ for(const item of files){
+  if(!item||typeof item.path!=='string'||!managedPath.test(item.path)||
+     typeof item.sha256!=='string'||!hex.test(item.sha256)||
+     !Number.isSafeInteger(item.bytes)||item.bytes<0||item.bytes>512*1024||
+     listed.has(item.path))
+   throw new Error('Unsafe offline stage source file inventory');
+  listed.add(item.path);
+  sum+=item.bytes;
+  if(sum>256*1024*1024)
+   throw new Error('Oversized offline stage source files');
+ }
+ const markerPath=join(stage,'USSHM-RECOVERY-NOT-ACTIVE.json');
+ const info=await lstat(markerPath);
+ if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
+    info.size>1024*1024)
+  throw new Error('Unsafe offline stage completion marker');
+ const markerBytes=await readPinnedRegularFile(markerPath,{
+  maxBytes:1024*1024,expected:info,expectedNative:await lstat(markerPath,{bigint:true}),
+ });
+ if((await lstat(markerPath)).nlink!==1)
+  throw new Error('Unsafe offline stage completion marker hardlink');
+ let marker:Record<string,unknown>;
+ try{
+  const parsed:unknown=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(markerBytes));
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))
+   throw new Error('Wrong marker shape');
+  marker=parsed as Record<string,unknown>;
+ }catch{throw new Error('Invalid offline stage completion marker encoding');}
+ const required=[
+  'kind','activated','includesBrowserProfiles','includesSecrets',
+  'includesOriginalUserscripts','atomicAcrossStores','scope',
+  'sourceManifestSha256','fileCount','note'
+ ].sort();
+ if(JSON.stringify(Object.keys(marker).sort())!==JSON.stringify(required)||
+    marker.kind!=='usshm-core-offline-stage-v1'||marker.activated!==false||
+    marker.includesBrowserProfiles!==false||marker.includesSecrets!==false||
+    marker.includesOriginalUserscripts!==false||
+    marker.atomicAcrossStores!==false||
+    marker.scope!=='registry+journal+managed-revisions-only'||
+    marker.sourceManifestSha256!==sourceManifestSha256||
+    marker.fileCount!==2+files.length||
+    marker.note!=='NON-ACTIVE. Review offline before any separate, explicit migration; never overwrite a running Data directory.')
+  throw new Error('Invalid or tampered offline stage completion marker');
+
+ const rootNames=(await readdir(stage)).sort();
+ const expectedRoot=['USSHM-RECOVERY-NOT-ACTIVE.json',
+  'registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
+ if(JSON.stringify(rootNames)!==JSON.stringify(expectedRoot))
+  throw new Error('Unexpected offline stage files');
+ for(const item of core.files.slice(0,2))
+  await assertStagedCopy(join(stage,item.path),item);
+ if(files.length){
+  const managed=join(stage,'managed');
+  await assertUnlinkedRecoveryDirectory(managed);
+  const ids=[...new Set(files.map(v=>v.path.split('/')[1]!))].sort();
+  if(JSON.stringify((await readdir(managed)).sort())!==JSON.stringify(ids))
+   throw new Error('Unexpected offline stage managed directories');
+  for(const id of ids){
+   const dir=join(managed,id);
+   await assertUnlinkedRecoveryDirectory(dir);
+   const expected=files.filter(v=>v.path.split('/')[1]===id)
+    .map(v=>v.path.split('/')[2]!).sort();
+   if(JSON.stringify((await readdir(dir)).sort())!==JSON.stringify(expected))
+    throw new Error('Unexpected offline stage managed revisions');
+  }
+  for(const item of files)
+   await assertStagedCopy(join(stage,...item.path.split('/')),item);
+ }
+ // Verify schema from the actual staged database copies, never from active Data.
+ for(const name of ['registry.sqlite','diagnosis-journal.sqlite'] as const){
+  const db=new DatabaseSync(join(stage,name),{readOnly:true});
+  try{
+   if(db.prepare('PRAGMA integrity_check').get()?.integrity_check!=='ok')
+    throw new Error('Invalid offline staged SQLite integrity');
+   if(name==='registry.sqlite')assertRegistryV1SnapshotSchema(db);
+   else{
+    if(db.prepare('PRAGMA user_version').get()?.user_version!==1)
+     throw new Error('Invalid offline staged journal version');
+    assertJournalSchemaSafety(db);
+    if(db.prepare('PRAGMA foreign_key_check').all().length)
+     throw new Error('Invalid offline staged journal foreign keys');
+   }
+  }finally{db.close();}
+ }
+ await verifyCoreRecoveryBundle({snapshotDirectory:source});
+ if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
+  throw new Error('Offline stage source manifest changed during audit');
+ if(!(await readBoundedManifest(markerPath)).equals(markerBytes)||
+    (await lstat(markerPath)).nlink!==1)
+  throw new Error('Offline stage completion marker changed during audit');
+ return {valid:true,fileCount:2+files.length,sourceManifestSha256};
+}
