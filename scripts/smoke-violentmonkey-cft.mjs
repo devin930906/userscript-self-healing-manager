@@ -20,7 +20,7 @@ import {
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
  readViolentmonkeyFixtureObservation,
- buildViolentmonkeyInjectorReadyExpression,buildViolentmonkeyInjectorProbeExpression,
+ waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
  VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
@@ -262,16 +262,11 @@ try{
  console.log('PASS isolated pinned manager userScripts capability; no daily browser profile was accessed.');
  // VM's onInstalled/options initialization may have run before the permission
  // grant. Await its own initializer now, before navigating to document_start.
- const initialized=await optionsCdp.send('Runtime.evaluate',{
-  expression:buildViolentmonkeyInjectorReadyExpression(),awaitPromise:true,returnByValue:true,
+ await waitForVerifiedViolentmonkeyInjector({
+  send:(method,params)=>optionsCdp.send(method,params),
+  hasExited:()=>exited,
+  onStatus:stage=>console.log('Isolated official Violentmonkey readiness: '+stage),
  });
- if(initialized.result?.value!==JSON.stringify({ready:true}))
-  throw new Error('Pinned Violentmonkey official injector initialization failed');
- const injector=await optionsCdp.send('Runtime.evaluate',{
-  expression:buildViolentmonkeyInjectorProbeExpression(),awaitPromise:true,returnByValue:true,
- });
- if(injector.result?.value!==JSON.stringify({ready:true}))
-  throw new Error('Pinned Violentmonkey base injector files were not registered');
  console.log('PASS isolated official Violentmonkey base injector registration.');
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
