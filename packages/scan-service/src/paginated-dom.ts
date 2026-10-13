@@ -67,6 +67,12 @@ function onlyDataFields(value:unknown,allowed:ReadonlySet<string>):boolean{
 function assertValidDomRow(row:BatchDomItem|undefined):void{
  if(!row||!onlyDataFields(row,ROW_FIELDS))
   throw new Error('Invalid paginated DOM evidence row payload');
+ // A structurally valid IPC object may still contain a fake or oversized
+ // script identity. Never publish it before the renderer binds progress UI.
+ if(typeof row.path!=='string'||row.path.length<1||row.path.length>4096||
+    row.scriptId!==null&&(typeof row.scriptId!=='string'||
+     row.scriptId.length<1||row.scriptId.length>128))
+  throw new Error('Invalid paginated DOM script identity fields');
  if(row.reason!==undefined&&REASON_STATUS.get(row.reason)!==row.status)
   throw new Error('Invalid paginated DOM reason versus status evidence');
  const {checked,found,missing,needsReview,status}=row;
