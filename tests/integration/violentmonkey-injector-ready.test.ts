@@ -347,3 +347,18 @@ test('RG-05 rejects accessor and inherited script entries in the registration ar
  }
  assert.equal(getterCalls,0);
 });
+
+test('RG-05 rejects inherited and accessor match-scope array entries without reading getters',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,
+  js:[{file:'injected-web.js'},{file:'injected.js'}]};
+ let getterCalls=0;
+ const getterMatches=Object.defineProperty(['<all_urls>'],'0',{get(){getterCalls++;return '<all_urls>';},configurable:true});
+ const inheritedMatches=new Array(1);
+ Object.setPrototypeOf(inheritedMatches,Object.assign(Object.create(Array.prototype),{0:'<all_urls>'}));
+ for(const matches of [getterMatches,inheritedMatches]){
+  const response=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return [{...base,matches}];}}}});
+  assert.equal(response,JSON.stringify({ready:false}));
+ }
+ assert.equal(getterCalls,0);
+});
