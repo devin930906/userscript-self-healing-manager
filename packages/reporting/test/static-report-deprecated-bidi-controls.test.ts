@@ -18,7 +18,7 @@ test('RG-07 Markdown neutralizes deprecated U+206A..U+206F bidi controls in a sc
   const markdown=serializeStaticReport(report,'markdown');
   assert.equal(markdown.includes(mark),false,
    'invisible U+'+cp.toString(16).toUpperCase()+' must not survive a human-facing report');
-  assert.ok(markdown.includes('[U+'+cp.toString(16).toUpperCase()+']'),
+  assert.ok(markdown.includes('\\[U+'+cp.toString(16).toUpperCase()+'\\]'),
    'show a readable marker for the original bidi control');
   const json=JSON.parse(serializeStaticReport(report,'json'));
   assert.equal(json.items[0].path,name,'preserve JSON basename identity');
