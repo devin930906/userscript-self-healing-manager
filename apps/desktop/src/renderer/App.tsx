@@ -867,7 +867,7 @@ function App(){
     <section className="panel" role="status">
      <div className="panel-head"><div><h2>批量修复中断记录 · 需要重新确认</h2>
       <p>发现 {repairQueueRecovery.needsReview} 项需要复核的修复记录、
-      {repairQueueRecovery.uncertain} 项可能在写入期间中断，
+      {repairQueueRecovery.uncertain} 项可能已写入或写入结果不确定，
       以及 {repairQueueRecovery.unreadable} 个无法安全读取的检查点。</p>
       <p>请检查受管修订完整性，再重新扫描并审批。不会自动恢复旧授权，也不会重新执行原始脚本。</p>
      </div><span className="pill">离线只读 · 禁止自动重放</span></div>
