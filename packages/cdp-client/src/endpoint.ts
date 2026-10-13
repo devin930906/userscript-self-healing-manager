@@ -15,11 +15,16 @@ function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
 }
 export function validateCdpPageSocket(target:{id:string;webSocketDebuggerUrl?:string|undefined},port=9223):string{
  if(!target||typeof target!=='object')throw new Error('CDP page target identity mismatch');
- const endpoint=target.webSocketDebuggerUrl;
+ let endpoint:string|undefined;
+ try { endpoint=target.webSocketDebuggerUrl; }
+ catch { throw new Error('Invalid CDP debugger socket length'); }
  if(endpoint===undefined||endpoint===null||endpoint==='')throw new Error('CDP page target has no debugger socket');
  if(typeof endpoint!=='string')throw new Error('Invalid CDP debugger socket length');
  const parsed=assertLocalDebuggerSocket(endpoint,port);
- if(typeof target.id!=='string'||target.id.length>128||!/^[A-Za-z0-9_-]+$/.test(target.id)||parsed.pathname!=='/devtools/page/'+target.id)throw new Error('CDP page target identity mismatch');
+ let id:string;
+ try { id=target.id; }
+ catch { throw new Error('CDP page target identity mismatch'); }
+ if(typeof id!=='string'||id.length>128||!/^[A-Za-z0-9_-]+$/.test(id)||parsed.pathname!=='/devtools/page/'+id)throw new Error('CDP page target identity mismatch');
  return endpoint;
 }
 export function validateCdpBrowserSocket(endpoint:string,port=9223):string{
