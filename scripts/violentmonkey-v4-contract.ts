@@ -134,6 +134,9 @@ export async function readViolentmonkeyFixtureObservation(input:{
    if(answer?.exceptionDetails)throw new Error('Isolated GM fixture evaluation failed');
    const after=await currentFrame();
    if(after!==before)throw new Error('Isolated fixture document identity changed');
+   // A valid-looking CDP reply is not evidence from a live manager if CFT
+   // exited during the evaluation or its final pinned-document check.
+   if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
    const value=answer?.result?.value;
    if(value!==undefined&&value!==null){
     if(typeof value!=='string'||value.length>1024)throw new Error('Invalid bounded GM fixture receipt');
