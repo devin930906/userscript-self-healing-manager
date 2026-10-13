@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {constants,createReadStream} from 'node:fs';
-import {copyFile,lstat,mkdir,writeFile} from 'node:fs/promises';
+import {copyFile,lstat,mkdir,readdir,writeFile} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {DatabaseSync} from 'node:sqlite';
@@ -14,6 +14,35 @@ const hex=/^[a-f0-9]{64}$/;
 const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/;
 type HashedFile={path:string;sha256:string;bytes:number};
 const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
+
+/**
+ * Revalidate the actual staged pathname and bounded bytes, not merely the
+ * initial copy. The stage is a NON-ACTIVE recovery review output, but a
+ * completed marker must never bless a later swap, hardlink or same-size edit.
+ */
+async function assertStagedCopy(path:string,expected:HashedFile):Promise<void>{
+ await assertUnlinkedRecoveryDirectory(dirname(path));
+ const before=await lstat(path,{bigint:true});
+ if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||
+    before.size!==BigInt(expected.bytes))
+  throw new Error('Unsafe staged offline recovery file type, alias or size');
+ const hash=createHash('sha256');
+ let copied=0;
+ for await(const part of createReadStream(path)){
+  copied+=(part as Buffer).byteLength;
+  if(copied>expected.bytes)throw new Error('Staged recovery exceeded byte budget');
+  hash.update(part);
+ }
+ const after=await lstat(path,{bigint:true});
+ if(!after.isFile()||after.isSymbolicLink()||after.nlink!==1n||
+    before.dev!==after.dev||before.ino!==after.ino||
+    before.size!==after.size||before.birthtimeNs!==after.birthtimeNs||
+    before.mtimeNs!==after.mtimeNs||before.ctimeNs!==after.ctimeNs||
+    before.mode!==after.mode)
+  throw new Error('Staged offline recovery file changed during verification');
+ if(copied!==expected.bytes||hash.digest('hex')!==expected.sha256)
+  throw new Error('Staged offline recovery file hash mismatch');
+}
 
 async function readBoundedManifest(path:string):Promise<Buffer>{
  const info=await lstat(path);
@@ -31,15 +60,7 @@ async function copyChecked(source:string,destination:string,expected:HashedFile)
  const after=await lstat(destination);
  if(!after.isFile()||after.isSymbolicLink()||after.size!==expected.bytes)
   throw new Error('Offline recovery copied file has wrong type or size');
- const hash=createHash('sha256');
- let copied=0;
- for await(const part of createReadStream(destination)){
-  copied+=(part as Buffer).byteLength;
-  if(copied>expected.bytes)throw new Error('Offline recovery copy exceeded source byte budget');
-  hash.update(part);
- }
- if(copied!==expected.bytes||hash.digest('hex')!==expected.sha256)
-  throw new Error('Offline recovery copied file hash mismatch');
+ await assertStagedCopy(destination,expected);
 }
 /**
  * Recover ONLY the pre-audited core Data subset into an exclusively new,
@@ -51,9 +72,11 @@ async function copyChecked(source:string,destination:string,expected:HashedFile)
  * rather than automatically deleted after an IO error.
  */
 export async function stageCoreRecoveryForOfflineReview({
- snapshotDirectory,activeDataRoot,destination,
+ snapshotDirectory,activeDataRoot,destination,beforeFinalMarker,
 }:{
  readonly snapshotDirectory:string;readonly activeDataRoot:string;readonly destination:string;
+ /** Internal deterministic fault-injection hook, never wired from renderer. */
+ readonly beforeFinalMarker?:()=>Promise<void>;
 }):Promise<{path:string;fileCount:number;sourceManifestSha256:string}>{
  if([snapshotDirectory,activeDataRoot,destination].some(p=>
    typeof p!=='string'||!isAbsolute(p)))
@@ -136,6 +159,36 @@ export async function stageCoreRecoveryForOfflineReview({
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
  if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
   throw new Error('Source recovery manifest changed while staging');
+ if(beforeFinalMarker){
+  if(typeof beforeFinalMarker!=='function')
+   throw new Error('Invalid offline recovery fault-injection dependency');
+  await beforeFinalMarker();
+ }
+ // A trusted source snapshot is not proof that its newly copied staging
+ // output stayed intact while SQLite and source audits were awaited.
+ await assertUnlinkedRecoveryDirectory(target);
+ const expectedRoot=['registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
+ if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedRoot))
+  throw new Error('Unexpected staged offline recovery root entries');
+ for(const item of core.files.slice(0,2))
+  await assertStagedCopy(join(target,item.path),item);
+ if(files.length){
+  const managed=join(target,'managed');
+  await assertUnlinkedRecoveryDirectory(managed);
+  const expectedIds=[...new Set(files.map(item=>item.path.split('/')[1]!))].sort();
+  if(JSON.stringify((await readdir(managed)).sort())!==JSON.stringify(expectedIds))
+   throw new Error('Unexpected staged offline recovery script directories');
+  for(const id of expectedIds){
+   const folder=join(managed,id);
+   await assertUnlinkedRecoveryDirectory(folder);
+   const expectedNames=files.filter(item=>item.path.split('/')[1]===id)
+    .map(item=>item.path.split('/')[2]!).sort();
+   if(JSON.stringify((await readdir(folder)).sort())!==JSON.stringify(expectedNames))
+    throw new Error('Unexpected staged offline recovery revision entries');
+  }
+  for(const item of files)
+   await assertStagedCopy(join(target,...item.path.split('/')),item);
+ }
  const record={
   kind:'usshm-core-offline-stage-v1',
   activated:false,
