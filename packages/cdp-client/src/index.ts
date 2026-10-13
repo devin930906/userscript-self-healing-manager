@@ -214,8 +214,10 @@ export async function waitForChromeDebugger({
     if(product===status.browser)return status;
     lastError='CDP WebSocket browser identity does not match HTTP debugger discovery';
    }else lastError='Invalid Chrome browser identity or browser debugger socket';
-  }catch(error){
-   lastError=error instanceof Error?error.message.slice(0,180):'CDP debugger probe failed';
+  }catch{
+   // CDP HTTP/WS exceptions may contain private URLs, credentials or raw
+   // browser response fragments. Never echo them into startup diagnostics.
+   lastError='CDP debugger probe failed';
   }
   if(hasExited())throw new Error('Selected Chrome exited before a verified CDP handshake');
   const remaining=deadline-Date.now();
