@@ -58,9 +58,14 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   }
   if(expectedActiveHash===null)
    throw new Error('Managed current appeared during staging; external change rejected');
-  if(!info.isFile()||info.isSymbolicLink())
-   throw new Error('Unsafe externally changed managed current file');
+  // A foreign hardlink can change current bytes through a second pathname.
+  // Equal hashes alone cannot authorize replacing this shared inode.
+  if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1)
+   throw new Error('Unsafe externally changed or hardlink-aliased managed current file');
   const current=await readPinnedRegularFile(activePath,{maxBytes:MAX_BYTES,expected:info});
+  // Pinned descriptor reads check path/content identity, not link-count changes.
+  if((await lstat(activePath)).nlink!==1)
+   throw new Error('Unsafe managed current hardlink alias during activation');
   if(digest(current)!==expectedActiveHash)
    throw new Error('Managed current hash changed during staging; external edit rejected');
  };
