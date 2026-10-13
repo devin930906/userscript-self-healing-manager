@@ -8,7 +8,7 @@ test('repair proposal IPC does not re-open a scanned userscript with unbounded p
  const end=main.indexOf("ipcMain.handle('usshm:apply-repair'",begin);
  assert.ok(begin>=0&&end>begin);
  const segment=main.slice(begin,end);
- assert.match(segment,/readPinnedRegularFile\(item\.path,\s*\{maxBytes:512\s*\*\s*1024,expected:sourceInfo\}\)/,
+ assert.match(segment,/readPinnedRegularFile\(item\.path,\s*\{maxBytes:512\s*\*\s*1024,expected:sourceInfo,expectedNative:await lstat\(item\.path,\{bigint:true\}\)\}\)/,
   'main must pin a regular-file descriptor and enforce the 512KiB limit while reading the selected source');
  assert.doesNotMatch(segment,/\breadFile\(item\.path\)/,
   'a lstat-to-readFile swap can follow a symlink or allocate unbounded bytes');
