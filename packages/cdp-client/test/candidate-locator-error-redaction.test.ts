@@ -10,8 +10,9 @@ const page={
 };
 const privateMarker='PRIVATE42';
 class UntrustedCdpSocket extends EventEmitter{
- constructor(readonly mode:'malformed-json'|'send-exception'){
-  super();queueMicrotask(()=>this.emit('open'));
+ readonly mode:'malformed-json'|'send-exception';
+ constructor(mode:'malformed-json'|'send-exception'){
+  super();this.mode=mode;queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(event:string,cb:(event:any)=>void){this.on(event,cb);}
  removeEventListener(event:string,cb:(event:any)=>void){this.off(event,cb);}
