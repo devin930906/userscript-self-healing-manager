@@ -16,7 +16,7 @@ import {readPinnedRegularFile} from '../../../../packages/runtime-paths/src/pinn
 import {createHash,randomUUID} from 'node:crypto';
 import {exportManagedRecovery,verifyManagedRecovery} from '../../../../packages/repair-workflow/src/managed-export.ts';
 import {createCoreRecoveryBundle,verifyCoreRecoveryBundle} from '../../../../packages/repair-workflow/src/core-recovery.ts';
-import {stageCoreRecoveryForOfflineReview} from '../../../../packages/repair-workflow/src/core-recovery-stage.ts';
+import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '../../../../packages/repair-workflow/src/core-recovery-stage.ts';
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
@@ -215,6 +215,26 @@ async function bootstrap():Promise<void>{
   if(picker.canceled||!picker.filePaths[0])return {canceled:true};
   const audited=await verifyCoreRecoveryBundle({snapshotDirectory:picker.filePaths[0]});
   return {canceled:false,verified:audited.valid,files:audited.files};
+ });
+ ipcMain.handle('usshm:verify-offline-core-stage',async event=>{
+  assertSender(event);
+  // Both input paths originate exclusively in the operating-system picker.
+  // Audit only: no stage creation, migration, activation or mutation of Data.
+  const source=await dialog.showOpenDialog(mainWindow,{
+   title:'选择来源核心备份目录（仅只读核验）',
+   properties:['openDirectory'],
+  });
+  if(source.canceled||!source.filePaths[0])return {canceled:true};
+  const staged=await dialog.showOpenDialog(mainWindow,{
+   title:'选择已有非活动离线暂存目录（仅只读核验）',
+   properties:['openDirectory'],
+  });
+  if(staged.canceled||!staged.filePaths[0])return {canceled:true};
+  const audited=await verifyCoreOfflineRecoveryStage({
+   snapshotDirectory:source.filePaths[0],stagedDirectory:staged.filePaths[0],
+  });
+  return {canceled:false,verified:audited.valid,fileCount:audited.fileCount,
+   sourceManifestSha256:audited.sourceManifestSha256,activated:false};
  });
  ipcMain.handle('usshm:stage-core-recovery',async event=>{
   assertSender(event);
