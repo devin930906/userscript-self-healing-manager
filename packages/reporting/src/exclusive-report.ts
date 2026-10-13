@@ -43,10 +43,15 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   throw new Error('Report byte budget exceeded');
  const digest=createHash('sha256').update(bytes).digest('hex');
  const stage=join(dirname(destinationPath),'.'+basename(destinationPath)+'.staging-'+randomUUID()+'.tmp');
- const verify=async(path:string)=>{
+ const verify=async(path:string,expectedLinks:1|2=1)=>{
   const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink()||info.size!==bytes.length)
    throw new Error('Report staging file identity, type or size mismatch');
+  // During atomic publication, our private stage and final pathname share
+  // exactly two links. At every other point the trusted report must be
+  // isolated to one pathname, never a foreign hardlink alias.
+  if(info.nlink!==expectedLinks)
+   throw new Error('Unsafe diagnostic report hardlink alias');
   const flags=constants.O_RDONLY|(typeof constants.O_NOFOLLOW==='number'?constants.O_NOFOLLOW:0);
   const fd=await open(path,flags);
   try{
@@ -54,6 +59,8 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
    if(!opened.isFile()||opened.size!==info.size||
       opened.mtimeMs!==info.mtimeMs||opened.ctimeMs!==info.ctimeMs)
     throw new Error('Report file was changed while opening for verification');
+   if(opened.nlink!==expectedLinks)
+    throw new Error('Unsafe diagnostic report hardlink alias on descriptor');
    const hash=createHash('sha256');
    let total=0;
    while(total<bytes.length){
@@ -69,6 +76,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
       after.size!==info.size||after.mtimeMs!==info.mtimeMs||
       after.ctimeMs!==info.ctimeMs||reread.size!==opened.size||
       reread.mtimeMs!==opened.mtimeMs||reread.ctimeMs!==opened.ctimeMs||
+      reread.nlink!==expectedLinks||after.nlink!==expectedLinks||
       hash.digest('hex')!==digest)
     throw new Error('Report changed or failed SHA-256 verification');
   }finally{await fd.close();}
@@ -105,7 +113,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
   try{
    if(afterPublish)await afterPublish();
-   await verify(destinationPath);
+   await verify(destinationPath,2);
   }
   catch(error){
    // No portable Node API can atomically unlink only if this name still
@@ -123,4 +131,9 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
  }
  if(failure!==undefined)throw failure;
+ // The private stage link has now been removed. A remaining foreign alias
+ // would allow later edits or reads through an unreviewed filesystem path.
+ // As above, preserve the visible destination on post-publish uncertainty.
+ try{await verify(destinationPath,1);}
+ catch(error){throw new UntrustedReportPublicationError(destinationPath,error);}
 }
