@@ -87,8 +87,18 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   await handle.close();
   handle=undefined;
   const stagedInfo=await lstat(stage);
+  const stagedIdentity=await lstat(stage,{bigint:true});
+  if(!stagedIdentity.isFile()||stagedIdentity.isSymbolicLink()||stagedIdentity.nlink!==1n)
+   throw new Error('Unsafe staged managed current hardlink or file type');
   const staged=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:stagedInfo});
   if(digest(staged)!==digest(bytes))throw new Error('Staged managed current hash mismatch');
+  // The first staged path verification approves these exact filesystem
+  // identity fields, not simply any later pathname with matching bytes.
+  const sameStage=(value:typeof stagedIdentity):boolean=>
+   value.isFile()&&!value.isSymbolicLink()&&value.nlink===1n&&
+   value.dev===stagedIdentity.dev&&value.ino===stagedIdentity.ino&&
+   value.birthtimeNs===stagedIdentity.birthtimeNs&&
+   value.mode===stagedIdentity.mode;
   // For first activation, rename() could silently overwrite a file created
   // by another process just after our last lstat. hard-link publication is
   // atomic NO-REPLACE for absent current, exactly like immutable archives.
@@ -102,6 +112,16 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   // during staging. This preflight is not an atomic hostile-process CAS.
   await assertUnlinkedRecoveryDirectory(dirname(activePath));
   await validateCurrent();
+  // A test hook or uncooperative process can substitute the stage AFTER the
+  // original hash check. Require the very same inode and content immediately
+  // before any link/rename, even when a substitute has identical bytes.
+  if(!sameStage(await lstat(stage,{bigint:true})))
+   throw new Error('Staged managed current identity changed before activation');
+  const latestStage=await lstat(stage);
+  const latestBytes=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:latestStage});
+  if(digest(latestBytes)!==digest(bytes)||
+     !sameStage(await lstat(stage,{bigint:true})))
+   throw new Error('Staged managed current changed after verification');
   if(expectedActiveHash===null){
    try{await link(stage,activePath);}
    catch(error){
