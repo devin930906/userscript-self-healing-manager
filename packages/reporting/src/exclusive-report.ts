@@ -39,6 +39,10 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
     !/\.(?:json|md)$/i.test(destinationPath)||
     typeof content!=='string')
   throw new Error('Invalid absolute JSON/Markdown report destination or format');
+ // A lexical `..` can erase a linked path component before ancestor
+ // inspection even though the OS resolves that link before traversal.
+ if(destinationPath.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe report destination parent traversal');
  const bytes=Buffer.from(content,'utf8');
  if(bytes.length===0||bytes.length>MAX_REPORT_BYTES)
   throw new Error('Report byte budget exceeded');
