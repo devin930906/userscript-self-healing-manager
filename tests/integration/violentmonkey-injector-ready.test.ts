@@ -132,3 +132,19 @@ test('RG-05 distinguishes sanitized CDP evaluation failure from official injecto
  assert.match(error.message,/CDP evaluation failed/);
  assert.doesNotMatch(error.message,/PRIVATE_CDP_TRANSPORT_SENTINEL/);
 });
+
+test('RG-05 rejects a returned CDP error envelope without retrying or exposing its private payload',async()=>{
+ const stages:string[]=[];
+ let calls=0,sleeps=0;
+ const cause=await api.waitForVerifiedViolentmonkeyInjector({
+  send:async()=>{calls++;return {error:{code:-32000,message:'PRIVATE_CDP_ERROR_ENVELOPE'}};},
+  hasExited:()=>false,delay:async()=>{sleeps++;},
+  onStatus:(stage:string)=>stages.push(stage),
+ }).catch((error:any)=>error);
+ assert.ok(cause instanceof Error);
+ assert.match(cause.message,/CDP evaluation failed/);
+ assert.doesNotMatch(cause.message,/PRIVATE_CDP_ERROR_ENVELOPE/);
+ assert.deepEqual(stages,['cdp-evaluation-failed']);
+ assert.equal(calls,1,'a transport error response must fail closed rather than poll sixteen times');
+ assert.equal(sleeps,0);
+});

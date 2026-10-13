@@ -248,7 +248,7 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
     expression,awaitPromise:true,returnByValue:true,
    });
   }catch{notify('cdp-evaluation-failed');throw new Error('Isolated manager injector CDP evaluation failed');}
-  if(response?.exceptionDetails){
+  if(response?.error||response?.exceptionDetails){
    notify('cdp-evaluation-failed');
    throw new Error('Isolated manager injector CDP evaluation failed');
   }
