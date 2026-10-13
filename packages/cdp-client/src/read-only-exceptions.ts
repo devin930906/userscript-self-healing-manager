@@ -127,7 +127,17 @@ export async function observeReadOnlyPageExceptions(
      invalid=true;
      return;
     }
-    if(!enabled||method!=='Runtime.enable')return;
+    if(!enabled)return;
+    if(method==='Runtime.disable'){
+     // Runtime.disable is asynchronous. Buffered exception/context events
+     // before its ack invalidate a purported zero-exception window.
+     // The event contents remain private and are never serialized.
+     if(message.method==='Runtime.exceptionThrown'||
+        message.method==='Runtime.executionContextsCleared'||
+        message.method==='Runtime.executionContextDestroyed')
+      invalid=true;
+     return;
+    }
     // A changed or cleared execution context breaks the continuous observation
     // window even when the final URL/frame/loader happens to look unchanged.
     // Do not report an unsupported zero-exception conclusion.
