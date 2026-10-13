@@ -130,7 +130,8 @@ export async function importPaths({paths,recursive,repository,maxFiles=Number.MA
    if(info.size>512*1024){output.push({path,status:'too-large'});continue;}
    // A selected file may change between enumeration and read. Pin the open
    // descriptor and enforce the size budget during I/O, not only at lstat.
-   data=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
+   const exactInfo=await lstat(path,{bigint:true});
+   data=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info,expectedNative:exactInfo});
    if(await containsLinkedComponent(path)){output.push({path,status:'symlink-skipped'});continue;}
   }catch(error){output.push({path,status:'unreadable',message:safeImportDiagnostic('Source unreadable',error)});continue;}
   let id:string;
