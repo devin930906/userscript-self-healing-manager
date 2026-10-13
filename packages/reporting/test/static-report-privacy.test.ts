@@ -61,11 +61,11 @@ test('RG-07 Markdown export treats user-controlled basenames as plain text, neve
    selectorCount:0,runtimeRequiredCount:0,diagnostics:[],
   }))};
  const rendered=serializeStaticReport(input,'markdown');
- assert.doesNotMatch(rendered,/!\[PRIVATE_PREVIEW\]\(https:collector\.invalid/,
+ assert.doesNotMatch(rendered,/\|\s*!\[PRIVATE_PREVIEW\]\(https:collector\.invalid/,
   'filename must not produce an external Markdown image reference');
- assert.doesNotMatch(rendered,/\[PRIVATE_ACTION\]\(javascript:/,
+ assert.doesNotMatch(rendered,/\|\s*\[PRIVATE_ACTION\]\(javascript:/,
   'filename must not produce a scripted Markdown link');
- assert.doesNotMatch(rendered,/\*PRIVATE_EMPHASIS\*/,
+ assert.doesNotMatch(rendered,/\|\s*\*PRIVATE_EMPHASIS\*/,
   'filename must not be treated as Markdown emphasis');
  assert.match(rendered,/\\!\\\[PRIVATE_PREVIEW\\\]\\\(https:collector\.invalid/,
   'show the original basename as escaped ordinary text');
