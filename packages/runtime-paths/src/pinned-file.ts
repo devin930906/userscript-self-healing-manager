@@ -40,7 +40,8 @@ export async function readPinnedRegularFile(path:string,{
   // be reused or rounded. A different creation timestamp must never inherit
   // an older approved snapshot on any platform.
   return left.dev===right.dev&&
-   left.ino===right.ino&&left.birthtimeMs===right.birthtimeMs&&
+   left.ino===right.ino&&left.nlink===right.nlink&&
+   left.birthtimeMs===right.birthtimeMs&&
    left.size===right.size&&left.mode===right.mode&&
    left.mtimeMs===right.mtimeMs&&left.ctimeMs===right.ctimeMs;
  };
@@ -49,7 +50,8 @@ export async function readPinnedRegularFile(path:string,{
  // This is NOT a native Win32 FileIdInfo handle API or a process-wide lock.
  const sameNative=(left:BigIntStats,right:BigIntStats):boolean=>
   left.isFile()&&!left.isSymbolicLink()&&right.isFile()&&!right.isSymbolicLink()&&
-  left.dev===right.dev&&left.ino===right.ino&&left.size===right.size&&
+  left.dev===right.dev&&left.ino===right.ino&&left.nlink===right.nlink&&
+  left.size===right.size&&
   left.mode===right.mode&&left.birthtimeNs===right.birthtimeNs&&
   left.mtimeNs===right.mtimeNs&&left.ctimeNs===right.ctimeNs;
  validateFile(before);

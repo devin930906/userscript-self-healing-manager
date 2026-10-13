@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,lstat,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,link,lstat,readFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {test} from 'node:test';
@@ -43,5 +43,46 @@ test('RG-06 precise native snapshot refuses forged creation time with unchanged 
   await assert.rejects(readPinnedRegularFile(path,{
    maxBytes:512*1024,expected:rounded,expectedNative:oldIdentity,
   } as Parameters<typeof readPinnedRegularFile>[1]),/native|identity|snapshot|replaced|changed|unsafe/i);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('RG-06 numeric pinned snapshot rejects a changed hardlink count with identical other metadata',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-linkcount-rounded-'));
+ try{
+  const path=join(dir,'synthetic.user.js'),alias=join(dir,'synthetic.alias');
+  const bytes=Buffer.from('SYNTHETIC_LINK_COUNT_ONLY');
+  await writeFile(path,bytes);await link(path,alias);
+  const approved=await lstat(path);
+  assert.equal(approved.nlink,2,'fixture must be a real hardlinked file');
+  // Model an earlier approved snapshot. All identity fields except link count
+  // deliberately match, so the test isolates this missing invariant.
+  const stale=Object.create(approved) as typeof approved;
+  Object.defineProperty(stale,'nlink',{value:approved.nlink-1});
+  await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:stale}),
+   /identity|replaced|changed|snapshot|unsafe/i,
+   'new hardlink aliases must invalidate a caller-approved numeric snapshot');
+  assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved}),bytes);
+  assert.deepEqual(await readFile(alias),bytes,'no aliases are modified during verification');
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('RG-06 exact BigInt pinned snapshot rejects changed hardlink count with the same file ID',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'usshm-linkcount-native-'));
+ try{
+  const path=join(dir,'synthetic.user.js'),alias=join(dir,'synthetic.alias');
+  const bytes=Buffer.from('SYNTHETIC_NATIVE_LINK_COUNT_ONLY');
+  await writeFile(path,bytes);await link(path,alias);
+  const numeric=await lstat(path),native=await lstat(path,{bigint:true});
+  assert.equal(native.nlink,2n,'fixture must expose a real native hardlink count');
+  const stale=Object.create(native) as typeof native;
+  Object.defineProperty(stale,'nlink',{value:native.nlink-1n});
+  await assert.rejects(readPinnedRegularFile(path,{
+   maxBytes:512*1024,expected:numeric,expectedNative:stale,
+  }),/native|identity|snapshot|replaced|changed|unsafe/i,
+  'a different exact link count must invalidate approved native identity');
+  assert.deepEqual(await readPinnedRegularFile(path,{
+   maxBytes:512*1024,expected:numeric,expectedNative:native,
+  }),bytes,'unchanged hardlinked source remains readable');
+  assert.deepEqual(await readFile(alias),bytes,'the reader must never change original bytes');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
