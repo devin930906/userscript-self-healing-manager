@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {lstat,rename,writeFile,unlink,mkdir,rmdir} from 'node:fs/promises';
-import {isAbsolute,join} from 'node:path';
+import {dirname,isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
@@ -46,6 +46,12 @@ async function assertChromeExecutable(path:string):Promise<void>{
  if(typeof path!=='string'||!isAbsolute(path))
   throw new Error('Chrome executable path must be absolute');
  if(!/\.exe$/i.test(path))throw new Error('Chrome executable must be an EXE');
+ if(path.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe Chrome executable parent traversal');
+ // A regular EXE leaf may be redirected through a linked ancestor.
+ // Recheck on launch even for a previously approved saved profile.
+ try{await assertUnlinkedRecoveryDirectory(dirname(path));}
+ catch{throw new Error('Unsafe Chrome executable directory: symlink or junction ancestor');}
  let item:Awaited<ReturnType<typeof lstat>>;
  try{item=await lstat(path);}
  catch{throw new Error('Chrome executable is unavailable or missing');}
