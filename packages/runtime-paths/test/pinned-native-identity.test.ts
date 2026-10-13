@@ -58,10 +58,10 @@ test('RG-06 numeric pinned snapshot rejects a changed hardlink count with identi
   // deliberately match, so the test isolates this missing invariant.
   const stale=Object.create(approved) as typeof approved;
   Object.defineProperty(stale,'nlink',{value:approved.nlink-1});
-  await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:stale}),
+  await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:stale,expectedNative:await lstat(path,{bigint:true})}),
    /identity|replaced|changed|snapshot|unsafe/i,
    'new hardlink aliases must invalidate a caller-approved numeric snapshot');
-  assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved}),bytes);
+  assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved,expectedNative:await lstat(path,{bigint:true})}),bytes);
   assert.deepEqual(await readFile(alias),bytes,'no aliases are modified during verification');
  }finally{await rm(dir,{recursive:true,force:true});}
 });

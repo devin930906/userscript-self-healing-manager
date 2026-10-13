@@ -29,10 +29,10 @@ test('pinned reader rejects a symlink and leaves the outside file untouched',asy
 test('pinned reader catches same-size path swaps even when the old snapshot was valid',async()=>fixture(async dir=>{
  const path=join(dir,'source.user.js'),away=join(dir,'renamed.user.js');
  await writeFile(path,'SAFE BYTES');
- const before=await lstat(path);
+ const before=await lstat(path),nativeBefore=await lstat(path,{bigint:true});
  await rename(path,away);
  await writeFile(path,'EVIL BYTES');
- await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:before}),
+ await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:before,expectedNative:nativeBefore}),
   /identity|replaced|changed|snapshot|stale|unsafe/i);
  assert.equal(await readFile(away,'utf8'),'SAFE BYTES');
 }));
@@ -40,7 +40,7 @@ test('pinned reader catches same-size path swaps even when the old snapshot was 
 test('pinned reader detects hardlink aliases with mismatched snapshots and bounded size',async()=>fixture(async dir=>{
  const path=join(dir,'archive.user.js'),other=join(dir,'outside.user.js');
  await writeFile(path,'first archive');
- const before=await lstat(path);
+ const before=await lstat(path),nativeBefore=await lstat(path,{bigint:true});
  await writeFile(other,'separate content');
  await rm(path);
  await link(other,path);
@@ -68,10 +68,10 @@ test('pinned reader rejects changed creation time even when ino size mode mtime 
  // to alias a replaced file. Every other Stat field is unchanged.
  const stale=Object.create(approved) as typeof approved;
  Object.defineProperty(stale,'birthtimeMs',{value:approved.birthtimeMs+120_000});
- await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:stale}),
+ await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:stale,expectedNative:await lstat(path,{bigint:true})}),
   /identity|replaced|snapshot|stale|changed/i,
   'different file creation identity may not inherit an old reviewed snapshot');
  assert.equal(await readFile(path,'utf8'),original,'never change original scripts');
- assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved}),
+ assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved,expectedNative:await lstat(path,{bigint:true})}),
   Buffer.from(original),'normal unchanged snapshot remains readable');
 }));
