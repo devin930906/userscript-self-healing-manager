@@ -18,6 +18,7 @@ test('RG-01 scan request rejects malformed path lists and recursive flags before
   ['missing paths',{recursive:false,maxFiles:2}],
   ['null paths',{paths:null,recursive:false,maxFiles:2}],
   ['string paths',{paths:'./unexpected.user.js',recursive:false,maxFiles:2}],
+  ['sparse paths',{paths:Array(1),recursive:false,maxFiles:2}],
   ['number entry',{paths:[42],recursive:false,maxFiles:2}],
   ['null entry',{paths:[null],recursive:false,maxFiles:2}],
   ['empty path',{paths:[''],recursive:false,maxFiles:2}],

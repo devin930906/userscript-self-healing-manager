@@ -14,9 +14,13 @@ export async function runStaticScan(request:ScanRequest,deps:{repository:ScriptR
  // The public service may receive runtime values despite the TypeScript type.
  // Validate before filesystem traversal or persistent registry writes.
  if(!request||typeof request!=='object'||!Array.isArray(request.paths)||
-    typeof request.recursive!=='boolean'||
-    !request.paths.every(path=>typeof path==='string'&&path.trim().length>0))
+    typeof request.recursive!=='boolean')
   throw new Error('Invalid static scan request');
+ // Array.every skips sparse holes; every path position must be checked here,
+ // before the lower-level registry can inspect the request or filesystem.
+ for(const path of request.paths)
+  if(typeof path!=='string'||path.trim().length===0)
+   throw new Error('Invalid static scan request');
  if(!Number.isSafeInteger(request.maxFiles)||request.maxFiles<1||request.paths.length>request.maxFiles)throw new Error('limit-exceeded');
  const results=await importPaths({paths:request.paths,recursive:request.recursive,repository:deps.repository,maxFiles:request.maxFiles});
  if(results.length>request.maxFiles)throw new Error('limit-exceeded');
