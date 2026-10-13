@@ -226,7 +226,10 @@ export function readRepairCheckpointSummary(file:string):{
    total:rows.length,
    completed:rows.filter(row=>row.status==='completed').length,
    needsReview:rows.filter(row=>row.status!=='completed').length,
-   uncertain:rows.filter(row=>row.status==='running').length,
+   // A failed execute callback MAY have activated a managed revision before
+   // throwing; startup cannot prove it left the file untouched. Both states
+   // require integrity review, never unattended replay or restoration.
+   uncertain:rows.filter(row=>row.status==='running'||row.status==='failed').length,
   });
  }finally{db.close();}
 }
