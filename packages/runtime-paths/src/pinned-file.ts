@@ -54,6 +54,14 @@ export async function readPinnedRegularFile(path:string,{
   left.size===right.size&&
   left.mode===right.mode&&left.birthtimeNs===right.birthtimeNs&&
   left.mtimeNs===right.mtimeNs&&left.ctimeNs===right.ctimeNs;
+ // Node numeric Stats can alias distinct Windows MFT identities when the
+ // file index is rounded and timestamps collide (real hosted Windows CI
+ // evidence: issue #139, merge-head run #38407637227). In this case no
+ // path-only numeric comparison can authenticate an earlier approved file.
+ // Require independently captured BigIntStats on Windows instead of
+ // declaring a replaced file to be its old approved snapshot.
+ if(process.platform==='win32'&&expected&&!expectedNative)
+  throw new Error('Precise native snapshot required for Windows pinned file identity');
  validateFile(before);
  const nativeBefore=expectedNative?await lstat(path,{bigint:true}):undefined;
  if(expectedNative){

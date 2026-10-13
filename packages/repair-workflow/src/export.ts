@@ -30,7 +30,7 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
  const validate=async(path:string)=>{
   const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink())throw new Error('Unsafe exported file');
-  const actual=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
+  const actual=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(path,{bigint:true})});
   if(createHash('sha256').update(actual).digest('hex')!==expectedHash)
    throw new Error('Exported userscript verification hash mismatch');
  };
@@ -118,7 +118,7 @@ export async function exportManagedCurrent({managedRoot,scriptId,destinationPath
   const info=await lstat(currentPath);
   if(!info.isFile()||info.isSymbolicLink()||info.size>512*1024)
    throw new Error('Unsafe managed current file');
-  const content=await readPinnedRegularFile(currentPath,{maxBytes:512*1024,expected:info});
+  const content=await readPinnedRegularFile(currentPath,{maxBytes:512*1024,expected:info,expectedNative:await lstat(currentPath,{bigint:true})});
   const hash=createHash('sha256').update(content).digest('hex');
   if(!archived.some(r=>r.hash===hash))
    throw new Error('Managed current contains unverified external edits; refusing export');

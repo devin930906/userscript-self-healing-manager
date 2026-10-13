@@ -62,7 +62,7 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   // Equal hashes alone cannot authorize replacing this shared inode.
   if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1)
    throw new Error('Unsafe externally changed or hardlink-aliased managed current file');
-  const current=await readPinnedRegularFile(activePath,{maxBytes:MAX_BYTES,expected:info});
+  const current=await readPinnedRegularFile(activePath,{maxBytes:MAX_BYTES,expected:info,expectedNative:await lstat(activePath,{bigint:true})});
   // Pinned descriptor reads check path/content identity, not link-count changes.
   if((await lstat(activePath)).nlink!==1)
    throw new Error('Unsafe managed current hardlink alias during activation');
@@ -95,7 +95,7 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   const stagedIdentity=await lstat(stage,{bigint:true});
   if(!stagedIdentity.isFile()||stagedIdentity.isSymbolicLink()||stagedIdentity.nlink!==1n)
    throw new Error('Unsafe staged managed current hardlink or file type');
-  const staged=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:stagedInfo});
+  const staged=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:stagedInfo,expectedNative:await lstat(stage,{bigint:true})});
   if(digest(staged)!==digest(bytes))throw new Error('Staged managed current hash mismatch');
   // The first staged path verification approves these exact filesystem
   // identity fields, not simply any later pathname with matching bytes.
@@ -123,7 +123,7 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
   if(!sameStage(await lstat(stage,{bigint:true})))
    throw new Error('Staged managed current identity changed before activation');
   const latestStage=await lstat(stage);
-  const latestBytes=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:latestStage});
+  const latestBytes=await readPinnedRegularFile(stage,{maxBytes:MAX_BYTES,expected:latestStage,expectedNative:await lstat(stage,{bigint:true})});
   if(digest(latestBytes)!==digest(bytes)||
      !sameStage(await lstat(stage,{bigint:true})))
    throw new Error('Staged managed current changed after verification');
@@ -140,7 +140,7 @@ export async function commitManagedCurrent({activePath,bytes,expectedActiveHash,
    await rename(stage,activePath);
   }
   const activatedInfo=await lstat(activePath);
-  const activated=await readPinnedRegularFile(activePath,{maxBytes:MAX_BYTES,expected:activatedInfo});
+  const activated=await readPinnedRegularFile(activePath,{maxBytes:MAX_BYTES,expected:activatedInfo,expectedNative:await lstat(activePath,{bigint:true})});
   if(digest(activated)!==digest(bytes))
    throw new Error('Activated managed current verification failed; immutable archive remains available');
  }catch(error){failure=error;}

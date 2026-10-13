@@ -85,7 +85,7 @@ export async function inspectManagedIntegrity({managedRoot,scriptId}:{
  if(info.isSymbolicLink()||!info.isFile()||info.size>512*1024||info.nlink!==1)
   return outcome('unsafe',archives.length);
  let bytes:Buffer;
- try{bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info});}
+ try{bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info,expectedNative:await lstat(current,{bigint:true})});}
  catch{return outcome('unsafe',archives.length);}
  // Pin-read identity checks do not track link count. A foreign hardlink
  // created during the read must not receive a healthy certificate either.

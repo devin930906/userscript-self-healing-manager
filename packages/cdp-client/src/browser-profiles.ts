@@ -81,7 +81,7 @@ async function readState(dataRoot:string):Promise<SavedState>{
  }
  if(!info.isFile()||info.isSymbolicLink()||info.size>MAX_BYTES)
   throw new Error('Unsafe or oversized browser profile registry');
- const raw=await readPinnedRegularFile(path,{maxBytes:MAX_BYTES,expected:info});
+ const raw=await readPinnedRegularFile(path,{maxBytes:MAX_BYTES,expected:info,expectedNative:await lstat(path,{bigint:true})});
  try{return validateState(JSON.parse(raw.toString('utf8')));}
  catch{throw new Error('Corrupt or invalid browser profile registry; preserve it for recovery');}
 }

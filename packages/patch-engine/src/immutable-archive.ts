@@ -56,7 +56,7 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
    throw new Error('Immutable archive path is a symlink or non-regular file');
   if(requireSingleLink&&info.nlink!==1)
    throw new Error('Immutable archive hardlink alias detected');
-  const current=await readPinnedRegularFile(path,{maxBytes:MAX_ARCHIVE_BYTES,expected:info});
+  const current=await readPinnedRegularFile(path,{maxBytes:MAX_ARCHIVE_BYTES,expected:info,expectedNative:await lstat(path,{bigint:true})});
   if(digest(current)!==expectedHash)
    throw new Error('Immutable archive hash conflict');
   if(requireSingleLink&&(await lstat(path)).nlink!==1)

@@ -35,6 +35,11 @@ test('RG-06 32 rapid same-size replacements reject an old approved pinned snapsh
    catch(error){
     assert.match(String((error as Error).message),/identity|replaced|changed|snapshot|stale|unsafe/i);
    }
+   // Precise approval must also reject the OLD exact inode even when
+   // Windows rounds new and old numeric Stats to the same values.
+   await assert.rejects(readPinnedRegularFile(path,{
+    maxBytes:512*1024,expected:before,expectedNative:nativeBefore,
+   }),/native|identity|replaced|changed|snapshot|stale|unsafe/i);
    if(readAccepted){
     // The only permissible output is bounded SYNTHETIC numeric evidence.
     throw new Error('Pinned reader accepted stale synthetic snapshot: trial='+trial+

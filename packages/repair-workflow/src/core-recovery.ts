@@ -106,9 +106,7 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe core recovery manifest');
  if(manifestInfo.nlink!==1)throw new Error('Unsafe core recovery manifest hardlink alias');
- const manifestBytes=await readPinnedRegularFile(manifestFile,{
-  maxBytes:1024*1024,expected:manifestInfo
- });
+ const manifestBytes=await readPinnedRegularFile(manifestFile,{maxBytes:1024*1024,expected:manifestInfo,expectedNative:await lstat(manifestFile,{bigint:true})});
  if((await lstat(manifestFile)).nlink!==1)
   throw new Error('Unsafe core recovery manifest hardlink alias after read');
  let manifest:unknown;

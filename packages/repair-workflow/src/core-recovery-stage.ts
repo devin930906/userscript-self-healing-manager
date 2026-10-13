@@ -19,7 +19,7 @@ async function readBoundedManifest(path:string):Promise<Buffer>{
  const info=await lstat(path);
  if(!info.isFile()||info.isSymbolicLink()||info.size>1024*1024)
   throw new Error('Unsafe offline recovery manifest');
- return readPinnedRegularFile(path,{maxBytes:1024*1024,expected:info});
+ return readPinnedRegularFile(path,{maxBytes:1024*1024,expected:info,expectedNative:await lstat(path,{bigint:true})});
 }
 async function copyChecked(source:string,destination:string,expected:HashedFile){
  const before=await lstat(source);
