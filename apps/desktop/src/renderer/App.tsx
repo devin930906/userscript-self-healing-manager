@@ -52,6 +52,7 @@ declare global {interface Window{ussm:{
  exportManagedRecovery:()=>Promise<{canceled:boolean;path?:string;files?:number;bytes?:number}>;
  createCoreRecovery:()=>Promise<{canceled:boolean;path?:string;manifestSha256?:string;files?:number;verified?:boolean}>;
  verifyCoreRecovery:()=>Promise<{canceled:boolean;verified?:boolean;files?:number}>;
+ verifyOfflineCoreStage:()=>Promise<{canceled:boolean;verified?:boolean;fileCount?:number;sourceManifestSha256?:string;activated?:false}>;
  stageCoreRecovery:()=>Promise<{canceled:boolean;path?:string;fileCount?:number;sourceManifestSha256?:string;activated?:false}>;
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
@@ -322,6 +323,20 @@ function App(){
    // Untrusted SQLite / manifests may include absolute file paths in errors.
    // Never reflect raw parser or filesystem exceptions into the UI.
    setError('已有核心备份核验失败：可能缺少文件、内容被更改、结构不兼容，或选错目录。没有覆盖、恢复或删除任何资料。');
+  }finally{setBusy(false);}
+ }
+ async function verifyOfflineCoreStage(){
+  if(busy)return;
+  setBusy(true);setError('');
+  try{
+   const audited=await window.ussm.verifyOfflineCoreStage();
+   if(!audited.canceled&&audited.verified&&audited.activated===false)
+    setMessage('已有离线暂存核验通过：重新核对了 '+audited.fileCount+
+     ' 个文件、来源核心备份 SHA-256：'+audited.sourceManifestSha256+
+     '。仅为只读检查，不会自动恢复、启用脚本、修改 Data 或接触浏览器密钥。');
+  }catch{
+   // Never display raw untrusted SQLite, filesystem or manifest errors.
+   setError('已有离线暂存核验失败：文件内容、完成标记或来源备份可能已变化，或目录结构不兼容。只读操作不会自动恢复或覆盖现有 Data。');
   }finally{setBusy(false);}
  }
  async function stageCoreRecovery(){
@@ -906,6 +921,7 @@ function App(){
     <div className="toolbar"><button type="button" className="secondary" disabled={busy} onClick={()=>void createCoreRecovery()}>创建核心资料组合备份</button>
      <button type="button" className="secondary" disabled={busy} onClick={()=>void verifyCoreRecovery()}>核验已有核心备份（只读）</button>
      <button type="button" className="secondary" disabled={busy} onClick={()=>void stageCoreRecovery()}>离线暂存核心备份（不覆盖）</button>
+     <button type="button" className="secondary" disabled={busy} onClick={()=>void verifyOfflineCoreStage()}>核验离线暂存（只读）</button>
      <p className="dim">组合 registry.sqlite、诊断历史和受管修订，并生成 SHA-256 总清单。跨存储非原子快照；不是完整 Data/ 灾难恢复，不包含站点规则、Chrome 配置和密钥，也不会自动恢复脚本。</p>
     </div>
    </section>
