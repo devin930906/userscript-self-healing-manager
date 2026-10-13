@@ -273,3 +273,18 @@ test('RG-05 rejects altered official base registration match scopes',async()=>{
   assert.doesNotMatch(result,/private\\.example/);
  }
 });
+
+test('RG-05 refuses registered base injector with unexpected exclusion scopes',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,
+  js:[{file:'injected-web.js'},{file:'injected.js'}],matches:['<all_urls>']};
+ for(const script of [
+  {...base,excludeMatches:['https://private.example/*']},
+  {...base,excludeGlobs:['*private*']},
+  {...base,includeGlobs:['*private*']},
+ ]){
+  const result=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return [script];}}}});
+  assert.equal(result,JSON.stringify({ready:false}));
+  assert.doesNotMatch(result,/private/);
+ }
+});
