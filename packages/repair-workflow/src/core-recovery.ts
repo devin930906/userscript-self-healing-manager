@@ -100,6 +100,14 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  });
  await verifyManagedRecovery({snapshotDirectory:managed.path});
  const archive=await shaFile(join(managed.path,'manifest.json'),1024*1024);
+ // A backup callback's SHA-256 and byte count are claims, not independent
+ // evidence of what is now on disk. Reopen each staged SQLite file through
+ // the bounded descriptor verifier before publishing complete:true.
+ for(const [name,claim] of [[paths[0],reg],[paths[1],log]] as const){
+  const actual=await shaFile(join(target,name));
+  if(actual.sha256!==claim.sha256||actual.bytes!==claim.bytes)
+   throw new Error('Core recovery SQLite backup receipt and on-disk snapshot mismatch');
+ }
  const files:ManifestFile[]=[
   {path:paths[0],sha256:reg.sha256,bytes:reg.bytes},
   {path:paths[1],sha256:log.sha256,bytes:log.bytes},
