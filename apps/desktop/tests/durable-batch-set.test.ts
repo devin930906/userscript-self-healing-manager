@@ -255,3 +255,16 @@ test('FR-030 legacy upper-case multi-batch group journal blocks later lower-case
  );
  assert.equal(writes,0);
 }));
+
+test('FR-030 each script approval is checked again after the durable running journal commit',async()=>fixture(async root=>{
+ const groupId=randomUUID(),tasks=items();
+ const calls:string[]=[];
+ let checks=0;
+ tasks[1]!.preflight=async()=>++checks===1;
+ tasks.forEach(item=>{item.write=async()=>{calls.push(item.scriptId);};});
+ const output=await executeDurableApprovedBatchSet({dataRoot:root,groupId,items:tasks});
+ assert.equal(checks,2,'revocation during a journal write must invalidate only that script');
+ assert.deepEqual(calls,['managed-a','managed-c']);
+ assert.deepEqual(output,{queued:0,running:0,completed:2,failed:0,blocked:1,cancelled:0});
+ assert.deepEqual(persisted(root,groupId,tasks),[['completed',1],['blocked',1],['completed',1]]);
+}));
