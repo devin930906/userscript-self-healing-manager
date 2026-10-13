@@ -150,5 +150,8 @@ test('read-only manager preflight proves script absence from the official option
  assert.match(smoke,/script\?\.meta\?\.name===\$\{JSON\.stringify\(fixtureMeta\.name\)\}\s*&&\s*script\?\.meta\?\.namespace===\$\{JSON\.stringify\(fixtureMeta\.namespace\)\}/);
  assert.match(smoke,/JSON\.stringify\(\{found\}\)/);
  assert.match(smoke,/await readManagerPreflight\(optionsCdp/);
+ assert.match(smoke,/const diagnosticExpression=/);
+ assert.match(smoke,/scripts:Array\.isArray\(data\?\.options\?\.scripts\),bootstrap/);
+ assert.match(smoke,/Object\.entries\(state\)\.map\(\(\[key,value\]\)=>key\+'='\+Number\(value\)\)/);
  assert.doesNotMatch(smoke,/cmd:'GetData'|cmd:'GetScript'/);
 });

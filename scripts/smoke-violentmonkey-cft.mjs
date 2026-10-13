@@ -183,7 +183,31 @@ async function readManagerPreflight(cdp,hasExited){
   }
   await delay(100);
  }
- throw new Error('Violentmonkey did not expose its bounded read-only fixture preflight');
+ let state={ready:false,bgdata:false,options:false,scripts:false,bootstrap:false};
+ try{
+  const diagnosticExpression=`(()=>{
+   const data=globalThis.BGDATA;
+   let bootstrap=false;
+   try{bootstrap=Array.from(document.scripts).some(script=>
+    script.src===chrome.runtime.getURL('get-data.js?options'));}catch{}
+   return JSON.stringify({
+    ready:document.readyState==='complete',bgdata:!!data,options:!!data?.options,
+    scripts:Array.isArray(data?.options?.scripts),bootstrap,
+   });
+  })()`;
+  const answer=await cdp.send('Runtime.evaluate',{expression:diagnosticExpression,returnByValue:true});
+  const value=answer.result?.value;
+  if(typeof value==='string'&&value.length<=512){
+   const observed=JSON.parse(value);
+   state={
+    ready:observed?.ready===true,bgdata:observed?.bgdata===true,
+    options:observed?.options===true,scripts:observed?.scripts===true,
+    bootstrap:observed?.bootstrap===true,
+   };
+  }
+ }catch{/* Only fixed boolean diagnostics are allowed to leave the extension page. */}
+ throw new Error('Violentmonkey options preflight unavailable: '+
+  Object.entries(state).map(([key,value])=>key+'='+Number(value)).join(','));
 }
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
