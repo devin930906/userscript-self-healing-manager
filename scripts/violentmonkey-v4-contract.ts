@@ -319,7 +319,10 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
    const ready=script&&['id','runAt','allFrames','js','matches'].every(key=>
     Object.hasOwn(script,key)&&Object.hasOwn(Object.getOwnPropertyDescriptor(script,key),'value'))&&
     script.id==='1001'&&script.runAt==='document_start'&&script.allFrames===true&&
-    Array.isArray(script.js)&&script.js.length===2&&script.js.every((item,index)=>{
+    Array.isArray(script.js)&&script.js.length===2&&[0,1].every(index=>{
+     const element=Object.getOwnPropertyDescriptor(script.js,String(index));
+     if(!element||!Object.hasOwn(element,'value'))return false;
+     const item=element.value;
      if(!item||typeof item!=='object'||'code' in item)return false;
      const file=Object.getOwnPropertyDescriptor(item,'file');
      return !!file&&Object.hasOwn(file,'value')&&
