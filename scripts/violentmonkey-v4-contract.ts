@@ -257,11 +257,17 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    notify(stage);
    throw new Error('Isolated manager injector CDP evaluation failed');
   }
-  if((response&&typeof response==='object'&&('error' in response||'exceptionDetails' in response))){
+  try{
+   if((response&&typeof response==='object'&&('error' in response||'exceptionDetails' in response))){
+    notify('cdp-evaluation-failed');
+    throw new Error('Isolated manager injector CDP evaluation failed');
+   }
+   return response?.result?.value;
+  }catch{
+   // A hostile or malformed CDP envelope must not leak access errors or pass readiness.
    notify('cdp-evaluation-failed');
    throw new Error('Isolated manager injector CDP evaluation failed');
   }
-  return response?.result?.value;
  };
  const notify=(stage:ViolentmonkeyInjectorReadinessState)=>{
   try{input.onStatus?.(stage);}catch{}
