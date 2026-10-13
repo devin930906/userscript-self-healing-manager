@@ -36,9 +36,11 @@ export async function readPinnedRegularFile(path:string,{
   const stableId=Number.isSafeInteger(left.ino)&&Number.isSafeInteger(right.ino)&&
    left.ino>0&&right.ino>0;
   if(!stableId&&process.platform!=='win32')return false;
+  // Even when Node reports a positive inode, Windows file indexes may
+  // be reused or rounded. A different creation timestamp must never inherit
+  // an older approved snapshot on any platform.
   return left.dev===right.dev&&
-   (stableId?left.ino===right.ino:
-    left.ino===right.ino&&left.birthtimeMs===right.birthtimeMs)&&
+   left.ino===right.ino&&left.birthtimeMs===right.birthtimeMs&&
    left.size===right.size&&left.mode===right.mode&&
    left.mtimeMs===right.mtimeMs&&left.ctimeMs===right.ctimeMs;
  };
