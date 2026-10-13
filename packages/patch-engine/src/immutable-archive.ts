@@ -20,11 +20,13 @@ type ChunkWriter=(handle:FileHandle,chunk:Uint8Array,position:number)=>Promise<n
  * is not a guarantee against malicious cross-process directory modification
  * or sudden hardware/storage-controller failures.
  */
-export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
+export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,beforePublish}:{
  archivePath:string;
  bytes:Uint8Array;
  /** Deterministic disk-full/short-write injection for recovery tests. */
  writeChunk?:ChunkWriter;
+ /** Internal synthetic race injection only; never routed from Electron renderer. */
+ beforePublish?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof archivePath!=='string'||!isAbsolute(archivePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
@@ -76,7 +78,25 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
   // Reject a preexisting foreign hardlink before the archive name is
   // published. Otherwise late failure would still leave an untrusted
   // hash-named backup visible in the managed store.
+  // Approval applies to the verified staging object, not to the name that
+  // another process could subsequently replace (even with identical bytes).
+  const reviewedStage=await lstat(staging,{bigint:true});
+  if(!reviewedStage.isFile()||reviewedStage.isSymbolicLink()||reviewedStage.nlink!==1n)
+   throw new Error('Unsafe immutable staging file identity or hardlink alias');
   await verify(staging,true);
+  const sameStage=(other:typeof reviewedStage):boolean=>
+   other.isFile()&&!other.isSymbolicLink()&&other.nlink===1n&&
+   other.dev===reviewedStage.dev&&other.ino===reviewedStage.ino&&
+   other.birthtimeNs===reviewedStage.birthtimeNs&&other.mode===reviewedStage.mode;
+  // Controlled injection at the post-verification publication gap.
+  if(beforePublish)await beforePublish();
+  // A post-link hash failure is too late: it leaves an unapproved
+  // hash-named backup visible. Reject substituted names BEFORE link().
+  if(!sameStage(await lstat(staging,{bigint:true})))
+   throw new Error('Immutable staging identity changed after verification');
+  await verify(staging,true);
+  if(!sameStage(await lstat(staging,{bigint:true})))
+   throw new Error('Immutable staging changed before publication');
   try{
    // link(2) fails with EEXIST instead of overwriting another publisher;
    // the linked bytes were already synced and validated above.
