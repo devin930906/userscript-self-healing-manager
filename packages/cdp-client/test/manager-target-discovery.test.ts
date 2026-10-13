@@ -145,3 +145,21 @@ test('manager observation tolerates listener removal failure during cleanup',asy
  assert.equal(result.managerVerified,false);
  assert.equal(socket.closed,true);
 });
+
+test('invalid manager socket shape closes an available transport without exposing close errors',async()=>{
+ let closed=0;
+ const malformed={
+  addEventListener:()=>{},removeEventListener:()=>{},send:undefined,
+  close:()=>{closed++;throw new Error('private-close-token');},
+ };
+ await assert.rejects(inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:browser,expectedProduct:product,
+  socketFactory:()=>malformed as unknown as BrowserSocket,
+ }),error=>{
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'Invalid CDP manager target socket interface');
+  assert.doesNotMatch(error.message,/private-close-token/);
+  return true;
+ });
+ assert.equal(closed,1);
+});
