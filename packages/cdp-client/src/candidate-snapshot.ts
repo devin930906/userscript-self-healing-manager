@@ -5,6 +5,15 @@ import {isSafeLocatorToken,type SafeDomNode} from '../../candidate-engine/src/in
 const ALLOWED=new Set(['id','data-testid','data-test','data-qa','name','class']);
 const NODE_LIMIT=5000;
 const MAX_MESSAGE=3_000_000;
+// CDP payloads and custom transport exceptions may contain private DOM text.
+// Only these fixed in-module diagnostics may cross the snapshot boundary.
+const SAFE_CANDIDATE_ERRORS=new Set([
+ 'DOM snapshot payload limit exceeded',
+ 'CDP DOM snapshot failed',
+ 'Invalid DOM snapshot document',
+ 'Invalid DOM snapshot nodes',
+ 'DOM candidate node limit exceeded',
+]);
 export interface CandidateDomEvidence {
  readonly targetId:string;
  readonly url:string;
@@ -28,7 +37,7 @@ export async function captureCandidateNodes(target:ChromeTarget,options:{socketF
   };
   const onOpen=()=>{
    try{socket.send(JSON.stringify({id:1,method:'DOMSnapshot.captureSnapshot',params:{computedStyles:[],includePaintOrder:false,includeDOMRects:false}}));}
-   catch(err){complete(err instanceof Error?err:new Error('Failed to request DOM snapshot'));}
+   catch{complete(new Error('Failed to request DOM snapshot'));}
   };
   const onMessage=(event:{data:unknown})=>{
    try{
@@ -60,7 +69,11 @@ export async function captureCandidateNodes(target:ChromeTarget,options:{socketF
      if(Object.keys(attributes).length)nodes.push({tagName:tag,attributes});
     }
     complete(undefined,{targetId:target.id,url:target.url,scope:'top-document',nodeCount:raw.nodeName.length,nodes});
-   }catch(err){complete(err instanceof Error?err:new Error('Invalid CDP snapshot message'));}
+   }catch(error){
+    const diagnostic=error instanceof Error&&SAFE_CANDIDATE_ERRORS.has(error.message)?
+     error.message:'Invalid CDP snapshot message';
+    complete(new Error(diagnostic));
+   }
   };
   const onError=()=>complete(new Error('CDP snapshot socket error'));
   const onClose=()=>complete(new Error('CDP snapshot socket closed'));
