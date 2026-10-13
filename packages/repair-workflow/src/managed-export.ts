@@ -49,8 +49,12 @@ async function safeDir(path:string):Promise<boolean>{
  */
 export async function exportManagedRecovery(input:{
  managedRoot:string;destination:string;
+ /** Internal synthetic fault-injection only; never wired to renderer. */
+ beforeFinalManifest?:()=>Promise<void>;
 }):Promise<ManagedRecoveryReceipt>{
- const {managedRoot,destination}=input;
+ const {managedRoot,destination,beforeFinalManifest}=input;
+ if(beforeFinalManifest!==undefined&&typeof beforeFinalManifest!=='function')
+  throw new Error('Invalid managed recovery prepublication dependency');
  if(typeof managedRoot!=='string'||typeof destination!=='string'||
     !isAbsolute(managedRoot)||!isAbsolute(destination))
   throw new Error('Absolute source and destination are required');
@@ -110,6 +114,42 @@ export async function exportManagedRecovery(input:{
     if(hash(saved)!==digest)throw new Error('Written managed snapshot hash mismatch');
     files.push({path:'managed/'+scriptId+'/'+name,sha256:digest,bytes:bytes.byteLength});
    }
+  }
+ }
+ if(beforeFinalManifest)await beforeFinalManifest();
+ // The first post-write hash does not authenticate bytes or pathname links
+ // after other archives have been copied. A complete:true manifest may only
+ // certify a closed, re-read inventory from the *actual* output directory.
+ await assertUnlinkedRecoveryDirectory(target);
+ const expectedRoot=files.length?['managed']:[];
+ if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedRoot))
+  throw new Error('Unexpected managed recovery prepublication root entries');
+ if(files.length){
+  const managedOutput=join(target,'managed');
+  await assertUnlinkedRecoveryDirectory(managedOutput);
+  const expectedIds=[...new Set(files.map(f=>f.path.split('/')[1]!))].sort();
+  if(JSON.stringify((await readdir(managedOutput)).sort())!==JSON.stringify(expectedIds))
+   throw new Error('Unexpected managed recovery prepublication script directories');
+  for(const id of expectedIds){
+   const scriptOutput=join(managedOutput,id);
+   await assertUnlinkedRecoveryDirectory(scriptOutput);
+   const names=files.filter(f=>f.path.split('/')[1]===id)
+    .map(f=>f.path.split('/')[2]!).sort();
+   if(JSON.stringify((await readdir(scriptOutput)).sort())!==JSON.stringify(names))
+    throw new Error('Unexpected managed recovery prepublication revision entries');
+  }
+  for(const file of files){
+   const path=join(target,...file.path.split('/'));
+   const before=await lstat(path);
+   if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1||
+      before.size!==file.bytes)
+    throw new Error('Unsafe managed recovery prepublication file identity');
+   const bytes=await readPinnedRegularFile(path,{
+    maxBytes:LIMIT_EACH,expected:before,expectedNative:await lstat(path,{bigint:true}),
+   });
+   if((await lstat(path)).nlink!==1||bytes.length!==file.bytes||
+      hash(bytes)!==file.sha256)
+    throw new Error('Changed managed recovery prepublication file hash or alias');
   }
  }
  const manifest={kind:'usshm-managed-recovery-v1',complete:true,files};
