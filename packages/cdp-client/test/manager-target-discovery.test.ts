@@ -200,3 +200,20 @@ test('malformed socket with throwing close getter is rejected with fixed error',
   return true;
  });
 });
+
+test('late socket open after timeout never sends a CDP command',async()=>{
+ const socket=new BrowserSocket();
+ // Suppress the constructor's queued open event and simulate an open after timeout.
+ socket.addEventListener=(event,handler)=>{
+  if(event==='open')return;
+  EventEmitter.prototype.on.call(socket,event,handler);
+ };
+ socket.removeEventListener=(event,handler)=>{EventEmitter.prototype.off.call(socket,event,handler);};
+ await assert.rejects(inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:browser,expectedProduct:product,timeoutMs:100,
+  socketFactory:()=>socket,
+ }),/timeout/);
+ assert.equal(socket.closed,true);
+ socket.emit('open');
+ assert.deepEqual(socket.sent,[]);
+});
