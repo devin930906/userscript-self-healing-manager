@@ -142,7 +142,7 @@ test('FR-029 paused approved batch must not dispatch a file write until explicit
  assert.equal(writes,0,'pause must gate dispatch after asynchronous Main preflight');
  assert.equal(manager.resume(id),true);
  assert.equal(await active,'committed');
- assert.equal(checks,2,'stale pre-pause authorization cannot be reused');
+ assert.equal(checks,3,'pause requires a fresh pre-dispatch approval and a second post-checkpoint gate');
  assert.equal(writes,1);
  assert.equal(load(root,id,scriptId),'completed');
  assert.equal(manager.pause(id),false);

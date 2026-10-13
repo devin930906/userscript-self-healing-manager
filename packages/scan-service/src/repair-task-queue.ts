@@ -53,6 +53,8 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
   onProgress?:(snapshot:RepairTaskSnapshot)=>void;
   /** Separate trusted pre-write hash/backup/approval check, never invoked on unapproved jobs. */
   beforeDispatch?:(row:RepairTaskRow)=>Promise<boolean>|boolean;
+  /** Fresh trusted authorization AFTER the awaited running checkpoint, immediately before execute. */
+  beforeExecute?:(row:RepairTaskRow)=>Promise<boolean>|boolean;
   /** Caller's trusted durable store must commit before executing each write. */
   onCheckpoint?:(checkpoint:RepairTaskCheckpoint)=>Promise<void>;
   /** Completed rows are historical only; all other recovered work is blocked. */
@@ -64,11 +66,13 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
  if(!options||typeof options!=='object'||Array.isArray(options)||
     (options.onProgress!==undefined&&typeof options.onProgress!=='function')||
     (options.beforeDispatch!==undefined&&typeof options.beforeDispatch!=='function')||
+    (options.beforeExecute!==undefined&&typeof options.beforeExecute!=='function')||
     (options.onCheckpoint!==undefined&&typeof options.onCheckpoint!=='function'))
   throw new Error('Invalid repair task queue options');
  const onCheckpoint=options.onCheckpoint;
  // Pin the pre-write gate itself against post-approval caller mutation.
  const beforeDispatch=options.beforeDispatch;
+ const beforeExecute=options.beforeExecute;
  const ids=new Set<string>();
  for(const task of tasks){
   if(!task||typeof task.id!=='string'||!/^[-a-zA-Z0-9_.:]{1,128}$/.test(task.id)||
@@ -214,6 +218,21 @@ export function createRepairTaskQueue(tasks:readonly RepairTask[],
      if(stopped){update(i,'cancelled');await commit();break;}
      if(task.permissionSource.approved!==true){update(i,'blocked');await commit();continue;}
      if(gate.isPaused||pauseEpoch!==epochBeforeCommit){
+      update(i,'blocked');await commit();continue;
+     }
+    }
+    // An awaited SQLite running checkpoint can outlive Main approval or
+    // scanned-source authorization. Repeat the caller's full trusted gate
+    // AFTER that commit, not only the queue's in-memory 'approved' boolean.
+    // Never dispatch if an asynchronous gate was interrupted by pause/cancel.
+    if(beforeExecute){
+     const epochBeforeFinalGate=pauseEpoch;
+     let authorized=false;
+     try{authorized=(await beforeExecute(Object.freeze({...rows[i]!})))===true;}
+     catch{} // Private file/CDP failure text must not enter the journal/UI.
+     if(stopped){update(i,'cancelled');await commit();break;}
+     if(!authorized||task.permissionSource.approved!==true||
+        gate.isPaused||pauseEpoch!==epochBeforeFinalGate){
       update(i,'blocked');await commit();continue;
      }
     }

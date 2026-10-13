@@ -93,6 +93,9 @@ export async function executeDurableApprovedBatch<T>(input:{
    },
   }],{
    beforeDispatch:async()=>await input.preflight()===true,
+   // The running SQLite checkpoint awaits I/O: native approval can be
+   // revoked while it persists. Recheck again at the exact dispatch boundary.
+   beforeExecute:async()=>await input.preflight()===true,
    onProgress:status=>input.onProgress?.(status.items[0]!.status),
    onCheckpoint:checkpoint=>store.save(checkpoint),
   });

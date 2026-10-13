@@ -32,7 +32,7 @@ test('FR-029 Electron Main writes only after committed running checkpoint and re
   },
  });
  assert.deepEqual(output,{hash:'verified-result'});
- assert.equal(preflights,1);
+ assert.equal(preflights,2,'both the pre-checkpoint and post-checkpoint approvals must be fresh');
  assert.equal(writes,1);
  const store=openRepairCheckpointStore(file(root,approvalId));
  try{
@@ -216,3 +216,18 @@ test('FR-029 single managed approval enters the durable queue before its revisio
  assert.match(handler,/write:\s*\(\)=>repairs\.apply\(\{proposalId,approved:true\}\)/,
   'the actual managed-file writer must run only as a queued job');
 });
+
+test('FR-029 single Main approval revoked between preflight and running checkpoint never writes',async()=>fixture(async root=>{
+ const approvalId=randomUUID(),scriptId='late-revocation';
+ let checks=0,writes=0;
+ await assert.rejects(executeDurableApprovedBatch({
+  dataRoot:root,approvalId,scriptId,
+  preflight:()=>++checks===1,
+  write:async()=>{writes++;return 'must-never-write';},
+ }),/blocked|repair|approval|review/i);
+ assert.equal(checks,2,'Main-owned approval must be re-read after committing running state');
+ assert.equal(writes,0);
+ const store=openRepairCheckpointStore(file(root,approvalId));
+ try{assert.equal(store.load([{id:approvalId,scriptId}])?.items[0]?.status,'blocked');}
+ finally{store.close();}
+}));

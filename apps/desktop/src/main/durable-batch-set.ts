@@ -126,6 +126,16 @@ export async function executeDurableApprovedBatchSet(input:{
  try{
   let cancelledForFailure=false;
   const byId=new Map(reviewed.map(row=>[row.approvalId,row]));
+  // Both the initial gate and the post-checkpoint dispatch gate must use
+  // exactly the same independently approved Main-owned task identity.
+  const validateApprovedItem=async(row:{readonly id:string}):Promise<boolean>=>{
+   const operation=byId.get(row.id);
+   if(!operation||operation.approvalSource.approved!==true)return false;
+   try{
+    const verified=await operation.preflight();
+    return verified===true&&operation.approvalSource.approved===true;
+   }catch{return false;}
+  };
   let queue!:ReturnType<typeof createRepairTaskQueue>;
   queue=createRepairTaskQueue(reviewed.map(row=>({
    id:row.approvalId,scriptId:row.scriptId,
@@ -134,14 +144,10 @@ export async function executeDurableApprovedBatchSet(input:{
    get approved(){return row.approvalSource.approved===true;},
    execute:row.write,
   })),{
-   beforeDispatch:async row=>{
-    const operation=byId.get(row.id);
-    if(!operation||operation.approvalSource.approved!==true)return false;
-    try{
-     const verified=await operation.preflight();
-     return verified===true&&operation.approvalSource.approved===true;
-    }catch{return false;}
-   },
+   beforeDispatch:validateApprovedItem,
+   // Persisted running status is not consent: a native approval may have
+   // changed during SQLite I/O; recheck immediately before each script write.
+   beforeExecute:validateApprovedItem,
    onCheckpoint:state=>store.save(state),
    onProgress:state=>{
     if(stopOnFailure&&!cancelledForFailure&&
