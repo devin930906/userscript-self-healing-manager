@@ -110,8 +110,21 @@ export async function observeReadOnlyPageExceptions(
      }
      if(method==='Runtime.enable'&&!enabled){
       enabled=true;
-      observationTimer=setTimeout(stop,durationMs);
+      // Early exception/context events mean we cannot assert a continuous
+      // zero-exception window, even when the enable ack arrives afterwards.
+      if(invalid)stop();
+      else observationTimer=setTimeout(stop,durationMs);
      }else if(method==='Runtime.disable')finish();
+     return;
+    }
+    if(!enabled&&method==='Runtime.enable'&&(
+       message.method==='Runtime.exceptionThrown'||
+       message.method==='Runtime.executionContextsCleared'||
+       message.method==='Runtime.executionContextDestroyed')){
+     // Chrome can deliver events while Runtime.enable is in flight.
+     // Never mislabel that incomplete window as 'none-observed'.
+     // No raw exception details are retained, only this invalid flag.
+     invalid=true;
      return;
     }
     if(!enabled||method!=='Runtime.enable')return;
