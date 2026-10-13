@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {basename,dirname,isAbsolute,join} from 'node:path';
 import {open,link,lstat,unlink,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 
 const MAX_ARCHIVE_BYTES=512*1024;
 const CHUNK_BYTES=64*1024;
@@ -28,6 +29,10 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
  if(typeof archivePath!=='string'||!isAbsolute(archivePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
   throw new Error('Invalid immutable archive path or byte budget');
+ // An exported low-level writer cannot rely on callers to reject a symlink
+ // or Windows Junction in an existing parent of the managed archive path.
+ // This is a preflight, not an atomic cross-process pathname lock.
+ await assertUnlinkedRecoveryDirectory(dirname(archivePath));
  const expectedHash=digest(bytes);
  const verify=async(path:string,requireSingleLink=false)=>{
   // A preexisting archive hardlinked to another pathname is mutable through
