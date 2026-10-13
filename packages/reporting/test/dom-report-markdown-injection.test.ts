@@ -34,8 +34,8 @@ test('RG-07 DOM Markdown export keeps untrusted script basenames inert without a
  assert.match(exported,/\\!\\\[PREVIEW\\\]\\\(/);
  assert.match(exported,/\\\[REPAIR\\\]\\\(javascript:/);
  assert.match(exported,/\\\*MISLEADING\\_RESULT\\\*/);
- assert.doesNotMatch(exported,/token=SECRET\//,
-  'report must not include the original page URL or query token');
+ assert.equal(exported.includes('/fixture?token=SECRET'),false,
+  'report must not include the original page URL path or query token');
  const json=JSON.parse(serializeDomBatchReport(report,'json','2026-10-13T06:00:00.000Z'));
  assert.deepEqual(json.items.map((row:{name:string})=>row.name),names);
  assert.equal(json.items.every((row:{verification:{V1:string,V3:string,V4:string}})=>
