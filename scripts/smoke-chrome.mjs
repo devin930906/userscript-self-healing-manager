@@ -669,13 +669,14 @@ try{
  const autoGuard=await guardAppliedManagedRevision({
   approved:true,scriptId:'chrome-smoke-fixture',appliedHash:temporaryApplied.hash,
   previousHash:applied.hash,
+  expectedCaseId:'MANAGED_GUARD_chrome-smoke-fixture:IDX_0',
   confirmActiveHash:()=>verifiedManagedCurrentHash('chrome-smoke-fixture'),
   verify:async()=>{
    const changed=await readVerifiedManagedLocator({managedRoot:profile,
     scriptId:'chrome-smoke-fixture',revisionHash:temporaryApplied.hash,selectorIndex:0});
    assert.equal(changed.expression,'#usshm-absent-guarded');
    return runReadOnlyDomContract({
-    approved:true,target:selected,caseId:'SYNTHETIC:guarded-failing:V1',
+    approved:true,target:selected,caseId:'MANAGED_GUARD_chrome-smoke-fixture:IDX_0',
     locator:{method:changed.method,expression:changed.expression,runtimeRequired:false},
     expectation:'unique',
     deps:{confirm:confirmPageIdentity,
