@@ -90,6 +90,10 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
    other.birthtimeNs===reviewedStage.birthtimeNs&&other.mode===reviewedStage.mode;
   // Controlled injection at the post-verification publication gap.
   if(beforePublish)await beforePublish();
+  // The same verified inode can be reached through a newly substituted
+  // parent symlink/Junction. Recheck the directory ancestry at publication,
+  // not only before staging. This remains a non-atomic path preflight.
+  await assertUnlinkedRecoveryDirectory(dirname(archivePath));
   // A post-link hash failure is too late: it leaves an unapproved
   // hash-named backup visible. Reject substituted names BEFORE link().
   if(!sameStage(await lstat(staging,{bigint:true})))
