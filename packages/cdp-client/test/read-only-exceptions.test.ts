@@ -211,3 +211,65 @@ test('FR-018 disable-pending exception/context events invalidate a false zero wi
   assert.doesNotMatch(JSON.stringify(out),/LEAK_ME|SECRET_QUERY|private\.example|file:\/\/|Users/);
  }
 });
+
+
+/**
+ * Browser CDP transport and page identity failures can include private
+ * navigation URLs, local account paths and opaque authentication tokens.
+ * No raw dependency rejection should escape this passive observer API.
+ */
+test('RG-07 FR-018 redacts both pre/post document-confirmation dependency failures',async()=>{
+ const secret='PRIVATE_EXCEPTION_CDP_TOKEN=https://private.example.test/?auth=SECRET_ACCOUNT';
+ for(const phase of ['before','after'] as const){
+  for(const rejected of [new Error(secret),{message:secret},secret]){
+   let confirms=0,sockets=0;
+   let socket:FakeSocket|undefined;
+   await assert.rejects(
+    observeReadOnlyPageExceptions(target,{
+     approved:true,durationMs:100,
+     confirm:async()=>{
+      confirms++;
+      if(phase==='before'||confirms===2)throw rejected;
+      return confirmed();
+     },
+     socketFactory:()=>{
+      sockets++;
+      socket=new FakeSocket();
+      queueMicrotask(()=>socket?.emit('open'));
+      return socket;
+     },
+    }),
+    (error:unknown)=>{
+     assert.ok(error instanceof Error);
+     assert.equal(error.message,'CDP page identity confirmation failed during passive exception observation');
+     assert.equal('cause' in error,false,'untrusted identity failure must not retain the original error');
+     assert.doesNotMatch(String(error),/PRIVATE_|SECRET_ACCOUNT|auth=|private[.]example/);
+     return true;
+    },
+   );
+   assert.equal(confirms,phase==='before'?1:2);
+   assert.equal(sockets,phase==='before'?0:1);
+   if(phase==='after')assert.equal(socket?.closed,1,'observation socket must be closed before post-check');
+  }
+ }
+});
+
+test('RG-07 FR-018 redacts failure to initialize approved loopback exception socket',async()=>{
+ const secret='PRIVATE_SOCKET_TOKEN file:///C:/Users/SECRET_PROFILE';
+ let confirms=0;
+ await assert.rejects(
+  observeReadOnlyPageExceptions(target,{
+   approved:true,durationMs:100,
+   confirm:async()=>{confirms++;return confirmed();},
+   socketFactory:()=>{throw new Error(secret);},
+  }),
+  (error:unknown)=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'CDP exception observation socket initialization failed');
+   assert.equal('cause' in error,false);
+   assert.doesNotMatch(String(error),/PRIVATE_|SECRET_PROFILE|file:/);
+   return true;
+  },
+ );
+ assert.equal(confirms,1,'socket factory failure must never claim a completed observation');
+});
