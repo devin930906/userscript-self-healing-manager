@@ -25,6 +25,15 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  if(!report.items.every(({status})=>status==='parsed'||status==='parse-error'||
     status==='unreadable'||status==='skipped'))
   throw new Error('Invalid static report item status');
+ // Counts cross the same runtime boundary as statuses. Strict safe integers
+ // prevent Markdown row/control injection and malformed JSON telemetry.
+ const validCount=(value:unknown):boolean=>
+  typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
+ if(![report.requestedCount,report.enumeratedCount,report.processedCount,
+      report.passedCount,report.errorCount].every(validCount)||
+    !report.items.every(item=>validCount(item.selectorCount)&&
+      validCount(item.runtimeRequiredCount)))
+  throw new Error('Invalid static report count');
  const dto={schemaVersion:2,scanMode:'static-only',createdAt:report.createdAt,requestedCount:report.requestedCount,enumeratedCount:report.enumeratedCount,processedCount:report.processedCount,passedCount:report.passedCount,errorCount:report.errorCount,items:report.items.map(({path,status,selectorCount,runtimeRequiredCount,diagnostics})=>({path:reportFileName(path),status,selectorCount,runtimeRequiredCount,diagnostics:diagnostics.map(reportDiagnostic),verification:projectVerificationLevels({staticStatus:status})}))};
  if(format==='json')return JSON.stringify(dto,null,2)+'\n';
  const rows=dto.items.map(i=>`| ${escapeMarkdown(i.path)} | ${i.status} | ${i.selectorCount} | ${i.runtimeRequiredCount} | ${i.diagnostics.join('; ')} | ${i.verification.V0} | ${i.verification.V1} | ${i.verification.V2} | ${i.verification.V3} | ${i.verification.V4} |`).join('\n');
