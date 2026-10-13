@@ -78,7 +78,7 @@ test('FR-029 guarded single-script handler uses durable V1 apply wrapper with tr
  assert.ok(start>=0&&end>start);
  const handler=main.slice(start,end);
  assert.match(handler,/executeDurableGuardedManagedApply\(\{/);
- assert.match(handler,/dataRoot,approvalId:proposalId,scriptId:item\.scriptId/);
+ assert.match(handler,/dataRoot,approvalId:proposalId,scriptId:trusted\.scriptId/);
  assert.match(handler,/previousHash:trusted\.previousHash/);
  assert.match(handler,/preflight:/);
  assert.match(handler,/write:\s*\(\)=>repairs\.apply\(\{proposalId:proposalId,approved:true\}\)/);
