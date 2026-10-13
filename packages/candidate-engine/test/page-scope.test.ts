@@ -86,3 +86,16 @@ test('aggregate hostile metadata pattern size cannot bypass a scope budget via m
  assert.equal(checkUserscriptPageScope(meta(matches),'https://example.org/page').status,'unknown');
  assert.equal(checkUserscriptPageScope(meta([allowed],[],{exclude:Array.from({length:40},()=>longRule)}),'https://example.org/page').status,'unknown');
 });
+
+test('RG-04 credentialed CDP target URLs cannot inherit an authorized userscript page scope',()=>{
+ const m=meta(['https://example.org/*']);
+ for(const page of [
+  'https://synthetic-user:synthetic-secret@example.org/settings',
+  'https://synthetic-user@example.org/settings',
+  'https://%73ynthetic-user:%73ynthetic-secret@example.org/settings',
+ ]){
+  const verdict=checkUserscriptPageScope(m,page);
+  assert.equal(verdict.status,'blocked','credentialed page authority must not be treated as an ordinary site target');
+ }
+ assert.equal(checkUserscriptPageScope(m,'https://example.org/settings').status,'allowed');
+});
