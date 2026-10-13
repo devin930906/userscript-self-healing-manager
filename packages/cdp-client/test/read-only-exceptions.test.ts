@@ -172,3 +172,42 @@ test('FR-018 refuses a false zero when exception or context reset precedes Runti
   assert.doesNotMatch(JSON.stringify(out),/LEAK_ME|private\.example|SECRET_QUERY/);
  }
 });
+
+
+/**
+ * Runtime.disable is asynchronous. Chrome can still send buffered
+ * exception/context events before acknowledging its disable request.
+ * An incomplete window must NOT silently become "none-observed".
+ */
+test('FR-018 disable-pending exception/context events invalidate a false zero without leaking private payload',async()=>{
+ for(const lateEvent of [
+  exception(91),
+  {method:'Runtime.executionContextsCleared'},
+  {method:'Runtime.executionContextDestroyed',params:{executionContextId:91}},
+ ]){
+  class DisablePendingSocket extends FakeSocket{
+   override send(payload:string){
+    const command=JSON.parse(payload) as {method:string};
+    if(command.method==='Runtime.disable'){
+     // Deliver while disable is in flight, strictly before its ack.
+     queueMicrotask(()=>this.emit('message',{data:JSON.stringify(lateEvent)}));
+    }
+    super.send(payload);
+   }
+  }
+  const socket=new DisablePendingSocket();
+  const out=await observeReadOnlyPageExceptions(target,{
+   approved:true,durationMs:100,confirm:async()=>confirmed(),
+   socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
+  });
+  assert.equal(out.status,'unknown',lateEvent.method);
+  assert.equal(out.observedCount,null,lateEvent.method);
+  assert.equal(out.origin,'unknown');
+  assert.equal(out.userscriptVerified,false);
+  assert.equal(out.V3,'not-configured');
+  assert.equal(out.V4,'not-configured');
+  assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable']);
+  assert.equal(socket.closed,1);
+  assert.doesNotMatch(JSON.stringify(out),/LEAK_ME|SECRET_QUERY|private\.example|file:\/\/|Users/);
+ }
+});
