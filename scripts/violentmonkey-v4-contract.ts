@@ -82,9 +82,12 @@ export async function enableViolentmonkeyUserScriptsAccess(
   'toggle-unavailable','readback','settings-error'];
  let reason='invalid-receipt';
  for(let attempt=0;attempt<20;attempt++){
-  const answer=await send('Runtime.evaluate',{
-   expression:buildViolentmonkeyUserScriptsAccessExpression(),awaitPromise:true,returnByValue:true,
-  });
+  let answer;
+  try{
+   answer=await send('Runtime.evaluate',{
+    expression:buildViolentmonkeyUserScriptsAccessExpression(),awaitPromise:true,returnByValue:true,
+   });
+  }catch{throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');}
   let receipt;
   const text=answer?.result?.value;
   if(!answer?.exceptionDetails&&typeof text==='string'&&text.length<=256){
