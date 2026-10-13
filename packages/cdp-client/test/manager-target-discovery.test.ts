@@ -201,19 +201,20 @@ test('malformed socket with throwing close getter is rejected with fixed error',
  });
 });
 
-test('late socket open after timeout never sends a CDP command',async()=>{
+test('stale captured socket open callback after timeout cannot send CDP',async()=>{
  const socket=new BrowserSocket();
- // Suppress the constructor's queued open event and simulate an open after timeout.
+ let staleOpen:(()=>void)|undefined;
+ const originalAdd=socket.addEventListener.bind(socket);
  socket.addEventListener=(event,handler)=>{
-  if(event==='open')return;
-  EventEmitter.prototype.on.call(socket,event,handler);
+  if(event==='open'){staleOpen=handler;return;}
+  originalAdd(event,handler);
  };
- socket.removeEventListener=(event,handler)=>{EventEmitter.prototype.off.call(socket,event,handler);};
  await assert.rejects(inspectKnownUserscriptManagerTargets({
   approved:true,browserEndpoint:browser,expectedProduct:product,timeoutMs:100,
   socketFactory:()=>socket,
  }),/timeout/);
  assert.equal(socket.closed,true);
- socket.emit('open');
+ assert.ok(staleOpen);
+ staleOpen();
  assert.deepEqual(socket.sent,[]);
 });
