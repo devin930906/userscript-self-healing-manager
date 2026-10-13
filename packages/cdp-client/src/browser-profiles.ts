@@ -240,8 +240,21 @@ export async function resolveBrowserProfileForLaunch({dataRoot,profileId}:{
  const selected=state.profiles.find(x=>x.id===profileId);
  if(!selected)throw new Error('Browser profile not found');
  await assertChromeExecutable(selected.executablePath);
- return {
-  executablePath:selected.executablePath,
-  isolatedProfileDir:join(dataRoot,'Chrome-Profiles',selected.id),
- };
+ // Profile data must stay inside app-owned storage. A normal profile
+ // directory can be absent until Chrome creates it; any existing component
+ // must be an ordinary directory rather than a redirected Junction/link.
+ // This preflight does not make the subsequent browser launch race-free.
+ const profileRoot=join(dataRoot,'Chrome-Profiles');
+ const isolatedProfileDir=join(profileRoot,selected.id);
+ for(const candidate of [profileRoot,isolatedProfileDir]){
+  let item:Awaited<ReturnType<typeof lstat>>;
+  try{item=await lstat(candidate);}
+  catch(error){
+   if((error as NodeJS.ErrnoException).code==='ENOENT')continue;
+   throw error;
+  }
+  if(!item.isDirectory()||item.isSymbolicLink())
+   throw new Error('Unsafe isolated Chrome profile directory: symlink, junction or non-directory');
+ }
+ return {executablePath:selected.executablePath,isolatedProfileDir};
 }
