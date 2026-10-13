@@ -57,3 +57,21 @@ test('pinned reader rejects non-file objects and zero/unsafe budgets',async()=>f
  await assert.rejects(readPinnedRegularFile(file,{maxBytes:0}),/limit|budget|size|invalid/i);
  await assert.rejects(readPinnedRegularFile(file,{maxBytes:2**40}),/limit|budget|size|invalid/i);
 }));
+
+test('pinned reader rejects changed creation time even when ino size mode mtime and ctime match',async()=>fixture(async dir=>{
+ const path=join(dir,'birthtime-pinned.user.js');
+ const original='SYNTHETIC_MANAGED_BYTES';
+ await writeFile(path,original);
+ const approved=await lstat(path);
+ assert.ok(Number.isFinite(approved.birthtimeMs),'fixture must expose file creation metadata');
+ // Model an approved snapshot for another file whose inode/timestamp happened
+ // to alias a replaced file. Every other Stat field is unchanged.
+ const stale=Object.create(approved) as typeof approved;
+ Object.defineProperty(stale,'birthtimeMs',{value:approved.birthtimeMs+120_000});
+ await assert.rejects(readPinnedRegularFile(path,{maxBytes:512*1024,expected:stale}),
+  /identity|replaced|snapshot|stale|changed/i,
+  'different file creation identity may not inherit an old reviewed snapshot');
+ assert.equal(await readFile(path,'utf8'),original,'never change original scripts');
+ assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved}),
+  Buffer.from(original),'normal unchanged snapshot remains readable');
+}));
