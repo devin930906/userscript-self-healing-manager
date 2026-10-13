@@ -1020,7 +1020,7 @@ async function bootstrap():Promise<void>{
      assertBatchProposalSnapshot(reviewed,batchRepairs.inspectPending(proposalId));
     },
     apply:()=>executeDurableApprovedBatch({
-     dataRoot,approvalId:proposalId,scriptId:item.scriptId!,
+     dataRoot,approvalId:proposalId,scriptId:trusted.scriptId!,
      preflight:()=>{
       pendingApprovals.require(proposalId,scanSnapshot.scanId);
       scanSessions.assertCurrent(scanSnapshot);
