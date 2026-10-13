@@ -2,6 +2,7 @@ import {app,BrowserWindow,dialog,ipcMain,shell} from 'electron';
 import {approveAndApplyManagedRevision,assertManagedProposalSnapshot} from './confirm-managed-apply.ts';
 import {assertBatchProposalSnapshot} from './confirm-batch-apply.ts';
 import {executeDurableApprovedBatch} from './durable-batch-apply.ts';
+import {executeDurableGuardedManagedApply} from './guarded-durable-apply.ts';
 import {executeDurableApprovedBatchSet} from './durable-batch-set.ts';
 import {parseMultiScriptBatchRequest} from './multi-script-batch-request.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
@@ -1196,7 +1197,35 @@ async function bootstrap():Promise<void>{
      scanSessions.assertCurrent(scanSnapshot);
      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
-    apply:()=>repairs.apply({proposalId:proposalId,approved:true}),
+    apply:()=>executeDurableGuardedManagedApply({
+     dataRoot,approvalId:proposalId,scriptId:trusted.scriptId,
+     previousHash:trusted.previousHash,
+     // The durable queue rechecks native approval, source evidence and page
+     // identity before recording the running checkpoint and dispatching write.
+     preflight:async()=>{
+      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      scanSessions.assertCurrent(scanSnapshot);
+      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
+      if(!withinAuthorized(item.path))return false;
+      const info=await lstat(item.path);
+      if(!info.isFile()||info.isSymbolicLink())return false;
+      const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info});
+      if(createHash('sha256').update(bytes).digest('hex')!==item.analysis!.sourceSha256)return false;
+      assertStablePageDocument(documentBefore,await confirmPageIdentity(selected));
+      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      scanSessions.assertCurrent(scanSnapshot);
+      return true;
+     },
+     onProgress:status=>repairQueueActivity.observe(proposalId,status),
+     onRegisterCancel:(cancel,pause,resume)=>repairQueueCancellation.attach(proposalId,cancel,{pause,resume}),
+     write:()=>repairs.apply({proposalId:proposalId,approved:true}),
+     // If the write completes but a trailing durable journal/cleanup fails,
+     // never leave an unverified V1 candidate active without attempting CAS
+     // rollback to the exact previously approved immutable predecessor.
+     restore:expectedCurrentHash=>repairs.restore({
+      scriptId:item.scriptId!,hash:trusted.previousHash,approved:true,expectedCurrentHash,
+     }),
+    }),
    });
   }finally{pendingApprovals.consume(q.proposalId);}
   const index=Number(q.selectorIndex);
