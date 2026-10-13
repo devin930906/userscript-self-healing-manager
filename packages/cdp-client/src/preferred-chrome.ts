@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {lstat,writeFile,rename,unlink} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {isAbsolute,join} from 'node:path';
 
 const PREFERENCE_FILE='preferred-chrome.json';
@@ -32,12 +33,18 @@ export async function savePreferredChromePath({dataRoot,executablePath}:{
  if(!isAbsolute(executablePath))throw new Error('Absolute Chrome executable path required');
  if(!/\.exe$/i.test(executablePath))throw new Error('Selected Chrome executable must be an EXE');
  if(!await isValidChromeExe(executablePath))throw new Error('Chrome executable must be a regular file, not a symlink');
+ // A writable preference beneath a linked Data ancestor can redirect an
+ // otherwise legitimate user-selected Chrome path outside app-owned storage.
+ // This directory preflight is fail-closed, but not a concurrent rename lock.
+ await assertUnlinkedRecoveryDirectory(dataRoot);
  const state:PreferredChromeState={schemaVersion:1,executablePath};
  const config=join(dataRoot,PREFERENCE_FILE),temp=join(dataRoot,'.chrome-preference-'+randomUUID()+'.tmp');
  await checkConfigPath(config);
  try{
   await writeFile(temp,JSON.stringify(state)+'\n',{flag:'wx',mode:0o600});
   // Only replace settings that are regular files; do not overwrite a link.
+  // Recheck directory ancestry after staging and before publishing the write.
+  await assertUnlinkedRecoveryDirectory(dataRoot);
   await checkConfigPath(config);
   await rename(temp,config);
  }finally{await unlink(temp).catch(error=>{if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;});}
@@ -47,8 +54,10 @@ export async function loadPreferredChromePath({dataRoot}:{dataRoot:string}):Prom
  if(!isAbsolute(dataRoot))throw new Error('Absolute application data root required');
  const config=join(dataRoot,PREFERENCE_FILE);
  // A damaged, oversized or symlinked optional preference must not brick startup.
- try{if(!await checkConfigPath(config))return null;}
- catch{return null;}
+ try{
+  await assertUnlinkedRecoveryDirectory(dataRoot);
+  if(!await checkConfigPath(config))return null;
+ }catch{return null;}
  let parsed:unknown;
  // The preference is optional. A file that changes or grows after the
  // preliminary path check must not be reopened via unbounded path read or
