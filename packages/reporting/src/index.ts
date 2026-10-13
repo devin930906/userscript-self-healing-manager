@@ -34,6 +34,15 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
     !report.items.every(item=>validCount(item.selectorCount)&&
       validCount(item.runtimeRequiredCount)))
   throw new Error('Invalid static report count');
+ // The row inventory is the authority for exported processed/passed/error
+ // totals. Recursive inputs can enumerate more files than requested paths.
+ const processed=report.items.length;
+ const passed=report.items.filter(item=>item.status==='parsed').length;
+ const failed=report.items.filter(item=>item.status==='parse-error'||
+  item.status==='unreadable').length;
+ if(report.enumeratedCount!==processed||report.processedCount!==processed||
+    report.passedCount!==passed||report.errorCount!==failed)
+  throw new Error('Inconsistent static report item counts');
  const dto={schemaVersion:2,scanMode:'static-only',createdAt:report.createdAt,requestedCount:report.requestedCount,enumeratedCount:report.enumeratedCount,processedCount:report.processedCount,passedCount:report.passedCount,errorCount:report.errorCount,items:report.items.map(({path,status,selectorCount,runtimeRequiredCount,diagnostics})=>({path:reportFileName(path),status,selectorCount,runtimeRequiredCount,diagnostics:diagnostics.map(reportDiagnostic),verification:projectVerificationLevels({staticStatus:status})}))};
  if(format==='json')return JSON.stringify(dto,null,2)+'\n';
  const rows=dto.items.map(i=>`| ${escapeMarkdown(i.path)} | ${i.status} | ${i.selectorCount} | ${i.runtimeRequiredCount} | ${i.diagnostics.join('; ')} | ${i.verification.V0} | ${i.verification.V1} | ${i.verification.V2} | ${i.verification.V3} | ${i.verification.V4} |`).join('\n');
