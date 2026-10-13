@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readdir,rm,symlink,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,sep} from 'node:path';
 import {test,type TestContext} from 'node:test';
 import {writeExclusiveReport} from '../src/exclusive-report.ts';
 
@@ -44,3 +44,37 @@ for(const kind of ['leaf','ancestor'] as const){
   }),
  );
 }
+
+test('RG-07 report destination rejects linked path components masked by parent traversal',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-report-dotdot-'));
+ try{
+  const external=join(root,'external');
+  const redirect=join(external,'nested');
+  const externalReports=join(external,'reports');
+  const lexicalReports=join(root,'reports');
+  await mkdir(redirect,{recursive:true});
+  await mkdir(externalReports);
+  await mkdir(lexicalReports);
+  await writeFile(join(externalReports,'preserve.txt'),'protected report destination');
+  const linked=join(root,'linked');
+  try{await symlink(redirect,linked,process.platform==='win32'?'junction':'dir');}
+  catch(error){
+   if(['EPERM','EACCES','ENOTSUP','EOPNOTSUPP'].includes((error as NodeJS.ErrnoException).code??'')){
+    t.skip('Directory symlinks or Junctions unavailable');
+    return;
+   }
+   throw error;
+  }
+  // Deliberately do not call path.join/resolve: those erase the linked
+  // component before the OS can interpret it via the filesystem.
+  const disguised=linked+sep+'..'+sep+'reports'+sep+'report.json';
+  await assert.rejects(
+   writeExclusiveReport({destinationPath:disguised,content:'SYNTHETIC REPORT ONLY'}),
+   /unsafe|symlink|junction|ancestor|traversal|path/i,
+  );
+  assert.deepEqual(await readdir(externalReports),['preserve.txt']);
+  assert.deepEqual(await readdir(lexicalReports),[]);
+  assert.equal(await readFile(join(externalReports,'preserve.txt'),'utf8'),
+   'protected report destination');
+ }finally{await rm(root,{recursive:true,force:true});}
+});
