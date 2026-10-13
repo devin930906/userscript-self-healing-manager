@@ -4,6 +4,8 @@ const statuses=new Set<BatchDomStatus>(['locator-missing','dom-present','needs-r
 const validationStates=new Set(['passed','failed','skipped','blocked','not-configured']);
 const markdown=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
  .replace(/[|\u0060]/g,'\\$&').replace(/[\r\n\u0000-\u001f\u007f]/g,' ');
+// Script basenames are attacker-controlled display text, not Markdown syntax.
+const markdownFileName=(value:string)=>markdown(value).replace(/[!\[\]()*_]/g,'\\$&');
 /** No raw selectors, DOM text, full local paths, URLs with tokens or CDP loader fingerprints. */
 export function serializeDomBatchReport(
  report:BatchDomResult,format:'json'|'markdown',createdAt:string,
@@ -70,7 +72,7 @@ export function serializeDomBatchReport(
   processedCount:entries.length,items:entries,
   disclaimer:'Read-only DOM evidence only. No userscript, GM API or business functionality verified.'};
  if(format==='json')return JSON.stringify(dto,null,2)+'\n';
- const rows=entries.map(x=>`| ${x.index+1} | ${markdown(x.name)} | ${x.status} | ${x.checked} | ${x.found} | ${x.missing} | ${x.needsReview} | ${x.verification.V0} | ${x.verification.V1} | ${x.verification.V2} | ${x.verification.V3} | ${x.verification.V4} |`).join('\n');
+ const rows=entries.map(x=>`| ${x.index+1} | ${markdownFileName(x.name)} | ${x.status} | ${x.checked} | ${x.found} | ${x.missing} | ${x.needsReview} | ${x.verification.V0} | ${x.verification.V1} | ${x.verification.V2} | ${x.verification.V3} | ${x.verification.V4} |`).join('\n');
  return `# 油猴脚本批量 DOM 诊断报告
 
 创建时间：${markdown(createdAt)}
