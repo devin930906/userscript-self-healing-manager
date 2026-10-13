@@ -55,9 +55,24 @@ export async function observeReadOnlyPageExceptions(
  assertCredentialFreePageUrl(target.url);
  const endpoint=validateCdpPageSocket(target);
  const confirm=options.confirm??confirmPageIdentity;
- const before=await confirm(target);
- assertIdentity(target,before);
- const socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ const safeConfirm=async():Promise<ConfirmedPageIdentity>=>{
+  try{
+   const identity=await confirm(target);
+   assertIdentity(target,identity);
+   return identity;
+  }catch{
+   // CDP/browser adapter errors may embed URLs, local paths or tokens.
+   // Never retain the raw failure as a cause or return partial evidence.
+   throw new Error('CDP page identity confirmation failed during passive exception observation');
+  }
+ };
+ const before=await safeConfirm();
+ let socket:SocketLike;
+ try{
+  socket=(options.socketFactory??((url:string)=>new WebSocket(url) as unknown as SocketLike))(endpoint);
+ }catch{
+  throw new Error('CDP exception observation socket initialization failed');
+ }
  const observed=await new Promise<{status:PassivePageExceptionEvidence['status'];count:number|null}>((resolve,reject)=>{
   let ended=false,method:'Runtime.enable'|'Runtime.disable'='Runtime.enable';
   let requestId=0,enabled=false,invalid=false,messages=0;
@@ -168,8 +183,7 @@ export async function observeReadOnlyPageExceptions(
  });
  // Even a matching URL is insufficient after a same-URL reload. Returning
  // counts from an old loader would be misleading.
- const after=await confirm(target);
- assertIdentity(target,after);
+ const after=await safeConfirm();
  assertStablePageDocument(before,after);
  return Object.freeze({
   targetId:target.id,status:observed.status,observedCount:observed.count,
