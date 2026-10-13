@@ -4,7 +4,9 @@ import {projectVerificationLevels} from '../../scan-service/src/verification-lev
 const neutralizeMarkdownControls=(value:string):string=>value
  .replace(/\r\n|[\r\n\u2028\u2029]/g,' ')
  .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
-  char=>'[U+'+char.codePointAt(0)!.toString(16).toUpperCase()+']');
+  char=>'[U+'+char.codePointAt(0)!.toString(16).toUpperCase()+']')
+ // Terminal control bytes must never execute when a Markdown report is viewed in a console.
+ .replace(/[\u0000-\u001f\u007f]/g,' ');
 const escapeMarkdown=(value:string)=>neutralizeMarkdownControls(value)
  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
  .replace(/\\/g,'\\\\').replace(/[|`!\[\]()*_~]/g,'\\$&');
