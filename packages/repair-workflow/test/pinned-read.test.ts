@@ -75,3 +75,34 @@ test('pinned reader rejects changed creation time even when ino size mode mtime 
  assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024,expected:approved,expectedNative:await lstat(path,{bigint:true})}),
   Buffer.from(original),'normal unchanged snapshot remains readable');
 }));
+
+test('RG-06 repeated same-size file replacement never inherits a previously approved native snapshot',async()=>fixture(async dir=>{
+ const path=join(dir,'repeated.user.js'),away=join(dir,'previous.user.js');
+ for(let iteration=0;iteration<12;iteration++){
+  const original='SAFE'+String(iteration).padStart(4,'0');
+  const replacement='EVIL'+String(iteration).padStart(4,'0');
+  await writeFile(path,original);
+  const expected=await lstat(path),expectedNative=await lstat(path,{bigint:true});
+  await rename(path,away);
+  await writeFile(path,replacement);
+  try{
+   await assert.rejects(
+    readPinnedRegularFile(path,{maxBytes:512*1024,expected,expectedNative}),
+    /identity|replaced|changed|snapshot|stale|unsafe/i,
+   );
+  }catch(error){
+   // Only synthetic file metadata; no real scripts, paths or private DOM.
+   const actual=await lstat(path),actualNative=await lstat(path,{bigint:true});
+   const fields=(v:typeof actual)=>({dev:v.dev,ino:v.ino,size:v.size,
+    birthtimeMs:v.birthtimeMs,mtimeMs:v.mtimeMs,ctimeMs:v.ctimeMs});
+   throw new Error('synthetic swap '+iteration+' metadata '+JSON.stringify({
+    approved:fields(expected),replacement:fields(actual),
+    nativeInodeEqual:expectedNative.ino===actualNative.ino,
+    nativeBirthEqual:expectedNative.birthtimeNs===actualNative.birthtimeNs,
+   }),{cause:error});
+  }
+  assert.equal(await readFile(away,'utf8'),original);
+  await rm(path);
+  await rm(away);
+ }
+}));
