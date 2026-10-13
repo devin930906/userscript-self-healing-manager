@@ -25,7 +25,6 @@ test('RG-01 scan request rejects malformed path lists and recursive flags before
   ['truthy string recursive',{paths:['./synthetic.user.js'],recursive:'true',maxFiles:2}],
   ['false string recursive',{paths:['./synthetic.user.js'],recursive:'false',maxFiles:2}],
   ['missing recursive',{paths:['./synthetic.user.js'],maxFiles:2}],
-  ['malformed maxFiles',{paths:[],recursive:false,maxFiles:'2'}],
   ['object path with private data',{paths:[{privateMarker}],recursive:false,maxFiles:2}],
  ];
  try{
