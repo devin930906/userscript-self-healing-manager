@@ -25,9 +25,12 @@ async function assertHierarchy(root:string,folder:string):Promise<void>{
 async function verifiedArchive(folder:string,fileName:string,hash:string):Promise<Uint8Array>{
  const path=join(folder,fileName),info=await lstat(path);
  if(info.isSymbolicLink()||!info.isFile())throw new Error('Unsafe archive: symlink or non-regular file');
+ if(info.nlink!==1)throw new Error('Unsafe immutable archive hardlink alias');
  if(info.size>512*1024)throw new Error('Archived revision is too large');
  const bytes=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
  if(hashBytes(bytes)!==hash)throw new Error('Archived revision hash mismatch or corruption');
+ if((await lstat(path)).nlink!==1)
+  throw new Error('Unsafe immutable archive hardlink alias after verified read');
  return bytes;
 }
 export async function listManagedRevisions({managedRoot,scriptId}:{managedRoot:string;scriptId:string}):Promise<ManagedRevision[]>{
