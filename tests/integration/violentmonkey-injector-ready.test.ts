@@ -362,3 +362,19 @@ test('RG-05 rejects inherited and accessor match-scope array entries without rea
  }
  assert.equal(getterCalls,0);
 });
+
+test('RG-05 rejects inherited and accessor injector file array entries without getter invocation',async()=>{
+ const expression=api.buildViolentmonkeyInjectorProbeExpression();
+ const base={id:'1001',runAt:'document_start',allFrames:true,matches:['<all_urls>']};
+ let getterCalls=0;
+ const getterJs=[{file:'injected-web.js'},{file:'injected.js'}];
+ Object.defineProperty(getterJs,'0',{configurable:true,get(){getterCalls++;return {file:'injected-web.js'};}});
+ const inheritedJs=[{file:'injected-web.js'},{file:'injected.js'}];
+ delete inheritedJs[0];
+ Object.setPrototypeOf(inheritedJs,Object.assign(Object.create(Array.prototype),{0:{file:'injected-web.js'}}));
+ for(const js of [getterJs,inheritedJs]){
+  const response=await vm.runInNewContext(expression,{JSON,Array,chrome:{userScripts:{async getScripts(){return [{...base,js}];}}}});
+  assert.equal(response,JSON.stringify({ready:false}));
+ }
+ assert.equal(getterCalls,0);
+});
