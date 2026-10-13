@@ -75,6 +75,22 @@ test('official Violentmonkey 2.49.0 install receipts accept its null errors fiel
  }),/receipt|rejected/i);
 });
 
+test('install receipt failures expose only a fixed structural reason for safe CI diagnosis',()=>{
+ assert.throws(()=>assertViolentmonkeyInstallReceipt(null),/receipt rejected: envelope/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:null,isNew:true,errors:null,
+ }),/receipt rejected: script-location/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:1},isNew:false,errors:null,
+ }),/receipt rejected: not-new-script/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:1},isNew:true,errors:[{message:'private or parser text'}],
+ }),/receipt rejected: parser-errors/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:'private value'},isNew:true,errors:null,
+ }),/receipt rejected: script-id/i);
+});
+
 test('official manager workflow stays pinned, loopback-only and outside installer distribution jobs',async()=>{
  const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');

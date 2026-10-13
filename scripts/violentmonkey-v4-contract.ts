@@ -22,15 +22,20 @@ export function extensionIdFromChromePublicKey(publicKeyBase64:string):string{
 export function assertViolentmonkeyInstallReceipt(
  receipt:unknown,
 ):Readonly<{scriptId:number}>{
+ const reject=(reason:'envelope'|'script-location'|'not-new-script'|'parser-errors'|'script-id'):never=>{
+  throw new Error(`Violentmonkey install receipt rejected: ${reason}`);
+ };
  if(!receipt||typeof receipt!=='object'||Array.isArray(receipt))
-  throw new Error('Violentmonkey install receipt rejected');
+  reject('envelope');
  const value=receipt as {where?:unknown;isNew?:unknown;errors?:unknown};
- if(!value.where||typeof value.where!=='object'||Array.isArray(value.where)||value.isNew!==true||
-    (value.errors!==null&&(!Array.isArray(value.errors)||value.errors.length!==0)))
-  throw new Error('Violentmonkey install receipt rejected');
+ if(!value.where||typeof value.where!=='object'||Array.isArray(value.where))
+  reject('script-location');
+ if(value.isNew!==true)reject('not-new-script');
+ if(value.errors!==null&&(!Array.isArray(value.errors)||value.errors.length!==0))
+  reject('parser-errors');
  const scriptId=(value.where as {id?:unknown}).id;
  if(!Number.isSafeInteger(scriptId)||typeof scriptId!=='number'||scriptId<1)
-  throw new Error('Violentmonkey install receipt rejected');
+  reject('script-id');
  return Object.freeze({scriptId});
 }
 
