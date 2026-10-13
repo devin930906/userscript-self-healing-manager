@@ -37,6 +37,6 @@ test('RG-07 report status validation retains each exact legitimate static-scan s
   assert.equal(json.items[0].verification.V0,
    status==='parsed'?'passed':status==='parse-error'?'failed':status==='skipped'?'skipped':'blocked');
   const markdown=serializeStaticReport(input,'markdown');
-  assert.match(markdown,new RegExp('\\\\| '+status.replace('-','\\-')+' \\\\|'));
+  assert.ok(markdown.includes('| '+status+' |'),'report must retain the exact safe status '+status);
  }
 });
