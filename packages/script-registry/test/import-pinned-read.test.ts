@@ -9,8 +9,8 @@ import {openDatabase,migrateDatabase,createScriptRepository} from '../../persist
 
 test('script import reads through the identity-pinned 512 KiB descriptor, never a raw path read',async()=>{
  const code=await readFile(new URL('../src/index.ts',import.meta.url),'utf8');
- assert.match(code,/readPinnedRegularFile\(path,\s*\{maxBytes:512\s*\*\s*1024,expected:info\}\)/,
-  'Lstat-size verification followed by path-only readFile has a symlink-swap/unbounded-size race');
+ assert.match(code,/readPinnedRegularFile\(path,\s*\{maxBytes:512\s*\*\s*1024,expected:info,expectedNative:exactInfo\}\)/,
+  'Import requires both bounded pinned descriptor reads and the precise filesystem snapshot');
  assert.doesNotMatch(code,/\bawait\s+readFile\(path\)/);
 });
 test('file import preserves exact SHA-256 of a size-bound source and refuses oversized inputs',async()=>{
