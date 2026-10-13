@@ -29,13 +29,21 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
   throw new Error('Invalid immutable archive path or byte budget');
  const expectedHash=digest(bytes);
- const verify=async(path:string)=>{
+ const verify=async(path:string,requireSingleLink=false)=>{
+  // A preexisting archive hardlinked to another pathname is mutable through
+  // that alias, regardless of whether its bytes and SHA match right now.
+  // New publication itself temporarily has TWO links (staging + final),
+  // so demand isolation only on EEXIST and after staging cleanup.
   const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink())
    throw new Error('Immutable archive path is a symlink or non-regular file');
+  if(requireSingleLink&&info.nlink!==1)
+   throw new Error('Immutable archive hardlink alias detected');
   const current=await readPinnedRegularFile(path,{maxBytes:MAX_ARCHIVE_BYTES,expected:info});
   if(digest(current)!==expectedHash)
    throw new Error('Immutable archive hash conflict');
+  if(requireSingleLink&&(await lstat(path)).nlink!==1)
+   throw new Error('Immutable archive hardlink alias detected during verification');
  };
  // Neither the approved original nor the patched revision becomes addressable
  // by its SHA-256 filename until all the content is flushed and re-read.
@@ -66,7 +74,7 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
    await link(staging,archivePath);
   }catch(error){
    if((error as NodeJS.ErrnoException).code==='EEXIST'){
-    await verify(archivePath);
+    await verify(archivePath,true);
    }else if(['ENOTSUP','EOPNOTSUPP','EPERM','EXDEV'].includes(
      (error as NodeJS.ErrnoException).code??'')){
     throw new Error('Managed data filesystem cannot atomically publish an immutable archive (hard links required)',{cause:error});
@@ -86,4 +94,7 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
   }
  }
  if(failure!==undefined)throw failure;
+ // At this point the staging name no longer aliases a newly published
+ // archive, so any remaining additional hardlink makes it non-immutable.
+ await verify(archivePath,true);
 }
