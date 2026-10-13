@@ -114,3 +114,34 @@ test('manager target discovery rejects invalid custom socket interfaces before C
   }),/Invalid CDP manager target socket interface/);
  }
 });
+
+test('manager observation closes socket and redacts listener registration failure',async()=>{
+ const secret='private-listener-registration-token';
+ const socket=new BrowserSocket();
+ let attempted=0;
+ const original=socket.addEventListener.bind(socket);
+ socket.addEventListener=(kind,handler)=>{
+  attempted++;
+  if(kind==='message')throw new Error(secret);
+  original(kind,handler);
+ };
+ await assert.rejects(run(socket),error=>{
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'CDP manager target listener initialization failed');
+  assert.doesNotMatch(error.message,/private-listener-registration-token/);
+  return true;
+ });
+ assert.equal(attempted,2);
+ assert.equal(socket.closed,true);
+ assert.deepEqual(socket.sent,[]);
+ assert.equal(socket.listenerCount('open'),0);
+ assert.equal(socket.listenerCount('message'),0);
+});
+test('manager observation tolerates listener removal failure during cleanup',async()=>{
+ const socket=new BrowserSocket(product,[]);
+ socket.removeEventListener=()=>{throw new Error('private-removal-token');};
+ const result=await run(socket);
+ assert.deepEqual(result.observed,[]);
+ assert.equal(result.managerVerified,false);
+ assert.equal(socket.closed,true);
+});
