@@ -69,7 +69,7 @@ test('export rejects destination parent symlink resolving inside managed archive
 test('managed export reads current revisions through the pinned descriptor helper, never path-only readFile',async()=>{
  const {readFile:loadSource}=await import('node:fs/promises');
  const source=await loadSource(new URL('../src/export.ts',import.meta.url),'utf8');
- assert.match(source,/readPinnedRegularFile\(currentPath,\s*\{maxBytes:512\*1024,expected:info\}\)/);
+ assert.match(source,/readPinnedRegularFile\(currentPath,\s*\{maxBytes:512\*1024,expected:info,expectedNative:await lstat\(currentPath,\{bigint:true\}\)\}\)/);
  assert.doesNotMatch(source,/\bawait readFile\(currentPath\)/);
 });
 
