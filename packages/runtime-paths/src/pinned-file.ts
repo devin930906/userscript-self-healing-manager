@@ -1,6 +1,8 @@
 import {constants} from 'node:fs';
 import type {Stats,BigIntStats} from 'node:fs';
 import {lstat,open} from 'node:fs/promises';
+import {dirname,resolve} from 'node:path';
+import {assertUnlinkedRecoveryDirectory} from './recovery-directory.ts';
 
 /**
  * Read a user-selected / managed file without trusting a path-only
@@ -16,6 +18,13 @@ export async function readPinnedRegularFile(path:string,{
  if(typeof path!=='string'||!path||!Number.isSafeInteger(maxBytes)||
     maxBytes<1||maxBytes>1024*1024)
   throw new Error('Invalid pinned read size limit or path');
+ // An ordinary leaf beneath a symlink/Junction ancestor still redirects
+ // a pinned descriptor outside the selected tree. Reject lexical traversal
+ // before resolve() can erase a linked path segment. This is a preflight,
+ // not a race-free Win32 file handle / directory identity guarantee.
+ if(path.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe pinned file parent traversal');
+ await assertUnlinkedRecoveryDirectory(dirname(resolve(path)));
  const before=await lstat(path);
  const validateFile=(info:Stats):void=>{
   if(info.isSymbolicLink()||!info.isFile())
