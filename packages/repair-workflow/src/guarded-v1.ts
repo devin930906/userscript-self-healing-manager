@@ -24,10 +24,17 @@ export interface GuardedV1Deps {
  confirmActiveHash:()=>Promise<string|null>;
  restore:(previousHash:string)=>Promise<{hash:string;activePath:string}>;
 }
-export async function guardAppliedManagedRevision({approved,scriptId,appliedHash,previousHash,verify,confirmActiveHash,restore}:{
+export async function guardAppliedManagedRevision({approved,scriptId,appliedHash,previousHash,expectedCaseId,verify,confirmActiveHash,restore}:{
  approved:boolean;scriptId:string;appliedHash:string;previousHash:string;
+ /** Main-owned and script/index-pinned test identity; never supplied by DOM/renderer. */
+ expectedCaseId:string;
 } & GuardedV1Deps):Promise<GuardedV1Result>{
+ const prefix='MANAGED_GUARD_'+scriptId?.slice?.(0,24)+':IDX_';
+ const suffix=typeof expectedCaseId==='string'&&expectedCaseId.startsWith(prefix)?
+  expectedCaseId.slice(prefix.length):'';
  if(approved!==true||typeof scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(scriptId)||
+    typeof expectedCaseId!=='string'||! /^(?:0|[1-9][0-9]?)$/.test(suffix)||
+    Number(suffix)>=50||
     typeof appliedHash!=='string'||!/^[a-f0-9]{64}$/.test(appliedHash)||
     typeof previousHash!=='string'||!/^[a-f0-9]{64}$/.test(previousHash)||
     previousHash===appliedHash||typeof verify!=='function'||
@@ -39,7 +46,8 @@ export async function guardAppliedManagedRevision({approved,scriptId,appliedHash
  };
  try{
   const evidence=await verify() as Record<string,unknown>|null;
-  if(evidence&&evidence.status==='passed'&&evidence.evidenceLevel==='V1'&&
+  if(evidence&&evidence.caseId===expectedCaseId&&
+     evidence.status==='passed'&&evidence.evidenceLevel==='V1'&&
      evidence.expectation==='unique'&&evidence.attempts===2&&
      evidence.matchCount===1&&
      evidence.V2==='blocked'&&evidence.V3==='not-configured'&&
