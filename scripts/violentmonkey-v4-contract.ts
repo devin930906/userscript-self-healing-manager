@@ -18,6 +18,42 @@ export function extensionIdFromChromePublicKey(publicKeyBase64:string):string{
   .map(value=>String.fromCharCode(97+(value>>4),97+(value&15))).join('');
 }
 
+/** TEST ONLY: check permission without returning the manager's registered code. */
+export function buildViolentmonkeyUserScriptsProbeExpression():string{
+ return `(async()=>{
+  try{
+   if(typeof chrome.userScripts?.getScripts!=='function')return JSON.stringify({available:false});
+   await chrome.userScripts.getScripts();
+   return JSON.stringify({available:true});
+  }catch{return JSON.stringify({available:false});}
+ })()`;
+}
+
+/**
+ * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
+ * to the pinned unpacked manager in the workflow's disposable profile.
+ * Never set global Developer Mode, file access, or access for another manager.
+ */
+export function buildViolentmonkeyUserScriptsAccessExpression():string{
+ const id=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.extensionId);
+ const version=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.version);
+ return `(async()=>{
+  const finish=available=>JSON.stringify({available});
+  try{
+   if(location.href!=='chrome://extensions/')return finish(false);
+   const api=chrome.developerPrivate;
+   const valid=info=>info?.id===${id}&&info.version===${version}&&
+    info.state==='ENABLED'&&info.location==='UNPACKED'&&info.userScriptsAccess?.isEnabled===true;
+   const before=await api.getExtensionInfo(${id});
+   if(!valid(before))return finish(false);
+   if(before.userScriptsAccess.isActive!==true)
+    await api.updateExtensionConfiguration({extensionId:${id},userScriptsAccess:true});
+   const after=await api.getExtensionInfo(${id});
+   return finish(valid(after)&&after.userScriptsAccess.isActive===true);
+  }catch{return finish(false);}
+ })()`;
+}
+
 /**
  * Build a fixed-shape query using Violentmonkey's official MV3 client/SW
  * channel. The manager's extension page reduces its own script inventory to

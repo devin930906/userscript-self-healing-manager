@@ -18,6 +18,7 @@ import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/m
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
+ buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessExpression,
  VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
 
@@ -194,7 +195,7 @@ const server=createServer((request,response)=>{
  response.writeHead(404,{'content-type':'text/plain; charset=utf-8'}).end('not found');
 });
 let listening=false,chrome,exited=false,spawnFailure;
-let browserCdp,optionsCdp,pageCdp;
+let browserCdp,optionsCdp,pageCdp,extensionsCdp;
 try{
  await assertChromeDebuggerPortFree(9223);
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
@@ -238,6 +239,34 @@ try{
  const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
+ // Chrome 138+ gates chrome.userScripts behind the extension-specific Allow
+ // User Scripts setting. Installing a script does not grant that permission.
+ // This changes only the pinned unpacked extension in THIS disposable profile.
+ const probeAccess=async()=>{
+  const answer=await optionsCdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyUserScriptsProbeExpression(),awaitPromise:true,returnByValue:true,
+  });
+  return answer.result?.value===JSON.stringify({available:true});
+ };
+ const initiallyAvailable=await probeAccess();
+ console.log('Isolated Violentmonkey userScripts capability before setup: '+initiallyAvailable);
+ if(!initiallyAvailable){
+  const extensionsUrl='chrome://extensions/';
+  const createdExtensions=await browserCdp.send('Target.createTarget',{url:extensionsUrl});
+  if(typeof createdExtensions.targetId!=='string'||!createdExtensions.targetId)
+   throw new Error('Isolated Chrome extension settings target could not be created');
+  const extensionsPage=await waitForPage(createdExtensions.targetId,extensionsUrl,()=>exited);
+  extensionsCdp=await openCdp(extensionsPage.webSocketDebuggerUrl);
+  const enabled=await extensionsCdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyUserScriptsAccessExpression(),awaitPromise:true,returnByValue:true,
+  });
+  if(enabled.result?.value!==JSON.stringify({available:true}))
+   throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled');
+  extensionsCdp.close();extensionsCdp=undefined;
+  await browserCdp.send('Target.closeTarget',{targetId:createdExtensions.targetId});
+ }
+ if(!await probeAccess())throw new Error('Pinned manager userScripts API remains unavailable after isolated permission setup');
+ console.log('PASS isolated pinned manager userScripts capability; no daily browser profile was accessed.');
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
@@ -296,7 +325,7 @@ try{
  console.error('FAIL isolated Violentmonkey fixture:',error instanceof Error?error.message:'unknown');
  process.exitCode=1;
 }finally{
- pageCdp?.close();optionsCdp?.close();browserCdp?.close();
+ pageCdp?.close();optionsCdp?.close();extensionsCdp?.close();browserCdp?.close();
  if(chrome?.pid)spawnSync('taskkill',['/PID',String(chrome.pid),'/T','/F'],{stdio:'ignore',timeout:15000});
  if(listening)await new Promise(resolve=>server.close(()=>resolve()));
  await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:250}).catch(()=>{});
