@@ -65,3 +65,30 @@ test('FR-024 missing or unrelated expected case identity blocks before any brows
   /case|identity|guard|invalid|selector/i);
  assert.deepEqual(missing.counters(),{inspections:0,rollbacks:0,activeChecks:0});
 });
+
+
+test('FR-024 colliding 24-character script prefixes cannot share V1 retention evidence',async()=>{
+ const common='script-with-identical-prefix-';
+ const first=common+'first',second=common+'second';
+ assert.equal(first.slice(0,24),second.slice(0,24));
+ const exactCaseId='MANAGED_GUARD_'+first+':IDX_7';
+ const incorrectCaseId='MANAGED_GUARD_'+second+':IDX_7';
+ let rollbacks=0,activeChecks=0;
+ const input={
+  approved:true,scriptId:first,appliedHash:applied,previousHash:previous,
+  expectedCaseId:exactCaseId,
+  verify:async()=>({...passed,caseId:incorrectCaseId}),
+  confirmActiveHash:async()=>{activeChecks++;return applied;},
+  restore:async(hash:string)=>{rollbacks++;return {hash,activePath:'C:/synthetic/current.user.js'};},
+ };
+ const result=await guardAppliedManagedRevision(input);
+ assert.equal(result.status,'rolled-back-v1');
+ assert.equal(result.activeHash,previous);
+ assert.equal(rollbacks,1);
+ assert.equal(activeChecks,0);
+ const correct=await guardAppliedManagedRevision({
+  ...input,verify:async()=>({...passed,caseId:exactCaseId}),
+ });
+ assert.equal(correct.status,'retained-v1');
+ assert.equal(activeChecks,1);
+});
