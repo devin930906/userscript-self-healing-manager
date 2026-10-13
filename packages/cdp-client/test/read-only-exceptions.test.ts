@@ -141,3 +141,34 @@ test('FR-018 execution context clearing invalidates otherwise zero-count excepti
   assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable']);
  }
 });
+
+/**
+ * Chrome may emit Runtime events while Runtime.enable is in flight.
+ * A zero exception count is not justified if an exception/context reset
+ * preceded the enable acknowledgement.
+ */
+test('FR-018 refuses a false zero when exception or context reset precedes Runtime.enable ack',async()=>{
+ for(const early of [
+  exception(42),
+  {method:'Runtime.executionContextsCleared'},
+  {method:'Runtime.executionContextDestroyed',params:{executionContextId:17}},
+ ]){
+  class PreAckSocket extends FakeSocket{
+   override send(payload:string){
+    if((JSON.parse(payload) as {method:string}).method==='Runtime.enable')
+     queueMicrotask(()=>this.emit('message',{data:JSON.stringify(early)}));
+    super.send(payload);
+   }
+  }
+  const socket=new PreAckSocket();
+  const out=await observeReadOnlyPageExceptions(target,{
+   approved:true,durationMs:100,confirm:async()=>confirmed(),
+   socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
+  });
+  assert.equal(out.status,'unknown',early.method);
+  assert.equal(out.observedCount,null,early.method);
+  assert.equal(out.userscriptVerified,false);
+  assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable']);
+  assert.doesNotMatch(JSON.stringify(out),/LEAK_ME|private\.example|SECRET_QUERY/);
+ }
+});
