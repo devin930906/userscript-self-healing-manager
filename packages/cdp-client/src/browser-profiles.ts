@@ -46,6 +46,8 @@ async function assertChromeExecutable(path:string):Promise<void>{
  if(typeof path!=='string'||!isAbsolute(path))
   throw new Error('Chrome executable path must be absolute');
  if(!/\.exe$/i.test(path))throw new Error('Chrome executable must be an EXE');
+ if(path.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe Chrome executable parent traversal');
  // A regular EXE leaf may be redirected through a linked ancestor.
  // Recheck on launch even for a previously approved saved profile.
  try{await assertUnlinkedRecoveryDirectory(dirname(path));}
