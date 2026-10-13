@@ -203,7 +203,7 @@ test('malformed socket with throwing close getter is rejected with fixed error',
 
 test('stale captured socket open callback after timeout cannot send CDP',async()=>{
  const socket=new BrowserSocket();
- let staleOpen:(()=>void)|undefined;
+ let staleOpen:((event:any)=>void)|undefined;
  const originalAdd=socket.addEventListener.bind(socket);
  socket.addEventListener=(event,handler)=>{
   if(event==='open'){staleOpen=handler;return;}
@@ -215,6 +215,6 @@ test('stale captured socket open callback after timeout cannot send CDP',async()
  }),/timeout/);
  assert.equal(socket.closed,true);
  assert.ok(staleOpen);
- staleOpen();
+ staleOpen(undefined);
  assert.deepEqual(socket.sent,[]);
 });
