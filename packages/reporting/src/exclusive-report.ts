@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {constants} from 'node:fs';
+import {constants,type Stats} from 'node:fs';
 import {open,lstat,link,unlink,type FileHandle} from 'node:fs/promises';
 import {basename,dirname,isAbsolute,join} from 'node:path';
 
@@ -43,7 +43,15 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   throw new Error('Report byte budget exceeded');
  const digest=createHash('sha256').update(bytes).digest('hex');
  const stage=join(dirname(destinationPath),'.'+basename(destinationPath)+'.staging-'+randomUUID()+'.tmp');
- const verify=async(path:string,expectedLinks:1|2=1)=>{
+ // Node exposes only approximate file identifiers on some Windows volumes.
+ // Pin every available identity field in addition to digest and hardlink count;
+ // this is not a substitute for native Win32 FileIdInfo certification.
+ const sameIdentity=(left:Stats,right:Stats):boolean=>
+  Number.isFinite(left.dev)&&Number.isFinite(left.ino)&&
+  Number.isFinite(left.birthtimeMs)&&Number.isFinite(left.mode)&&
+  left.dev===right.dev&&left.ino===right.ino&&
+  left.birthtimeMs===right.birthtimeMs&&left.mode===right.mode;
+ const verify=async(path:string,expectedLinks:1|2=1):Promise<Stats>=>{
   const info=await lstat(path);
   if(!info.isFile()||info.isSymbolicLink()||info.size!==bytes.length)
    throw new Error('Report staging file identity, type or size mismatch');
@@ -61,6 +69,8 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
     throw new Error('Report file was changed while opening for verification');
    if(opened.nlink!==expectedLinks)
     throw new Error('Unsafe diagnostic report hardlink alias on descriptor');
+   if(!sameIdentity(info,opened))
+    throw new Error('Report file identity changed while opening for verification');
    const hash=createHash('sha256');
    let total=0;
    while(total<bytes.length){
@@ -77,9 +87,11 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
       after.ctimeMs!==info.ctimeMs||reread.size!==opened.size||
       reread.mtimeMs!==opened.mtimeMs||reread.ctimeMs!==opened.ctimeMs||
       reread.nlink!==expectedLinks||after.nlink!==expectedLinks||
+      !sameIdentity(info,reread)||!sameIdentity(info,after)||
       hash.digest('hex')!==digest)
     throw new Error('Report changed or failed SHA-256 verification');
   }finally{await fd.close();}
+  return info;
  };
  let file:FileHandle|undefined;
  let failure:unknown;
@@ -97,11 +109,12 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
   await file.sync();
   await file.close();file=undefined;
-  await verify(stage);
+  const approvedStage=await verify(stage);
   if(beforePublish)await beforePublish();
   // Reject changes between the initial staging verification and publication.
   // This also guards test-injected races without touching an existing target.
-  await verify(stage);
+  if(!sameIdentity(approvedStage,await verify(stage)))
+   throw new Error('Report staging identity was replaced before publication');
   try{await link(stage,destinationPath);}
   catch(error){
    const code=(error as NodeJS.ErrnoException).code;
@@ -113,7 +126,8 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
   }
   try{
    if(afterPublish)await afterPublish();
-   await verify(destinationPath,2);
+   if(!sameIdentity(approvedStage,await verify(destinationPath,2)))
+    throw new Error('Report staging identity changed during publication');
   }
   catch(error){
    // No portable Node API can atomically unlink only if this name still
@@ -134,6 +148,9 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
  // The private stage link has now been removed. A remaining foreign alias
  // would allow later edits or reads through an unreviewed filesystem path.
  // As above, preserve the visible destination on post-publish uncertainty.
- try{await verify(destinationPath,1);}
+ try{
+  if(!sameIdentity(approvedStage,await verify(destinationPath,1)))
+   throw new Error('Report staging identity changed after private link cleanup');
+ }
  catch(error){throw new UntrustedReportPublicationError(destinationPath,error);}
 }
