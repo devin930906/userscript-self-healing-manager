@@ -216,12 +216,6 @@ try{
  const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
- const managerReport=await inspectKnownUserscriptManagerTargets({
-  approved:true,browserEndpoint:status.browserSocket,expectedProduct:status.browser,port:9223,
- });
- assert.ok(managerReport.observed.includes('violentmonkey'));
- assert.equal(managerReport.V4,'not-configured');
- assert.equal(managerReport.managerVerified,false);
  const installMessage={
   cmd:'ParseScript',
   data:{
@@ -244,6 +238,15 @@ try{
  if(installReceipt.failed)
   throw new Error('Violentmonkey rejected the fixed synthetic userscript fixture');
  assertViolentmonkeyInstallReceipt(installReceipt);
+ // ParseScript exercises the real official manager and wakes its MV3 worker;
+ // the app's read-only target inventory is intentionally passive and may not
+ // report a sleeping worker before this bounded fixture interaction.
+ const managerReport=await inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:status.browserSocket,expectedProduct:status.browser,port:9223,
+ });
+ assert.ok(managerReport.observed.includes('violentmonkey'));
+ assert.equal(managerReport.V4,'not-configured');
+ assert.equal(managerReport.managerVerified,false);
  const createdFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
  if(typeof createdFixture.targetId!=='string'||!createdFixture.targetId)
   throw new Error('Loopback GM fixture page target could not be created');

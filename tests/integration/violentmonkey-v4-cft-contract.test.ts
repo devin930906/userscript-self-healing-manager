@@ -85,7 +85,7 @@ test('official manager workflow stays pinned, loopback-only and outside installe
  assert.doesNotMatch(workflow,/dist:win|electron-builder|upload-artifact/i);
  const source=smoke.match(/const userScript=`([\s\S]*?)`;/)?.[1];
  assert.ok(source,'fixed synthetic userscript source must be present');
- const metadata=source.split('\n').filter(line=>line.startsWith('// @'));
+ const metadata=source.split(/\r?\n/).filter(line=>line.startsWith('// @'));
  assert.deepEqual(metadata,[
   '// @name USSHM Isolated Violentmonkey V4 Fixture',
   '// @namespace https://usshm.invalid/isolated-fixture',
@@ -97,6 +97,16 @@ test('official manager workflow stays pinned, loopback-only and outside installe
   '// @connect 127.0.0.1',
   '// @run-at document-idle',
  ]);
+ const windowsMetadata=source.replace(/\r\n?/g,'\n').replace(/\n/g,'\r\n')
+  .split(/\r?\n/).filter(line=>line.startsWith('// @'));
+ assert.deepEqual(windowsMetadata,metadata,'Windows checkout line endings must not change userscript metadata');
  assert.doesNotMatch(smoke,/--no-sandbox/i);
  assert.match(smoke,/--proxy-server=http:\/\/127\.0\.0\.1:9/);
+});
+
+test('read-only manager discovery follows an actual fixed-script install that wakes the MV3 service worker',async()=>{
+ const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ const install=smoke.indexOf("const installed=await optionsCdp.send('Runtime.evaluate'");
+ const inspect=smoke.indexOf('const managerReport=await inspectKnownUserscriptManagerTargets');
+ assert.ok(install>=0&&inspect>install,'manager discovery must observe the extension after the fixture interaction starts its worker');
 });
