@@ -24,6 +24,15 @@ jobs:
         run: npm ci
       - name: Audit locked dependency advisories (RG-02; high or critical must fail)
         run: npm audit --audit-level=high --ignore-scripts
+      - name: Generate and validate CycloneDX dependency SBOM (RG-02; no installers)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sbom = Join-Path $env:RUNNER_TEMP 'usshm-dependencies.cdx.json'
+          npm sbom --sbom-format cyclonedx | Out-File -LiteralPath $sbom -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'RG-02 npm SBOM generation failed' }
+          node scripts/verify-sbom.mjs $sbom
+          if ($LASTEXITCODE -ne 0) { throw 'RG-02 SBOM validation failed' }
       - name: Run all tests
         run: npm test
       - name: Strict TypeScript checks
