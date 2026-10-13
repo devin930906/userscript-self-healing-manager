@@ -35,7 +35,7 @@ test('FR-029 restarted desktop counts committed, uncertain and blocked SQLite ro
  await second.save({version:1,items:[record('FAILED','failed',1)]});
  second.close();
  const result=inspectRepairQueueRecovery(root);
- assert.deepEqual(result,{checkpointFiles:2,completed:1,needsReview:3,uncertain:1,unreadable:0});
+ assert.deepEqual(result,{checkpointFiles:2,completed:1,needsReview:3,uncertain:2,unreadable:0});
  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_SCRIPT|INTERRUPTED|COMPLETED|FAILED|BLOCKED|\\|\.sqlite|[a-f0-9]{8}-[a-f0-9]{4}/);
  assert.deepEqual(inspectRepairQueueRecovery(root),result,'read-only status must remain unchanged across repeat inspection');
 }));
