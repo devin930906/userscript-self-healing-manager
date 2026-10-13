@@ -36,3 +36,86 @@ test('injector readiness checks the exact official base files rather than API pe
   assert.doesNotMatch(result,/private source/);
  }
 });
+
+test('isolated manager readiness waits for BOTH an exact official worker receipt and registered injector files',async()=>{
+ let worker=0,probe=0;
+ const attempts:string[]=[];let sleeps=0;
+ const send=async(method:string,params:any)=>{
+  assert.equal(method,'Runtime.evaluate');
+  assert.equal(params.awaitPromise,true);
+  assert.equal(params.returnByValue,true);
+  if(params.expression===api.buildViolentmonkeyInjectorReadyExpression()){
+   worker++;
+   return worker===1?{result:{value:null}}:{result:{value:JSON.stringify({ready:true})}};
+  }
+  assert.equal(params.expression,api.buildViolentmonkeyInjectorProbeExpression());
+  probe++;
+  return {result:{value:JSON.stringify({ready:probe>=2})}};
+ };
+ await api.waitForVerifiedViolentmonkeyInjector({
+  send,hasExited:()=>false,delay:async(ms:number)=>{
+   assert.ok(ms>0&&ms<=1000);sleeps++;
+  },onStatus:(s:string)=>{attempts.push(s);},
+ });
+ assert.equal(worker,3);assert.equal(probe,2);assert.equal(sleeps,2);
+ assert.deepEqual(attempts,['worker-receipt-unavailable','base-injector-unregistered','ready']);
+});
+
+test('isolated injector initialization never succeeds on missing, false or malformed official receipts',async()=>{
+ for(const receipt of [null,undefined,JSON.stringify({ready:false}),JSON.stringify({ready:'true'}),
+  JSON.stringify({ready:true,unexpected:'forged'}),'private extension detail']){
+  let calls=0,delays=0;
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return {result:{value:receipt}};},
+   hasExited:()=>false,delay:async()=>{delays++;},
+  }).catch((e:any)=>e);
+  assert.ok(error instanceof Error);
+  assert.match(error.message,/injector|manager|readiness/i);
+  assert.doesNotMatch(error.message,/private extension detail/);
+  assert.equal(calls,8,'missing or invalid official readiness must exhaust a strict finite bound');
+  assert.equal(delays,7);
+ }
+});
+
+test('isolated injector never accepts official ready unless exact base injector is registered',async()=>{
+ let official=0,probes=0;
+ const statuses:string[]=[];
+ const err=await api.waitForVerifiedViolentmonkeyInjector({
+  send:async(_method:string,params:any)=>{
+   if(params.expression===api.buildViolentmonkeyInjectorReadyExpression()){
+    official++;return {result:{value:JSON.stringify({ready:true})}};
+   }
+   probes++;return {result:{value:JSON.stringify({ready:false})}};
+  },
+  hasExited:()=>false,delay:async()=>{},
+  onStatus:(stage:string)=>statuses.push(stage),
+ }).catch((e:any)=>e);
+ assert.ok(err instanceof Error);
+ assert.equal(official,8);assert.equal(probes,8);
+ assert.equal(statuses.at(-1),'base-injector-unregistered');
+ assert.match(err.message,/base injector/i);
+});
+
+test('isolated injector aborts on CFT exit and does not leak CDP exception content',async()=>{
+ let sends=0;
+ await assert.rejects(api.waitForVerifiedViolentmonkeyInjector({
+  send:async()=>{sends++;return {result:{value:JSON.stringify({ready:true})}};},
+  hasExited:()=>true,delay:async()=>{},
+ }),/exited|closed/i);
+ assert.equal(sends,0);
+ const err=await api.waitForVerifiedViolentmonkeyInjector({
+  send:async()=>({exceptionDetails:{text:'PRIVATE_EXTENSION_ERROR_SENTINEL'}}),
+  hasExited:()=>false,delay:async()=>{},
+ }).catch((e:any)=>e);
+ assert.ok(err instanceof Error);
+ assert.doesNotMatch(err.message,/PRIVATE_EXTENSION_ERROR_SENTINEL/);
+ assert.match(err.message,/evaluate|CDP|readiness/i);
+});
+
+test('official manager smoke uses the bounded verified injector gate instead of a one-shot receipt',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const script=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
+ assert.match(script,/await waitForVerifiedViolentmonkeyInjector\(\{/);
+ assert.doesNotMatch(script,/const initialized=await optionsCdp\.send\('Runtime\.evaluate'/);
+ assert.doesNotMatch(script,/const injector=await optionsCdp\.send\('Runtime\.evaluate'/);
+});
