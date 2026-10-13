@@ -148,3 +148,19 @@ test('RG-05 rejects a returned CDP error envelope without retrying or exposing i
  assert.equal(calls,1,'a transport error response must fail closed rather than poll sixteen times');
  assert.equal(sleeps,0);
 });
+
+test('RG-05 never accepts a CDP response carrying an error field even if its value is falsy',async()=>{
+ for(const errorValue of [null,false,0,'']){
+  let calls=0;
+  const stages:string[]=[];
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return {error:errorValue,result:{value:JSON.stringify({ready:true})}};},
+   hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>stages.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.match(error.message,/CDP evaluation failed/);
+  assert.equal(calls,1,'a suspicious CDP error envelope must never be retried or accepted');
+  assert.deepEqual(stages,['cdp-evaluation-failed']);
+ }
+});
