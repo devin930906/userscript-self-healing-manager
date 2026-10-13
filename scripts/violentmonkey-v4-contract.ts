@@ -232,7 +232,7 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
   try{input.onStatus?.(stage);}catch{}
  };
  let stage:ViolentmonkeyInjectorReadinessState='worker-receipt-unavailable';
- for(let attempt=0;attempt<8;attempt++){
+ for(let attempt=0;attempt<16;attempt++){
   if(input.hasExited())throw new Error('Isolated CFT exited during manager injector readiness');
   const official=await evaluate(buildViolentmonkeyInjectorReadyExpression());
   if(input.hasExited())throw new Error('Isolated CFT exited during manager injector readiness');
@@ -245,7 +245,7 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    stage=official===errorReceipt?'official-injector-error':'worker-receipt-unavailable';
   }
   notify(stage);
-  if(attempt<7)await (input.delay??wait)(350);
+  if(attempt<15)await (input.delay??wait)(350);
  }
  throw new Error(stage==='base-injector-unregistered'
   ?'Pinned Violentmonkey base injector files were not registered'
