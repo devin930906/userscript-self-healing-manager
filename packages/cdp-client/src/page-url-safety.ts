@@ -9,7 +9,9 @@
  */
 export function assertCredentialFreePageUrl(value:unknown):void{
  const failure=()=>new Error('Invalid or credential-bearing HTTP(S) page URL');
- if(typeof value!=='string')throw failure();
+ if(typeof value!=='string'||value.length<1||value.length>8192||
+    value!==value.trim()||/[\u0000-\u001F\u007F]/.test(value))
+  throw failure();
  let parsed:URL;
  try{parsed=new URL(value);}catch{throw failure();}
  if(!['http:','https:'].includes(parsed.protocol)||!parsed.hostname||
