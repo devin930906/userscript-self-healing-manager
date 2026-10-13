@@ -164,3 +164,23 @@ test('RG-05 never accepts a CDP response carrying an error field even if its val
   assert.deepEqual(stages,['cdp-evaluation-failed']);
  }
 });
+
+test('RG-05 classifies only exact synthetic CDP transport failures as bounded status labels',async()=>{
+ for(const [message,expected] of [
+  ['CDP command timed out','cdp-timeout'],
+  ['CDP WebSocket closed','cdp-websocket-closed'],
+  ['PRIVATE_UNTRUSTED_DETAIL','cdp-evaluation-failed'],
+ ]){
+  const stages:string[]=[];
+  let calls=0;
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;throw new Error(message);},
+   hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>stages.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.deepEqual(stages,[expected]);
+  assert.equal(calls,1);
+  assert.doesNotMatch(error.message,/PRIVATE_UNTRUSTED_DETAIL/);
+ }
+});
