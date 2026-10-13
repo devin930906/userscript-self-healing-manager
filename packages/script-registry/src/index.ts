@@ -62,7 +62,21 @@ function isUserscriptPath(path:string):boolean{
  return path.toLowerCase().endsWith('.user.js');
 }
 
-export async function enumerateScripts({paths,recursive,followSymlinks,maxEntries=Number.MAX_SAFE_INTEGER}:{paths:string[];recursive:boolean;followSymlinks:false;maxEntries?:number}):Promise<EnumeratedScript[]>{
+// Both registry entrypoints accept runtime input, not trustworthy TypeScript
+// arrays. for..of also visits sparse-array holes that Array.every skips.
+function validPathSelection(paths:unknown):paths is string[]{
+ if(!Array.isArray(paths))return false;
+ for(const path of paths){
+  if(typeof path!=='string'||path.trim().length===0)return false;
+ }
+ return true;
+}
+
+export async function enumerateScripts(request:{paths:string[];recursive:boolean;followSymlinks:false;maxEntries?:number}):Promise<EnumeratedScript[]>{
+ if(!request||typeof request!=='object'||!validPathSelection(request.paths)||
+    typeof request.recursive!=='boolean'||request.followSymlinks!==false)
+  throw new Error('Invalid script enumeration request');
+ const {paths,recursive,maxEntries=Number.MAX_SAFE_INTEGER}=request;
  if(!Number.isSafeInteger(maxEntries)||maxEntries<0)throw new Error('limit-exceeded');
  const output:EnumeratedScript[]=[];const visited=new Set<string>();
  // Abort during enumeration, not after reading/importing every script in a huge directory.
@@ -93,7 +107,11 @@ export async function enumerateScripts({paths,recursive,followSymlinks,maxEntrie
  for(const path of paths)await walk(path);
  return output;
 }
-export async function importPaths({paths,recursive,repository,maxFiles=Number.MAX_SAFE_INTEGER}:{paths:string[];recursive:boolean;repository:ScriptRepository;maxFiles?:number}):Promise<ImportResult[]>{
+export async function importPaths(request:{paths:string[];recursive:boolean;repository:ScriptRepository;maxFiles?:number}):Promise<ImportResult[]>{
+ if(!request||typeof request!=='object'||!validPathSelection(request.paths)||
+    typeof request.recursive!=='boolean')
+  throw new Error('Invalid script import request');
+ const {paths,recursive,repository,maxFiles=Number.MAX_SAFE_INTEGER}=request;
  if(!Number.isSafeInteger(maxFiles)||maxFiles<1||paths.length>maxFiles)throw new Error('limit-exceeded');
  const output:ImportResult[]=[];
  // Expand directories explicitly; direct file requests preserve invalid-extension feedback.
