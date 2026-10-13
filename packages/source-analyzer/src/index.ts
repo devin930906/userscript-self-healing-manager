@@ -94,8 +94,9 @@ function functionScope(node:ts.Node):{name:string|null;scope:string[]}{
  const scope:string[]=[];
  for(let parent=node.parent;parent;parent=parent.parent){
    if(ts.isFunctionDeclaration(parent)&&parent.name)scope.unshift(parent.name.text);
+   else if(ts.isFunctionExpression(parent)&&parent.name)scope.unshift(parent.name.text);
    else if(ts.isMethodDeclaration(parent)&&parent.name)scope.unshift(parent.name.getText());
-   else if(ts.isArrowFunction(parent)&&parent.parent&&ts.isVariableDeclaration(parent.parent)&&ts.isIdentifier(parent.parent.name))scope.unshift(parent.parent.name.text);
+   else if((ts.isArrowFunction(parent)||ts.isFunctionExpression(parent))&&parent.parent&&ts.isVariableDeclaration(parent.parent)&&ts.isIdentifier(parent.parent.name))scope.unshift(parent.parent.name.text);
  }
  return {name:scope.at(-1)??null,scope};
 }
