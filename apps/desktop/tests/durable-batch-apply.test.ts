@@ -32,7 +32,7 @@ test('FR-029 Electron Main writes only after committed running checkpoint and re
   },
  });
  assert.deepEqual(output,{hash:'verified-result'});
- assert.equal(preflights,1);
+ assert.equal(preflights,2,'both the pre-checkpoint and post-checkpoint approvals must be fresh');
  assert.equal(writes,1);
  const store=openRepairCheckpointStore(file(root,approvalId));
  try{
