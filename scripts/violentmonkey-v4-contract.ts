@@ -121,10 +121,12 @@ export async function readViolentmonkeyFixtureObservation(input:{
    throw new Error('Isolated fixture document identity changed');
   return frame.loaderId as string;
  };
+ let observedFreshDocument=false;
  for(let attempt=0;attempt<72;attempt++){
   if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
   const before=await currentFrame();
   if(before!==input.previousLoaderId){
+   observedFreshDocument=true;
    const answer=await input.send('Runtime.evaluate',{
     expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-result') ?? null",
     returnByValue:true,
@@ -146,6 +148,12 @@ export async function readViolentmonkeyFixtureObservation(input:{
  }
  const stages=['started','storage-read','storage-readback','menu-registration','gm-request','completed',
   'failed-started','failed-storage-read','failed-storage-readback','failed-menu-registration','failed-gm-request'];
+ // Never read a stage attribute from the old document if the requested
+ // reload never completed. The fallback is diagnostic only, not GM evidence.
+ if(!observedFreshDocument)
+  throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result; stage: not-observed');
+ if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
+ const stageLoader=await currentFrame();
  let stage='not-observed';
  try{
   const answer=await input.send('Runtime.evaluate',{
@@ -153,6 +161,11 @@ export async function readViolentmonkeyFixtureObservation(input:{
   });
   if(stages.includes(answer?.result?.value))stage=answer.result.value;
  }catch{}
+ // A late navigation or CFT exit must not allow a stage read from a
+ // different document to be reported as the approved loopback fixture.
+ if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
+ if(await currentFrame()!==stageLoader)
+  throw new Error('Isolated fixture document identity changed');
  throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result; stage: '+stage);
 }
 
