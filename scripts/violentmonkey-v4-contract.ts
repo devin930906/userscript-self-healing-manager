@@ -30,6 +30,20 @@ export function buildViolentmonkeyUserScriptsProbeExpression():string{
  })()`;
 }
 
+/** Pin the fixed test script to the exact port bound by this fixture server. */
+export function scopeViolentmonkeyFixtureToUrl(template:string,fixtureUrl:string):string{
+ let url:URL;
+ try{url=new URL(fixtureUrl);}catch{throw new Error('Invalid isolated fixture scope');}
+ const anchor='// @match http://127.0.0.1/*';
+ if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||url.pathname!=='/fixture'||
+    url.username||url.password||url.search||url.hash||url.href!==fixtureUrl||
+    typeof template!=='string'||template.length>8192||template.split(anchor).length!==2||
+    !template.includes('// @name USSHM Isolated Violentmonkey V4 Fixture')||
+    !template.includes('// @namespace https://usshm.invalid/isolated-fixture'))
+  throw new Error('Invalid isolated fixture scope');
+ return template.replace(anchor,'// @match '+fixtureUrl);
+}
+
 /**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.

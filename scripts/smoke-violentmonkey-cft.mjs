@@ -21,6 +21,7 @@ import {
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
  readViolentmonkeyFixtureObservation,
  buildViolentmonkeyInjectorReadyExpression,buildViolentmonkeyInjectorProbeExpression,
+ scopeViolentmonkeyFixtureToUrl,
  VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
 
@@ -275,7 +276,10 @@ try{
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
- const installExpression=buildViolentmonkeyFixtureInstallExpression(userScript);
+ // VM 2.49.0 compares authority including port. A portless @match cannot
+ // select the ephemeral server's URL; pin only this exact loopback fixture.
+ const scopedUserScript=scopeViolentmonkeyFixtureToUrl(userScript,fixtureUrl);
+ const installExpression=buildViolentmonkeyFixtureInstallExpression(scopedUserScript);
  const installed=await optionsCdp.send('Runtime.evaluate',{
   expression:installExpression,awaitPromise:true,returnByValue:true,
  });
