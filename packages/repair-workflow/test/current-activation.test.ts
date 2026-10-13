@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,rm,writeFile,readFile,lstat,readdir,symlink} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,readFile,lstat,readdir,symlink,link,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {commitManagedCurrent} from '../src/current-activation.ts';
@@ -143,4 +143,43 @@ test('late path replacement with symlink during approved restore does not follow
  assert.equal(linked,true);
  assert.equal(await readFile(outside,'utf8'),'protected outside data');
  assert.deepEqual((await readdir(dir)).sort(),['current.user.js','private.user.js','symlink-check.user.js'].sort());
+}));
+
+test('RG-06 direct activation refuses a preexisting hardlink alias of current',async()=>fixture(async(dir,path)=>{
+ const original=Buffer.from('synthetic archived current');
+ const replacement=Buffer.from('synthetic approved replacement');
+ const alias=join(dir,'foreign-current.user.js');
+ await writeFile(path,original);
+ await link(path,alias);
+ assert.equal((await lstat(path)).nlink,2);
+ await assert.rejects(commitManagedCurrent({
+  activePath:path,bytes:replacement,expectedActiveHash:hash(original),
+ }),/hard.?link|alias|unsafe|external/i,
+ 'matching SHA-256 does not authorize replacing an externally shared current inode');
+ assert.deepEqual(await readFile(path),original);
+ assert.deepEqual(await readFile(alias),original);
+ assert.deepEqual((await readdir(dir)).sort(),['current.user.js','foreign-current.user.js'],
+  'no staged file or writer lock should remain after rejected activation');
+ await unlink(alias);
+ await commitManagedCurrent({activePath:path,bytes:replacement,expectedActiveHash:hash(original)});
+ assert.deepEqual(await readFile(path),replacement,
+  'ordinary unaliased approved replacement remains supported');
+}));
+
+test('RG-06 activation refuses a new hardlink alias appearing before publish',async()=>fixture(async(dir,path)=>{
+ const original=Buffer.from('synthetic prior current');
+ const replacement=Buffer.from('synthetic next revision');
+ const alias=join(dir,'late-foreign-current.user.js');
+ await writeFile(path,original);
+ let aliased=false;
+ await assert.rejects(commitManagedCurrent({
+  activePath:path,bytes:replacement,expectedActiveHash:hash(original),
+  beforePublish:async()=>{await link(path,alias);aliased=true;},
+ }),/hard.?link|alias|unsafe|external/i,
+ 'publisher must recheck link ownership after a foreign writer changes links');
+ assert.equal(aliased,true);
+ assert.equal((await lstat(path)).nlink,2);
+ assert.deepEqual(await readFile(path),original);
+ assert.deepEqual(await readFile(alias),original);
+ assert.deepEqual((await readdir(dir)).sort(),['current.user.js','late-foreign-current.user.js']);
 }));
