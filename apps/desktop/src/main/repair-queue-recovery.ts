@@ -11,7 +11,7 @@ export interface RepairQueueRecoverySummary{
  readonly completed:number;
  /** Every unfinished or failed row requires a NEW user review and approval. */
  readonly needsReview:number;
- /** A running task at restart could have committed an uncertain file write. */
+ /** An interrupted running OR failed dispatched write may have activated a revision. */
  readonly uncertain:number;
  /** Incomplete, malformed, unsafe or uninspectable journal entries. */
  readonly unreadable:number;

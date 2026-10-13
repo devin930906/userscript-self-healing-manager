@@ -35,7 +35,7 @@ test('FR-029 restarted desktop counts committed, uncertain and blocked SQLite ro
  await second.save({version:1,items:[record('FAILED','failed',1)]});
  second.close();
  const result=inspectRepairQueueRecovery(root);
- assert.deepEqual(result,{checkpointFiles:2,completed:1,needsReview:3,uncertain:1,unreadable:0});
+ assert.deepEqual(result,{checkpointFiles:2,completed:1,needsReview:3,uncertain:2,unreadable:0});
  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_SCRIPT|INTERRUPTED|COMPLETED|FAILED|BLOCKED|\\|\.sqlite|[a-f0-9]{8}-[a-f0-9]{4}/);
  assert.deepEqual(inspectRepairQueueRecovery(root),result,'read-only status must remain unchanged across repeat inspection');
 }));
@@ -125,3 +125,47 @@ test('FR-029 recovery refuses to count case-only aliases of one historical UUID 
  },'two physical SQLite files for one UUID must be treated as ambiguous, not two approvals');
  assert.doesNotMatch(JSON.stringify(found),/PRIVATE_ALIAS|abcdef12|ABCDEF12/);
 }));
+
+test('FR-029 recovery flags a failed queue after real managed write started as an uncertain activation',async()=>fixture(async root=>{
+ const {executeDurableApprovedBatch}=await import('../src/main/durable-batch-apply.ts');
+ const managed=join(root,'synthetic-managed-revision.user.js');
+ let attempts=0;
+ const approvalId=randomUUID();
+ await assert.rejects(executeDurableApprovedBatch({
+  dataRoot:root,approvalId,scriptId:'recovery-synthetic',
+  preflight:()=>true,
+  write:async()=>{
+   attempts++;
+   await writeFile(managed,'UNVERIFIED_NEW_REVISION');
+   throw new Error('PRIVATE_WRITE_ERROR_AND_ACCOUNT');
+  },
+ }),/blocked|repair|fresh review/i);
+ assert.equal(attempts,1);
+ assert.equal(await readFile(managed,'utf8'),'UNVERIFIED_NEW_REVISION');
+ const state=inspectRepairQueueRecovery(root);
+ assert.deepEqual(state,{
+  checkpointFiles:1,completed:0,needsReview:1,uncertain:1,unreadable:0,
+ },'a failed dispatched write is ambiguous, never a provably untouched script');
+ assert.equal(JSON.stringify(state).includes('PRIVATE_WRITE_ERROR_AND_ACCOUNT'),false);
+ assert.deepEqual(inspectRepairQueueRecovery(root),state,'read-only recovery cannot replay a failed write');
+}));
+
+test('FR-029 denied pre-write gate is review-only, not an uncertain activation',async()=>fixture(async root=>{
+ const {executeDurableApprovedBatch}=await import('../src/main/durable-batch-apply.ts');
+ let writes=0;
+ await assert.rejects(executeDurableApprovedBatch({
+  dataRoot:root,approvalId:randomUUID(),scriptId:'prewrite-denial',
+  preflight:()=>false,
+  write:async()=>{writes++;},
+ }),/blocked|repair|fresh review/i);
+ assert.equal(writes,0);
+ assert.deepEqual(inspectRepairQueueRecovery(root),{
+  checkpointFiles:1,completed:0,needsReview:1,uncertain:0,unreadable:0,
+ });
+}));
+
+test('FR-029 startup text warns about any uncertain activated revision rather than only interrupted in-flight tasks',async()=>{
+ const ui=await readFile(new URL('../src/renderer/App.tsx',import.meta.url),'utf8');
+ assert.match(ui,/可能已写入或写入结果不确定/);
+ assert.match(ui,/检查受管修订完整性/);
+});
