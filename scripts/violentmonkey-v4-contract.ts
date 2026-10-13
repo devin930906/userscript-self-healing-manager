@@ -220,7 +220,7 @@ function buildViolentmonkeyManagerCommandExpression(
 
 /** Fixed bounded readiness stages: never emit a manager error or script code. */
 export type ViolentmonkeyInjectorReadinessState=
- 'worker-receipt-unavailable'|'official-injector-error'|'base-injector-unregistered'|'cdp-evaluation-failed'|'ready';
+ 'worker-receipt-unavailable'|'official-injector-error'|'base-injector-unregistered'|'cdp-evaluation-failed'|'cdp-timeout'|'cdp-websocket-closed'|'ready';
 
 /**
  * TEST ONLY: an isolated Chrome permission grant alone is not evidence of a
@@ -247,7 +247,16 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    response=await input.send('Runtime.evaluate',{
     expression,awaitPromise:true,returnByValue:true,
    });
-  }catch{notify('cdp-evaluation-failed');throw new Error('Isolated manager injector CDP evaluation failed');}
+  }catch(error){
+   // Only classify exact, fixed strings emitted by the isolated CDP client.
+   // Never echo arbitrary exception contents into logs or caller-visible errors.
+   const message=error instanceof Error?error.message:'';
+   const stage:ViolentmonkeyInjectorReadinessState=message==='CDP command timed out'
+    ?'cdp-timeout':message==='CDP WebSocket closed'
+    ?'cdp-websocket-closed':'cdp-evaluation-failed';
+   notify(stage);
+   throw new Error('Isolated manager injector CDP evaluation failed');
+  }
   if((response&&typeof response==='object'&&'error' in response)||response?.exceptionDetails){
    notify('cdp-evaluation-failed');
    throw new Error('Isolated manager injector CDP evaluation failed');
