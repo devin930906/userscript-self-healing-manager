@@ -20,11 +20,13 @@ type ChunkWriter=(handle:FileHandle,chunk:Uint8Array,position:number)=>Promise<n
  * is not a guarantee against malicious cross-process directory modification
  * or sudden hardware/storage-controller failures.
  */
-export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
+export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,beforePublish}:{
  archivePath:string;
  bytes:Uint8Array;
  /** Deterministic disk-full/short-write injection for recovery tests. */
  writeChunk?:ChunkWriter;
+ /** Internal synthetic race injection only; never routed from Electron renderer. */
+ beforePublish?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof archivePath!=='string'||!isAbsolute(archivePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
@@ -77,6 +79,8 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk}:{
   // published. Otherwise late failure would still leave an untrusted
   // hash-named backup visible in the managed store.
   await verify(staging,true);
+  // Controlled injection at the post-verification publication gap.
+  if(beforePublish)await beforePublish();
   try{
    // link(2) fails with EEXIST instead of overwriting another publisher;
    // the linked bytes were already synced and validated above.
