@@ -12,6 +12,10 @@ import {dirname,isAbsolute,resolve} from 'node:path';
 export async function assertUnlinkedRecoveryDirectory(path:string):Promise<void>{
  if(typeof path!=='string'||!isAbsolute(path))
   throw new Error('Unsafe core recovery directory path');
+ // Preserve lexical components until after this check: path.resolve()
+ // would erase a linked directory followed by '..' before lstat() sees it.
+ if(path.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe core recovery directory parent traversal');
  const chain:string[]=[];
  for(let current=resolve(path);;){
   chain.push(current);
