@@ -45,8 +45,12 @@ export async function inspectKnownUserscriptManagerTargets({
  catch { throw new Error('CDP manager target socket initialization failed'); }
  if(!socket||typeof socket.addEventListener!=='function'||
     typeof socket.removeEventListener!=='function'||
-    typeof socket.send!=='function'||typeof socket.close!=='function')
+    typeof socket.send!=='function'||typeof socket.close!=='function'){
+  // A partially initialized socket may still hold a live connection.
+  // Best-effort cleanup must not leak transport exceptions or override validation.
+  try{if(socket&&typeof socket.close==='function')socket.close();}catch{}
   throw new Error('Invalid CDP manager target socket interface');
+ }
  return await new Promise<UserscriptManagerTargetReport>((resolve,reject)=>{
   let done=false,id=0,expected=0,method:'Browser.getVersion'|'Target.getTargets'='Browser.getVersion';
   const finish=(error?:Error,report?:UserscriptManagerTargetReport)=>{
