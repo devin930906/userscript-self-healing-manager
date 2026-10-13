@@ -7,6 +7,17 @@ export interface LocatorCheck {method:string;expression:string;status:'found'|'m
 export interface LocatorProbeResult {targetId:string;url:string;validationLevel:'dom-only';checks:LocatorCheck[]}
 /** Bound every untrusted CDP reply before JSON parsing; oversized evidence is inconclusive. */
 const MAX_REPLY_BYTES=1_000_000;
+// Never forward untrusted CDP JSON parser or WebSocket transport exception
+// messages: they may quote page DOM, credentials or private query content.
+const SAFE_LOCATOR_ERRORS=new Set([
+ 'Invalid CDP selector node list',
+ 'CDP selector match count limit exceeded',
+ 'Invalid or duplicate CDP selector node ID',
+ 'CDP locator response size limit exceeded',
+ 'Duplicate CDP document root reply',
+ 'CDP document root request rejected',
+ 'Invalid CDP document root',
+]);
 const MAX_MATCHED_NODES=10_000;
 const MAX_IDENTITIES_PER_LOCATOR=10;
 const MAX_IDENTITIES_PER_PROBE=100;
@@ -171,7 +182,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
    const shadow=options.rootScope==='open-shadow'||options.rootScope==='iframe-document';
    socket.send(JSON.stringify({id:++id,method:'DOM.getDocument',
     params:{depth:shadow?-1:0,pierce:shadow}}));
-  }catch(error){complete(error as Error);}};
+  }catch{complete(new Error('Cannot request CDP document root'));}};
   const onMessage=(event:{data:unknown})=>{
    try{
     if(typeof event.data!=='string'||event.data.length>MAX_REPLY_BYTES)
@@ -260,7 +271,11 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      }
      finishIfReady();
     }
-   }catch(error){complete(error instanceof Error?error:new Error('Invalid CDP response'));}
+   }catch(error){
+    const diagnostic=error instanceof Error&&SAFE_LOCATOR_ERRORS.has(error.message)?
+     error.message:'Invalid CDP locator response';
+    complete(new Error(diagnostic));
+   }
   };
   const onError=()=>complete(new Error('CDP socket error'));
   const onClose=()=>complete(new Error('CDP socket closed before locator results'));
