@@ -29,11 +29,11 @@ export async function guardAppliedManagedRevision({approved,scriptId,appliedHash
  /** Main-owned and script/index-pinned test identity; never supplied by DOM/renderer. */
  expectedCaseId:string;
 } & GuardedV1Deps):Promise<GuardedV1Result>{
- const prefix='MANAGED_GUARD_'+scriptId?.slice?.(0,24)+':IDX_';
+ const prefix=typeof scriptId==='string'?'MANAGED_GUARD_'+scriptId+':IDX_':'';
  const suffix=typeof expectedCaseId==='string'&&expectedCaseId.startsWith(prefix)?
   expectedCaseId.slice(prefix.length):'';
  if(approved!==true||typeof scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(scriptId)||
-    typeof expectedCaseId!=='string'||! /^(?:0|[1-9][0-9]?)$/.test(suffix)||
+    typeof expectedCaseId!=='string'||!/^(?:0|[1-9][0-9]?)$/.test(suffix)||
     Number(suffix)>=50||
     typeof appliedHash!=='string'||!/^[a-f0-9]{64}$/.test(appliedHash)||
     typeof previousHash!=='string'||!/^[a-f0-9]{64}$/.test(previousHash)||
