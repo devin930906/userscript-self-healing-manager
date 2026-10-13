@@ -14,7 +14,8 @@ test('RG-06 precise native file identity refuses an old snapshot even if rounded
   const rounded=await lstat(path);
   const native=await lstat(path,{bigint:true});
   assert.equal(typeof native.ino,'bigint');
-  // Model an old Windows file ID that rounds to the same JS-number value.
+  // Model a former exact Windows file ID that differs while the supplied
+  // lower-precision numeric Stats remains unchanged.
   // The actual path and numeric Stats remain valid; the *exact* former ID does not.
   const oldIdentity=Object.create(native) as typeof native;
   Object.defineProperty(oldIdentity,'ino',{value:native.ino+(1n<<53n)});
@@ -25,8 +26,7 @@ test('RG-06 precise native file identity refuses an old snapshot even if rounded
    /native|identity|snapshot|replaced|changed|unsafe/i,
    'never import a source after its exact approved file ID differs');
   assert.deepEqual(await readFile(path),bytes,'leave original source untouched');
-  const good={maxBytes:512*1024,expected:rounded,expectedNative:native}
-   as Parameters<typeof readPinnedRegularFile>[1];
+  const good={maxBytes:512*1024,expected:rounded,expectedNative:native} as Parameters<typeof readPinnedRegularFile>[1];
   assert.deepEqual(await readPinnedRegularFile(path,good),bytes,
    'matching precise native snapshot retains legitimate selected-file import');
  }finally{await rm(dir,{recursive:true,force:true});}
