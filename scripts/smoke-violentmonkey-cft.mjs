@@ -220,10 +220,12 @@ try{
  const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
- const preflightMessage={cmd:'GetScript',data:{meta:fixtureMeta}};
+ const preflightMessage={cmd:'GetData',data:{sizes:false}};
  const preflightExpression=`new Promise(resolve=>chrome.runtime.sendMessage(${JSON.stringify(preflightMessage)},value=>{
   const failed=!!chrome.runtime.lastError;
-  resolve(JSON.stringify({failed,found:!!value?.props?.id}));
+  const scripts=Object.values(value??{}).flatMap(item=>Array.isArray(item)?item:[]);
+  const found=scripts.some(script=>script?.meta?.name===${JSON.stringify(fixtureMeta.name)}&&script?.meta?.namespace===${JSON.stringify(fixtureMeta.namespace)});
+  resolve(JSON.stringify({failed,found}));
 }))`;
  const preflight=await optionsCdp.send('Runtime.evaluate',{
   expression:preflightExpression,awaitPromise:true,returnByValue:true,

@@ -143,3 +143,12 @@ test('official manager install callback reduces parser details to a bounded priv
  assert.doesNotMatch(smoke,/errors:value\?\.errors/);
  assert.match(smoke,/typeof installText!=='string'/);
 });
+
+test('read-only manager preflight proves script absence from metadata inside the isolated extension page',async()=>{
+ const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ assert.match(smoke,/cmd:'GetData',data:\{sizes:false\}/);
+ assert.match(smoke,/Object\.values\(value\?\?\{\}\)\.flatMap/);
+ assert.match(smoke,/script\?\.meta\?\.name===\$\{JSON\.stringify\(fixtureMeta\.name\)\}&&script\?\.meta\?\.namespace===\$\{JSON\.stringify\(fixtureMeta\.namespace\)\}/);
+ assert.match(smoke,/JSON\.stringify\(\{failed,found\}\)/);
+ assert.doesNotMatch(smoke,/cmd:'GetScript'/);
+});
