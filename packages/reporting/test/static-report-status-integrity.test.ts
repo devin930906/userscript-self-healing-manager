@@ -31,7 +31,13 @@ test('RG-07 public static JSON and Markdown exports reject untrusted invalid sca
 
 test('RG-07 report status validation retains each exact legitimate static-scan status',()=>{
  for(const status of ['parsed','parse-error','unreadable','skipped'] as const){
-  const input=forge(status);
+  // A valid status sample must also carry the corresponding truthful
+  // report-level totals; forged-count rejection has its own RED regression.
+  const input:ScanBatchResult={
+   ...forge(status),
+   passedCount:status==='parsed'?1:0,
+   errorCount:status==='parse-error'||status==='unreadable'?1:0,
+  };
   const json=JSON.parse(serializeStaticReport(input,'json'));
   assert.equal(json.items[0].status,status);
   assert.equal(json.items[0].verification.V0,
