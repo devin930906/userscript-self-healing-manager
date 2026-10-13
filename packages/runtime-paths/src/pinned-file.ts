@@ -11,8 +11,8 @@ import {lstat,open} from 'node:fs/promises';
  * enforce approval, hash validation, revision locks and safe output paths.
  */
 export async function readPinnedRegularFile(path:string,{
- maxBytes,expected,
-}:{maxBytes:number;expected?:Stats|BigIntStats|undefined}):Promise<Buffer>{
+ maxBytes,expected,expectedNative,
+}:{maxBytes:number;expected?:Stats|BigIntStats|undefined;expectedNative?:BigIntStats|undefined}):Promise<Buffer>{
  if(typeof path!=='string'||!path||!Number.isSafeInteger(maxBytes)||
     maxBytes<1||maxBytes>1024*1024)
   throw new Error('Invalid pinned read size limit or path');
@@ -44,7 +44,24 @@ export async function readPinnedRegularFile(path:string,{
    left.size===right.size&&left.mode===right.mode&&
    left.mtimeMs===right.mtimeMs&&left.ctimeMs===right.ctimeMs;
  };
+ // The optional exact snapshot supplements, never replaces, Stats checks.
+ // BigIntStats keeps an inode/MFT index beyond JS Number safe precision.
+ // This is NOT a native Win32 FileIdInfo handle API or a process-wide lock.
+ const sameNative=(left:BigIntStats,right:BigIntStats):boolean=>
+  left.isFile()&&!left.isSymbolicLink()&&right.isFile()&&!right.isSymbolicLink()&&
+  left.dev===right.dev&&left.ino===right.ino&&left.size===right.size&&
+  left.mode===right.mode&&left.birthtimeNs===right.birthtimeNs&&
+  left.mtimeNs===right.mtimeNs&&left.ctimeNs===right.ctimeNs;
  validateFile(before);
+ const nativeBefore=expectedNative?await lstat(path,{bigint:true}):undefined;
+ if(expectedNative){
+  if(typeof expectedNative.ino!=='bigint'||typeof expectedNative.dev!=='bigint'||
+     typeof expectedNative.size!=='bigint'||typeof expectedNative.birthtimeNs!=='bigint'||
+     typeof expectedNative.mtimeNs!=='bigint'||typeof expectedNative.ctimeNs!=='bigint'||
+     typeof expectedNative.mode!=='bigint'||!nativeBefore||
+     !sameNative(expectedNative,nativeBefore))
+   throw new Error('Precise pinned-file native snapshot identity changed');
+ }
  if(expected){
   // Node overloads may type a caller lstat result as Stats|BigIntStats.
   // Reject BigInt snapshots rather than silently comparing incompatible units.
@@ -59,6 +76,10 @@ export async function readPinnedRegularFile(path:string,{
   const opened=await handle.stat();
   validateFile(opened);
   if(!same(before,opened))throw new Error('Pinned file identity changed before open');
+  const nativeOpened=expectedNative?await handle.stat({bigint:true}):undefined;
+  if(expectedNative&&(!nativeBefore||!nativeOpened||
+      !sameNative(nativeBefore,nativeOpened)))
+   throw new Error('Precise pinned-file native identity changed before open');
   // The file may grow AFTER lstat/open. Never use an unbounded whole-file read here:
   // that method could allocate the entire enlarged file before we reject it.
   // Read at most maxBytes + 1 directly from the pinned descriptor, in bounded
@@ -78,9 +99,15 @@ export async function readPinnedRegularFile(path:string,{
   const reread=await handle.stat();
   validateFile(reread);
   if(!same(opened,reread))throw new Error('Pinned file changed during read');
+  if(expectedNative&&(!nativeOpened||
+      !sameNative(nativeOpened,await handle.stat({bigint:true}))))
+   throw new Error('Precise pinned-file native identity changed during read');
   const after=await lstat(path);
   validateFile(after);
   if(!same(before,after))throw new Error('Pinned file identity changed during read');
+  if(expectedNative&&(!nativeBefore||
+      !sameNative(nativeBefore,await lstat(path,{bigint:true}))))
+   throw new Error('Precise pinned-file native path changed during read');
   return bytes;
  }finally{
   await handle.close();
