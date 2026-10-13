@@ -16,7 +16,7 @@ const escapeMarkdown=(value:string)=>neutralizeMarkdownControls(value)
  */
 const reportFileName=(path:string):string=>{
  const last=path.replace(/\\/g,'/').split('/').at(-1)??'';
- return last.replace(/[\u0000-\u001f\u007f]/g,'_')||'unnamed-script';
+ // A public basename is a display identity: invisible direction overrides\n // must not spoof it in JSON or Markdown, even when path parents are hidden.\n return last.replace(/[\u0000-\u001f\u007f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g,'_')||'unnamed-script';
 };
 const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
 
