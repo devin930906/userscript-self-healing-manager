@@ -31,6 +31,14 @@ export function qualifyTopDocumentVisibility(
  if(subframeCount===0&&authorShadowTreeNodes===0)return evidence;
  return {...evidence,status:'unknown',matchCount:null};
 }
+// The CDP browser may quote private data in JSON.parse and transport
+// exceptions. Only fixed in-module errors can leave this trust boundary.
+const SAFE_VISIBILITY_ERRORS=new Set([
+ 'CDP visibility response size exceeded',
+ 'Cannot read CDP document root',
+ 'Invalid CDP document root',
+ 'Unexpected read-only CDP command',
+]);
 const MAX_REPLY_BYTES=300_000;
 const MAX_COMPUTED_STYLES=512;
 const MAX_ATTRIBUTES=256;
@@ -89,7 +97,7 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
    if(error)reject(error);else if(result)resolve(result);
    else reject(new Error('Invalid read-only visibility result'));
   };
-  const onOpen=()=>{try{send('DOM.getDocument',{depth:0,pierce:false});}catch(e){finish(e as Error);}};
+  const onOpen=()=>{try{send('DOM.getDocument',{depth:0,pierce:false});}catch{finish(new Error('Cannot request CDP visibility root'));}};
   const onMessage=(event:{data:unknown})=>{
    try{
     if(typeof event.data!=='string'||event.data.length>MAX_REPLY_BYTES)
@@ -173,7 +181,11 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
      }
      default:throw new Error('Unexpected read-only CDP command');
     }
-   }catch(error){finish(error instanceof Error?error:new Error('Invalid CDP visibility response'));}
+   }catch(error){
+    const diagnostic=error instanceof Error&&SAFE_VISIBILITY_ERRORS.has(error.message)?
+     error.message:'Invalid CDP visibility response';
+    finish(new Error(diagnostic));
+   }
   };
   const onError=()=>finish(new Error('CDP read-only visibility socket error'));
   const onClose=()=>finish(new Error('CDP read-only visibility connection closed'));
