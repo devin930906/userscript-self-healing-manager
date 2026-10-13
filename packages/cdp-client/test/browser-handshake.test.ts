@@ -47,3 +47,26 @@ test('Chrome launcher fails closed if the HTTP debugger exists but Browser.getVe
  }),/handshake|CDP/i);
  assert.ok(checked>0,'browser socket must actually be verified');
 });
+
+test('RG-07 Chrome readiness failure must not echo private CDP exceptions',async()=>{
+ const canary='PRIVATE_ACCOUNT_TOKEN_SHOULD_NEVER_ESCAPE';
+ const status={browser:'Chrome/155',protocolVersion:'1.3',pages:[],browserSocket:endpoint};
+ for(const from of ['inspect','socket'] as const){
+  let socketChecks=0;
+  await assert.rejects(waitForChromeDebugger({
+   port:9223,timeoutMs:25,pollMs:5,
+   inspect:async()=>{
+    if(from==='inspect')throw new Error('Untrusted HTTP payload '+canary);
+    return status;
+   },
+   verifySocket:async()=>{socketChecks++;throw new Error('Untrusted WS payload '+canary);},
+   delay:async()=>{await new Promise<void>(resolve=>setTimeout(resolve,1));},
+  }),error=>{
+   assert.ok(error instanceof Error);
+   assert.match(error.message,/Chrome CDP handshake not verified/);
+   assert.doesNotMatch(error.message,/PRIVATE_ACCOUNT_TOKEN_SHOULD_NEVER_ESCAPE/);
+   return true;
+  });
+  if(from==='socket')assert.ok(socketChecks>0,'must exercise rejected WebSocket response');
+ }
+});
