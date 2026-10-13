@@ -13,7 +13,7 @@ const valid:ScanBatchResult={
 };
 
 test('RG-07 static reports refuse inconsistent total/result counts in both public formats',()=>{
- const mutations:[
+ const mutations=[
   {...valid,enumeratedCount:1},
   {...valid,processedCount:1},
   {...valid,processedCount:3},
