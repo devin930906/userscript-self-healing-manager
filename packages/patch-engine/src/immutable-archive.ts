@@ -133,12 +133,10 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
    // This does NOT make publication atomic against uncooperative processes:
    // verify parents again before any cleanup, never follow a new Junction.
    await assertUnlinkedRecoveryDirectory(dirname(archivePath));
-   let candidate:Awaited<ReturnType<typeof lstat>>;
-   try{candidate=await lstat(archivePath,{bigint:true});}
-   catch(error){
-    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
-    candidate=undefined as never;
-   }
+   const candidate=await lstat(archivePath,{bigint:true}).catch(error=>{
+    if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;
+    throw error;
+   });
    if(candidate&&candidate.isFile()&&!candidate.isSymbolicLink()&&
       candidate.dev===approvedIdentity.dev&&candidate.ino===approvedIdentity.ino&&
       candidate.birthtimeNs===approvedIdentity.birthtimeNs&&
