@@ -50,6 +50,9 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
     !report.items.every(item=>validCount(item.selectorCount)&&
       validCount(item.runtimeRequiredCount)))
   throw new Error('Invalid static report count');
+ // The runtime-required set cannot exceed all selectors in the same row.
+ if(!report.items.every(item=>item.runtimeRequiredCount<=item.selectorCount))
+  throw new Error('Inconsistent static report selector counts');
  // The row inventory is the authority for exported processed/passed/error
  // totals. Recursive inputs can enumerate more files than requested paths.
  const processed=report.items.length;
