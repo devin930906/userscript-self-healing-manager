@@ -99,3 +99,49 @@ test('QA-048 rejects missing options and noncallable callbacks before touching C
  await assert.rejects(waitForTrustedRendererReady(null as unknown as ()=>Promise<TrustedRendererState|null>,
   options()),/Unsafe trusted renderer readiness options/);
 });
+
+test('QA-048 rejects a changed renderer document with a bounded privacy-safe failure category',async()=>{
+ const cases=[
+  {state:{...ready,href:'file:///C:/private/account/profile.html?auth=SENSITIVE_TOKEN'},category:'different-file-document'},
+  {state:{...ready,href:'https://secret.invalid/path?token=SENSITIVE_TOKEN'},category:'non-file-document'},
+  {state:{...ready,topLevel:false},category:'subframe'},
+ ];
+ for(const {state,category} of cases){
+  let calls=0;
+  await assert.rejects(waitForTrustedRendererReady(async()=>{calls++;return state;},options()),
+   (error:unknown)=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Untrusted renderer document or frame during readiness check/);
+    assert.ok(error.message.includes('reason='+category),'a fixed reason identifies the broken trust boundary');
+    assert.ok(error.message.includes('ready=complete'),'only a bounded readiness enum may appear');
+    assert.ok(error.message.includes('preload=present'),'only a boolean-derived bridge status may appear');
+    for(const secret of ['SENSITIVE_TOKEN','secret.invalid','private/account','profile.html','https://']){
+     assert.ok(!error.message.includes(secret),'untrusted URL and private values must never leak to CI');
+    }
+    assert.ok(error.message.length<=220,'diagnostics must remain bounded');
+    return true;
+   });
+  assert.equal(calls,1,'untrusted document/frame must never be polled away');
+ }
+});
+
+test('QA-048 exhausted readiness probes explain missing-context versus missing-preload without URLs',async()=>{
+ const cases=[
+  {snapshot:null,expected:'last=no-context'},
+  {snapshot:{...ready,readyState:'loading',hasGetAppInfo:false},expected:'last=loading'},
+  {snapshot:{...ready,readyState:'complete',hasGetAppInfo:false},expected:'last=missing-preload'},
+ ];
+ for(const {snapshot,expected} of cases){
+  let calls=0;
+  await assert.rejects(waitForTrustedRendererReady(async()=>{calls++;return snapshot;},options({
+   attempts:2,
+  })),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   assert.match(error.message,/Trusted renderer preload not ready within bounded probes/);
+   assert.ok(error.message.includes(expected),'CI must distinguish lifecycle versus bridge latency');
+   assert.ok(!error.message.includes(trusted),'never disclose the expected file path');
+   return true;
+  });
+  assert.equal(calls,2);
+ }
+});
