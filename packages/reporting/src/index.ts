@@ -19,6 +19,12 @@ const reportFileName=(path:string):string=>{
 const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
 
 export function serializeStaticReport(report:ScanBatchResult,format:'json'|'markdown'):string{
+ // The TypeScript union cannot authenticate an object crossing a runtime
+ // export boundary. Reject untrusted status values before either format
+ // can render a forged row or inconsistent V0 verification.
+ if(!report.items.every(({status})=>status==='parsed'||status==='parse-error'||
+    status==='unreadable'||status==='skipped'))
+  throw new Error('Invalid static report item status');
  const dto={schemaVersion:2,scanMode:'static-only',createdAt:report.createdAt,requestedCount:report.requestedCount,enumeratedCount:report.enumeratedCount,processedCount:report.processedCount,passedCount:report.passedCount,errorCount:report.errorCount,items:report.items.map(({path,status,selectorCount,runtimeRequiredCount,diagnostics})=>({path:reportFileName(path),status,selectorCount,runtimeRequiredCount,diagnostics:diagnostics.map(reportDiagnostic),verification:projectVerificationLevels({staticStatus:status})}))};
  if(format==='json')return JSON.stringify(dto,null,2)+'\n';
  const rows=dto.items.map(i=>`| ${escapeMarkdown(i.path)} | ${i.status} | ${i.selectorCount} | ${i.runtimeRequiredCount} | ${i.diagnostics.join('; ')} | ${i.verification.V0} | ${i.verification.V1} | ${i.verification.V2} | ${i.verification.V3} | ${i.verification.V4} |`).join('\n');
