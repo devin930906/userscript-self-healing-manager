@@ -61,34 +61,40 @@ test('the manager fixture is restricted to the pinned Chrome 155 runtime',()=>{
 
 test('official Violentmonkey 2.49.0 install receipts accept its null errors field and reject parser failures',()=>{
  const accepted=assertViolentmonkeyInstallReceipt({
-  where:{id:1},isNew:true,errors:null,
- });
+  where:{id:1},errors:null,
+ },true);
  assert.equal(accepted.scriptId,1);
+ assert.equal(assertViolentmonkeyInstallReceipt({
+  where:{id:2},isNew:true,errors:[],
+ },true).scriptId,2);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
-  where:{id:1},isNew:true,errors:[{message:'parse failed'}],
- }),/receipt|rejected/i);
+  where:{id:1},errors:[{message:'parse failed'}],
+ },true),/receipt|rejected/i);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
   where:{id:1},isNew:false,errors:null,
- }),/receipt|rejected/i);
+ },true),/receipt|rejected/i);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
-  where:{id:'1'},isNew:true,errors:null,
- }),/receipt|rejected/i);
+  where:{id:'1'},errors:null,
+ },true),/receipt|rejected/i);
 });
 
 test('install receipt failures expose only a fixed structural reason for safe CI diagnosis',()=>{
- assert.throws(()=>assertViolentmonkeyInstallReceipt(null),/receipt rejected: envelope/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt(null,true),/receipt rejected: envelope/i);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
-  where:null,isNew:true,errors:null,
- }),/receipt rejected: script-location/i);
+  where:null,errors:null,
+ },true),/receipt rejected: script-location/i);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
   where:{id:1},isNew:false,errors:null,
- }),/receipt rejected: not-new-script/i);
+ },true),/receipt rejected: not-new-script/i);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
-  where:{id:1},isNew:true,errors:[{message:'private or parser text'}],
- }),/receipt rejected: parser-errors/i);
+  where:{id:1},errors:[{message:'private or parser text'}],
+ },true),/receipt rejected: parser-errors/i);
  assert.throws(()=>assertViolentmonkeyInstallReceipt({
-  where:{id:'private value'},isNew:true,errors:null,
- }),/receipt rejected: script-id/i);
+  where:{id:'private value'},errors:null,
+ },true),/receipt rejected: script-id/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:1},errors:null,
+ },false),/receipt rejected: preexisting-script/i);
 });
 
 test('official manager workflow stays pinned, loopback-only and outside installer distribution jobs',async()=>{
@@ -120,9 +126,11 @@ test('official manager workflow stays pinned, loopback-only and outside installe
  assert.match(smoke,/--proxy-server=http:\/\/127\.0\.0\.1:9/);
 });
 
-test('read-only manager discovery follows an actual fixed-script install that wakes the MV3 service worker',async()=>{
+test('manager discovery follows a fixed-script install whose preflight proves the script was absent',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ const preflight=smoke.indexOf("const preflight=await optionsCdp.send('Runtime.evaluate'");
  const install=smoke.indexOf("const installed=await optionsCdp.send('Runtime.evaluate'");
  const inspect=smoke.indexOf('const managerReport=await inspectKnownUserscriptManagerTargets');
- assert.ok(install>=0&&inspect>install,'manager discovery must observe the extension after the fixture interaction starts its worker');
+ assert.ok(preflight>=0&&install>preflight&&inspect>install,
+  'manager discovery follows an absent-script preflight and installation that starts the worker');
 });

@@ -21,16 +21,20 @@ export function extensionIdFromChromePublicKey(publicKeyBase64:string):string{
 /** Validate the exact bounded receipt returned by the pinned ParseScript API. */
 export function assertViolentmonkeyInstallReceipt(
  receipt:unknown,
+ priorScriptAbsent:boolean,
 ):Readonly<{scriptId:number}>{
- const reject=(reason:'envelope'|'script-location'|'not-new-script'|'parser-errors'|'script-id'):never=>{
+ const reject=(reason:'preexisting-script'|'envelope'|'script-location'|'not-new-script'|'parser-errors'|'script-id'):never=>{
   throw new Error(`Violentmonkey install receipt rejected: ${reason}`);
  };
+ if(priorScriptAbsent!==true)reject('preexisting-script');
  if(!receipt||typeof receipt!=='object'||Array.isArray(receipt))
   reject('envelope');
  const value=receipt as {where?:unknown;isNew?:unknown;errors?:unknown};
  if(!value.where||typeof value.where!=='object'||Array.isArray(value.where))
   reject('script-location');
- if(value.isNew!==true)reject('not-new-script');
+ // The official ParseScript wrapper may omit isNew from its callback receipt.
+ // A read-only GetScript preflight proves absence; an explicit false still wins.
+ if('isNew' in value&&value.isNew!==true)reject('not-new-script');
  if(value.errors!==null&&(!Array.isArray(value.errors)||value.errors.length!==0))
   reject('parser-errors');
  const scriptId=(value.where as {id?:unknown}).id;

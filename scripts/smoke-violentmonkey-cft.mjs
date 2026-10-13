@@ -85,6 +85,10 @@ const userScript=`// ==UserScript==
  });
 })();
 `;
+const fixtureMeta={
+ name:'USSHM Isolated Violentmonkey V4 Fixture',
+ namespace:'https://usshm.invalid/isolated-fixture',
+};
 
 async function openCdp(endpoint){
  const socket=new WebSocket(endpoint);
@@ -216,6 +220,20 @@ try{
  const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
+ const preflightMessage={cmd:'GetScript',data:{meta:fixtureMeta}};
+ const preflightExpression=`new Promise(resolve=>chrome.runtime.sendMessage(${JSON.stringify(preflightMessage)},value=>{
+  const failed=!!chrome.runtime.lastError;
+  resolve(JSON.stringify({failed,found:!!value?.props?.id}));
+}))`;
+ const preflight=await optionsCdp.send('Runtime.evaluate',{
+  expression:preflightExpression,awaitPromise:true,returnByValue:true,
+ });
+ const preflightText=preflight.result?.value;
+ if(typeof preflightText!=='string'||preflightText.length>512)
+  throw new Error('Violentmonkey did not return a bounded read-only fixture preflight');
+ const preflightReceipt=JSON.parse(preflightText);
+ if(preflightReceipt.failed||preflightReceipt.found!==false)
+  throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
  const installMessage={
   cmd:'ParseScript',
   data:{
@@ -237,7 +255,7 @@ try{
  const installReceipt=JSON.parse(installText);
  if(installReceipt.failed)
   throw new Error('Violentmonkey rejected the fixed synthetic userscript fixture');
- assertViolentmonkeyInstallReceipt(installReceipt);
+ assertViolentmonkeyInstallReceipt(installReceipt,preflightReceipt.found===false);
  // ParseScript exercises the real official manager and wakes its MV3 worker;
  // the app's read-only target inventory is intentionally passive and may not
  // report a sleeping worker before this bounded fixture interaction.
