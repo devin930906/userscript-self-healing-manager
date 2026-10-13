@@ -220,3 +220,22 @@ test('RG-05 sanitizes hostile CDP response field access before any injector read
   assert.equal(calls,1);
  }
 });
+
+test('RG-05 does not accept inherited CDP result and value fields',async()=>{
+ for(const response of [
+  Object.create({result:{value:JSON.stringify({ready:true})}}),
+  {result:Object.create({value:JSON.stringify({ready:true})})},
+ ]){
+  let calls=0;
+  const stages:string[]=[];
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return response;},
+   hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>stages.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'Isolated manager injector CDP evaluation failed');
+  assert.equal(calls,1);
+  assert.deepEqual(stages,['cdp-evaluation-failed']);
+ }
+});
