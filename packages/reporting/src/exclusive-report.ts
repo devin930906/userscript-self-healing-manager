@@ -55,7 +55,7 @@ export async function writeExclusiveReport({destinationPath,content,writeChunk,b
  // A second private hardlink pins the approved file independent of Windows'
  // approximate inode numbers. A replacement at the stage pathname has one
  // link, while the original retains its private guard link.
- const stageGuard=stage+'.guard';
+ const stageGuard=join(dirname(destinationPath),'.report-guard-'+randomUUID()+'.tmp');
  let guardCreated=false;
  // Node exposes only approximate file identifiers on some Windows volumes.
  // Pin every available identity field in addition to digest and hardlink count;
