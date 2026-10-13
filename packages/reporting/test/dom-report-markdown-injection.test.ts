@@ -8,6 +8,7 @@ test('RG-07 DOM Markdown export keeps untrusted script basenames inert without a
   '![PREVIEW](https:collector.invalid?token=SECRET).user.js',
   '[REPAIR](javascript:alert(1)).user.js',
   '*MISLEADING_RESULT*.user.js',
+  '~~SUPPRESSED_RESULT~~.user.js',
  ];
  const report:BatchDomResult={
   validationLevel:'dom-only',
@@ -34,6 +35,10 @@ test('RG-07 DOM Markdown export keeps untrusted script basenames inert without a
  assert.match(exported,/\\!\\\[PREVIEW\\\]\\\(/);
  assert.match(exported,/\\\[REPAIR\\\]\\\(javascript:/);
  assert.match(exported,/\\\*MISLEADING\\_RESULT\\\*/);
+ assert.doesNotMatch(exported,/\|\s*~~SUPPRESSED_RESULT~~/,
+  'a legal Windows basename must not render as Markdown strikethrough');
+ assert.match(exported,/\\~\\~SUPPRESSED\\_RESULT\\~\\~/,
+  'present tilde characters as escaped ordinary text');
  assert.equal(exported.includes('/fixture?token=SECRET'),false,
   'report must not include the original page URL path or query token');
  const json=JSON.parse(serializeDomBatchReport(report,'json','2026-10-13T06:00:00.000Z'));
