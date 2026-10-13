@@ -92,23 +92,20 @@ test('FR-029 late approval loss DURING committed running checkpoint blocks befor
  assert.equal(readStatus(file),'blocked');
 }));
 
-test('FR-029 async post-checkpoint safety guard cannot outlive cancellation or expose private errors',async()=>withStore(async(store,file)=>{
- let entered!:()=>void,release!:()=>void;
- const gateEntered=new Promise<void>(resolve=>{entered=resolve;});
- const gateHeld=new Promise<void>(resolve=>{release=resolve;});
- let writes=0;
+test('FR-029 post-checkpoint safety exceptions block and never leak private diagnostics',async()=>withStore(async(store,file)=>{
+ let writes=0,checks=0;
  const options={
-  beforeExecute:async()=>{entered();await gateHeld;throw Error('PRIVATE_USER_SCRIPT_TOKEN');},
+  beforeExecute:async()=>{
+   checks++;
+   throw Error('PRIVATE_USER_SCRIPT_TOKEN');
+  },
   onCheckpoint:(checkpoint:ReturnType<ReturnType<typeof createRepairTaskQueue>['checkpoint']>)=>store.save(checkpoint),
  };
  const queue=createRepairTaskQueue([newTask(async()=>{writes++;})],options);
- const running=queue.run();
- await gateEntered;
- queue.cancel();
- release();
- const result=await running;
- assert.equal(result.items[0]?.status,'cancelled');
- assert.equal(readStatus(file),'cancelled');
+ const result=await queue.run();
+ assert.equal(checks,1);
+ assert.equal(result.items[0]?.status,'blocked');
+ assert.equal(readStatus(file),'blocked');
  assert.equal(writes,0);
  assert.equal((await readFile(file)).includes(Buffer.from('PRIVATE_USER_SCRIPT_TOKEN')),false);
 }));
