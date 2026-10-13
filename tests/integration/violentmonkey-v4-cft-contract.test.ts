@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {test} from 'node:test';
+import {
+ assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,
+ extensionIdFromChromePublicKey,VIOLENTMONKEY_CFT_RELEASE,
+} from '../../scripts/violentmonkey-v4-contract.ts';
+
+const observation=(before=0)=>({
+ chromeProduct:'Chrome/155.0.8059.39',
+ managerVersion:'2.49.0',
+ managerExtensionId:'jinjaccalgkegednnccohejagnlnfdag',
+ observedManagers:['violentmonkey'],
+ appV4:'not-configured',
+ appManagerVerified:false,
+ fixture:{
+  storageBefore:before,storageAfter:before+1,storageReadback:before+1,
+  menuCommandId:'usshm-v4-fixture-menu',requestStatus:200,
+  requestBody:'USSHM_GM_REQUEST_OK',
+ },
+});
+
+test('isolated Violentmonkey fixture requires its exact manager identity and all declared GM APIs',()=>{
+ assert.equal(extensionIdFromChromePublicKey(VIOLENTMONKEY_CFT_RELEASE.publicKey),
+  VIOLENTMONKEY_CFT_RELEASE.extensionId);
+ for(const before of [0,1]){
+  const result=assertViolentmonkeyV4FixtureObservation(observation(before),before);
+  assert.equal(result.status,'fixture-passed');
+  assert.deepEqual(result.apis,['GM_getValue','GM_setValue','GM_registerMenuCommand','GM_xmlhttpRequest']);
+  assert.equal(result.V4,'not-configured');
+  assert.equal(result.managerVerified,false);
+  assert.equal(result.productionEligible,false);
+ }
+});
+
+test('synthetic extension targets, missing GM APIs and a claimed V4 pass cannot satisfy the official-manager fixture',()=>{
+ const mutations=[
+  (x:any)=>{x.managerVersion='2.48.9';},
+  (x:any)=>{x.managerExtensionId='abcdefghijklmnopabcdefghijklmnop';},
+  (x:any)=>{x.observedManagers=[];},
+  (x:any)=>{x.appV4='passed';},
+  (x:any)=>{x.appManagerVerified=true;},
+  (x:any)=>{x.fixture.storageReadback=99;},
+  (x:any)=>{x.fixture.menuCommandId='';},
+  (x:any)=>{x.fixture.requestStatus=0;},
+  (x:any)=>{x.fixture.requestBody='';},
+ ];
+ for(const mutate of mutations){
+  const forged=observation();mutate(forged);
+  assert.throws(()=>assertViolentmonkeyV4FixtureObservation(forged,0),/incomplete|inconsistent/i);
+ }
+});
+
+test('the manager fixture is restricted to the pinned Chrome 155 runtime',()=>{
+ for(const chromeProduct of ['Chrome/154.0.0.1','Firefox/155','Chromium/156.0.0.1']){
+  const bad={...observation(),chromeProduct};
+  assert.throws(()=>assertViolentmonkeyV4FixtureObservation(bad,0),/incomplete|inconsistent/i);
+ }
+});
+
+test('official Violentmonkey 2.49.0 install receipts accept its null errors field and reject parser failures',()=>{
+ const accepted=assertViolentmonkeyInstallReceipt({
+  where:{id:1},isNew:true,errors:null,
+ });
+ assert.equal(accepted.scriptId,1);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:1},isNew:true,errors:[{message:'parse failed'}],
+ }),/receipt|rejected/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:1},isNew:false,errors:null,
+ }),/receipt|rejected/i);
+ assert.throws(()=>assertViolentmonkeyInstallReceipt({
+  where:{id:'1'},isNew:true,errors:null,
+ }),/receipt|rejected/i);
+});
+
+test('official manager workflow stays pinned, loopback-only and outside installer distribution jobs',async()=>{
+ const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
+ const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
+ assert.match(workflow,/violentmonkey\/violentmonkey\/releases\/download\/v2\.49\.0\/Violentmonkey-mv3-v2\.49\.0\.zip/);
+ assert.match(workflow,new RegExp(VIOLENTMONKEY_CFT_RELEASE.archiveSha256));
+ assert.match(workflow,/runs-on:\s*windows-latest/);
+ assert.match(workflow,/USSHM_SMOKE_EXPECT_CHROME_MAJOR:\s*'155'/);
+ assert.doesNotMatch(workflow,/dist:win|electron-builder|upload-artifact/i);
+ const source=smoke.match(/const userScript=`([\s\S]*?)`;/)?.[1];
+ assert.ok(source,'fixed synthetic userscript source must be present');
+ const metadata=source.split('\n').filter(line=>line.startsWith('// @'));
+ assert.deepEqual(metadata,[
+  '// @name USSHM Isolated Violentmonkey V4 Fixture',
+  '// @namespace https://usshm.invalid/isolated-fixture',
+  '// @match http://127.0.0.1/*',
+  '// @grant GM_getValue',
+  '// @grant GM_setValue',
+  '// @grant GM_registerMenuCommand',
+  '// @grant GM_xmlhttpRequest',
+  '// @connect 127.0.0.1',
+  '// @run-at document-idle',
+ ]);
+ assert.doesNotMatch(smoke,/--no-sandbox/i);
+ assert.match(smoke,/--proxy-server=http:\/\/127\.0\.0\.1:9/);
+});
