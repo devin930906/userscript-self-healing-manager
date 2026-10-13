@@ -20,13 +20,15 @@ type ChunkWriter=(handle:FileHandle,chunk:Uint8Array,position:number)=>Promise<n
  * is not a guarantee against malicious cross-process directory modification
  * or sudden hardware/storage-controller failures.
  */
-export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,beforePublish}:{
+export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,beforePublish,afterPublish}:{
  archivePath:string;
  bytes:Uint8Array;
  /** Deterministic disk-full/short-write injection for recovery tests. */
  writeChunk?:ChunkWriter;
  /** Internal synthetic race injection only; never routed from Electron renderer. */
  beforePublish?:()=>Promise<void>;
+ /** Internal synthetic failure after new link; never sent from renderer. */
+ afterPublish?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof archivePath!=='string'||!isAbsolute(archivePath)||
     !(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>MAX_ARCHIVE_BYTES)
@@ -58,6 +60,10 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
  const staging=join(dirname(archivePath),'.'+basename(archivePath)+'.staging-'+randomUUID()+'.tmp');
  let handle:FileHandle|undefined;
  let failure:unknown;
+ // Only remove a failed SHA-named archive if THIS call created its link and
+ // the destination still denotes the originally verified staging inode.
+ let linkedByThisCall=false;
+ let approvedIdentity:{dev:bigint;ino:bigint;birthtimeNs:bigint;mode:bigint}|undefined;
  try{
   handle=await open(staging,'wx',0o600);
   const writer:ChunkWriter=writeChunk??(async(file,chunk,position)=>{
@@ -105,6 +111,12 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
    // link(2) fails with EEXIST instead of overwriting another publisher;
    // the linked bytes were already synced and validated above.
    await link(staging,archivePath);
+   linkedByThisCall=true;
+   approvedIdentity={
+    dev:reviewedStage.dev,ino:reviewedStage.ino,
+    birthtimeNs:reviewedStage.birthtimeNs,mode:reviewedStage.mode,
+   };
+   if(afterPublish)await afterPublish();
   }catch(error){
    if((error as NodeJS.ErrnoException).code==='EEXIST'){
     await verify(archivePath,true);
@@ -116,6 +128,25 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
   // Never trust a successful link or EEXIST alone.
   await verify(archivePath);
  }catch(error){failure=error;}
+ if(failure!==undefined&&linkedByThisCall&&approvedIdentity){
+  try{
+   // This does NOT make publication atomic against uncooperative processes:
+   // verify parents again before any cleanup, never follow a new Junction.
+   await assertUnlinkedRecoveryDirectory(dirname(archivePath));
+   const candidate=await lstat(archivePath,{bigint:true}).catch(error=>{
+    if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;
+    throw error;
+   });
+   if(candidate&&candidate.isFile()&&!candidate.isSymbolicLink()&&
+      candidate.dev===approvedIdentity.dev&&candidate.ino===approvedIdentity.ino&&
+      candidate.birthtimeNs===approvedIdentity.birthtimeNs&&
+      candidate.mode===approvedIdentity.mode){
+    await unlink(archivePath);
+   }
+  }catch(error){
+   failure=new AggregateError([failure,error],'Failed to clean only owned immutable archive after publication error');
+  }
+ }
  if(handle){
   try{await handle.close();}catch(error){failure??=error;}
  }
