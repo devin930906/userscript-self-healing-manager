@@ -128,7 +128,7 @@ test('official manager workflow stays pinned, loopback-only and outside installe
 
 test('manager discovery follows a fixed-script install whose preflight proves the script was absent',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
- const preflight=smoke.indexOf("const preflight=await optionsCdp.send('Runtime.evaluate'");
+ const preflight=smoke.indexOf('const preflightReceipt=await readManagerPreflight(optionsCdp');
  const install=smoke.indexOf("const installed=await optionsCdp.send('Runtime.evaluate'");
  const inspect=smoke.indexOf('const managerReport=await inspectKnownUserscriptManagerTargets');
  assert.ok(preflight>=0&&install>preflight&&inspect>install,
@@ -144,11 +144,11 @@ test('official manager install callback reduces parser details to a bounded priv
  assert.match(smoke,/typeof installText!=='string'/);
 });
 
-test('read-only manager preflight proves script absence from metadata inside the isolated extension page',async()=>{
+test('read-only manager preflight proves script absence from the official options-page inventory',async()=>{
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
- assert.match(smoke,/cmd:'GetData',data:\{sizes:false\}/);
- assert.match(smoke,/Object\.values\(value\?\?\{\}\)\.flatMap/);
- assert.match(smoke,/script\?\.meta\?\.name===\$\{JSON\.stringify\(fixtureMeta\.name\)\}&&script\?\.meta\?\.namespace===\$\{JSON\.stringify\(fixtureMeta\.namespace\)\}/);
- assert.match(smoke,/JSON\.stringify\(\{failed,found\}\)/);
- assert.doesNotMatch(smoke,/cmd:'GetScript'/);
+ assert.match(smoke,/globalThis\.BGDATA\?\.options\?\.scripts/);
+ assert.match(smoke,/script\?\.meta\?\.name===\$\{JSON\.stringify\(fixtureMeta\.name\)\}\s*&&\s*script\?\.meta\?\.namespace===\$\{JSON\.stringify\(fixtureMeta\.namespace\)\}/);
+ assert.match(smoke,/JSON\.stringify\(\{found\}\)/);
+ assert.match(smoke,/await readManagerPreflight\(optionsCdp/);
+ assert.doesNotMatch(smoke,/cmd:'GetData'|cmd:'GetScript'/);
 });

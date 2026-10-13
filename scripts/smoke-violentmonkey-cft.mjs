@@ -159,6 +159,33 @@ async function readFixtureResult(cdp,hasExited){
  throw new Error('Pinned Violentmonkey fixture did not publish its bounded GM API result');
 }
 
+async function readManagerPreflight(cdp,hasExited){
+ const expression=`(()=>{
+  const scripts=globalThis.BGDATA?.options?.scripts;
+  if(!Array.isArray(scripts))return null;
+  const found=scripts.some(script=>script?.meta?.name===${JSON.stringify(fixtureMeta.name)}&&
+   script?.meta?.namespace===${JSON.stringify(fixtureMeta.namespace)});
+  return JSON.stringify({found});
+ })()`;
+ for(let attempt=0;attempt<50;attempt++){
+  if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
+  try{
+   const answer=await cdp.send('Runtime.evaluate',{expression,returnByValue:true});
+   const value=answer.result?.value;
+   if(typeof value==='string'){
+    if(value.length>512)throw new Error('Violentmonkey manager preflight exceeded its fixed result bound');
+    const receipt=JSON.parse(value);
+    if(typeof receipt?.found==='boolean')return {found:receipt.found};
+    throw new Error('Violentmonkey manager preflight returned an invalid fixed receipt');
+   }
+  }catch(error){
+   if(error instanceof Error&&/fixed result bound|invalid fixed receipt/.test(error.message))throw error;
+  }
+  await delay(100);
+ }
+ throw new Error('Violentmonkey did not expose its bounded read-only fixture preflight');
+}
+
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -220,21 +247,8 @@ try{
  const optionsPage=await waitForPage(createdOptions.targetId,optionsUrl,()=>exited);
  optionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
  await optionsCdp.send('Runtime.enable');
- const preflightMessage={cmd:'GetData',data:{sizes:false}};
- const preflightExpression=`new Promise(resolve=>chrome.runtime.sendMessage(${JSON.stringify(preflightMessage)},value=>{
-  const failed=!!chrome.runtime.lastError;
-  const scripts=Object.values(value??{}).flatMap(item=>Array.isArray(item)?item:[]);
-  const found=scripts.some(script=>script?.meta?.name===${JSON.stringify(fixtureMeta.name)}&&script?.meta?.namespace===${JSON.stringify(fixtureMeta.namespace)});
-  resolve(JSON.stringify({failed,found}));
-}))`;
- const preflight=await optionsCdp.send('Runtime.evaluate',{
-  expression:preflightExpression,awaitPromise:true,returnByValue:true,
- });
- const preflightText=preflight.result?.value;
- if(typeof preflightText!=='string'||preflightText.length>512)
-  throw new Error('Violentmonkey did not return a bounded read-only fixture preflight');
- const preflightReceipt=JSON.parse(preflightText);
- if(preflightReceipt.failed||preflightReceipt.found!==false)
+ const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
+ if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
  const installMessage={
   cmd:'ParseScript',
