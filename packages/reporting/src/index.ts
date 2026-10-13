@@ -56,6 +56,10 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // The row inventory is the authority for exported processed/passed/error
  // totals. Recursive inputs can enumerate more files than requested paths.
  const processed=report.items.length;
+ // A zero-input scan cannot discover rows; keep empty folder scans and
+ // recursive expansion from one or more paths valid.
+ if(report.requestedCount===0&&processed>0)
+  throw new Error('Inconsistent static report request count');
  const passed=report.items.filter(item=>item.status==='parsed').length;
  const failed=report.items.filter(item=>item.status==='parse-error'||
   item.status==='unreadable').length;
