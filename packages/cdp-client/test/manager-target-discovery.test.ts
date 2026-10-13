@@ -183,3 +183,20 @@ test('manager socket validation redacts throwing accessor and closes transport',
  });
  assert.equal(closed,1);
 });
+
+test('malformed socket with throwing close getter is rejected with fixed error',async()=>{
+ const secret='private-close-getter-token';
+ const malformed={
+  addEventListener:()=>{},removeEventListener:()=>{},send:undefined,
+  get close(){throw new Error(secret);},
+ };
+ await assert.rejects(inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:browser,expectedProduct:product,
+  socketFactory:()=>malformed as unknown as BrowserSocket,
+ }),error=>{
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'Invalid CDP manager target socket interface');
+  assert.doesNotMatch(error.message,/private-close-getter-token/);
+  return true;
+ });
+});
