@@ -200,3 +200,23 @@ test('RG-05 rejects explicit falsy CDP exceptionDetails despite forged ready rec
   assert.equal(calls,1);
  }
 });
+
+test('RG-05 sanitizes hostile CDP response field access before any injector readiness promotion',async()=>{
+ for(const hostileField of ['result','value']){
+  const statuses:string[]=[];
+  let calls=0;
+  const privateText='PRIVATE_CDP_RESPONSE_GETTER';
+  const result=hostileField==='result'
+   ?Object.defineProperty({},'result',{get(){throw new Error(privateText);}})
+   :{result:Object.defineProperty({},'value',{get(){throw new Error(privateText);}})};
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return result;},
+   hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>statuses.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'Isolated manager injector CDP evaluation failed');
+  assert.deepEqual(statuses,['cdp-evaluation-failed']);
+  assert.equal(calls,1);
+ }
+});
