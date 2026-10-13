@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,readFile,writeFile,rm,symlink,mkdir} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,symlink,mkdir,link,lstat,unlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRepairWorkflow} from '../src/index.ts';
@@ -88,4 +88,26 @@ test('V1 managed locator refuses to certify active source during an in-progress 
   managedRoot:root,scriptId:'leased-v1',revisionHash:saved.hash,selectorIndex:0,
  });
  assert.equal(checked.expression,'#new');
+}));
+
+test('RG-06 verified managed locator cannot certify externally hardlinked current bytes',async()=>fixture(async(root,source,flow)=>{
+ const proposal=await flow.propose({sourcePath:source,scriptId:'v1-linked',
+  oldSelector:'#old',newSelector:'#approved'});
+ const saved=await flow.apply({proposalId:proposal.proposalId,approved:true});
+ const current=join(root,'managed','v1-linked','current.user.js');
+ const request={managedRoot:root,scriptId:'v1-linked',revisionHash:saved.hash,selectorIndex:0};
+ const before=await readVerifiedManagedLocator(request);
+ assert.equal(before.expression,'#approved','unaliased revision remains verifiable');
+ const alias=join(root,'outside-managed-hardlink.user.js');
+ await link(current,alias);
+ assert.equal((await lstat(current)).nlink,2,
+  'external filename points to the approved active inode, not to an archive');
+ await assert.rejects(readVerifiedManagedLocator(request),/hardlink|alias|unsafe|current/i,
+  'matching SHA-256 cannot certify a V1 locator whose active bytes have a foreign hardlink');
+ assert.deepEqual(await readFile(current),await readFile(alias),
+  'rejected verification must not alter or unlink existing files');
+ await unlink(alias);
+ const recovered=await readVerifiedManagedLocator(request);
+ assert.equal(recovered.expression,'#approved',
+  'removing the external alias permits normal hash-backed read-only verification');
 }));
