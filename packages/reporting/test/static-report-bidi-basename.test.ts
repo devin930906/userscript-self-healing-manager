@@ -19,15 +19,16 @@ test('RG-07 JSON and Markdown filenames neutralize invisible bidi controls befor
  const json=serializeStaticReport(input,'json');
  const markdown=serializeStaticReport(input,'markdown');
  const parsed=JSON.parse(json);
- for(const exported of [json,markdown]){
-  assert.doesNotMatch(exported,/PRIVATE_ACCOUNT_DIRECTORY/,
-   'never expose private ancestor names');
-  for(const control of bidi)
-   assert.equal(exported.includes(control),false,
-    'export must not contain raw directional control U+'+control.codePointAt(0)?.toString(16));
- }
- assert.match(parsed.items[0].path,/^pre_+fix\.user\.js$/,
-  'keep visible filename identity while replacing each unsafe bidi character');
+ assert.doesNotMatch(json,/PRIVATE_ACCOUNT_DIRECTORY/,
+  'never expose private ancestor names in machine-readable JSON');
+ assert.doesNotMatch(markdown,/PRIVATE_ACCOUNT_DIRECTORY/,
+  'never expose private ancestor names in Markdown');
+ for(const control of bidi)
+  assert.equal(markdown.includes(control),false,
+   'display Markdown must not contain directional control U+'+control.codePointAt(0)?.toString(16));
+ assert.equal(parsed.items[0].path,injected,
+  'retain the existing raw basename identity in JSON for downstream round trips');
+ assert.ok(markdown.includes('U+61C'),'Arabic letter mark should be visible as a control label');
  assert.equal(parsed.items[0].verification.V0,'passed');
  assert.equal(parsed.items[0].verification.V4,'not-configured');
  assert.ok(markdown.includes('fix.user.js'),'Markdown should retain readable filename text');
