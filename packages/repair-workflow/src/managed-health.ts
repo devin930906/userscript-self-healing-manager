@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {lstat,readdir} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
+import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {listManagedRevisions} from './history.ts';
 
 export type ManagedHealthStatus=
@@ -26,6 +27,13 @@ export async function inspectManagedIntegrity({managedRoot,scriptId}:{
  if(typeof managedRoot!=='string'||!isAbsolute(managedRoot)||
     typeof scriptId!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(scriptId))
   throw new Error('Invalid managed root or unsafe scriptId');
+ // Reject a redirected Data ancestor before a lock can mask the unsafe
+ // path as an ordinary in-progress managed writer. This is read-only.
+ try{await assertUnlinkedRecoveryDirectory(managedRoot);}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='ENOENT')return outcome('empty');
+  return outcome('unsafe');
+ }
  const managed=join(managedRoot,'managed');
  const folder=join(managed,scriptId);
  for(const directory of [managedRoot,managed,folder]){

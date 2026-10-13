@@ -164,3 +164,30 @@ test('RG-06 active managed current with an external hardlink alias never certifi
  assert.deepEqual(await probe(root),{status:'healthy',archiveCount:1,activeHash:sha},
   'removing the foreign alias restores eligibility without modifying approved content');
 }));
+
+test('RG-06 ancestor junction cannot masquerade as an ordinary managed writer lock',async(t)=>withStore(async(root)=>{
+ const realParent=join(root,'real-parent');
+ const realData=join(realParent,'Data');
+ const folder=join(realData,'managed','script-1');
+ await mkdir(folder,{recursive:true});
+ await mkdir(join(folder,'current.user.js.write-lock'));
+ const control=await probe(realData);
+ assert.equal(control.status,'write-locked','unaliased active writer is still reported accurately');
+ const alias=join(root,'external-junction');
+ try{await symlink(realParent,alias,process.platform==='win32'?'junction':'dir');}
+ catch(error){
+  if(['EPERM','EACCES','ENOTSUP'].includes((error as NodeJS.ErrnoException).code??'')){
+   t.skip('Runner cannot create a directory junction or symlink');
+   return;
+  }
+  throw error;
+ }
+ const redirectedRoot=join(alias,'Data');
+ const report=await probe(redirectedRoot);
+ assert.deepEqual(report,{status:'unsafe',archiveCount:0,activeHash:null},
+  'an ancestor junction must be refused BEFORE a writer lock masks the unsafe source path');
+ const lockStat=await lstat(join(folder,'current.user.js.write-lock'));
+ assert.equal(lockStat.isDirectory(),true,'health inspection must not remove or mutate the original lock');
+ assert.equal((await probe(realData)).status,'write-locked',
+  'rejecting the aliased route must not change the ordinary path state');
+}));
