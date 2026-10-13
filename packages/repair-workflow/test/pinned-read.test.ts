@@ -125,3 +125,24 @@ test('RG-06 rejects a stale precise native snapshot even if rounded Stats still 
   original,'unchanged precise native snapshot remains readable',
  );
 }));
+
+test('RG-06 rejects stale precise native creation and change times independently of rounded Stats',async()=>fixture(async dir=>{
+ const path=join(dir,'native-timestamps.user.js');
+ const original=Buffer.from('SYNTHETIC_NATIVE_TIMESTAMP');
+ await writeFile(path,original);
+ const numeric=await lstat(path),native=await lstat(path,{bigint:true});
+ for(const field of ['birthtimeNs','ctimeNs','mtimeNs'] as const){
+  const stale=Object.create(native) as typeof native;
+  Object.defineProperty(stale,field,{value:native[field]+1n});
+  await assert.rejects(
+   readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric,expectedNative:stale}),
+   /precise|identity|snapshot|changed|replaced/i,
+   field+' mismatch must fail closed',
+  );
+  assert.deepEqual(await readFile(path),original);
+ }
+ assert.deepEqual(
+  await readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric,expectedNative:native}),
+  original,
+ );
+}));
