@@ -146,3 +146,23 @@ test('RG-06 rejects stale precise native creation and change times independently
   original,
  );
 }));
+
+test('RG-06 rejects stale precise native device link and mode snapshots without mutating source',async()=>fixture(async dir=>{
+ const path=join(dir,'native-metadata.user.js');
+ const original=Buffer.from('SYNTHETIC_NATIVE_METADATA');
+ await writeFile(path,original);
+ const numeric=await lstat(path),native=await lstat(path,{bigint:true});
+ for(const field of ['dev','nlink','mode','size'] as const){
+  const stale=Object.create(native) as typeof native;
+  Object.defineProperty(stale,field,{value:native[field]+1n});
+  await assert.rejects(
+   readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric,expectedNative:stale}),
+   /precise|identity|snapshot|changed|replaced/i,
+   field+' mismatch must fail closed',
+  );
+  assert.deepEqual(await readFile(path),original);
+ }
+ assert.deepEqual(await readPinnedRegularFile(path,{
+  maxBytes:512*1024,expected:numeric,expectedNative:native,
+ }),original);
+}));
