@@ -78,9 +78,25 @@ export async function persistImmutableSnapshot({archivePath,bytes,writeChunk,bef
   // Reject a preexisting foreign hardlink before the archive name is
   // published. Otherwise late failure would still leave an untrusted
   // hash-named backup visible in the managed store.
+  // Approval applies to the verified staging object, not to the name that
+  // another process could subsequently replace (even with identical bytes).
+  const reviewedStage=await lstat(staging,{bigint:true});
+  if(!reviewedStage.isFile()||reviewedStage.isSymbolicLink()||reviewedStage.nlink!==1n)
+   throw new Error('Unsafe immutable staging file identity or hardlink alias');
   await verify(staging,true);
+  const sameStage=(other:typeof reviewedStage):boolean=>
+   other.isFile()&&!other.isSymbolicLink()&&other.nlink===1n&&
+   other.dev===reviewedStage.dev&&other.ino===reviewedStage.ino&&
+   other.birthtimeNs===reviewedStage.birthtimeNs&&other.mode===reviewedStage.mode;
   // Controlled injection at the post-verification publication gap.
   if(beforePublish)await beforePublish();
+  // A post-link hash failure is too late: it leaves an unapproved
+  // hash-named backup visible. Reject substituted names BEFORE link().
+  if(!sameStage(await lstat(staging,{bigint:true})))
+   throw new Error('Immutable staging identity changed after verification');
+  await verify(staging,true);
+  if(!sameStage(await lstat(staging,{bigint:true})))
+   throw new Error('Immutable staging changed before publication');
   try{
    // link(2) fails with EEXIST instead of overwriting another publisher;
    // the linked bytes were already synced and validated above.
