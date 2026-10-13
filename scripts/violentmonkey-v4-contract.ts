@@ -314,7 +314,8 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
  return `(async()=>{
   try{
    const scripts=await chrome.userScripts.getScripts({ids:['1001']});
-   const script=Array.isArray(scripts)&&scripts.length===1?scripts[0]:null;
+   const entry=Array.isArray(scripts)&&scripts.length===1?Object.getOwnPropertyDescriptor(scripts,'0'):null;
+   const script=entry&&Object.hasOwn(entry,'value')?entry.value:null;
    const ready=script&&['id','runAt','allFrames','js','matches'].every(key=>
     Object.hasOwn(script,key)&&Object.hasOwn(Object.getOwnPropertyDescriptor(script,key),'value'))&&
     script.id==='1001'&&script.runAt==='document_start'&&script.allFrames===true&&
