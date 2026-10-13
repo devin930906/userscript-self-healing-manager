@@ -38,19 +38,23 @@ export function buildViolentmonkeyUserScriptsAccessExpression():string{
  const id=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.extensionId);
  const version=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.version);
  return `(async()=>{
-  const finish=available=>JSON.stringify({available});
+  const finish=(available,reason)=>JSON.stringify(available?{available:true}:{available:false,reason});
   try{
-   if(location.href!=='chrome://extensions/')return finish(false);
+   if(location.href!=='chrome://extensions/')return finish(false,'page-context');
    const api=chrome.developerPrivate;
-   const valid=info=>info?.id===${id}&&info.version===${version}&&
-    info.state==='ENABLED'&&info.location==='UNPACKED'&&info.userScriptsAccess?.isEnabled===true;
+   if(typeof api?.getExtensionInfo!=='function'||typeof api?.updateExtensionConfiguration!=='function')
+    return finish(false,'settings-api');
+   const invalid=info=>info?.id!==${id}?'identity':info.version!==${version}?'version':
+    info.state!=='ENABLED'?'state':info.location!=='UNPACKED'?'installation':
+    info.userScriptsAccess?.isEnabled!==true?'toggle-unavailable':null;
    const before=await api.getExtensionInfo(${id});
-   if(!valid(before))return finish(false);
+   const reason=invalid(before);
+   if(reason)return finish(false,reason);
    if(before.userScriptsAccess.isActive!==true)
     await api.updateExtensionConfiguration({extensionId:${id},userScriptsAccess:true});
    const after=await api.getExtensionInfo(${id});
-   return finish(valid(after)&&after.userScriptsAccess.isActive===true);
-  }catch{return finish(false);}
+   return finish(!invalid(after)&&after.userScriptsAccess.isActive===true,'readback');
+  }catch{return finish(false,'settings-error');}
  })()`;
 }
 

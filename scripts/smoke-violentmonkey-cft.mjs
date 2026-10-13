@@ -260,8 +260,16 @@ try{
   const enabled=await extensionsCdp.send('Runtime.evaluate',{
    expression:buildViolentmonkeyUserScriptsAccessExpression(),awaitPromise:true,returnByValue:true,
   });
-  if(enabled.result?.value!==JSON.stringify({available:true}))
-   throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled');
+  if(enabled.result?.value!==JSON.stringify({available:true})){
+   // Only fixed markers may be printed, never browser or extension error text.
+   let reason='invalid-receipt';
+   try{
+    const receipt=JSON.parse(enabled.result?.value??'null');
+    if(['page-context','settings-api','identity','version','state','installation',
+        'toggle-unavailable','readback','settings-error'].includes(receipt?.reason))reason=receipt.reason;
+   }catch{}
+   throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
+  }
   extensionsCdp.close();extensionsCdp=undefined;
   await browserCdp.send('Target.closeTarget',{targetId:createdExtensions.targetId});
  }

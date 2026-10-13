@@ -40,19 +40,30 @@ test('permission setup rejects the wrong page, extension identity, version, inst
  const expression=api.buildViolentmonkeyUserScriptsAccessExpression();
  const valid={id:contract.VIOLENTMONKEY_CFT_RELEASE.extensionId,version:'2.49.0',
   state:'ENABLED',location:'UNPACKED',userScriptsAccess:{isEnabled:true,isActive:false}};
- for(const patch of [{id:'other'},{version:'2.48.0'},{state:'DISABLED'},
-  {location:'FROM_STORE'},{userScriptsAccess:{isEnabled:false,isActive:false}}]){
+ for(const [patch,reason] of [[{id:'other'},'identity'],[{version:'2.48.0'},'version'],[{state:'DISABLED'},'state'],
+  [{location:'FROM_STORE'},'installation'],[{userScriptsAccess:{isEnabled:false,isActive:false}},'toggle-unavailable']] as const){
   let writes=0;
   const result=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
    chrome:{developerPrivate:{async getExtensionInfo(){return {...valid,...patch};},
     async updateExtensionConfiguration(){writes++;}}}});
-  assert.equal(result,JSON.stringify({available:false}));assert.equal(writes,0);
+  assert.equal(result,JSON.stringify({available:false,reason}));assert.equal(writes,0);
  }
  let reads=0;
  const wrongPage=await vm.runInNewContext(expression,{location:{href:'https://private.example/'},JSON,
   chrome:{developerPrivate:{async getExtensionInfo(){reads++;return valid;}}}});
- assert.equal(wrongPage,JSON.stringify({available:false}));assert.equal(reads,0);
+ assert.equal(wrongPage,JSON.stringify({available:false,reason:'page-context'}));assert.equal(reads,0);
  const denied=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
   chrome:{developerPrivate:{async getExtensionInfo(){return valid;},async updateExtensionConfiguration(){}}}});
- assert.equal(denied,JSON.stringify({available:false}));
+ assert.equal(denied,JSON.stringify({available:false,reason:'readback'}));
+});
+
+test('permission setup distinguishes an unready Chrome settings API without leaking browser error details',async()=>{
+ const expression=api.buildViolentmonkeyUserScriptsAccessExpression();
+ const missing=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},chrome:{},JSON});
+ assert.equal(missing,JSON.stringify({available:false,reason:'settings-api'}));
+ const rejected=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
+  chrome:{developerPrivate:{async getExtensionInfo(){throw Error('private browser sentinel');},
+   async updateExtensionConfiguration(){throw Error('must not run');}}}});
+ assert.equal(rejected,JSON.stringify({available:false,reason:'settings-error'}));
+ assert.doesNotMatch(rejected,/private browser sentinel/);
 });
