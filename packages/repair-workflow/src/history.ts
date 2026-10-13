@@ -27,7 +27,7 @@ async function verifiedArchive(folder:string,fileName:string,hash:string):Promis
  if(info.isSymbolicLink()||!info.isFile())throw new Error('Unsafe archive: symlink or non-regular file');
  if(info.nlink!==1)throw new Error('Unsafe immutable archive hardlink alias');
  if(info.size>512*1024)throw new Error('Archived revision is too large');
- const bytes=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
+ const bytes=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(path,{bigint:true})});
  if(hashBytes(bytes)!==hash)throw new Error('Archived revision hash mismatch or corruption');
  if((await lstat(path)).nlink!==1)
   throw new Error('Unsafe immutable archive hardlink alias after verified read');
@@ -71,7 +71,7 @@ export async function activateManagedRevision({managedRoot,scriptId,hash,approve
    throw new Error('Managed current appeared since proposal; refusing stale activation');
   if(!existingInfo.isFile()||existingInfo.isSymbolicLink())throw new Error('Unsafe managed current file: symlink or non-regular file');
   if(existingInfo.size>512*1024)throw new Error('Managed current file is too large');
-  const currentHash=hashBytes(await readPinnedRegularFile(activePath,{maxBytes:512*1024,expected:existingInfo}));
+  const currentHash=hashBytes(await readPinnedRegularFile(activePath,{maxBytes:512*1024,expected:existingInfo,expectedNative:await lstat(activePath,{bigint:true})}));
   if(expectedCurrentHash!==undefined&&currentHash!==expectedCurrentHash)
    throw new Error('Managed current changed since guarded apply; refusing stale automatic rollback');
   expectedActiveHash=currentHash;

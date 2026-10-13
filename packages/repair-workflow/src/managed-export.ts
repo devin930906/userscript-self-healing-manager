@@ -93,7 +93,7 @@ export async function exportManagedRecovery(input:{
     // A same-byte hardlink remains writable through another pathname.
     // Never export it as an independently immutable approved revision.
     if(info.nlink!==1)throw new Error('Unsafe managed archive hardlink alias');
-    const bytes=await readPinnedRegularFile(path,{maxBytes:LIMIT_EACH,expected:info});
+    const bytes=await readPinnedRegularFile(path,{maxBytes:LIMIT_EACH,expected:info,expectedNative:await lstat(path,{bigint:true})});
     if((await lstat(path)).nlink!==1)
      throw new Error('Unsafe managed archive hardlink alias after read');
     const digest=hash(bytes);
@@ -136,7 +136,7 @@ export async function verifyManagedRecovery({snapshotDirectory}:{
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe managed recovery manifest');
  if(manifestInfo.nlink!==1)throw new Error('Unsafe managed recovery manifest hardlink alias');
- const bytes=await readPinnedRegularFile(manifestPath,{maxBytes:1024*1024,expected:manifestInfo});
+ const bytes=await readPinnedRegularFile(manifestPath,{maxBytes:1024*1024,expected:manifestInfo,expectedNative:await lstat(manifestPath,{bigint:true})});
  if((await lstat(manifestPath)).nlink!==1)
   throw new Error('Unsafe managed recovery manifest hardlink alias after read');
  let parsed:unknown;
@@ -172,7 +172,7 @@ export async function verifyManagedRecovery({snapshotDirectory}:{
   if(info.isSymbolicLink()||!info.isFile()||info.size!==item.bytes)
    throw new Error('Managed recovery size or type mismatch');
   if(info.nlink!==1)throw new Error('Unsafe managed recovery file hardlink alias');
-  const file=await readPinnedRegularFile(absolute,{maxBytes:LIMIT_EACH,expected:info});
+  const file=await readPinnedRegularFile(absolute,{maxBytes:LIMIT_EACH,expected:info,expectedNative:await lstat(absolute,{bigint:true})});
   if((await lstat(absolute)).nlink!==1)
    throw new Error('Unsafe managed recovery file hardlink alias after read');
   if(hash(file)!==item.sha256)throw new Error('Managed recovery SHA-256 hash mismatch');

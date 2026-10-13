@@ -13,7 +13,7 @@ async function pinned(path:string){
  const info=await lstat(path);
  if(!info.isFile()||info.isSymbolicLink()||info.size>512*1024)
   throw new Error('Unsafe managed batch source');
- return readPinnedRegularFile(path,{maxBytes:512*1024,expected:info});
+ return readPinnedRegularFile(path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(path,{bigint:true})});
 }
 /** Explicitly reviewed batch transaction; never changes original userscripts. */
 export function createBatchRepairWorkflow({managedRoot}:{managedRoot:string}){

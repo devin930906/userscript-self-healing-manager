@@ -43,7 +43,7 @@ export async function readVerifiedManagedLocator({managedRoot,scriptId,revisionH
  const info=await lstat(current);
  if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1)
   throw new Error('Unsafe managed current symlink, hardlink alias or nonregular file');
- const bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info});
+ const bytes=await readPinnedRegularFile(current,{maxBytes:512*1024,expected:info,expectedNative:await lstat(current,{bigint:true})});
  if(digest(bytes)!==revisionHash)
   throw new Error('Managed current hash changed since approved revision; refusing stale V1 check');
  const analysis=analyzeSource({scriptId,sourceBytes:bytes});
