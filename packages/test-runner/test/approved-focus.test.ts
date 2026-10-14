@@ -12,9 +12,9 @@ const frame={targetId:target.id,confirmedUrl:url,frameId:'mainframe',loaderId:'m
 const locator={method:'querySelector',expression:'#safe-focus',runtimeRequired:false};
 class FocusSocket extends EventEmitter{
  readonly methods:string[]=[];readonly inputs:any[]=[];
- readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean};
+ readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean};
  focused=false;
- constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean}={}){
+ constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean}={}){
   super();this.opts=opts;setImmediate(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
@@ -26,7 +26,7 @@ class FocusSocket extends EventEmitter{
   const result=msg.method==='DOM.getDocument'?{root:{nodeId:1}}:
    msg.method==='DOM.querySelectorAll'?{nodeIds:this.opts.changed&&this.methods.filter(x=>x==='DOM.querySelectorAll').length===2?[57]:ids}:
    msg.method==='DOM.describeNode'?{node:{nodeName:'BUTTON',nodeId:42}}:
-   msg.method==='DOM.getAttributes'?{attributes:['id','safe-focus','type',this.opts.submit?'submit':'button',...(this.opts.disabled?['disabled','']:[])]}:
+   msg.method==='DOM.getAttributes'?{attributes:['id','safe-focus','type',this.opts.submit||this.opts.lateSubmit&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?'submit':'button',...(this.opts.disabled||this.opts.lateDisabled&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?['disabled','']:[])]}:
    msg.method==='DOM.focus'?{}:{};
   if(msg.method==='DOM.focus')this.focused=true;
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:msg.id,result})}));
@@ -49,11 +49,11 @@ test('FR-024 actual approved focus uses only DOM CDP and proves the same button 
  assert.equal(result.managerVerified,false);
  assert.deepEqual(socket.methods,[
   'DOM.getDocument','DOM.querySelectorAll','DOM.describeNode','DOM.getAttributes',
-  'DOM.querySelectorAll','DOM.focus','DOM.querySelectorAll',
+  'DOM.querySelectorAll','DOM.getAttributes','DOM.focus','DOM.querySelectorAll',
  ]);
  assert.equal(socket.inputs[4].selector,'#safe-focus');
- assert.equal(socket.inputs[5].nodeId,42);
- assert.equal(socket.inputs[6].selector,':focus');
+ assert.equal(socket.inputs[6].nodeId,42);
+ assert.equal(socket.inputs[7].selector,':focus');
  assert.equal(socket.methods.some(x=>x.startsWith('Runtime.')||x.startsWith('Input.')),false);
 });
 test('FR-024 missing actual focus is inconclusive and never a false V2 result',async()=>{
@@ -130,4 +130,15 @@ test('FR-024 only native Main-owned OS confirmation may authorize a production f
   'native focus dialogs must not allow concurrent duplicate execution');
  assert.ok(body.indexOf('focusActionBusy=true')>=0&&body.indexOf('focusActionBusy=true')<body.indexOf('await getVerifiedChromeStatus'),
   'Main must acquire the one-action lock before any asynchronous target lookup');
+});
+
+test('FR-024 fail closed if an ordinary button becomes submit or disabled before the approved DOM.focus',async()=>{
+ for(const option of [{lateSubmit:true},{lateDisabled:true}]){
+  const socket=new FocusSocket(option);
+  await assert.rejects(run(socket),/button|disabled|changed|unsafe|focus/i);
+  assert.ok(socket.methods.filter(x=>x==='DOM.getAttributes').length>=2,
+   'control safety must be revalidated at the final focus boundary');
+  assert.equal(socket.methods.includes('DOM.focus'),false,
+   'never dispatch focus after dynamic mutation to unsafe control');
+ }
 });
