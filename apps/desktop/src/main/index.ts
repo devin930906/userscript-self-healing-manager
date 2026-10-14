@@ -802,6 +802,8 @@ async function bootstrap():Promise<void>{
    const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
    if(scope.status!=='allowed')throw new Error('Selected page is outside authorized userscript scope');
    const before=await confirmPageIdentity(selected);
+   if(!before.frameId||!before.loaderId)
+    throw new Error('Unverified CDP frame or loader identity');
    const binding={
     scanId:q.scanId,scriptId:item.scriptId,itemIndex:q.itemIndex,selectorIndex:q.selectorIndex,
     targetId:selected.id,pageUrl:selected.url,frameId:before.frameId,loaderId:before.loaderId,
