@@ -15,7 +15,7 @@ for(const root of roots){
     }
     const info=lstatSync(path,{throwIfNoEntry:false});
     if(!info?.isFile()||info.size===0)throw new Error('Missing or empty release SQLite database: '+path);
-    const db=new DatabaseSync(path,{readOnly:true,create:false});
+    const db=new DatabaseSync(path,{readOnly:true,create:false,timeout:5000});
     try{
       const result=db.prepare('PRAGMA integrity_check').all();
       if(result.length!==1||result[0].integrity_check!=='ok')
