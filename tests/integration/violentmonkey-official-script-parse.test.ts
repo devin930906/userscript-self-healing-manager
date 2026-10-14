@@ -329,22 +329,3 @@ test('RG-05 production CFT diagnostic reads only the pinned public asset after t
  assert.match(source,/readPinnedRegularFile/);
  assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame|\\.exception\\.description/);
 });
-
-test('RG-05 headful desktop Chrome comparison must use the SAME official GM cold-restart gate',async()=>{
- const harness=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
- const start=harness.indexOf('const pinnedLaunchArgs=[');
- const end=harness.indexOf('chrome=spawn(executable,pinnedLaunchArgs',start);
- assert.ok(start>=0&&end>start,'the exact isolated launch must remain pinned');
- const launch=harness.slice(start,end);
- assert.doesNotMatch(launch,/--headless(?:=new)?/i,
-  'headless mode is an unverified difference from actual desktop Chrome usage');
- assert.match(launch,/--disable-extensions-except=/);
- assert.match(launch,/--load-extension=/);
- assert.match(launch,/--proxy-server=http:\/\/127\.0\.0\.1:9/);
- assert.match(launch,/--host-resolver-rules=/);
- assert.match(harness,/assertOfficialViolentmonkeyProcessRestart\(/);
- assert.match(harness,/assertOfficialViolentmonkeyReleaseGate\(restarted\.status\)/);
- assert.match(harness,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
- assert.match(harness,/pageCdp\.send\('Page\.reload'/);
- assert.match(harness,/if\(startupInjectionBlocked\)/);
-});

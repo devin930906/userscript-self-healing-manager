@@ -386,10 +386,7 @@ try{
  const optionsUrl=`chrome-extension://${extensionId}/options/index.html#settings`;
  const pinnedLaunchArgs=[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
-  // RG-05 isolated A/B comparison: real DESKTOP Chrome instead of headless.
-  // Keep every profile/network/extension pin and genuine GM release gate.
-  // Browser start alone must never count as a GM userscript receipt.
-  '--no-first-run','--no-default-browser-check',
+  '--headless=new','--no-first-run','--no-default-browser-check',
   '--disable-background-networking','--disable-sync','--disable-gpu',
   // A dead local proxy blocks non-loopback HTTP(S); Chrome bypasses proxies
   // for loopback, which is the only network target granted by the fixture.
