@@ -72,6 +72,17 @@
 - **下一项最高优先级**：产品级 V2 真正非破坏性动作的权限及动作安全分类（不能从 CSS/button 自动推断无害），V3 具名业务前后状态归因和清理机制；随后 RG-05 官方 Tampermonkey/Violentmonkey 真 manager 产品桥与 RG-06/08 Windows 真实恢复。若缺少安全授权或真实 Windows 环境，应标 `ENV BLOCKED`、`REVIEW BLOCKED` 并推进其他可验证的 P0；**不要反复增加合成边界微测试替代产品工作**。
 - 续接文件自身提交将使 HEAD 前移。下一轮先核对该最后文档 HEAD 的三项 CI，不得把以上代码 SHA 的 CI 冒充最终文档 SHA 的验证结果。
 
+
+## 2026-10-14 · FR-025 默认拒绝合成动作安全边界（未完成产品 V2）
+
+- **开始基线**：`3b3954d75665fd7536665260b9de072d64617aa3`，Development [#38515925155](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515925155)、Continuation [#38515925164](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515925164)、Windows contracts [#38515925121](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515925121) 全部 SUCCESS。继承前轮 V1 有界等待，不重复。
+- **RED**：最初测试提交 `15a67150bf3d14bddb38270ddfd0b8f3a6beb24e`；`f84982b1cedf58f4b414a10bc23c2305d9398e8e` 将缺失模块测试改为行为式动态 import，精确 [Continuation #38516470259](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38516470259) Ubuntu 日志 FAIL 四个新用例：不存在动作授权边界、真实站点拒绝不成立、危险动作拒绝缺失、现有合成点击未调用边界。
+- **GREEN**：[Commit `16a61aca`](https://github.com/devin930906/userscript-self-healing-manager/commit/16a61acabb3ac6a124c638fe8175ae9fe8c155d2) 新增 `packages/test-runner/src/synthetic-action-boundary.ts`，只接受显式 `approved:true`、`fixture-test-click`、固定 `fixture-safe-click`、规范 `http://127.0.0.1:<端口>/fixture` 与完全匹配的 loopback CDP page socket。真实站点、非规范化 URL、身份错误、发送/删除/支付/提交及未知动作一律拒绝；`scripts/local-fixture-interaction.ts` 在连接 WebSocket **之前**调用边界。
+- **校验代码 SHA `16a61aca...`**：[Development CI #38516709059](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38516709059) SUCCESS；[Continuation #38516709017](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38516709017) SUCCESS（Ubuntu/Windows）；[Windows release contracts #38516708991](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38516708991) SUCCESS（无安装包）。返回 `fixture-eligible` + `productionEligible:false`，`V2:'blocked'`，不携带可复用执行令牌。
+- **严守范围**：现有点击器仍为 TEST-ONLY；不将 `scripts/local-fixture-interaction.ts` 导入 Electron，不对用户网站 dispatch CDP Input，不执行不可信 userscript，不改变 `main`、正式 tag、Windows 安装包或 Release。FR-025 仍 **PARTIAL**、FR-024 产品 V2 **BLOCKED**、V3/V4 未配置；RG-01～09 仍 OPEN。合成行为预检不等于真实用户动作可安全执行。
+- **下轮重点**：根据 QA-031/055、RG-01/03 推进真正产品级 V2 动作白名单/安全审核/用户明示授权、V3 具名业务因果及无损清理。若缺少可信契约和授权，不执行真实网页点击；继续推进 RG-02/06/07 可独立验证 P0。不要再重复本批 synthetic-only guard。
+- 文档提交会改变最终 HEAD；下轮必须先核对最新 HEAD 的准确 CI。
+
 ## 下一轮直接处理
 
 1. **先核对本文件所在文档提交的实际 HEAD 和三项 CI**，不要沿用旧运行 ID 为新 HEAD 冒充验收；若 CI 有真实失败，优先排查。
