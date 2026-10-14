@@ -58,6 +58,7 @@ import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
 import {ManualDomTransitionGate} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
+import {reviewProductAction} from '../../../../packages/test-runner/src/product-action-review.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
@@ -738,6 +739,46 @@ async function bootstrap():Promise<void>{
   });
   scanSessions.assertCurrent(scanSnapshot);
   return report;
+ });
+  ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
+   targetId?:unknown;action?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128||
+     typeof q.action!=='string'||!['observe','focus','click','type',
+      'submit','send','delete','payment'].includes(q.action))
+   throw new Error('Explicit review consent, named action, scan and target required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex as number];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Action review requires authorized scanned script');
+  const record=item.analysis.selectorRecords[q.selectorIndex as number];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('Only a static top-document selector can be reviewed');
+  const cdp=await getVerifiedChromeStatus({port:9223});
+  const selected=cdp.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome CDP target is unavailable');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')throw new Error('Script scope does not authorize selected page');
+  // Re-observe in trusted Main; never trust renderer-supplied CSS or listener status.
+  const readiness=await runReadOnlyInteractionReadiness({
+   approved:true,target:selected,
+   caseId:'READINESS:'+item.scriptId.slice(0,56),
+   locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+   deps:{
+    confirm:confirmPageIdentity,
+    probe:(target,locators)=>probePageLocators(target,locators,{includeNodeFingerprints:true}),
+    inspectVisibility:(target,locator)=>inspectReadOnlyElementVisibility(target,locator),
+    inspectListeners:(target,locator)=>inspectReadOnlyEventListeners(target,locator),
+    wait:()=>new Promise<void>(resolve=>setTimeout(resolve,125)),
+   },
+  });
+  scanSessions.assertCurrent(scanSnapshot);
+  return reviewProductAction({approved:true,action:q.action,target:selected,readiness});
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
