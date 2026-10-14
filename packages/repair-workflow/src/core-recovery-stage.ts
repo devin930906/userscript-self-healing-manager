@@ -28,7 +28,7 @@ async function assertStagedCopy(path:string,expected:HashedFile):Promise<void>{
   throw new Error('Unsafe staged offline recovery file type, alias or size');
  // The pathname is an untrusted lookup. The complete hash must come from the
  // exact descriptor whose native identity was checked, not another open by
- // createReadStream(path) between two lstat calls. This is still not a Win32
+ // by a second independent pathname stream. This is still not a Win32
  // FileIdInfo guarantee or a cross-process filesystem lock.
  const handle=await open(path,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
  try{
