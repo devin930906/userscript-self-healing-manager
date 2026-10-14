@@ -38,3 +38,10 @@ test('CI source-size guard rejects an invalid configured budget instead of bypas
  assert.equal(assertTestSourceBudget({size:1024,isFile:true},1024),true);
  assert.throws(()=>assertTestSourceBudget({size:1025,isFile:true},1024),/budget|source/i);
 });
+
+test('CI test discovery never treats unreadable directories as empty suites',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const runner=readFileSync('scripts/test.mjs','utf8');
+ assert.match(runner,/const entries=await readdir\(dir,\{withFileTypes:true\}\)/);
+ assert.doesNotMatch(runner,/catch\s*\{\s*return\s*\[\s*\]\s*;?\s*\}/);
+});
