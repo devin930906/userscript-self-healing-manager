@@ -27,6 +27,7 @@ import {assertWindowsPeExecutable} from '../packages/cdp-client/src/pe-executabl
 import {createBrowserProfile,listBrowserProfiles,setDefaultBrowserProfile,resolveBrowserProfileForLaunch} from '../packages/cdp-client/src/browser-profiles.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
+import {ManualDomTransitionGate} from '../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
@@ -65,7 +66,7 @@ const verifiedManagedCurrentHash=async(scriptId)=>{
 };
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<button id="fixture-safe-click" type="button">Safe synthetic interaction</button>
+<button id="fixture-safe-click" type="button">Safe synthetic interaction</button><div id="manual-observation"><span class="manual-count">Seed</span></div>
 <button id="disabled-demo" disabled>Disabled</button><button id="aria-disabled-demo" aria-disabled="true">ARIA disabled</button><input id="readonly-demo" readonly value="synthetic"><div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  document.getElementById('fixture-safe-click').addEventListener('click',event=>{
@@ -319,7 +320,26 @@ try{
  console.log('PASS real Chrome read-only interaction readiness: two pinned samples plus disabled blocker; no V2 certification.');
 
 
- // This isolated fixture is the ONLY CDP Input target in our suite. Verify a
+  // FR-025 real Chrome test: two explicitly separated *read-only* samples
+ // around an isolated test-only fixture action; never production click authority.
+ const manualGate=new ManualDomTransitionGate();
+ const manualDocument=await confirmPageIdentity(selected);
+ assert.ok(manualDocument.frameId&&manualDocument.loaderId);
+ const manualBinding={scanId:'fixture-scan',scriptId:'fixture-script',itemIndex:0,selectorIndex:0,
+  targetId:selected.id,pageUrl:selected.url,frameId:manualDocument.frameId,loaderId:manualDocument.loaderId};
+ const manualLocator={method:'querySelectorAll',expression:'.manual-count',runtimeRequired:false};
+ const manualDeps={confirm:confirmPageIdentity,
+  probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+  summarize:captureDomSummary,wait:()=>delay(125)};
+ const manualBefore=await runReadOnlyDomContract({
+  approved:true,target:selected,caseId:'SYNTHETIC:MANUAL:BEFORE',
+  locator:manualLocator,expectation:'exists',deps:manualDeps,
+ });
+ assert.equal(manualBefore.status,'passed');
+ assert.equal(manualBefore.matchCount,1);
+ assert.equal(manualGate.begin({binding:manualBinding,beforeCount:manualBefore.matchCount,now:1000}).V2,'blocked');
+
+// This isolated fixture is the ONLY CDP Input target in our suite. Verify a
  // real browser click and observable local side effect without running scripts
  // from users, without arbitrary JS injection, and without elevating app V2/V3/V4.
  // Positive real-Chrome FR-018 evidence: a *test-only* synthetic fixture
@@ -342,6 +362,20 @@ try{
  assert.equal(syntheticInteraction.validationLevel,'synthetic-fixture-interaction');
  assert.equal(syntheticInteraction.observed,true,'real Chrome must dispatch safe input on local fixture');
  assert.equal(syntheticInteraction.productionEligible,false);
+ const manualAfter=await runReadOnlyDomContract({
+  approved:true,target:selected,caseId:'SYNTHETIC:MANUAL:AFTER',
+  locator:manualLocator,expectation:'exists',deps:manualDeps,
+ });
+ assert.equal(manualAfter.status,'passed');
+ assert.equal(manualAfter.matchCount,2,
+  'the local synthetic button must cause a count change between read-only observations');
+ const manualEvidence=manualGate.finish({binding:manualBinding,afterCount:manualAfter.matchCount,now:2000});
+ assert.equal(manualEvidence.status,'changed-observed');
+ assert.equal(manualEvidence.V2,'blocked');
+ assert.equal(manualEvidence.V3,'not-configured');
+ assert.equal(manualEvidence.interactionVerified,false);
+ console.log('PASS real Chrome FR-025 two-stage manual observation: local count changed, V2 blocked.');
+
  const result=await probePageLocators(selected,[
   {method:'querySelector',expression:'#heal-button',runtimeRequired:false},
   {method:'getElementById',expression:'heal-button',runtimeRequired:false},
