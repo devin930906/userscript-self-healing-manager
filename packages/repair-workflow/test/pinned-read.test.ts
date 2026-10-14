@@ -186,3 +186,21 @@ test('RG-06 rejects malformed precise native snapshot types without touching sou
   maxBytes:512*1024,expected:numeric,expectedNative:native,
  }),original);
 }));
+
+test('RG-06 rejects malformed native hardlink count before reading a pinned source',async()=>fixture(async dir=>{
+ const path=join(dir,'native-links.user.js');
+ const original=Buffer.from('SYNTHETIC_HARDLINK_METADATA');
+ await writeFile(path,original);
+ const numeric=await lstat(path),native=await lstat(path,{bigint:true});
+ for(const invalid of [1,undefined,null]){
+  const malformed=Object.create(native) as typeof native;
+  Object.defineProperty(malformed,'nlink',{value:invalid});
+  await assert.rejects(readPinnedRegularFile(path,{
+   maxBytes:512*1024,expected:numeric,expectedNative:malformed,
+  }),/precise|identity|snapshot/i);
+  assert.deepEqual(await readFile(path),original);
+ }
+ assert.deepEqual(await readPinnedRegularFile(path,{
+  maxBytes:512*1024,expected:numeric,expectedNative:native,
+ }),original);
+}));
