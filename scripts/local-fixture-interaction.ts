@@ -1,5 +1,6 @@
 import type {ChromeTarget} from '../packages/cdp-client/src/index.ts';
 import {validateCdpPageSocket} from '../packages/cdp-client/src/endpoint.ts';
+import {assessSyntheticActionBoundary} from '../packages/test-runner/src/synthetic-action-boundary.ts';
 import {assertStablePageDocument,confirmPageIdentity,type ConfirmedPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import type {SocketLike} from '../packages/cdp-client/src/snapshot.ts';
 
@@ -32,6 +33,7 @@ export async function runIsolatedFixtureInteraction({approved,target,fixtureUrl,
   throw new Error('Refusing non-local or mismatched synthetic fixture target');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
   throw new Error('Invalid fixture interaction timeout');
+ assessSyntheticActionBoundary({approved,action:'fixture-test-click',elementId:'fixture-safe-click',target,fixtureUrl});
  const endpoint=validateCdpPageSocket(target);
  const before=await confirm(target);
  if(before.targetId!==target.id||before.confirmedUrl!==fixtureUrl||
