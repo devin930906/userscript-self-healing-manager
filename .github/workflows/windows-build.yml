@@ -157,11 +157,15 @@ jobs:
             $env:APPDATA = $previousAppData
             if ($running -and !$running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
           }
+          # Keep the installed user's data path for post-uninstall retention checks.
+          $installedRegistry = $databases[0].FullName
           $uninstaller = Get-ChildItem -Path $root -File -Filter '*Uninstall*.exe' | Select-Object -First 1
           if (!$uninstaller) { throw 'NSIS uninstaller is missing' }
           $removed = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/S') -Wait -PassThru
           if ($removed.ExitCode -ne 0) { throw "NSIS uninstall failed: $($removed.ExitCode)" }
-          Write-Host 'Smoke PASS: NSIS silent uninstall finished'
+          if (Test-Path -LiteralPath $installed) { throw 'NSIS uninstall left installed executable behind' }
+          if (!(Test-Path -LiteralPath $installedRegistry)) { throw 'NSIS uninstall deleted user SQLite registry' }
+          Write-Host 'Smoke PASS: NSIS uninstall removed application and retained user SQLite data'
       - name: Record signatures and explicitly unverified Stable gates
         shell: pwsh
         run: |
