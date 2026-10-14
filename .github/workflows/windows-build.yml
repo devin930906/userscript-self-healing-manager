@@ -171,6 +171,14 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (!$initialized) { throw 'Installed EXE did not initialize exactly one SQLite registry in isolated APPDATA' }
+            $journalPath = Join-Path (Split-Path -Parent $databases[0].FullName) 'diagnosis-journal.sqlite'
+            $journalReady = $false
+            for ($i = 0; $i -lt 15; $i++) {
+              if ($running.HasExited) { throw 'Installed EXE exited before diagnosis journal initialization' }
+              if ((Test-Path -LiteralPath $journalPath) -and (Get-Item -LiteralPath $journalPath).Length -gt 0) { $journalReady = $true; break }
+              Start-Sleep -Seconds 1
+            }
+            if (!$journalReady) { throw 'Installed EXE did not initialize nonempty diagnosis journal' }
             if (Test-Path -LiteralPath (Join-Path $root 'Data')) { throw 'Installed edition unexpectedly created portable Data beside EXE' }
             Write-Host 'Smoke PASS: installed EXE initialized SQLite in isolated APPDATA'
           } finally {
@@ -187,8 +195,6 @@ jobs:
           # Keep the installed user's data path for post-uninstall retention checks.
           $installedRegistry = $databases[0].FullName
           $registryHashBeforeUninstall = (Get-FileHash -LiteralPath $installedRegistry -Algorithm SHA256).Hash
-          $journalPath = Join-Path (Split-Path -Parent $installedRegistry) 'diagnosis-journal.sqlite'
-          if (!(Test-Path -LiteralPath $journalPath)) { throw 'Installed EXE did not initialize diagnosis journal' }
           $journalHashBeforeUninstall = (Get-FileHash -LiteralPath $journalPath -Algorithm SHA256).Hash
           $uninstaller = Get-ChildItem -Path $root -File -Filter '*Uninstall*.exe' | Select-Object -First 1
           if (!$uninstaller) { throw 'NSIS uninstaller is missing' }
