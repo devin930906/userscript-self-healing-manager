@@ -100,3 +100,23 @@ test('FR-025 waiting requires user approval, valid exact CDP socket and credenti
   await assert.rejects(run!(request(deps,sample)),/approval|samples|static|invalid|CDP|credential|loopback|socket/i);
  assert.equal(inspected,0);
 });
+
+test('FR-025 bounded visibility wait rejects malformed document, iframe and fingerprint metadata before DOM access',async()=>{
+ assert.equal(typeof run,'function');
+ for(const mutation of [
+  {frameId:'f'.repeat(257)},
+  {loaderId:'l'.repeat(257)},
+  {subframeCount:-1},
+  {subframeCount:99},
+  {subframeCount:0,soleSameOriginSubframe:{frameId:'child',loaderId:'load'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'f1',loaderId:'load'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'child',loaderId:'load',urlFingerprint:'wrong'}},
+ ]){
+  const s=scenario([{fingerprint:digest},{fingerprint:digest}]);
+  (s.deps as any).confirm=async()=>({...identity,...mutation});
+  await assert.rejects(run!(request(s.deps)),
+   /identity|frame|loader|subframe|unverified|invalid/i);
+  assert.equal(s.counts().probes,0,'bad page identity must fail before DOM/CSS queries');
+  assert.equal(s.counts().visits,0);
+ }
+});
