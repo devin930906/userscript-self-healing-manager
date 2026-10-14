@@ -3,6 +3,12 @@
  * A single node --test command containing hundreds of absolute test paths can
  * fail before Node emits any test result. Never silently omit tests.
  */
+export function assertTestSourceBudget({size,isFile},maxBytes=128*1024){
+ if(!Number.isSafeInteger(size)||size<0||isFile!==true||size>maxBytes)
+  throw new Error('Test source exceeds 128 KiB safety budget');
+ return true;
+}
+
 export function buildTestBatches(files){
  if(!Array.isArray(files)||files.length===0)
   throw new Error('No tests available for CI batching');
