@@ -2,6 +2,8 @@ import {resolveSiteAdapterRole,type SiteAdapter} from '../../candidate-engine/sr
 import type {ChromeTarget} from '../../cdp-client/src/index.ts';
 import type {ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
 import {assertStablePageDocument} from '../../cdp-client/src/page-identity.ts';
+import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
+import {assertCredentialFreePageUrl} from '../../cdp-client/src/page-url-safety.ts';
 import type {LiteralLocator,LocatorProbeResult} from '../../cdp-client/src/locator-probe.ts';
 
 export type RoleDomStatus='matched-v1'|'absent-v1'|'needs-review'|'out-of-scope'|'blocked-context'|'unknown-role';
@@ -74,6 +76,11 @@ export async function runSiteAdapterRoleDomCheck({
  if(!target||typeof target.id!=='string'||!target.id||target.id.length>128||
     typeof target.url!=='string'||!target.webSocketDebuggerUrl)
   throw new Error('Invalid SiteAdapter CDP target');
+ // This is a public read-only observation boundary. A caller-provided
+ // adapter/confirm function cannot substitute for local socket and page URL
+ // validation; reject forged targets before resolving any role or probing.
+ assertCredentialFreePageUrl(target.url);
+ validateCdpPageSocket(target);
  const base={
   siteId:adapter.siteId,roleId,version:adapter.version,declaredStateId,
   declaredStateVerified:false as const,V2:'blocked' as const,
