@@ -214,3 +214,25 @@ test('official MV3 service-worker commands return only bounded fixture receipts 
  assert.throws(()=>buildViolentmonkeyFixturePreflightExpression('x'.repeat(161),'fixed namespace'),/fixed/i);
  assert.throws(()=>buildViolentmonkeyFixtureInstallExpression('untrusted source'),/fixed/i);
 });
+
+
+test('official manager download retries only bounded upstream failures without bypassing checksum or GM test',async()=>{
+ const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
+ const fetchStep=workflow.split('- name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration')[1]
+  ?.split('- name: Real Violentmonkey 2.49.0 GM API integration')[0];
+ assert.ok(fetchStep,'official manager download job must remain mandatory');
+ assert.match(fetchStep,/for \(\$attempt = 1; \$attempt -le 3; \$attempt\+\+\)/,
+  'bounded retry budget must cover transient GitHub 5xx/429 download failures');
+ assert.match(fetchStep,/\$status -eq 429/);
+ assert.match(fetchStep,/\$status -ge 500/);
+ assert.match(fetchStep,/\$status -le 599/);
+ assert.match(fetchStep,/\$attempt -lt 3/);
+ assert.match(fetchStep,/throw ['"]Official manager download failed/,
+  'exhausted/fatal downloads must fail closed; never silently skip RG-05');
+ assert.match(fetchStep,/Pinned official Violentmonkey archive SHA-256 mismatch/);
+ assert.ok(fetchStep.indexOf('Pinned official Violentmonkey archive SHA-256 mismatch')<
+  fetchStep.indexOf('Expand-Archive'),'verify trusted bytes before extracting');
+ assert.doesNotMatch(fetchStep,/continue-on-error:\s*true|if:\s*false|\|\| true/i);
+ assert.match(workflow,/node --experimental-strip-types scripts\/smoke-violentmonkey-cft\.mjs/,
+  'downloading successfully must still run the unchanged GM V4 release gate');
+});
