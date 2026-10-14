@@ -13,14 +13,20 @@
 const MARKER_EXPRESSION=`(()=>{try{
  const descriptor=Object.getOwnPropertyDescriptor(window,"**VMInitInjection**");
  const value=descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
- return JSON.stringify({readyMarker:value===1,webBootstrap:typeof value==='function'});
- }catch{return JSON.stringify({readyMarker:false,webBootstrap:false});}})()`;
+ const officialRuntimeId=typeof chrome==='object'&&chrome!==null&&
+  chrome.runtime?.id==='jinjaccalgkegednnccohejagnlnfdag';
+ return JSON.stringify({
+  readyMarker:value===1,webBootstrap:typeof value==='function',
+  officialRuntimeId:!!officialRuntimeId,
+ });
+ }catch{return JSON.stringify({readyMarker:false,webBootstrap:false,officialRuntimeId:false});}})()`;
 type CdpSend=(method:string,params:Record<string,unknown>)=>Promise<unknown>;
 export interface PinnedBootstrapMarkerEvidence {
  readonly isolatedWorldsObserved:number;
  readonly worldsChecked:number;
  readonly readyMarkerObserved:boolean;
  readonly webBootstrapObserved:boolean;
+ readonly officialRuntimeIdObserved:boolean;
  readonly observationIncomplete:boolean;
 }
 export function createPinnedBootstrapMarkerEvidence(frameId:string){
@@ -49,7 +55,7 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
    }
   },
   async read(send:CdpSend):Promise<PinnedBootstrapMarkerEvidence>{
-   let worldsChecked=0,readyMarkerObserved=false,webBootstrapObserved=false;
+   let worldsChecked=0,readyMarkerObserved=false,webBootstrapObserved=false,officialRuntimeIdObserved=false;
    let incomplete=truncated||contexts.size===0;
    for(const contextId of contexts){
     try{
@@ -68,14 +74,16 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
         packet.result.value.length>100){incomplete=true;continue;}
      const parsed:unknown=JSON.parse(packet.result.value);
      if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
-        Object.keys(parsed).sort().join(',')!=='readyMarker,webBootstrap'||
+        Object.keys(parsed).sort().join(',')!=='officialRuntimeId,readyMarker,webBootstrap'||
         typeof (parsed as {readyMarker?:unknown}).readyMarker!=='boolean'||
-        typeof (parsed as {webBootstrap?:unknown}).webBootstrap!=='boolean'){
+        typeof (parsed as {webBootstrap?:unknown}).webBootstrap!=='boolean'||
+        typeof (parsed as {officialRuntimeId?:unknown}).officialRuntimeId!=='boolean'){
       incomplete=true;continue;
      }
      worldsChecked++;
      if((parsed as {readyMarker:boolean}).readyMarker)readyMarkerObserved=true;
      if((parsed as {webBootstrap:boolean}).webBootstrap)webBootstrapObserved=true;
+     if((parsed as {officialRuntimeId:boolean}).officialRuntimeId)officialRuntimeIdObserved=true;
     }catch{
      // CDP may destroy a context between observation and query.
      // Raw private CDP error text is NEVER returned or logged.
@@ -84,7 +92,8 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
    }
    return {
     isolatedWorldsObserved:contexts.size,worldsChecked,
-    readyMarkerObserved,webBootstrapObserved,observationIncomplete:incomplete,
+    readyMarkerObserved,webBootstrapObserved,officialRuntimeIdObserved,
+    observationIncomplete:incomplete,
    };
   },
  };
