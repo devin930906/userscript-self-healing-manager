@@ -6,6 +6,17 @@
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
+## 2026-10-14 · FR-040 / RG-07 真实桌面批量 DOM 结果显示隐私修复（草稿 PR #270，未合并）
+
+- **主开发分支**：唯一整合目标 `feat/v01-continuation`；本项在隔离任务分支 `feat/rg07-dom-ui-page-origin-privacy` 完成，起点 `78039d1065b46b07c05b784d9f65d5890466c834`，避免与正在开发的 RG-05 和 RG-06 [PR #269](https://github.com/devin930906/userscript-self-healing-manager/pull/269) 交叉编辑；草稿 [PR #270](https://github.com/devin930906/userscript-self-healing-manager/pull/270) 目标为开发分支，绝不改 `main`。
+- **真实缺陷**：`apps/desktop/src/renderer/App.tsx` 的批量 DOM 诊断通知原先直接显示 `batchResult.pageUrl`，可能将所选网页路径、查询 token、fragment 或 URL userinfo 暴露在产品界面；`serializeDomBatchReport` 之前已经只公开 `pageOrigin`，但产品界面未贯彻同样的隐私边界。
+- **RED 测试提交** [`fff82275`](https://github.com/devin930906/userscript-self-healing-manager/commit/fff82275da2b293b609db1b8ec1b3e291bb383d5)：`apps/desktop/tests/dom-ui-url-privacy.test.ts` 新增三个有界断言，要求合法 HTTP(S) 展示来源、包含 token 的完整 URL 永不直接插入 JSX、异常/带凭证来源保守显示“站点来源未确认”；RED 工作流 [Development #38554289280](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38554289280) 和 [Continuation #38554289519](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38554289519) 已触发，最终 RED 结果以 GitHub 实际 Job 为准。
+- **真实修复提交** [`faec7b05`](https://github.com/devin930906/userscript-self-healing-manager/commit/faec7b05c4690da3eba06a936a75e027dc83761c) 及 [`401578e4`](https://github.com/devin930906/userscript-self-healing-manager/commit/401578e413690a41061ccffc24614a487f60eda6)：新增 `safeDomReportPageOrigin` 只呈现合规 HTTP(S) `origin`，拒绝包含 username/password、非法方案、超出 4096 字符预算和畸形 URL；桌面通知改用该安全投影，不显示未经裁剪的完整 `pageUrl`。保留原始 Main/CDP 身份检查，不执行真实脚本、不更改网页、浏览器或 Data。
+- **准确源码 SHA 验证**：`401578e413690a41061ccffc24614a487f60eda6` 的 Actions [Development #38554367619](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38554367619)、[Continuation #38554367811](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38554367811)、[Windows contracts #38554367915](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38554367915) 已触发，**此条写入时尚未获得完整最终结论，不将触发视为通过**。本段文档提交还会产生另一个新的 HEAD，需要再次校验。
+- **P0 / RG 变化**：FR-040/ RG-07 真实桌面 UI 隐私缺口已提出修复和回归（*尚未整合、尚未取得独立审查*），不能宣布 FR-040 完成或 RG-07 关闭。V2 `blocked`、V3/V4 `not-configured`；RG-05 官方 VM 注入仍真实 FAIL / ENV BLOCKED；RG-06 原生 Win32 FileIdInfo、正式 Win10/11 生命周期和独立安全供应链审查仍欠缺。RG-01～RG-09 全部 OPEN，产品仍 `0.1.0-alpha.5`，NOT STABLE；没有正式 Setup.exe / Portable.exe / 完整 ZIP、tag 或 GitHub Release。
+- **下轮直接优先任务**：先核对 PR #270 本文档 HEAD 的 RED/GREEN/完整 CI 并审查，避免伪报；RG-05 真管理器上游阻断继续精准调查、与正在进行的 RG-06 草稿 #269 分开推进；有运行环境后执行真实 V2/V3、Win32 FileIdInfo、Windows 10/11 三形态和独立审查，全部通过后方可考虑 Stable。
+
+
 ## 本轮实际修改与证据
 
 - 基线：`88c74a8153d60fea0c0d3819f407dafd3d63b4bc`。原有 `apps/desktop/tests/trusted-drop.test.ts` 错误地断言 Windows 发行工作流不得有开发分支 `push` 触发；实际 `.github/workflows/windows-build.yml` 已允许 `push` 和 PR 运行**无安装包**的发行合同任务，独立安装包任务仍仅在手动派发且校验最终 tag 后执行。
