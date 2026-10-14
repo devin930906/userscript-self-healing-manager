@@ -4,7 +4,8 @@
  * fail before Node emits any test result. Never silently omit tests.
  */
 export function assertTestSourceBudget({size,isFile},maxBytes=128*1024){
- if(!Number.isSafeInteger(size)||size<0||isFile!==true||size>maxBytes)
+ if(!Number.isSafeInteger(maxBytes)||maxBytes<1||
+    !Number.isSafeInteger(size)||size<0||isFile!==true||size>maxBytes)
   throw new Error('Test source exceeds 128 KiB safety budget');
  return true;
 }
