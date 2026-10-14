@@ -120,5 +120,8 @@ test('tag-only NSIS uninstall smoke must remove executable but retain installed 
  assert.match(smoke,/\$installedRegistry = \$databases\[0\]\.FullName/);
  assert.match(smoke,/if \(Test-Path -LiteralPath \$installed\)/);
  assert.match(smoke,/if \(!\(Test-Path -LiteralPath \$installedRegistry\)\)/);
+ assert.match(smoke,/registryHashBeforeUninstall = \(Get-FileHash/);
+ assert.match(smoke,/registryHashAfterUninstall = \(Get-FileHash/);
+ assert.match(smoke,/registryHashAfterUninstall -ne \$registryHashBeforeUninstall/);
  assert.match(smoke,/uninstall removed application and retained user SQLite data/);
 });
