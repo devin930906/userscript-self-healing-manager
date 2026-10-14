@@ -174,8 +174,12 @@ jobs:
             if (Test-Path -LiteralPath (Join-Path $root 'Data')) { throw 'Installed edition unexpectedly created portable Data beside EXE' }
             Write-Host 'Smoke PASS: installed EXE initialized SQLite in isolated APPDATA'
           } finally {
+            if ($running -and !$running.HasExited) {
+              Stop-Process -Id $running.Id -Force -ErrorAction Stop
+              $running.WaitForExit(10000) | Out-Null
+              if (!$running.HasExited) { throw 'Installed smoke process did not terminate before data integrity checks' }
+            }
             $env:APPDATA = $previousAppData
-            if ($running -and !$running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
           }
           # Keep the installed user's data path for post-uninstall retention checks.
           $installedRegistry = $databases[0].FullName
