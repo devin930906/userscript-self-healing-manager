@@ -159,3 +159,14 @@ test('SQLite release verification is read-only even when integrity validation fa
   assert.deepEqual(files.map(digest),before);
  });
 });
+
+test('release verifier rejects all six individually missing database files',()=>{
+ for(let edition=0;edition<3;edition++)for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+  withReleaseDatabases(roots=>{
+   unlinkSync(join(roots[edition],name));
+   const result=verify(roots);
+   assert.notEqual(result.status,0);
+   assert.match(result.stderr,/Missing or empty release SQLite database/);
+  });
+ }
+});
