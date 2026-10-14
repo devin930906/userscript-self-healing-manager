@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import type {BigIntStats} from 'node:fs';
 import {lstat,mkdir,readFile,rename,rmdir,unlink,writeFile} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
@@ -115,6 +116,36 @@ async function readState(dataRoot:string):Promise<Saved>{
   return validateState(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(buffer)));
  }catch{throw new Error('Corrupt or invalid site test case registry; preserve it for review');}
 }
+/** The lease excludes cooperating app writes; a separate process can still
+ * change the Data file without using our lock. Capture its actual identity
+ * before parsing, then reject any changed content/identity before rename.
+ * This is not a cross-process atomic compare-and-swap. */
+type SceneIdentity=Pick<BigIntStats,'dev'|'ino'|'mode'|'nlink'|'size'|'birthtimeNs'|'mtimeNs'|'ctimeNs'>|null;
+async function sceneIdentity(dataRoot:string):Promise<SceneIdentity>{
+ try{
+  const stat=await lstat(filename(dataRoot),{bigint:true});
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1n)
+   throw new Error('Unsafe site test case registry identity');
+  return stat;
+ }catch(error){
+  if((error as NodeJS.ErrnoException).code==='ENOENT')return null;
+  throw error;
+ }
+}
+function sameSceneIdentity(a:SceneIdentity,b:SceneIdentity):boolean{
+ if(a===null||b===null)return a===b;
+ return a.dev===b.dev&&a.ino===b.ino&&a.mode===b.mode&&
+  a.nlink===b.nlink&&a.size===b.size&&
+  a.birthtimeNs===b.birthtimeNs&&a.mtimeNs===b.mtimeNs&&a.ctimeNs===b.ctimeNs;
+}
+async function readForWrite(dataRoot:string){
+ const before=await sceneIdentity(dataRoot);
+ const state=await readState(dataRoot);
+ const after=await sceneIdentity(dataRoot);
+ if(!sameSceneIdentity(before,after))
+  throw new Error('Site test case registry changed concurrently during read');
+ return {state,identity:after};
+}
 /** Exclusive app-owned lease: a crashed/other writer is not silently bypassed. */
 async function writeLocked<T>(dataRoot:string,operation:()=>Promise<T>):Promise<T>{
  const lock=filename(dataRoot)+'.write-lock';
@@ -127,7 +158,9 @@ async function writeLocked<T>(dataRoot:string,operation:()=>Promise<T>):Promise<
  }
  try{return await operation();}finally{await rmdir(lock);}
 }
-async function persist(dataRoot:string,state:Saved):Promise<void>{
+async function persist(dataRoot:string,state:Saved,previous:{
+ state:Saved;identity:SceneIdentity;
+},beforeFinalWrite?:()=>Promise<void>):Promise<void>{
  const target=filename(dataRoot);
  const content=JSON.stringify(state)+'\n';
  if(Buffer.byteLength(content,'utf8')>MAX_BYTES)
@@ -135,8 +168,14 @@ async function persist(dataRoot:string,state:Saved):Promise<void>{
  const temp=join(dataRoot,'.site-test-cases-'+randomUUID()+'.tmp');
  try{
   await writeFile(temp,content,{flag:'wx',mode:0o600});
-  // Never overwrite a registry that changed or became a symlink after read.
-  await readState(dataRoot);
+  // A deterministic fault-injection hook, not reachable through desktop IPC.
+  if(beforeFinalWrite)await beforeFinalWrite();
+  // Re-read the actual on-disk state, not merely verify its JSON is valid:
+  // otherwise an independent editor can lose data when we rename the temp.
+  const current=await readForWrite(dataRoot);
+  if(!sameSceneIdentity(previous.identity,current.identity)||
+     JSON.stringify(previous.state)!==JSON.stringify(current.state))
+   throw new Error('Site test case registry changed concurrently; preserve other writer');
   await rename(temp,target);
  }finally{
   await unlink(temp).catch(error=>{
@@ -150,23 +189,26 @@ export async function listSiteTestCases({dataRoot,scriptId}:{
  scriptIdentity(scriptId);
  return (await readState(dataRoot)).cases.filter(c=>c.scriptId===scriptId);
 }
-export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,metadata}:{
+export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,metadata,beforeFinalWrite}:{
  dataRoot:string;scriptId:string;url:string;label:string;
  stateId:DeclaredPageState;metadata:UserscriptPageMetadata;
+ /** Internal deterministic fault injection only; never forwarded from IPC. */
+ beforeFinalWrite?:()=>Promise<void>;
 }):Promise<SiteTestCase>{
  scriptIdentity(scriptId);
  const safeUrl=exactPageUrl(url),safeLabel=labelOf(label),safeState=stateOf(stateId);
  if(checkUserscriptPageScope(metadata,safeUrl).status!=='allowed')
   throw new Error('Site test page is outside confirmed userscript activation scope');
  return writeLocked(dataRoot,async()=>{
-  const state=await readState(dataRoot);
+  const previous=await readForWrite(dataRoot);
+  const {state}=previous;
   if(state.cases.length>=MAX_ITEMS||
      state.cases.filter(c=>c.scriptId===scriptId).length>=MAX_PER_SCRIPT)
    throw new Error('Site test case count limit exceeded');
   if(state.cases.some(c=>c.scriptId===scriptId&&c.url===safeUrl&&c.stateId===safeState))
    throw new Error('Site test case already exists');
   const entry:SiteTestCase={id:randomUUID(),scriptId,label:safeLabel,url:safeUrl,stateId:safeState};
-  await persist(dataRoot,{schemaVersion:1,cases:[...state.cases,entry]});
+  await persist(dataRoot,{schemaVersion:1,cases:[...state.cases,entry]},previous,beforeFinalWrite);
   return entry;
  });
 }
@@ -176,10 +218,11 @@ export async function removeSiteTestCase({dataRoot,scriptId,caseId,approved}:{
  if(approved!==true)throw new Error('Explicit site test case removal approval required');
  scriptIdentity(scriptId);caseIdentity(caseId);
  return writeLocked(dataRoot,async()=>{
-  const state=await readState(dataRoot);
+  const previous=await readForWrite(dataRoot);
+  const {state}=previous;
   const remaining=state.cases.filter(c=>!(c.scriptId===scriptId&&c.id===caseId));
   if(remaining.length===state.cases.length)throw new Error('Site test case not found');
-  await persist(dataRoot,{schemaVersion:1,cases:remaining});
+  await persist(dataRoot,{schemaVersion:1,cases:remaining},previous);
  });
 }
 export type SiteTestSelection={
