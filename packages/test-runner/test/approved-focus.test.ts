@@ -128,4 +128,6 @@ test('FR-024 only native Main-owned OS confirmation may authorize a production f
  assert.match(body,/scanSessions\.assertCurrent\(scanSnapshot\)/);
  assert.match(body,/focusActionBusy/,
   'native focus dialogs must not allow concurrent duplicate execution');
+ assert.ok(body.indexOf('focusActionBusy=true')>=0&&body.indexOf('focusActionBusy=true')<body.indexOf('await getVerifiedChromeStatus'),
+  'Main must acquire the one-action lock before any asynchronous target lookup');
 });
