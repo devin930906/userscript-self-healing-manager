@@ -165,3 +165,14 @@ test('tag-only ZIP and Portable EXE smokes require diagnosis history database',a
   assert.match(smoke,/\.Length -gt 0/);
  }
 });
+
+test('tag-only Portable EXE smoke refuses stale user Data before launch',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check single-file Portable EXE');
+ const end=workflow.indexOf('Smoke-check NSIS Setup installer');
+ assert.ok(start>=0&&end>start);
+ const smoke=workflow.slice(start,end);
+ assert.match(smoke,/if \(Test-Path -LiteralPath \$root\)/);
+ assert.match(smoke,/requires a fresh directory without prior Data/);
+ assert.doesNotMatch(smoke,/New-Item -Path \$root -ItemType Directory -Force/);
+});
