@@ -269,7 +269,8 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    const result=resultField.value;
    // Runtime.evaluate exceptionDetails lives inside the CDP command's result
    // envelope, not just at the top level of the transport response.
-   if(result&&typeof result==='object'&&'exceptionDetails' in result)
+   if(result&&typeof result==='object'&&
+      ('exceptionDetails' in result||'error' in result))
     throw new Error('Isolated manager injector CDP evaluation failed');
    if(!result||typeof result!=='object')
     throw new Error('Isolated manager injector CDP evaluation failed');
