@@ -211,3 +211,22 @@ test('release verifier rejects zero-byte databases in all six positions',()=>{
   });
  }
 });
+
+test('release SQLite verification accepts independent Unicode and space-containing data paths',()=>{
+ withReleaseDatabases(roots=>{
+  const moved=roots.map((root,i)=>join(root,i===0?'安装版 数据':i===1?'便携 版本':'ZIP 解压版'));
+  for(let i=0;i<roots.length;i++){
+   mkdirSync(moved[i]);
+   for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+    const original=join(roots[i],name);
+    const relocated=join(moved[i],name);
+    const bytes=readFileSync(original);
+    writeFileSync(relocated,bytes);
+    unlinkSync(original);
+   }
+  }
+  const result=verify(moved);
+  assert.equal(result.status,0,result.stderr);
+  assert.equal((result.stdout.match(/integrity_check and foreign_key_check PASS:/g)||[]).length,6);
+ });
+});
