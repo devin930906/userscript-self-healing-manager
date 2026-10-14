@@ -15,7 +15,7 @@ class FocusSocket extends EventEmitter{
  readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean};
  focused=false;
  constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean}={}){
-  super();this.opts=opts;queueMicrotask(()=>this.emit('open'));
+  super();this.opts=opts;setImmediate(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(e:any)=>void){this.off(name,fn);}
