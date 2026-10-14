@@ -118,7 +118,8 @@ test('tag-only NSIS uninstall smoke must remove executable but retain installed 
  assert.ok(start>=0&&end>start);
  const smoke=workflow.slice(start,end);
  assert.match(smoke,/\$installedRegistry = \$databases\[0\]\.FullName/);
- assert.match(smoke,/if \(Test-Path -LiteralPath \$installed\)/);
+ assert.match(smoke,/if \(!\$uninstallCleared\)/);
+ assert.match(smoke,/if \(!\(Test-Path -LiteralPath \$installed\)\) \{ \$uninstallCleared = \$true; break \}/);
  assert.match(smoke,/if \(!\(Test-Path -LiteralPath \$installedRegistry\)\)/);
  assert.match(smoke,/registryHashBeforeUninstall = \(Get-FileHash/);
  assert.match(smoke,/registryHashAfterUninstall = \(Get-FileHash/);
