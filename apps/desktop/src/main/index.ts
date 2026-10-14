@@ -59,6 +59,7 @@ import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index
 import {ManualDomTransitionGate} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {reviewProductAction} from '../../../../packages/test-runner/src/product-action-review.ts';
+import {runApprovedControlFocus} from '../../../../packages/test-runner/src/approved-focus.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
@@ -740,6 +741,37 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   return report;
  });
+  ipcMain.handle('usshm:approved-control-focus',async(event,input:unknown)=>{
+   assertSender(event);
+   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+   if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+      typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+      !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+      typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+    throw new Error('Explicit selected button, scan identity and one-time focus approval required');
+   const scanSnapshot=scanSessions.require(q.scanId);
+   const item=scanSnapshot.items[q.itemIndex as number];
+   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+    throw new Error('Focus requires a current authorized scanned userscript');
+   const record=item.analysis.selectorRecords[q.selectorIndex as number];
+   if(!record||record.runtimeRequired||record.receiver!=='document')
+    throw new Error('Only one static top-document button locator may receive approved focus');
+   const cdp=await getVerifiedChromeStatus({port:9223});
+   const selected=cdp.pages.find(page=>page.id===q.targetId);
+   if(!selected?.webSocketDebuggerUrl)
+    throw new Error('Explicitly selected Chrome page no longer exists');
+   const pageScope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+   if(pageScope.status!=='allowed')
+    throw new Error('Selected page is outside the approved userscript scope');
+   scanSessions.assertCurrent(scanSnapshot);
+   const receipt=await runApprovedControlFocus({
+    approved:true,target:selected,
+    locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+    confirm:confirmPageIdentity,
+   });
+   scanSessions.assertCurrent(scanSnapshot);
+   return receipt;
+  });
   ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
