@@ -815,16 +815,43 @@ async function bootstrap():Promise<void>{
    stateId:q.stateId as 'logged-out'|'logged-in'|'custom',metadata:item.analysis!.metadata,
   });
  });
+ // Renderer approved:true is not authorization to delete persisted data.
+ // Serialize modal prompts in Main, independently of renderer UI state.
+ let siteTestRemoveBusy=false;
  ipcMain.handle('usshm:site-test-case-remove',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {scanId?:unknown;itemIndex?:unknown;caseId?:unknown;approved?:unknown}|null;
   if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
      typeof q.caseId!=='string')
    throw new Error('Explicit site test case removal approval required');
-  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
-  scanSessions.assertCurrent(scanSnapshot);
-  await removeSiteTestCase({dataRoot,scriptId:item.scriptId!,caseId:q.caseId,approved:true});
-  return {deleted:true};
+  if(siteTestRemoveBusy)throw new Error('Another site test case removal is awaiting confirmation');
+  siteTestRemoveBusy=true;
+  try{
+   const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+   const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+   const selected=cases.find(c=>c.id===q.caseId);
+   if(!selected)throw new Error('Site test case no longer exists');
+   scanSessions.assertCurrent(scanSnapshot);
+   const decision=await dialog.showMessageBox(mainWindow,{
+    type:'warning',title:'删除本地测试场景',
+    message:'确定仅删除此测试场景：'+selected.label+'？',
+    detail:'只删除当前脚本的一条本地页面测试配置，不会删除或执行脚本、修改网页、浏览器资料或其他场景。',
+    buttons:['取消','仅删除此场景'],defaultId:0,cancelId:0,noLink:true,
+   });
+   if(decision.response!==1)return {deleted:false};
+   // A modal is an asynchronous authorization boundary. A later scan,
+   // changed selected record, or revoked source-path access voids consent.
+   scanSessions.assertCurrent(scanSnapshot);
+   if(!withinAuthorized(item.path))throw new Error('Scenario source authorization changed');
+   const latest=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+   const still=latest.find(c=>c.id===q.caseId);
+   if(!still||still.label!==selected.label||still.url!==selected.url||
+      still.stateId!==selected.stateId)
+    throw new Error('Selected site test case changed while awaiting native approval');
+   scanSessions.assertCurrent(scanSnapshot);
+   await removeSiteTestCase({dataRoot,scriptId:item.scriptId!,caseId:q.caseId,approved:true});
+   return {deleted:true};
+  }finally{siteTestRemoveBusy=false;}
  });
  ipcMain.handle('usshm:site-test-case-verify',async(event,input:unknown)=>{
   assertSender(event);
