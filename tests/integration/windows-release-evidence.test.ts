@@ -176,3 +176,15 @@ test('tag-only Portable EXE smoke refuses stale user Data before launch',async()
  assert.match(smoke,/requires a fresh directory without prior Data/);
  assert.doesNotMatch(smoke,/New-Item -Path \$root -ItemType Directory -Force/);
 });
+
+test('tag-only NSIS Setup smoke refuses a stale install destination',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check NSIS Setup installer');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ assert.ok(start>=0&&end>start);
+ const smoke=workflow.slice(start,end);
+ const fresh=smoke.indexOf('Setup smoke requires a fresh install destination');
+ const install=smoke.indexOf('Start-Process -FilePath $installer.FullName');
+ assert.ok(fresh>=0&&install>fresh,'Stale directory must be rejected before invoking Setup');
+ assert.match(smoke,/if \(Test-Path -LiteralPath \$root\)/);
+});
