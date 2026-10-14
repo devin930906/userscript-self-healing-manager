@@ -92,9 +92,9 @@ jobs:
             $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
             $ok = $false
             for ($i=0; $i -lt 20; $i++) {
-              if (Test-Path $database) { $ok = $true; break }
-              Start-Sleep -Seconds 1
               if ($proc.HasExited) { throw "Packaged EXE exited before database initialization, exit $($proc.ExitCode)" }
+              if ((Test-Path -LiteralPath $database) -and (Get-Item -LiteralPath $database).Length -gt 0) { $ok = $true; break }
+              Start-Sleep -Seconds 1
             }
             if (!$ok) { throw "Packaged application did not initialize portable registry.sqlite" }
             Write-Host 'Smoke PASS: unpacked ZIP portable EXE initialized registry.sqlite'
