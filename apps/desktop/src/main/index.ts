@@ -814,7 +814,7 @@ async function bootstrap():Promise<void>{
    const sourceInfo=await lstat(item.path);
    if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())
     throw new Error('Source file changed or is an unsafe symlink; rescan required');
-   const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo,expectedNative:await lstat(item.path,{bigint:true})});
+   const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256});
    if(createHash('sha256').update(bytes).digest('hex')!==item.analysis!.sourceSha256)
     throw new Error('Source script hash changed since scan; rescan before preview');
    scanSessions.assertCurrent(scanSnapshot);
