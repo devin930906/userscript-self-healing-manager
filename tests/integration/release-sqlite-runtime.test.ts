@@ -82,3 +82,22 @@ test('Windows release SQLite verifier rejects a symlinked edition directory', (t
   assert.match(result.stderr,/Unsafe release SQLite ancestor directory/);
  });
 });
+
+test('Windows release SQLite verifier rejects an empty required database',()=>{
+ withReleaseDatabases(roots=>{
+  writeFileSync(join(roots[2],'diagnosis-journal.sqlite'),'');
+  const result=verify(roots);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Missing or empty release SQLite database/);
+ });
+});
+
+test('Windows release SQLite verifier requires exactly three edition roots',()=>{
+ withReleaseDatabases(roots=>{
+  for(const subset of [roots.slice(0,2),[...roots,roots[0]]]){
+   const result=verify(subset);
+   assert.notEqual(result.status,0);
+   assert.match(result.stderr,/Require precisely three Windows edition data roots/);
+  }
+ });
+});
