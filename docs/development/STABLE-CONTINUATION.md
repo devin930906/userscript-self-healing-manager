@@ -17,6 +17,15 @@
 - **实际 Stable 状态**：只增加 RG-06 生产恢复暂存路径的描述符身份纵深防护，不构成真正 Win32 FileIdInfo（Issue #139）、Win10/11 或实际故障恢复验收；RG-06 仍 OPEN / ENV BLOCKED，RG-05 仍 OPEN / ENV BLOCKED；其余 RG-01～RG-09 全部 OPEN。FR-024/025 产品 V2/V3 仍 PARTIAL，V2 blocked、V3/V4 not-configured；`0.1.0-alpha.5`，无 Stable tag、三安装形式、Release，也没有修改用户原件或 `main`。
 - **下次优先级**：在不降低 RG-05 真管理器失败门槛的前提下继续定位官方注入根因；待开发主分支及必要检查允许后复核和整合 PR #269，再完成 RG-06 Win32 原生 FileIdInfo、真实 Windows 恢复与 FR-025 产品级受控可撤销 V2。该 PR 与主分支的并行 RG-05 任务分文件隔离，不能将草稿 PR 误报为已合并。
 
+
+## 2026-10-14 · RG-06 同一根因第二批次：源恢复快照复制时绑定文件描述符（PR #269）
+
+- **真实缺口（生产代码）**：离线暂存函数 `copyChecked` 曾在 `lstat(source)` 后独立执行 `copyFile(source,destination,COPYFILE_EXCL)`。如果源路径在两者之间变更，复制的字节可能不属于刚核查过身份的原文件；事后目的地 hash 失败也无法撤回已复制到不活动目录的无关字节。
+- **已修改**：采用 `O_RDONLY | O_NOFOLLOW` 单一源 `FileHandle`，前置 `BigIntStats` 和描述符身份比对；源描述符流受预期大小上限及 SHA-256 约束，目标由 `O_WRONLY | O_CREAT | O_EXCL` 独占创建、处理部分写入、成功才刷盘；流后再次校验源描述符及路径的原生身份，失败会关闭句柄并拒绝完成标记。复用前批次的 `assertStagedCopy` 描述符哈希审计，保护整个源复制→目标复核链路。**保留部分暂存数据作为失败现场，不会激活/覆盖用户 Data**。
+- **RED**：[测试提交 `8ad9364a`](https://github.com/devin930906/userscript-self-healing-manager/commit/8ad9364a924ffca01ee565c29a1d4d38fa179040)、[Continuation #38551388893](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38551388893)：Ubuntu 新断言按预期失败，原因是源复制没有精确的原生文件身份快照；原有恢复集成测试保持通过。
+- **GREEN**：[生产源码 `b269724d`](https://github.com/devin930906/userscript-self-healing-manager/commit/b269724d33725696f97dacaa675396f710f9c501)、[Continuation #38551594521](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38551594521)：Ubuntu/Windows SUCCESS；[Windows release contracts #38551594526](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38551594526)：SUCCESS，正式安装包 job SKIPPED；[Development #38551594506](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38551594506)：全量 `verify` SUCCESS，但独立的官方 Violentmonkey 2.49.0 GM 注入在 Chrome 进程重启后 FAIL，故整个 Development 工作流仍失败。没有跳过或降低 RG-05 测试。
+- **验收边界与续接**：任务分支 `feat/rg06-pinned-stage-descriptor` 最新经实际运行验证的源码 SHA `b269724d33725696f97dacaa675396f710f9c501`，PR [#269](https://github.com/devin930906/userscript-self-healing-manager/pull/269) 仍是 DRAFT/未合并。实际主开发分支仅以 GitHub 上的 `feat/v01-continuation` 最新 SHA 为准；本次操作没有改动它或 `main`。RG-06 仍 OPEN/ENV BLOCKED，缺 Win32 FileIdInfo、正式 Win10/11 数据恢复/多进程故障矩阵、独立审查；RG-05 仍 OPEN/ENV BLOCKED，RG-01～RG-09 全部未提升。下一轮先排查真实 RG-05 注入、在必要 CI 允许后合并本 PR，再推进生产 V2/V3 与三种同源正式发行包。不能把本 PR 的绿色局部测试宣传为 Stable。
+
 ## 本轮实际修改与证据
 
 - 基线：`88c74a8153d60fea0c0d3819f407dafd3d63b4bc`。原有 `apps/desktop/tests/trusted-drop.test.ts` 错误地断言 Windows 发行工作流不得有开发分支 `push` 触发；实际 `.github/workflows/windows-build.yml` 已允许 `push` 和 PR 运行**无安装包**的发行合同任务，独立安装包任务仍仅在手动派发且校验最终 tag 后执行。
