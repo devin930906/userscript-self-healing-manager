@@ -242,7 +242,7 @@ jobs:
             foreach ($name in @('registry.sqlite', 'diagnosis-journal.sqlite')) {
               $db = Join-Path $root $name
               if (!(Test-Path -LiteralPath $db)) { throw "Missing SQLite database: $db" }
-              $stream = [System.IO.File]::Open($db, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+              $stream = [System.IO.File]::Open($db, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
               try {
                 $header = [byte[]]::new(16)
                 $stream.ReadExactly($header, 0, 16)
