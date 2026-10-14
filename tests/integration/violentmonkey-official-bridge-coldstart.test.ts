@@ -53,9 +53,17 @@ test('RG-05 official bridge is fail-closed for absent/ambiguous tabs and transpo
 test('RG-05 bridge check occurs only AFTER both genuine post-restart GM fixture documents produced no receipt',async()=>{
  const smoke=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  assert.match(smoke,/buildViolentmonkeyContentBridgeDiagnosticExpression/);
+ const success=smoke.indexOf('const secondReceipt=assertViolentmonkeyV4FixtureObservation');
+ const close=smoke.indexOf("browserCdp.send('Browser.close')");
  const observation=smoke.indexOf('startupInjectionBlocked=true');
- const probe=smoke.indexOf('readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl');
+ const first=smoke.indexOf('readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl');
+ const second=smoke.indexOf('readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl',first+10);
  const gate=smoke.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
- assert.ok(observation>=0&&probe>observation&&gate>probe,'diagnostic must never prewarm the browser before mandatory cold-start and reload attestations');
+ assert.ok(success>=0&&first>success&&first<close,
+  'baseline diagnostic must require TWO already-observed genuine GM receipts, before Chrome restart');
+ assert.ok(observation>close&&second>observation&&gate>second,
+  'post-restart diagnostic must be measured only after two missing GM documents');
+ assert.equal(smoke.indexOf('readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl',second+10),-1,
+  'only one control and one already-blocked observation may query the bridge');
  assert.match(smoke,/BLOCKED RG-05 official VM 2\.49\.0 Chrome process restart/);
 });
