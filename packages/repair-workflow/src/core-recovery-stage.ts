@@ -218,9 +218,11 @@ export async function stageCoreRecoveryForOfflineReview({
  * and no path-only audit can prevent a future hostile filesystem mutation.
  */
 export async function verifyCoreOfflineRecoveryStage({
- snapshotDirectory,stagedDirectory,
+ snapshotDirectory,stagedDirectory,beforeFinalStageAudit,
 }:{
  readonly snapshotDirectory:string;readonly stagedDirectory:string;
+ /** Internal deterministic fault injection; never exposed through desktop IPC. */
+ readonly beforeFinalStageAudit?:()=>Promise<void>;
 }):Promise<{valid:true;fileCount:number;sourceManifestSha256:string}>{
  if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory)||
     typeof stagedDirectory!=='string'||!isAbsolute(stagedDirectory))
@@ -295,6 +297,21 @@ export async function verifyCoreOfflineRecoveryStage({
     marker.note!=='NON-ACTIVE. Review offline before any separate, explicit migration; never overwrite a running Data directory.')
   throw new Error('Invalid or tampered offline stage completion marker');
 
+ // Source revalidation can be slow, especially with thousands of managed
+ // revisions. Finish it BEFORE the final staged inventory and byte checks:
+ // otherwise a stage rewritten during source verification can be accepted.
+ await verifyCoreRecoveryBundle({snapshotDirectory:source});
+ if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
+  throw new Error('Offline stage source manifest changed during audit');
+ if(beforeFinalStageAudit){
+  // Test-only fault injection; no renderer or production caller supplies it.
+  if(typeof beforeFinalStageAudit!=='function')
+   throw new Error('Invalid offline stage final-audit dependency');
+  await beforeFinalStageAudit();
+ }
+ // The last complete file inspection covers actual staged outputs, including
+ // unexpected entries, directory aliases, verified hashes and SQLite schemas.
+ await assertUnlinkedRecoveryDirectory(stage);
  const rootNames=(await readdir(stage)).sort();
  const expectedRoot=['USSHM-RECOVERY-NOT-ACTIVE.json',
   'registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
@@ -335,9 +352,6 @@ export async function verifyCoreOfflineRecoveryStage({
    }
   }finally{db.close();}
  }
- await verifyCoreRecoveryBundle({snapshotDirectory:source});
- if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
-  throw new Error('Offline stage source manifest changed during audit');
  if(!(await readBoundedManifest(markerPath)).equals(markerBytes)||
     (await lstat(markerPath)).nlink!==1)
   throw new Error('Offline stage completion marker changed during audit');
