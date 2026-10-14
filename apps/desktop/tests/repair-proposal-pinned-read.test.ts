@@ -15,3 +15,13 @@ test('repair proposal IPC does not re-open a scanned userscript with unbounded p
  assert.match(segment,/sourceInfo\.isSymbolicLink\(\)/);
  assert.match(segment,/sourceInfo\.isFile\(\)/);
 });
+
+test('batch repair proposal binds pinned bytes to scanned SHA-256',async()=>{
+ const main=await readFile(new URL('../src/main/index.ts',import.meta.url),'utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:propose-batch-repair'");
+ const end=main.indexOf("ipcMain.handle('usshm:apply-multi-script-batch'",start);
+ assert.ok(start>=0&&end>start);
+ const handler=main.slice(start,end);
+ assert.match(handler,/readPinnedRegularFile\(item\.path,\{maxBytes:512\*1024,expected:info,expectedNative:await lstat\(item\.path,\{bigint:true\}\),expectedSha256:item\.analysis\.sourceSha256\}\)/);
+ assert.match(handler,/batchRepairs\.proposeBatch\(/);
+});
