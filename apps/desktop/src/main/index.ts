@@ -56,6 +56,7 @@ import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/sr
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
+import {ManualDomTransitionGate} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
@@ -113,6 +114,8 @@ async function bootstrap():Promise<void>{
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
  const batchRepairs=createBatchRepairWorkflow({managedRoot:dataRoot});
  const adapters=createSiteAdapterLibrary({dataRoot});
+ const manualTransitions=new ManualDomTransitionGate();
+ let manualTransitionBusy=false;
  app.on('before-quit',()=>{db.close();journal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
@@ -772,6 +775,65 @@ async function bootstrap():Promise<void>{
   });
   scanSessions.assertCurrent(scanSnapshot);
   return verdict;
+ });
+  ipcMain.handle('usshm:manual-dom-transition',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;
+   phase:'start'|'finish';approved:true}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
+     !Number.isSafeInteger(q.selectorIndex)||q.selectorIndex<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128||
+     (q.phase!=='start'&&q.phase!=='finish'))
+   throw new Error('Explicit observation scope, phase and consent required');
+  if(manualTransitionBusy)throw new Error('Another manual observation is in progress');
+  manualTransitionBusy=true;
+  try{
+   const scanSnapshot=scanSessions.require(q.scanId);
+   const item=scanSnapshot.items[q.itemIndex];
+   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+    throw new Error('Manual observation requires an authorized scanned script');
+   const record=item.analysis.selectorRecords[q.selectorIndex];
+   if(!record||record.runtimeRequired||record.receiver!=='document')
+    throw new Error('Static top-document selector required');
+   const status=await getVerifiedChromeStatus({port:9223});
+   const selected=status.pages.find(page=>page.id===q.targetId);
+   if(!selected?.webSocketDebuggerUrl)throw new Error('Selected Chrome target no longer available');
+   const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+   if(scope.status!=='allowed')throw new Error('Selected page is outside authorized userscript scope');
+   const before=await confirmPageIdentity(selected);
+   const binding={
+    scanId:q.scanId,scriptId:item.scriptId,itemIndex:q.itemIndex,selectorIndex:q.selectorIndex,
+    targetId:selected.id,pageUrl:selected.url,frameId:before.frameId,loaderId:before.loaderId,
+   };
+   if(q.phase==='finish')manualTransitions.assertPending(binding,Date.now());
+   // Two read-only samples at each stage: no Input or userscript execution.
+   const verdict=await runReadOnlyDomContract({
+    approved:true,target:selected,caseId:'MANUAL_'+q.itemIndex+'_'+q.selectorIndex,
+    locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+    expectation:'exists',
+    deps:{
+     confirm:confirmPageIdentity,
+     probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+     summarize:captureDomSummary,
+     wait:()=>new Promise<void>(resolve=>setTimeout(resolve,650)),
+    },
+   });
+   assertStablePageDocument(before,await confirmPageIdentity(selected));
+   scanSessions.assertCurrent(scanSnapshot);
+   if((verdict.status!=='passed'&&verdict.status!=='failed')||
+      verdict.attempts!==2||verdict.evidenceLevel!=='V1'||
+      verdict.V2!=='blocked'||verdict.functionalVerified!==false||
+      verdict.matchCount===null)
+    throw new Error('Inconclusive read-only DOM samples; no V2 evidence');
+   return q.phase==='start'
+    ?manualTransitions.begin({binding,beforeCount:verdict.matchCount,now:Date.now()})
+    :manualTransitions.finish({binding,afterCount:verdict.matchCount,now:Date.now()});
+  }finally{
+   // A finishing request consumes consent, even if the CDP transport fails.
+   if(q.phase==='finish')manualTransitions.clear();
+   manualTransitionBusy=false;
+  }
  });
  ipcMain.handle('usshm:suggest-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true}|null;
