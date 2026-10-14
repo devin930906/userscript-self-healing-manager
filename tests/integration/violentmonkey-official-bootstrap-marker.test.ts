@@ -117,3 +117,51 @@ test('RG-05 official runtime identity diagnostic is only a pinned boolean with n
  });
  assert.doesNotMatch(JSON.stringify(values),/jinjaccalgkegednnccohejagnlnfdag|91|frame/);
 });
+
+
+test('RG-05 observes bounded isolated-world runtime exceptions without retaining private error text',()=>{
+ const exceptionFactory=(module as Record<string,unknown>).createPinnedIsolatedRuntimeExceptionEvidence as
+  ((frameId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ assert.equal(typeof exceptionFactory,'function','missing RG-05 passive runtime exception observer');
+ const evidence=exceptionFactory('pinned');
+ evidence.observe('Runtime.executionContextCreated',{context:{id:101,auxData:{frameId:'other',isDefault:false}}});
+ evidence.observe('Runtime.executionContextCreated',{context:{id:102,auxData:{frameId:'pinned',isDefault:true}}});
+ evidence.observe('Runtime.executionContextCreated',{context:{id:103,auxData:{frameId:'pinned',isDefault:false}}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:101,text:'PRIVATE_OTHER_SITE'}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:102,text:'PRIVATE_MAIN_FRAME'}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:103,text:'PRIVATE_VM_STACK',exception:{description:'PRIVATE_SCRIPT_SOURCE'}}});
+ assert.deepEqual(evidence.snapshot(),{
+  isolatedExceptionObserved:true,isolatedExceptionCount:1,observationIncomplete:false,
+ });
+ assert.doesNotMatch(JSON.stringify(evidence.snapshot()),/PRIVATE|pinned|101|102|103|chrome-extension/i);
+ evidence.observe('Runtime.executionContextDestroyed',{executionContextId:103});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:103,text:'PRIVATE_STALE'}});
+ assert.equal((evidence.snapshot() as {isolatedExceptionCount:number}).isolatedExceptionCount,1);
+});
+
+test('RG-05 exception evidence caps volume and is collected without changing GM cold restart gates',async()=>{
+ const exceptionFactory=(module as Record<string,unknown>).createPinnedIsolatedRuntimeExceptionEvidence as
+  ((frameId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ assert.equal(typeof exceptionFactory,'function');
+ const evidence=exceptionFactory('fixture');
+ evidence.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:'fixture',isDefault:false}}});
+ for(let i=0;i<20;i++){
+  evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,text:'PRIVATE_TOKEN_'+i}});
+ }
+ assert.deepEqual(evidence.snapshot(),{
+  isolatedExceptionObserved:true,isolatedExceptionCount:8,observationIncomplete:true,
+ });
+ evidence.observe('Runtime.executionContextsCleared',{});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,text:'PRIVATE_EXPIRED'}});
+ assert.equal((evidence.snapshot() as {isolatedExceptionCount:number}).isolatedExceptionCount,8);
+ assert.throws(()=>exceptionFactory(''),/frame|identity/i);
+ const harness=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ assert.match(harness,/Runtime\.exceptionThrown/,'CDP transport must forward the actual Runtime event');
+ assert.match(harness,/createPinnedIsolatedRuntimeExceptionEvidence/);
+ const failed=harness.indexOf('startupInjectionBlocked=true');
+ const summary=harness.indexOf('RG-05 isolated runtime exceptions after missing GM receipts');
+ const gate=harness.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(failed>=0&&summary>failed&&summary<gate,
+  'exception classification must only report after BOTH already-failed documents');
+ assert.doesNotMatch(harness,/GetInjected\W*\(/,'diagnostic cannot invoke the official manager injection command');
+});
