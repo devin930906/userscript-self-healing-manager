@@ -2,7 +2,7 @@
 
 **记录日期**：2026-10-14（Asia/Kuala_Lumpur）  
 **唯一开发分支**：`feat/v01-continuation`  
-**本轮经完整 CI 验证的源代码 HEAD**：`90dd041895d9de6a5902f5796df93423affa2a33`  
+**本轮经完整 CI 验证的源代码 HEAD**：`e8171efd6308ff88b71467c09b4b4525fb242f64`  
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
@@ -150,3 +150,13 @@
 - **绝对边界**：新增模块严格在 `scripts/` 测试层，Main/Preload/React 没有导入合成 CDP Input；产品 `V2:'blocked'`、`V3/V4:'not-configured'`。这个 isolated CFT155 测试**不能**证明用户真实网站点击无副作用、正式 Tampermonkey/Violentmonkey manager 或 Win10/11 最终版本验收。FR-024/025 PARTIAL、RG-03 OPEN，**全部 RG-01～09 仍 OPEN**，不推进正式 Stable。
 - **下一步优先事项**：在真实授权和独立安全审查之前禁止把任意真实网站动作开放给产品；继续完善 RG-03 安全正负作用分离与 V3 具名业务契约，随后 RG-05 正式 userscript-manager 产品桥、RG-06/08 真 Windows 故障恢复与三包安装／卸载／升级验收。Issue #139 native Win32 文件身份、RG-02 独立审查仍未解除。版本仍 `0.1.0-alpha.5`，不创建 tag、Release、安装包，不改 main，不覆盖历史 `docs/development/v01-worklog.md`。
 - 此记录文档更新自身将生成新 HEAD；必须再次验证文档 HEAD 对应的三项 CI，而不能沿用源码 HEAD 的结果。
+
+## 2026-10-14 · FR-025 共享 CDP frame/subframe 身份校验：产品真实读证防误判（未解除 V2）
+
+- **基线**：`32b833a4fd1bb0c45233c515ca101a2277412acb`，该 HEAD 的 [Development #38528168050](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38528168050)、[Continuation #38528167989](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38528167989)、[Windows release contracts #38528167996](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38528167996) SUCCESS；RG-01～09 均 OPEN。**不重复**上轮固定合成动作 `1→2→1` 与先前风险分类。
+- **根因**：`packages/test-runner/src/index.ts` 中 `runReadOnlyDomContract` 有 bounded frame/loader/subframe validator，但产品 `runReadOnlyInteractionReadiness`（Desktop Main 的 `usshm:interaction-readiness` 和 `usshm:product-action-review` 实际消费）以及 `runReadOnlyVisibilityWait` 只判断 truthy frame/loader；同一个入口的 baseline 与后续重检没有拒绝非法长度、负数或超额子框架、与顶层同 ID 的子框架或非 HMAC 指纹。这可能在使用非真实/错误 CDP 适配器或异常页面证据时错误返回 `potentially-ready` / `potentially-visible-v1`，虽然不会执行 Input 也不会升级 V2。
+- **TDD RED**：[测试提交 `80848e8c`](https://github.com/devin930906/userscript-self-healing-manager/commit/80848e8c8434fb35d6bbfebe84e8c8e553ba8e69) 的 [Continuation #38528939132](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38528939132) Ubuntu `FR-025 readiness must reject malformed baseline frame...` 实际 FAIL，提示 `Missing expected rejection`。第二个可见性入口 [测试提交 `19aadcd2`](https://github.com/devin930906/userscript-self-healing-manager/commit/19aadcd277ce4b1a9d305de7c6ad09a46a55eb2f) 的 [Continuation #38529208669](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529208669) Ubuntu 再现 `FR-025 bounded visibility wait rejects malformed document...` 实际 FAIL。
+- **修复**：`43be316d` 将原 `assertBoundedFrameIdentity` 升级为公用校验，补充子框架可选 URL HMAC 指纹必须为 64 位小写十六进制，并由准备度 baseline / 全部 recheck 调用；`e8171efd` 将同一检查复用到可见性等待的 baseline / 每次 guard。测试证明异常证据在 DOM/CSS 操作之前 fail-closed。保留已有相同页面、frame、loader、iframe 身份变化检测和只读节点连续性，不跳过测试或放宽证据。
+- **GREEN 准确源码 SHA**：`e8171efd6308ff88b71467c09b4b4525fb242f64`，[Development #38529459358](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459358) SUCCESS（Windows 全量 TS/Node/Electron/Chrome），[Continuation #38529459442](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459442) SUCCESS（Ubuntu/Windows），[Windows release contracts #38529459399](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459399) SUCCESS（Ubuntu/Windows；installer job SKIPPED）。
+- **范围与剩余门槛**：修复是产品证据完整性防误判；不是用户真实网站的可撤销 V2 安全交互、V3 业务功能成功、V4 manager/GM 功能认证，也不完成真 Windows 10/11 三发行包独立验收。FR-024/025 仍 PARTIAL [CODE GAP] [ENV BLOCKED]；RG-01～09 **全部 OPEN**；不建安装包、tag、Release 或改 `main`。下一优先级应直接瞄准**经批准的产品级 V2 安全动作闭环及 V3 具名归因**，或 RG-05 正式 manager 产品桥；不得重复合成-only 点击验收或未经授权触碰用户网站。Issue #139 Win32 原生 File ID 与 RG-02 独立审查仍有缺口。
+- 文档提交将推进 HEAD，必须核对该文档 HEAD 的三组 CI；不覆盖 `docs/development/v01-worklog.md`。
