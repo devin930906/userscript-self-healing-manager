@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
 import {createCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
-import {stageCoreRecoveryForOfflineReview} from '../../packages/repair-workflow/src/core-recovery-stage.ts';
+import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '../../packages/repair-workflow/src/core-recovery-stage.ts';
 
 const sha=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 
@@ -113,4 +113,32 @@ test('RG-06 late source snapshot mutation after the last audit cannot receive an
   'the active Data registry must remain byte-identical');
  assert.notDeepEqual(await readFile(join(backup,'registry.sqlite')),originalBackup,
   'fault injection must actually alter the backup snapshot');
+}));
+
+test('RG-06 independent offline-stage review rejects late source mutation while independently reviewing',async()=>withSnapshot(async({source,backup,target})=>{
+ // This is a separate review of an ALREADY-COMPLETED, NON-ACTIVE stage.
+ // The source snapshot was valid before entering verification. During its
+ // final staged-file audit an uncooperative process corrupts the BACKUP only.
+ const liveBefore=await readFile(join(source,'registry.sqlite'));
+ await stageCoreRecoveryForOfflineReview({
+  snapshotDirectory:backup,activeDataRoot:source,destination:target,
+ });
+ const stageBefore=await readFile(join(target,'registry.sqlite'));
+ const markerBefore=await readFile(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json'));
+ let injected=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:target,
+  beforeFinalStageAudit:async()=>{
+   injected++;
+   await writeFile(join(backup,'registry.sqlite'),'SYNTHETIC_LATE_SOURCE_CORRUPTION_DURING_REVIEW');
+  },
+ }),/source|snapshot|recovery|changed|hash|corrupt|integrity|mismatch/i,
+  'a valid staged copy cannot imply a still-valid source after late backup corruption');
+ assert.equal(injected,1,'fault injection must occur after the initial source audit');
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),liveBefore,
+  'active Data stays byte-identical');
+ assert.deepEqual(await readFile(join(target,'registry.sqlite')),stageBefore,
+  'this review may not repair or alter staged bytes');
+ assert.deepEqual(await readFile(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json')),markerBefore,
+  'this read-only review does not rewrite the completion marker');
 }));
