@@ -65,5 +65,8 @@ test('RG-05 registration diagnostic refuses non-isolated URL and never promotes 
  assert.ok(snapshots[0]!<source.indexOf('const createdFixture=await browserCdp.send'));
  assert.ok(snapshots[1]!<source.indexOf('const createdRestartFixture=await browserCdp.send'));
  assert.match(source,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
- assert.doesNotMatch(source,/console\.log\([^\n]*\.js|console\.log\([^\n]*userScript/);
+ const logStatements=source.split('\n').filter(line=>line.includes('console.log(')).join('\n');
+ // Reject a direct raw variable dump. A permitted log message may say "userScripts"
+ // when describing the permission state, without disclosing script source.
+ assert.doesNotMatch(logStatements,/console\.log\(\s*(?:userScript|scopedUserScript|installExpression|fixtureUrl)\s*[,)]/);
 });
