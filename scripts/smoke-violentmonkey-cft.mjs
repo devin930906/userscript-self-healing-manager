@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {createServer} from 'node:http';
-import {access,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {access,lstat,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {basename,join,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -14,6 +14,8 @@ import {
  assertChromeDebuggerPortFree,buildChromeLaunchArgs,getVerifiedChromeStatus,getChromeStatus,
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
+import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.ts';
+import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
@@ -796,6 +798,29 @@ try{
   // user script or private stack. Report only AFTER two missing real receipts.
   console.log('RG-05 official injected.js fault site after missing GM receipts: '+
    restartedInjectorExceptions.injectedFailureSite()+'; pinned public asset coordinate, not GM success.');
+  // Inspect STATIC syntax in the exact public injected.js of the SHA-256
+  // verified official ZIP. This path was constrained to disposable Runner.Temp
+  // before Chrome launched. Never request CDP source or inspect a userscript.
+  // No original source span, variable, URL, exception or stack is logged.
+  try{
+   const site=/^L(\\d{1,6}):C(\\d{1,8})$/.exec(
+    restartedInjectorExceptions.injectedFailureSite());
+   if(!site)throw new Error('no fixed official exception site');
+   const asset=join(absoluteExtensionRoot,'injected.js');
+   const expected=await lstat(asset);
+   if(!expected.isFile()||expected.isSymbolicLink()||
+      expected.nlink!==1||expected.size<1||expected.size>524288)
+    throw new Error('official asset not a bounded regular file');
+   const bytes=await readPinnedRegularFile(asset,{
+    maxBytes:524288,expected,expectedNative:await lstat(asset,{bigint:true}),
+   });
+   const position=mapPinnedOfficialFaultSite(
+    bytes.toString('utf8'),Number(site[1]),Number(site[2]));
+   console.log('RG-05 public official injected.js AST site after missing GM receipts: '+
+    JSON.stringify(position)+'; static public-bundle fingerprint, not GM success.');
+  }catch{
+   console.log('RG-05 public official injected.js AST site after missing GM receipts: unavailable; GM gate remains blocked.');
+  }
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({
