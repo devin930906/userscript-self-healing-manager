@@ -86,3 +86,15 @@ test('official manager fixture modules cannot enter any production bundle even w
   }
  }
 });
+
+test('RG-05 real official-manager restart attestation is test-only and cannot reach any production bundle',async()=>{
+ for(const entry of ['main','preload','renderer']){
+  assert.throws(()=>assertProductionModuleGraph({
+   inputs:{'scripts/violentmonkey-restart-attestation.ts':{bytes:1,imports:[]}},
+  },entry),/test-only|forbidden|production/i);
+ }
+ await withDist(async dir=>{
+  await writeFile(join(dir,'main.cjs'),'const forbidden="assertOfficialViolentmonkeyProcessRestart";');
+  await assert.rejects(verifyProductionBundles(dir),/test-only|forbidden|CDP|bundle/i);
+ });
+});
