@@ -227,3 +227,65 @@ test('RG-05 reports missing-data signature only after two real failed restart do
  assert.ok(diagnostic>failed&&diagnostic<strictGate,'cannot use a signature as a GM receipt');
  assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
 });
+
+
+test('RG-05 official injector failure site is a bounded public-asset coordinate, never a private CDP payload',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const create=()=>mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ const e=create() as ReturnType<typeof create> & {injectedFailureSite:()=>string};
+ assert.equal(typeof e.injectedFailureSite,'function','missing fixed official injected.js fault-site diagnostic');
+ assert.equal(e.injectedFailureSite(),'not-observed');
+ e.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:frame,isDefault:false}}});
+ e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,lineNumber:7,columnNumber:12054,
+  text:'PRIVATE_OAUTH_QUERY_TOKEN',exception:{className:'TypeError',description:'PRIVATE_ACCOUNT_STACK'},
+ }});
+ assert.equal(e.injectedFailureSite(),'L7:C12054');
+ assert.doesNotMatch(e.injectedFailureSite()+JSON.stringify(e.snapshot()),/PRIVATE|TOKEN|OAuth|101|chrome-extension|frame/);
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,lineNumber:7,columnNumber:12054,
+  exception:{className:'TypeError'},
+ }});
+ assert.equal(e.injectedFailureSite(),'L7:C12054','same location stays stable across repeated official exceptions');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,lineNumber:7,columnNumber:12055,
+  exception:{className:'TypeError'},
+ }});
+ assert.equal(e.injectedFailureSite(),'multiple','distinct sites cannot be represented as one assumed root');
+});
+
+test('RG-05 missing, untrusted or oversized official failure locations must never become source proof',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ for(const position of [
+  {lineNumber:-1,columnNumber:2},{lineNumber:1,columnNumber:-1},
+  {lineNumber:100001,columnNumber:2},{lineNumber:1,columnNumber:10000001},
+  {lineNumber:1.5,columnNumber:4},{lineNumber:'1',columnNumber:4},
+  {lineNumber:0,columnNumber:null},{lineNumber:0},
+ ]){
+  const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+   ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedFailureSite:()=>string};
+  e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+  e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+   scriptId:'101',executionContextId:9,...position,exception:{className:'TypeError'},
+  }});
+  assert.equal(e.injectedFailureSite(),'unknown');
+ }
+ const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+  ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedFailureSite:()=>string};
+ e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'forged',executionContextId:9,lineNumber:1,columnNumber:1,
+  exception:{className:'TypeError'},
+ }});
+ assert.equal(e.injectedFailureSite(),'not-observed');
+});
+
+test('RG-05 official failure coordinate is reported only after real failed GM cold start, never used to bypass gate',async()=>{
+ const script=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const blocked=script.indexOf('startupInjectionBlocked=true');
+ const site=script.indexOf('RG-05 official injected.js fault site after missing GM receipts');
+ const gate=script.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(blocked>=0&&site>blocked&&gate>site);
+ assert.doesNotMatch(script,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
+});
