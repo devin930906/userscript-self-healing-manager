@@ -3,7 +3,12 @@ import {resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {buildTestBatches,assertTestSourceBudget} from './test-batches.mjs';
 async function collect(dir){const entries=await readdir(dir,{withFileTypes:true});
- const paths=[];for(const entry of entries){const path=resolve(dir,entry.name);if(entry.isDirectory()&&!['node_modules','dist','.worktrees','.git'].includes(entry.name))paths.push(...await collect(path));else if(entry.isFile()&&entry.name.endsWith('.test.ts'))paths.push(path);}return paths;}
+ const paths=[];for(const entry of entries){if(['node_modules','dist','.worktrees','.git'].includes(entry.name))continue;
+ const path=resolve(dir,entry.name);
+ if(entry.isSymbolicLink())throw Error('Symbolic link in test discovery tree: '+path);
+ if(entry.isDirectory())paths.push(...await collect(path));
+ else if(entry.isFile()&&entry.name.endsWith('.test.ts'))paths.push(path);
+}return paths;}
 const packageTests=await collect('packages');
 const appTests=await collect('apps');
 const integrationTests=await collect('tests');
