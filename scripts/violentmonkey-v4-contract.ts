@@ -82,6 +82,46 @@ export function buildViolentmonkeyFixtureRegistrationExpression(fixtureUrl:strin
 }
 
 /**
+ * RG-05 DIAGNOSTIC ONLY, isolated CFT profile: distinguish a Chrome registered
+ * injector from its official content bridge actually answering in the exact
+ * loopback main frame. Upstream Violentmonkey v2.49.0 content/bridge.js responds
+ * to its internal cmd "Violentmonkey" with true; no GetInjected, arbitrary
+ * userscript code, tabs inventory, extension errors or runtime content leaves
+ * the manager. Never use as product V4 or official GM execution evidence.
+ */
+export function buildViolentmonkeyContentBridgeDiagnosticExpression(fixtureUrl:string):string{
+ let url:URL;
+ try{url=new URL(fixtureUrl);}catch{throw new Error('Invalid isolated fixture URL');}
+ if(typeof fixtureUrl!=='string'||fixtureUrl.length>160||url.href!==fixtureUrl||
+    url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||
+    url.pathname!=='/fixture'||url.username||url.password||url.search||url.hash)
+  throw new Error('Invalid isolated fixture URL');
+ const pinned=JSON.stringify(fixtureUrl);
+ return `(async()=>{
+  const fixed=(targetFound,bridgeResponded)=>JSON.stringify({
+   targetFound:!!targetFound,bridgeResponded:!!bridgeResponded});
+  try{
+   if(typeof chrome.tabs?.query!=='function'||
+      typeof chrome.tabs?.sendMessage!=='function')return fixed(false,false);
+   const candidates=await chrome.tabs.query({url:'http://127.0.0.1/*'});
+   if(!Array.isArray(candidates))return fixed(false,false);
+   const exact=candidates.filter(item=>item&&item.url===${pinned}&&
+    Number.isSafeInteger(item.id)&&item.id>=0);
+   if(exact.length!==1)return fixed(false,false);
+   let timer;
+   try{
+    const answer=await Promise.race([
+     chrome.tabs.sendMessage(exact[0].id,{cmd:'Violentmonkey'},{frameId:0}),
+     new Promise(resolve=>{timer=setTimeout(()=>resolve(false),1500);}),
+    ]);
+    return fixed(true,answer===true);
+   }catch{return fixed(true,false);}
+   finally{clearTimeout(timer);}
+  }catch{return fixed(false,false);}
+ })()`;
+}
+
+/**
  * RG-05 TEST ONLY: inspect Chrome's actual USER_SCRIPT world settings before
  * and after the isolated browser-process restart. Chrome 133+ exposes the
  * official getWorldConfigurations API; never export the original CSP, script
