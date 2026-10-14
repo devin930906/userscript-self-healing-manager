@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
-import {copyFile,lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
+import {lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {DatabaseSync} from 'node:sqlite';
@@ -59,14 +59,56 @@ async function readBoundedManifest(path:string):Promise<Buffer>{
  return readPinnedRegularFile(path,{maxBytes:1024*1024,expected:info,expectedNative:await lstat(path,{bigint:true})});
 }
 async function copyChecked(source:string,destination:string,expected:HashedFile){
- const before=await lstat(source);
- if(!before.isFile()||before.isSymbolicLink()||before.size!==expected.bytes||
-    expected.bytes>512*1024*1024||expected.bytes<0)
+ // Never let a later pathname-only copy select a different source after the
+ // selected backup file was inspected. This narrows a copy-time disclosure
+ // race; it does not substitute for native Win32 file-ID or directory locks.
+ await assertUnlinkedRecoveryDirectory(dirname(source));
+ const nativeBefore=await lstat(source,{bigint:true});
+ if(!Number.isSafeInteger(expected.bytes)||expected.bytes<0||
+    expected.bytes>512*1024*1024||
+    nativeBefore.size!==BigInt(expected.bytes)||
+    !sameCoreRecoveryNativeIdentity(nativeBefore,nativeBefore))
   throw new Error('Unsafe or changed source recovery file');
- // Destination must not exist; the caller claimed an exclusively new root.
- await copyFile(source,destination,constants.COPYFILE_EXCL);
- const after=await lstat(destination);
- if(!after.isFile()||after.isSymbolicLink()||after.size!==expected.bytes)
+ const sourceHandle=await open(source,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
+ try{
+  const nativeOpened=await sourceHandle.stat({bigint:true});
+  if(!sameCoreRecoveryNativeIdentity(nativeBefore,nativeOpened))
+   throw new Error('Source recovery native identity changed before pinned copy');
+  // O_EXCL is the original COPYFILE_EXCL invariant: no existing staged file
+  // may be replaced, linked or silently truncated.
+  const destinationHandle=await open(destination,
+   constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL,0o600);
+  try{
+   const hash=createHash('sha256');
+   let copied=0;
+   for await(const part of sourceHandle.createReadStream({autoClose:false})){
+    const block=part as Buffer;
+    copied+=block.byteLength;
+    if(copied>expected.bytes)throw new Error('Source recovery exceeded copy byte budget');
+    hash.update(block);
+    let offset=0;
+    while(offset<block.byteLength){
+     const {bytesWritten}=await destinationHandle.write(block,offset,block.byteLength-offset);
+     if(!Number.isSafeInteger(bytesWritten)||bytesWritten<1)
+      throw new Error('Source recovery staged write failed');
+     offset+=bytesWritten;
+    }
+   }
+   const nativeAfter=await sourceHandle.stat({bigint:true});
+   const pathAfter=await lstat(source,{bigint:true});
+   if(!sameCoreRecoveryNativeIdentity(nativeBefore,nativeAfter)||
+      !sameCoreRecoveryNativeIdentity(nativeBefore,pathAfter))
+    throw new Error('Source recovery native identity changed during pinned copy');
+   if(copied!==expected.bytes||hash.digest('hex')!==expected.sha256)
+    throw new Error('Source recovery copy hash mismatch');
+   // A completed stage marker must not precede flushing the copied file.
+   // This is not a promise of cross-directory crash-atomic recovery.
+   await destinationHandle.sync();
+  }finally{await destinationHandle.close();}
+ }finally{await sourceHandle.close();}
+ const after=await lstat(destination,{bigint:true});
+ if(!after.isFile()||after.isSymbolicLink()||after.nlink!==1n||
+    after.size!==BigInt(expected.bytes))
   throw new Error('Offline recovery copied file has wrong type or size');
  await assertStagedCopy(destination,expected);
 }
