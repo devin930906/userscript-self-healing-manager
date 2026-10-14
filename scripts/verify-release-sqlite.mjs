@@ -20,7 +20,10 @@ for(const root of roots){
       const result=db.prepare('PRAGMA integrity_check').all();
       if(result.length!==1||result[0].integrity_check!=='ok')
         throw new Error('SQLite integrity_check failed for '+path+': '+JSON.stringify(result));
-      console.log('SQLite integrity_check PASS:',path);
+      const foreignKeys=db.prepare('PRAGMA foreign_key_check').all();
+      if(foreignKeys.length!==0)
+        throw new Error('SQLite foreign_key_check failed for '+path+': '+JSON.stringify(foreignKeys));
+      console.log('SQLite integrity_check and foreign_key_check PASS:',path);
     }finally{db.close();}
   }
 }
