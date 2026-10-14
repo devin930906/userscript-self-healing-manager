@@ -87,3 +87,39 @@ test('RG-06 FR-014 v1 core bundles without test cases remain verifiable',async()
   }finally{journal.close();db.close();}
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('RG-06 newly created scenario during backup cannot be silently excluded by a v1 final manifest',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-fr014-late-scene-'));
+ try{
+  const dataRoot=join(root,'Data'),destination=join(root,'Core-Backup');
+  await mkdir(dataRoot);
+  const registry=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(registry);
+  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
+  try{
+   await assert.rejects(createCoreRecoveryBundle({
+    dataRoot,destination,registry,journal,beforeFinalManifest:async()=>{
+     await createSiteTestCase({dataRoot,scriptId:'script-one',
+      url:'https://example.invalid/app/appeared-late',
+      label:'Appeared during snapshot',stateId:'custom',metadata});
+    },
+   }),/scenario|scene|test case|changed|appeared/i);
+   await assert.rejects(access(join(destination,'manifest.json')),{code:'ENOENT'});
+   await access(join(dataRoot,'site-test-cases.json'));
+  }finally{journal.close();registry.close();}
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+test('RG-06 refuses a corrupt live scene registry before publishing any complete marker',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-fr014-corrupt-scene-'));
+ try{
+  const dataRoot=join(root,'Data'),destination=join(root,'Core-Backup');
+  await mkdir(dataRoot);
+  await writeFile(join(dataRoot,'site-test-cases.json'),'{invalid scene JSON');
+  const registry=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(registry);
+  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
+  try{
+   await assert.rejects(createCoreRecoveryBundle({dataRoot,destination,registry,journal}),/corrupt|invalid|test case/i);
+   await assert.rejects(access(join(destination,'manifest.json')),{code:'ENOENT'});
+   assert.equal(await readFile(join(dataRoot,'site-test-cases.json'),'utf8'),'{invalid scene JSON');
+  }finally{journal.close();registry.close();}
+ }finally{await rm(root,{recursive:true,force:true});}
+});
