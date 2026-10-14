@@ -70,3 +70,24 @@ test('RG-05 actual official CFT 155 fixture smoke performs independent Chrome pr
  assert.match(code,/expectedStorageBefore:2/);
  assert.doesNotMatch(code,/appV4:'passed'|managerVerified:true|--no-sandbox/i);
 });
+
+test('RG-05 official manager restart reports one required cold-start fixture reload distinctly from immediate injection',async()=>{
+ const attest=await requireAttestation();
+ const warmup=attest({...input,startupWarmup:true});
+ assert.equal(warmup.status,'fixture-restart-warmup-passed');
+ assert.equal(warmup.coldStartInjection,'reload-required');
+ assert.equal(warmup.productionEligible,false);
+ assert.equal(warmup.V4,'not-configured');
+ assert.equal(warmup.managerVerified,false);
+ assert.throws(()=>attest({...input,startupWarmup:'yes'}),/restart|invalid|fixture|incomplete/i);
+});
+test('RG-05 live official manager cold-start recovery is one bounded loopback reload only on missing fixture marker',async()=>{
+ const script=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ assert.match(script,/stage: not-observed/);
+ assert.match(script,/requests\.length!==2/);
+ assert.match(script,/Page\.reload/);
+ assert.match(script,/previousLoaderId/);
+ assert.match(script,/startupWarmup/);
+ assert.match(script,/fixture-restart-warmup-passed/);
+ assert.doesNotMatch(script,/--no-sandbox|localhost\.evil|disable-web-security/i);
+});
