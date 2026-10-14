@@ -104,3 +104,19 @@ test('DOM exports never turn an unconfirmed result into a V1 failure or skipped 
   }
  }
 });
+
+test('RG-07 JSON and Markdown exports must not disclose private script identifiers',()=>{
+ const privateScriptId='user@example.com_OAUTH_PRIVATE_API_KEY_ABCDEF';
+ const local={...sample,items:[{...sample.items[0]!,scriptId:privateScriptId}]};
+ for(const format of ['json','markdown'] as const){
+  const exported=serializeDomBatchReport(local,format,'2026-10-14T05:30:00.000Z');
+  assert.doesNotMatch(exported,/OAUTH_PRIVATE_API_KEY|user@example\.com/,format);
+  assert.match(exported,/example\.user\.js/);
+  assert.match(exported,/dom-present/);
+  assert.match(exported,/blocked/);
+ }
+ const json=JSON.parse(serializeDomBatchReport(local,'json','2026-10-14T05:30:00.000Z'));
+ assert.equal(Object.hasOwn(json.items[0],'scriptId'),false,'raw internal script IDs should never form part of external DTO');
+ assert.equal(json.items[0].index,0);
+ assert.equal(json.items[0].verification.V3,'not-configured');
+});
