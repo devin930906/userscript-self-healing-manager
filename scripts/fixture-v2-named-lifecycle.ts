@@ -91,11 +91,28 @@ export async function runNamedFixtureV2Lifecycle({
    if(i<15)await (deps.wait?.()??new Promise<void>(resolve=>setTimeout(resolve,125)));
   }
   if(!fresh)throw new Error('Synthetic fixture cleanup did not create a fresh document');
-  cleanupPhase='restore-observation';
-  const clean=await deps.observe(target);
-  expectedObservation(clean,1);
-  cleanupPhase='restore-identity';
-  assertStablePageDocument(fresh,await deps.confirm(target));
+  // A new top-level loader can precede child-frame settlement. Each
+  // bounded retry must pin the SAME complete document identity before
+  // and after a fresh two-sample DOM proof. Never waive the iframe guard.
+  let verified=false;
+  for(let attempt=0;attempt<8;attempt++){
+   try{
+    cleanupPhase='restore-identity';
+    const pinned=await deps.confirm(target);
+    validateIdentity(pinned,target);
+    if(pinned.frameId!==fresh.frameId||pinned.loaderId!==fresh.loaderId)
+     throw new Error('Synthetic fixture cleanup document changed again');
+    cleanupPhase='restore-observation';
+    const clean=await deps.observe(target);
+    expectedObservation(clean,1);
+    cleanupPhase='restore-identity';
+    assertStablePageDocument(pinned,await deps.confirm(target));
+    verified=true;break;
+   }catch{
+    if(attempt<7)await (deps.wait?.()??new Promise<void>(resolve=>setTimeout(resolve,125)));
+   }
+  }
+  if(!verified)throw new Error('Synthetic fixture cleanup did not prove a stable restored baseline');
  }catch{cleanupFailure=new Error('Synthetic fixture cleanup could not be verified ('+cleanupPhase+')');}
  if(cleanupFailure)throw cleanupFailure;
  if(failure)throw failure;
