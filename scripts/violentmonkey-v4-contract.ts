@@ -45,6 +45,43 @@ export function scopeViolentmonkeyFixtureToUrl(template:string,fixtureUrl:string
 }
 
 /**
+ * RG-05 TEST ONLY: observe the *official Chrome userScripts* registrations
+ * without ever reading/serializing JS code or private manager inventory.
+ * Violentmonkey 2.49.0 uses base ID 1001 and transient URL data ID 1000+URL
+ * (src/common/browser-scripts-api.js and preinject-core.js at v2.49.0).
+ * Read-only diagnostics are not injection execution evidence or a V4 pass.
+ */
+export function buildViolentmonkeyFixtureRegistrationExpression(fixtureUrl:string):string{
+ let url:URL;
+ try{url=new URL(fixtureUrl);}catch{throw new Error('Invalid isolated fixture URL');}
+ if(typeof fixtureUrl!=='string'||fixtureUrl.length>160||url.href!==fixtureUrl||
+    url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||
+    url.pathname!=='/fixture'||url.username||url.password||url.search||url.hash)
+  throw new Error('Invalid isolated fixture URL');
+ const fixedUrl=JSON.stringify(fixtureUrl);
+ return `(async()=>{
+  const empty=()=>JSON.stringify({baseRegistered:false,fixtureDataRegistered:false,
+   baseMatchesFixture:false,dataMatchesFixture:false});
+  try{
+   if(typeof chrome.userScripts?.getScripts!=='function')return empty();
+   const baseList=await chrome.userScripts.getScripts({ids:['1001']});
+   const dataList=await chrome.userScripts.getScripts({ids:['1000'+${fixedUrl}]});
+   const base=Array.isArray(baseList)&&baseList.length===1?baseList[0]:null;
+   const data=Array.isArray(dataList)&&dataList.length===1?dataList[0]:null;
+   const baseRegistered=base?.id==='1001';
+   const fixtureDataRegistered=data?.id==='1000'+${fixedUrl};
+   const baseMatchesFixture=baseRegistered&&Array.isArray(base.matches)&&
+    (base.matches.includes('<all_urls>')||base.matches.includes(${fixedUrl}));
+   const dataMatchesFixture=fixtureDataRegistered&&Array.isArray(data.matches)&&
+    data.matches.includes(${fixedUrl});
+   return JSON.stringify({baseRegistered:!!baseRegistered,
+    fixtureDataRegistered:!!fixtureDataRegistered,
+    baseMatchesFixture:!!baseMatchesFixture,dataMatchesFixture:!!dataMatchesFixture});
+  }catch{return empty();}
+ })()`;
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
