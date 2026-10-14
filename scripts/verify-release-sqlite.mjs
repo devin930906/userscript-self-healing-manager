@@ -9,7 +9,8 @@ if(new Set(roots.map(root=>resolve(root).toLowerCase())).size!==3)
 const editionRoots=new Set();
 const databaseFiles=new Set();
 for(const root of roots){
-  const rootStat=lstatSync(resolve(root));
+  // Preserve full Windows file indexes: numeric Stats.ino may round different MFT identities.
+  const rootStat=lstatSync(resolve(root),{bigint:true});
   if(!rootStat.isDirectory()||rootStat.isSymbolicLink())
     throw new Error('Unsafe Windows edition data root: '+root);
   const identity=`${rootStat.dev}:${rootStat.ino}`;
@@ -23,8 +24,8 @@ for(const root of roots){
         throw new Error('Unsafe release SQLite ancestor directory: '+directory);
       if(directory===parse(directory).root)break;
     }
-    const info=lstatSync(path,{throwIfNoEntry:false});
-    if(!info?.isFile()||info.size===0)throw new Error('Missing or empty release SQLite database: '+path);
+    const info=lstatSync(path,{bigint:true,throwIfNoEntry:false});
+    if(!info?.isFile()||info.size===0n)throw new Error('Missing or empty release SQLite database: '+path);
     const fileIdentity=`${info.dev}:${info.ino}`;
     if(databaseFiles.has(fileIdentity))throw new Error('Windows release databases must be independent files: '+path);
     databaseFiles.add(fileIdentity);
