@@ -28,6 +28,19 @@ test('RG-07 Chrome picker fail-closed labels for non-web and malformed targets w
  }
 });
 
+test('RG-07 Chrome picker rejects raw controls and parser-normalized whitespace',()=>{
+ for(const value of [
+  ' https://fixture.example.invalid/private?token=CANARY',
+  'https://fixture.example.invalid/private?token=CANARY ',
+  'https://fixture.example.invalid/private?token=CANARY\n',
+  'https://fixture.example.invalid/pri\tvate?token=CANARY',
+  'https://fixture.example.invalid/pri\rvate?token=CANARY',
+  'https://fixture.example.invalid/pri\u0000vate?token=CANARY',
+  'https://fixture.example.invalid/pri\u007Fvate?token=CANARY',
+ ])assert.equal(displayCdpPageOrigin(value),'[non-web/invalid page]');
+ assert.equal(displayCdpPageOrigin('https://fixture.example.invalid/?encoded=%0A%09'),'https://fixture.example.invalid');
+});
+
 test('RG-07 Main must declassify CDP page display URLs before a renderer IPC result',()=>{
  const main=readFileSync('apps/desktop/src/main/index.ts','utf8');
  const handler=main.split("ipcMain.handle('usshm:cdp-status'")[1]?.split("ipcMain.handle('usshm:manager-targets'")[0]??'';
