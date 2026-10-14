@@ -1,4 +1,4 @@
-import {readdir} from 'node:fs/promises';
+import {readdir,stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {buildTestBatches} from './test-batches.mjs';
@@ -6,6 +6,14 @@ async function collect(dir){let entries;try{entries=await readdir(dir,{withFileT
  const paths=[];for(const entry of entries){const path=resolve(dir,entry.name);if(entry.isDirectory()&&!['node_modules','dist','.worktrees','.git'].includes(entry.name))paths.push(...await collect(path));else if(entry.isFile()&&entry.name.endsWith('.test.ts'))paths.push(path);}return paths;}
 const files=[...await collect('packages'),...await collect('apps'),...await collect('tests')];
 if(files.length===0)throw Error('No test files discovered');
+// Guard against accidental test file duplication before launching subprocesses.
+// 128 KiB is well above the current largest legitimate test source.
+const maxTestSourceBytes=128*1024;
+for(const file of files){
+ const info=await stat(file);
+ if(!info.isFile()||info.size>maxTestSourceBytes)
+  throw Error('Test source exceeds 128 KiB safety budget: '+file);
+}
 console.log(`Running ${files.length} TypeScript test files`);
 const batches=buildTestBatches(files);
 let failed=false;
