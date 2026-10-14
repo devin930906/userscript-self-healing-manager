@@ -21,9 +21,11 @@ type CdpResult={id:number;result?:Record<string,any>;error?:unknown};
  * userscript provenance, business effect or V3/V4 from focus.
  * Only a uniquely pinned <button type="button"> is allowed.
  */
-export async function runApprovedControlFocus({approved,target,locator,confirm,socketFactory,timeoutMs=5000}:{
+export async function runApprovedControlFocus({approved,target,locator,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
  approved:boolean;target:ChromeTarget;locator:LiteralLocator;
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
+ /** Trusted Main-owned synchronous revocation check at the last action boundary. */
+ assertAuthorizedBeforeAction?:()=>void;
  socketFactory?:(url:string)=>SocketLike;timeoutMs?:number;
 }):Promise<ApprovedControlFocusResult>{
  if(approved!==true)throw new Error('Explicit focus interaction approval required');
@@ -153,6 +155,9 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,s
   if(beforeFocus.includes(node))
    throw error('Approved button already focused; no verifiable new focus transition');
   await guard();
+  // A scan or directory approval may be revoked while the CDP preflight yields.
+  // Production Main owns the check; it runs synchronously, just before focus.
+  assertAuthorizedBeforeAction?.();
   // No fallback or retry after this potentially observable operation.
   await send('DOM.focus',{nodeId:node});
   const focus=(await send('DOM.querySelectorAll',{nodeId:root,selector:':focus'})).nodeIds;

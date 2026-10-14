@@ -787,6 +787,11 @@ async function bootstrap():Promise<void>{
      approved:true,target:selected,
      locator:{method:record.method,expression:record.expression,runtimeRequired:false},
      confirm:confirmPageIdentity,
+     assertAuthorizedBeforeAction:()=>{
+      scanSessions.assertCurrent(scanSnapshot);
+      if(!withinAuthorized(item.path))
+       throw new Error('Focus source authorization revoked before action');
+     },
     });
     scanSessions.assertCurrent(scanSnapshot);
     return receipt;
