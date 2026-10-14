@@ -50,6 +50,15 @@
 - **P0/RG 影响**：此批解决本轮特定的 CI 及 numeric-inode 误认风险；并未证明 Windows 10/11 全发行版数据库恢复、真正 Windows native file-ID 路径抗所有竞态、正式三包或独立审查。RG-01～09 **全部维持 OPEN**，FR-024/025/026、FR-045～048 产品验收仍未提升。
 - **最终续接文件自身文档提交**：通过 [分支历史](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 与该文档提交后的准确 CI 核对；避免把上面代码 SHA 的结果误写成新的文档 HEAD 的运行证据。
 
+## 本轮新增：FR-025 安全边界及 FR-021 同节点备用定位器（2026-10-14）
+
+- 开始时分支 HEAD `d0ced9da1ba8983dc07107e41ebc040afe0ef1c1` 的三项 CI SUCCESS、无开放 PR；继承原有 SQLite 修复，不重复。
+- FR-025 RED `f2865dba1b99b764ff27dd9dfac1b62c383b7a29`：[Continuation #38513421147](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513421147) 中未拒绝恶意 CDP 目标。GREEN `2baa6c2b8f34e1e6dc1ca4ab061de3ce4c770d83`：只读 SiteAdapter 在委托任何 CDP 依赖前核实本机端点与 HTTP(S) 页面凭证边界。[Development CI #38513541593](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513541593)、[Continuation #38513541567](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513541567)、[Windows contracts #38513541560](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513541560) 均 SUCCESS。
+- FR-021 RED `b58a3863b8a581d32971c59649dc791011b87888`：[Continuation #38513792742](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513792742) 中同一 DOM 节点两个 fallback 误判为 ambiguous。GREEN `98cd663e251ec744cf5f3953740c7dee37698854`：只有所有命中备用定位器均稳定绑定单一相同节点指纹且 cardinality 允许 1 时，才返回 V1 `matched-v1`；不一致、动态多节点与数据缺失仍 `needs-review`。准确 SHA 的 [Development CI #38513902977](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513902977)、[Continuation #38513902795](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513902795)、[Windows contracts #38513902918](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38513902918) 均 SUCCESS。
+- 本轮无 PR 合并（已获授权在指定开发分支直接提交）；无真实用户脚本执行/写入、无中途安装包、未变更 `main` 或 Stable tag。P0 与 RG 进度：两个实际源码缺口的局部修复得到自动化证据，**无 P0 FR 获完整验收**；RG-01~09 未解除。
+- 下一项最高优先级仍是 **FR-025 / FR-024 真正 V2 安全交互及具名 V3 功能验证**（当前仅只读 V1 和 synthetic/test-only click，尚无产品级认证）。必须先建立权限、动作安全分类、实际交互归因及失败/清理/回滚合约，再接生产 GUI；不要复用隔离 fixture 来声称实际用户网站通过。其次为 RG-05 真正 manager V4 及 RG-06/08 独立 Windows 恢复和发行验收。
+- 此续接文件的更新 commit 会使分支 HEAD 前移；**下一轮先检查该文档最终 HEAD 的三项 CI**，不要用上述代码 SHA 的结果冒充文档 SHA 证据。
+
 ## 下一轮直接处理
 
 1. **先核对本文件所在文档提交的实际 HEAD 和三项 CI**，不要沿用旧运行 ID 为新 HEAD 冒充验收；若 CI 有真实失败，优先排查。
