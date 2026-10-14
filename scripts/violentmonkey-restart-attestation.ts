@@ -2,6 +2,7 @@ import {validateCdpBrowserSocket} from '../packages/cdp-client/src/endpoint.ts';
 import {
  assertViolentmonkeyV4FixtureObservation,
  type ViolentmonkeyFixtureObservation,
+ VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
 
 type RestartEndpoint=Readonly<{
@@ -72,6 +73,59 @@ export function assertOfficialViolentmonkeyProcessRestart(
   coldStartInjection:input.startupWarmup===true?'reload-required':'immediate',
   validationLevel:'isolated-manager-process-restart',
   storageBefore:2,storageAfter:3,requestsObserved:3,
+  productionEligible:false,V4:'not-configured',
+  managerVerified:false,functionalVerified:false,
+ });
+}
+
+/**
+ * A separately reportable real Chrome/official manager regression.
+ * It is NOT a fixture pass, V4 pass, or proof that a saved script executed.
+ * The integration harness must establish all boolean assertions from its
+ * own pinned/approved, synthetic disposable Chrome profile.
+ */
+export function classifyOfficialViolentmonkeyRestartBlocker(input:
+ Omit<OfficialViolentmonkeyRestartObservation,'fixture'|'loopbackRequestsObserved'> & Readonly<{
+  fixture?:undefined;
+  missedColdStart:true;
+  scriptStillInstalled:true;
+  permissionStillActive:true;
+  loopbackRequestsObserved:2;
+ }>,
+):Readonly<{
+ status:'fixture-restart-blocked';reason:'cold-start-injection-not-observed';
+ validationLevel:'isolated-manager-process-restart';
+ productionEligible:false;V4:'not-configured';
+ managerVerified:false;functionalVerified:false;
+}>{
+ const fail=():never=>{throw new Error('Pinned manager restart blocker evidence incomplete');};
+ if(!input||typeof input!=='object'||Array.isArray(input)||
+    !input.before||!input.after||
+    input.missedColdStart!==true||input.scriptStillInstalled!==true||
+    input.permissionStillActive!==true||input.loopbackRequestsObserved!==2||
+    input.expectedStorageBefore!==2||input.fixture!==undefined||
+    input.appV4!=='not-configured'||input.appManagerVerified!==false||
+    input.managerVersion!==VIOLENTMONKEY_CFT_RELEASE.version||
+    input.managerExtensionId!==VIOLENTMONKEY_CFT_RELEASE.extensionId||
+    !Array.isArray(input.observedManagers)||!input.observedManagers.includes('violentmonkey')||
+    typeof input.chromeProduct!=='string'||
+    !/^(?:Chrome|HeadlessChrome)\/155\./.test(input.chromeProduct))
+  fail();
+ for(const part of [input.before,input.after]){
+  if(!Number.isSafeInteger(part.pid)||part.pid<2||part.pid>0x7fffffff||
+     typeof part.frameId!=='string'||!part.frameId||part.frameId.length>256||
+     typeof part.loaderId!=='string'||!part.loaderId||part.loaderId.length>256)
+   fail();
+  try{validateCdpBrowserSocket(part.browserSocket,9223);}catch{fail();}
+ }
+ if(input.before.pid===input.after.pid||
+    input.before.browserSocket===input.after.browserSocket||
+    input.before.frameId===input.after.frameId||
+    input.before.loaderId===input.after.loaderId)fail();
+ return Object.freeze({
+  status:'fixture-restart-blocked',
+  reason:'cold-start-injection-not-observed',
+  validationLevel:'isolated-manager-process-restart',
   productionEligible:false,V4:'not-configured',
   managerVerified:false,functionalVerified:false,
  });
