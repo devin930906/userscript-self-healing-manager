@@ -12,9 +12,10 @@ const frame={targetId:target.id,confirmedUrl:url,frameId:'mainframe',loaderId:'m
 const locator={method:'querySelector',expression:'#safe-focus',runtimeRequired:false};
 class FocusSocket extends EventEmitter{
  readonly methods:string[]=[];readonly inputs:any[]=[];
+ readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean};
  focused=false;
- constructor(readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean}={}){
-  super();queueMicrotask(()=>this.emit('open'));
+ constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean}={}){
+  super();this.opts=opts;queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(e:any)=>void){this.off(name,fn);}
