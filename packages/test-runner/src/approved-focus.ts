@@ -143,6 +143,15 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,s
      finalAttributes.length!==attributes.length||
      finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
    throw error('Approved button attributes changed before focus');
+  // A post-focus :focus match is not evidence of a new interaction if this
+  // button was already focused before the consented command. Preserve that
+  // distinction even in a page that changes focus without our action.
+  const beforeFocus=(await send('DOM.querySelectorAll',{nodeId:root,selector:':focus'})).nodeIds;
+  if(!Array.isArray(beforeFocus)||beforeFocus.length>1||
+     beforeFocus.some((id:unknown)=>!Number.isSafeInteger(id)||Number(id)<1))
+   throw error('Invalid pre-action focus evidence');
+  if(beforeFocus.includes(node))
+   throw error('Approved button already focused; no verifiable new focus transition');
   await guard();
   // No fallback or retry after this potentially observable operation.
   await send('DOM.focus',{nodeId:node});
