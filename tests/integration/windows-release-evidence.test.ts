@@ -279,5 +279,7 @@ test('final release checks SQLite header signatures for registry and journal of 
  assert.match(check,/registry\.sqlite/);
  assert.match(check,/diagnosis-journal\.sqlite/);
  assert.match(check,/SQLite format 3/);
+ assert.match(check,/\$header\[15\] -ne 0/);
+ assert.match(check,/GetString\(\$header, 0, 15\)/);
  assert.match(check,/Invalid SQLite file signature/);
 });
