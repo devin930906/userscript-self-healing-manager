@@ -1,12 +1,14 @@
 import {DatabaseSync} from 'node:sqlite';
-import {resolve} from 'node:path';
-import {lstatSync} from 'node:fs';
+import {resolve,dirname} from 'node:path';
+import {lstatSync,realpathSync} from 'node:fs';
 
 const roots=process.argv.slice(2);
 if(roots.length!==3)throw new Error('Require precisely three Windows edition data roots');
 for(const root of roots){
   for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
     const path=resolve(root,name);
+    if(realpathSync(dirname(path))!==resolve(dirname(path)))
+      throw new Error('Symlinked release SQLite parent directory: '+dirname(path));
     const info=lstatSync(path,{throwIfNoEntry:false});
     if(!info?.isFile()||info.size===0)throw new Error('Missing or empty release SQLite database: '+path);
     const db=new DatabaseSync(path,{readOnly:true,create:false});
