@@ -17,10 +17,10 @@ for(const root of roots){
     if(!info?.isFile()||info.size===0)throw new Error('Missing or empty release SQLite database: '+path);
     const db=new DatabaseSync(path,{readOnly:true,create:false});
     try{
-      const result=db.prepare('PRAGMA quick_check').all();
-      if(result.length!==1||result[0].quick_check!=='ok')
-        throw new Error('SQLite quick_check failed for '+path+': '+JSON.stringify(result));
-      console.log('SQLite quick_check PASS:',path);
+      const result=db.prepare('PRAGMA integrity_check').all();
+      if(result.length!==1||result[0].integrity_check!=='ok')
+        throw new Error('SQLite integrity_check failed for '+path+': '+JSON.stringify(result));
+      console.log('SQLite integrity_check PASS:',path);
     }finally{db.close();}
   }
 }
