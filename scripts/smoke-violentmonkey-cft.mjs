@@ -24,6 +24,7 @@ import {
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
+ buildViolentmonkeyFixtureMatchExpression,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -213,6 +214,31 @@ async function readManagerInjectionOptions(cdp,hasExited){
  return parsed;
 }
 
+/** Exact official manager read-only URL matching, not an injection command. */
+async function readManagerFixtureMatch(cdp,fixtureUrl,scriptId,hasExited){
+ if(hasExited())throw new Error('RG-05 fixture manager matcher Chrome exited');
+ let text;
+ try{
+  const response=await cdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyFixtureMatchExpression(fixtureUrl,scriptId),
+   awaitPromise:true,returnByValue:true,
+  });
+  if(response.exceptionDetails||response.result?.exceptionDetails)
+   throw new Error('evaluation failed');
+  text=response.result?.value;
+ }catch{throw new Error('RG-05 official manager fixture matcher inspection failed');}
+ if(typeof text!=='string'||text.length>80)
+  throw new Error('RG-05 official manager fixture matcher receipt invalid');
+ let result;
+ try{result=JSON.parse(text);}
+ catch{throw new Error('RG-05 official manager fixture matcher receipt invalid');}
+ if(!result||typeof result!=='object'||Array.isArray(result)||
+    Object.keys(result).length!==1||typeof result.matched!=='boolean')
+  throw new Error('RG-05 official manager fixture matcher receipt invalid');
+ if(hasExited())throw new Error('RG-05 fixture manager matcher Chrome exited');
+ return {matched:result.matched};
+}
+
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -326,7 +352,7 @@ try{
  const installReceipt=JSON.parse(installText);
  if(installReceipt.failed)
   throw new Error('Violentmonkey rejected the fixed synthetic userscript fixture');
- assertViolentmonkeyInstallReceipt(installReceipt,preflightReceipt.found===false);
+ const verifiedInstall=assertViolentmonkeyInstallReceipt(installReceipt,preflightReceipt.found===false);
  // ParseScript exercises the real official manager and wakes its MV3 worker;
  // the app's read-only target inventory is intentionally passive and may not
  // report a sleeping worker before this bounded fixture interaction.
@@ -336,6 +362,9 @@ try{
  assert.ok(managerReport.observed.includes('violentmonkey'));
  assert.equal(managerReport.V4,'not-configured');
  assert.equal(managerReport.managerVerified,false);
+ const firstMatch=await readManagerFixtureMatch(optionsCdp,fixtureUrl,verifiedInstall.scriptId,()=>exited);
+ if(!firstMatch.matched)throw new Error('RG-05 official manager fixture matcher did not match before first injection');
+ console.log('RG-05 official manager fixture matcher: initial fixed URL matched.');
  const createdFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
  if(typeof createdFixture.targetId!=='string'||!createdFixture.targetId)
   throw new Error('Loopback GM fixture page target could not be created');
@@ -481,6 +510,9 @@ try{
  if(JSON.stringify(afterRestartOptions)!==JSON.stringify(beforeRestartOptions))
   throw new Error('RG-05 official manager options differ after restart');
  console.log('RG-05 official manager injection options retained after process restart (bounded booleans).');
+ const resumedMatch=await readManagerFixtureMatch(optionsCdp,fixtureUrl,verifiedInstall.scriptId,()=>exited);
+ if(!resumedMatch.matched)throw new Error('RG-05 official manager fixture matcher did not match after Chrome restart');
+ console.log('RG-05 official manager fixture matcher: restarted fixed URL matched.');
  const createdRestartFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
  if(typeof createdRestartFixture.targetId!=='string'||!createdRestartFixture.targetId)
   throw new Error('Restarted Chrome could not create isolated fixture');

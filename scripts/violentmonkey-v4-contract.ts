@@ -186,7 +186,7 @@ export async function readViolentmonkeyFixtureObservation(input:{
  * one boolean before the CDP caller receives any response.
  */
 function buildViolentmonkeyManagerCommandExpression(
- command:'GetData'|'ParseScript'|'GetInjectorError'|'GetAllOptions',data:Record<string,unknown>,requestId:number,responseCode:string,
+ command:'GetData'|'ParseScript'|'GetInjectorError'|'GetAllOptions'|'GetMoreIds',data:Record<string,unknown>,requestId:number,responseCode:string,
 ):string{
  const serializedData=JSON.stringify(data);
  if(!Number.isSafeInteger(requestId)||!serializedData||serializedData.length>16_384)
@@ -381,6 +381,29 @@ export function buildViolentmonkeyFixturePreflightExpression(name:string,namespa
    const found=scripts.some(script=>script?.meta?.name===${serializedName}&&
     script?.meta?.namespace===${serializedNamespace});
    finish(JSON.stringify({found}));`);
+}
+
+/**
+ * RG-05 TEST ONLY. Ask the pinned official manager to match its OWN installed
+ * fixed fixture against one exact loopback URL. GetMoreIds with ids:{} takes
+ * the non-executing membership path in VM 2.49.0 and returns only ID flags.
+ * Reduce those flags to a single boolean in the manager page itself.
+ */
+export function buildViolentmonkeyFixtureMatchExpression(fixtureUrl:string,scriptId:number):string{
+ let url:URL;
+ try{url=new URL(fixtureUrl);}catch{throw new Error('Invalid isolated fixture scope');}
+ if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||
+    url.pathname!=='/fixture'||url.username||url.password||url.search||url.hash||
+    url.href!==fixtureUrl||!Number.isSafeInteger(scriptId)||scriptId<1)
+  throw new Error('Invalid fixed fixture scope or script identity');
+ const key=JSON.stringify(String(scriptId));
+ return buildViolentmonkeyManagerCommandExpression('GetMoreIds',{
+  url:fixtureUrl,top:1,ids:{},
+ },0x7ffffff9,`
+  const valid=value&&typeof value==='object'&&!Array.isArray(value);
+  const keys=valid?Object.keys(value):[];
+  const matched=keys.length===1&&keys[0]===${key}&&value[${key}]==='more';
+  finish(JSON.stringify({matched:!!matched}));`);
 }
 
 /**
