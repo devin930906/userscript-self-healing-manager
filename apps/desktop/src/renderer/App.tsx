@@ -699,7 +699,8 @@ function App(){
   if(!record||record.runtimeRequired||record.receiver!=='document')return;
   // A focus event can run page or installed userscript handlers; do not
   // construe V1 DOM metadata or previous read-only review as permission.
-  if(!window.confirm('确认聚焦此网页控件？可能触发网页的 focus 事件及网页或用户脚本监听器。只允许普通 type=button 按钮；本操作不能自动回滚，也不代表业务功能通过。'))return;
+  // Trusted Main shows the sole native consent dialog. A Renderer prompt
+  // cannot authorize an action because its response can be forged by page code.
   const token=focusGeneration.current.begin();
   const scanId=result.scanId,itemIndex=focused,selectorIndex=repairIndex,target=targetId;
   focusActive.current=true;setBusy(true);setError('');setFocusEvidence(null);
