@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import * as boundary from '../src/synthetic-action-boundary.ts';
+const moduleUrl=new URL('../src/synthetic-action-boundary.ts',import.meta.url).href;
+const boundary=await import(moduleUrl).catch(()=>({}));
 
 const url='http://127.0.0.1:43219/fixture';
 const target={type:'page',id:'fixture-one',url,webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/fixture-one'};
