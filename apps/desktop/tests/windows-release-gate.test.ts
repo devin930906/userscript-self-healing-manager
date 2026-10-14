@@ -56,6 +56,15 @@ test('ZIP must reject directory traversal, private data, userscripts and hidden 
    /unsafe|private|data|user|script|path|secret|credential|forbidden/i,entry);
  }
 });
+test('Windows ZIP inventory rejects backslashes even without traversal or private data',()=>{
+ for(const entry of [
+  'resources\\\\native.dll',
+  'locales\\\\en-US.pak',
+  'folder\\\\ordinary.txt',
+  'resources/one\\\\two.bin',
+ ])assert.throws(()=>validateWindowsReleaseLayout({...good,zipEntries:[...good.zipEntries,entry]}),/unsafe|backslash|ZIP|path/i,entry);
+});
+
 test('release contract rejects invalid versions, suspicious archive entry counts and illegal archive types',()=>{
  for(const version of ['1.0.0/../evil','1.0.0;rm','v1.0.0','']){
   assert.throws(()=>validateWindowsReleaseLayout({...good,version}),/version/i);
