@@ -166,3 +166,23 @@ test('RG-06 rejects stale precise native device link and mode snapshots without 
   maxBytes:512*1024,expected:numeric,expectedNative:native,
  }),original);
 }));
+
+test('RG-06 rejects malformed precise native snapshot types without touching source',async()=>fixture(async dir=>{
+ const path=join(dir,'malformed-native.user.js');
+ const original=Buffer.from('SYNTHETIC_MALFORMED_NATIVE');
+ await writeFile(path,original);
+ const numeric=await lstat(path),native=await lstat(path,{bigint:true});
+ for(const field of ['ino','dev','size','birthtimeNs','mtimeNs','ctimeNs','mode'] as const){
+  const malformed=Object.create(native) as typeof native;
+  Object.defineProperty(malformed,field,{value:1});
+  await assert.rejects(
+   readPinnedRegularFile(path,{maxBytes:512*1024,expected:numeric,expectedNative:malformed}),
+   /precise|identity|snapshot|changed|replaced/i,
+   field+' must be bigint',
+  );
+  assert.deepEqual(await readFile(path),original);
+ }
+ assert.deepEqual(await readPinnedRegularFile(path,{
+  maxBytes:512*1024,expected:numeric,expectedNative:native,
+ }),original);
+}));
