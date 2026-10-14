@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,readFile,readdir,rename,rm} from 'node:fs/promises';
+import {cp,lstat,mkdtemp,mkdir,writeFile,readFile,readdir,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
@@ -117,4 +117,40 @@ test('RG-06 independent stage audit rejects a completion marker atomically repla
  assert.equal(injections,1);
  assert.deepEqual(await readFile(marker),original,'fault fixture really preserved byte-identical marker content');
  assert.deepEqual(await readFile(join(source,'registry.sqlite')),live,'audit cannot mutate active Data');
+}));
+
+test('RG-06 rejects a new staged directory inode even if every file and the ORIGINAL completion marker are unchanged',async()=>fixture(async({root,backup,stage,source})=>{
+ const markerName='USSHM-RECOVERY-NOT-ACTIVE.json';
+ const marker=join(stage,markerName);
+ const markerBefore=await lstat(marker,{bigint:true});
+ const dirBefore=await lstat(stage,{bigint:true});
+ const dataBefore=await readFile(join(source,'registry.sqlite'));
+ const markerBytes=await readFile(marker);
+ let swapped=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  beforeFinalStageAudit:async()=>{
+   swapped++;
+   // Complete byte-for-byte clone of every staged file. Unlike prior
+   // marker-swap tests, keep the ORIGINAL marker inode in the new root.
+   const displaced=join(root,'displaced-stage');
+   await rename(stage,displaced);
+   await cp(displaced,stage,{recursive:true});
+   await rm(join(stage,markerName));
+   await rename(join(displaced,markerName),marker);
+   const sameMarker=await lstat(marker,{bigint:true});
+   assert.equal(sameMarker.ino,markerBefore.ino,'original marker identity must survive');
+   assert.equal(sameMarker.dev,markerBefore.dev);
+   assert.deepEqual(await readFile(marker),markerBytes);
+   const different=await lstat(stage,{bigint:true});
+   assert.ok(different.ino!==dirBefore.ino||different.birthtimeNs!==dirBefore.birthtimeNs,
+    'fault must replace the actual directory, not just its contents');
+  },
+ }),/stage|directory|identity|swapped|replaced|changed|unsafe/i,
+ 'a newly rebound staging directory cannot inherit the old audited identity');
+ assert.equal(swapped,1);
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),dataBefore,
+  'independent audit must not modify live source Data');
+ assert.deepEqual(await readFile(marker),markerBytes,
+  'test must keep the original marker bytes, not trigger the existing marker test');
 }));
