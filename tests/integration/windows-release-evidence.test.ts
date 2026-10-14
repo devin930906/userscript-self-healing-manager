@@ -200,3 +200,14 @@ test('tag-only extracted ZIP startup refuses prepopulated Data before launching'
  assert.ok(guard>=0&&launch>guard,'Reject pre-existing ZIP Data before launching');
  assert.match(smoke,/Test-Path -LiteralPath \(Join-Path \$root 'Data'\)/);
 });
+
+test('installed release smoke terminates its process before data hashes and always restores APPDATA',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const block=workflow.slice(workflow.indexOf('Smoke-check NSIS Setup installer'),workflow.indexOf('Record signatures and explicitly unverified Stable gates'));
+ const terminate=block.indexOf('Stop-Process -Id $running.Id -Force -ErrorAction Stop');
+ const restore=block.indexOf('$env:APPDATA = $previousAppData');
+ const hash=block.indexOf('registryHashBeforeUninstall');
+ assert.ok(terminate>=0&&restore>terminate&&hash>restore);
+ assert.match(block,/\$running\.WaitForExit\(10000\)/);
+ assert.match(block,/if \(!\$running\.HasExited\)/);
+});
