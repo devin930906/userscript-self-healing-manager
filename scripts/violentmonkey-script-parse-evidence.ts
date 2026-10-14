@@ -57,6 +57,9 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
  let web=false,injected=false,unattributed=false;
  let injectedClass:'not-observed'|'unknown'|'mixed'|'TypeError'|'ReferenceError'|'SyntaxError'|'RangeError'|'Error'='not-observed';
  let injectedSignature:'not-observed'|'missing-injection-data-info'|'other-type-error'|'unknown'|'mixed'='not-observed';
+ // Public official extension asset coordinates only: never CDP messages, user
+ // source lines, script IDs, private stack frames or exception description.
+ let injectedSite='not-observed';
  return Object.freeze({
   observe(method:string,params:unknown):void{
    if(method==='Runtime.executionContextsCleared'){
@@ -122,6 +125,19 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
       ?cls as typeof injectedClass:'unknown';
      injectedClass=injectedClass==='not-observed'?next:
       injectedClass===next?injectedClass:'mixed';
+     // Chrome's exceptionDetails are considered only after the exact pinned
+     // fixture frame/context and official injected.js scriptId match. Numeric
+     // coordinates index that PUBLIC bundled asset, not any user script.
+     // Malformed/huge sites fail closed; distinct sites never yield a
+     // misleading single-site diagnosis. This is NOT execution/GM proof.
+     const line=(event as {lineNumber?:unknown}).lineNumber;
+     const column=(event as {columnNumber?:unknown}).columnNumber;
+     const site=typeof line==='number'&&Number.isSafeInteger(line)&&
+      line>=0&&line<=100000&&typeof column==='number'&&
+      Number.isSafeInteger(column)&&column>=0&&column<=10000000
+      ?'L'+line+':C'+column:'unknown';
+     injectedSite=injectedSite==='not-observed'?site:
+      injectedSite===site?injectedSite:'multiple';
      // Only an exception that CDP attributes to the exact official
      // injected.js asset in the pinned disposable frame may be classified.
      // Compare fixed upstream source's data.info nullish-failure prefix
@@ -145,6 +161,7 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
   },
   injectedExceptionClass():string{return injectedClass;},
   injectedFailureSignature():string{return injectedSignature;},
+  injectedFailureSite():string{return injectedSite;},
   snapshot():Readonly<{
    injectedWebExceptionObserved:boolean;
    injectedExceptionObserved:boolean;
