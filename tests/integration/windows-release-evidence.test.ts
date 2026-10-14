@@ -151,3 +151,14 @@ test('tag-only unpacked ZIP smoke rejects early process exit and empty SQLite',a
  assert.match(smoke,/Get-Item -LiteralPath \$database/);
  assert.match(smoke,/\.Length -gt 0/);
 });
+
+test('tag-only ZIP and Portable EXE smokes require diagnosis history database',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const zip=workflow.slice(workflow.indexOf('Smoke-check unpacked Windows executable'),workflow.indexOf('Smoke-check single-file Portable EXE'));
+ const portable=workflow.slice(workflow.indexOf('Smoke-check single-file Portable EXE'),workflow.indexOf('Smoke-check NSIS Setup installer'));
+ for(const smoke of [zip,portable]){
+  assert.match(smoke,/Data\/diagnosis-journal\.sqlite/);
+  assert.match(smoke,/Get-Item -LiteralPath \$journal/);
+  assert.match(smoke,/\.Length -eq 0/);
+ }
+});
