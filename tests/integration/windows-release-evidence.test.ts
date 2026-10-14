@@ -140,3 +140,14 @@ test('tag-only Portable EXE smoke requires a live process and a nonempty SQLite 
  assert.match(smoke,/\.Length -gt 0/);
  assert.match(smoke,/Portable EXE exited before database initialization/);
 });
+
+test('tag-only unpacked ZIP smoke rejects early process exit and empty SQLite',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check unpacked Windows executable');
+ const end=workflow.indexOf('Smoke-check single-file Portable EXE');
+ assert.ok(start>=0&&end>start);
+ const smoke=workflow.slice(start,end);
+ assert.match(smoke,/\$proc\.HasExited/);
+ assert.match(smoke,/Get-Item -LiteralPath \$database/);
+ assert.match(smoke,/\.Length -gt 0/);
+});
