@@ -16,6 +16,7 @@ import {
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
+import {createOfficialManagerScriptEvidence} from './violentmonkey-script-parse-evidence.ts';
 import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker,assertOfficialViolentmonkeyReleaseGate} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
@@ -117,6 +118,7 @@ async function openCdp(endpoint,onEvent){
  const socket=new WebSocket(endpoint);
  const pending=new Map();
  let sequence=0,closed=false;
+ let scriptParsedObserver=null;
  let openedResolve,openedReject;
  const opened=new Promise((resolve,reject)=>{openedResolve=resolve;openedReject=reject;});
  socket.addEventListener('open',()=>openedResolve());
@@ -127,6 +129,10 @@ async function openCdp(endpoint,onEvent){
   catch{return;}
   if(response?.method==='Runtime.executionContextCreated'){
    try{onEvent?.(response.method,response.params);}catch{}
+   return;
+  }
+  if(response?.method==='Debugger.scriptParsed'){
+   try{scriptParsedObserver?.(response.method,response.params);}catch{}
    return;
   }
   const task=pending.get(response.id);
@@ -152,7 +158,11 @@ async function openCdp(endpoint,onEvent){
     catch{clearTimeout(timer);pending.delete(id);reject(new Error('CDP command could not be sent'));}
    });
   },
-  close(){try{socket.close();}catch{}}
+  watchScriptParsed(observer){
+   if(observer!==null&&typeof observer!=='function')throw new Error('Invalid isolated debugger observer');
+   scriptParsedObserver=observer;
+  },
+  close(){scriptParsedObserver=null;try{socket.close();}catch{}}
  };
 }
 
@@ -319,6 +329,26 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
   throw new Error('RG-05 official bridge diagnostic receipt invalid');
  if(hasExited())throw new Error('RG-05 bridge diagnostic browser exited');
  return receipt;
+}
+
+/** Parse-only CDP inventory of two EXACT official injector assets in the
+ * already pinned disposable page, never a GM/V4 or successful run receipt.
+ * Run only AFTER genuine GM control receipts or AFTER both failed documents;
+ * enabling Debugger before cold navigation could perturb startup timing. */
+async function collectOfficialManagerScriptEvidence(cdp,frameId,hasExited){
+ if(hasExited())throw new Error('RG-05 pinned debugger target already exited');
+ const evidence=createOfficialManagerScriptEvidence(frameId,extensionId);
+ cdp.watchScriptParsed(evidence.observe);
+ try{
+  await cdp.send('Debugger.enable');
+  // Debugger.scriptParsed replays known scripts on enable. Allow a bounded
+  // event delivery interval; never read source or private script identifiers.
+  await delay(100);
+  if(hasExited())throw new Error('RG-05 pinned debugger target exited during observation');
+  return evidence.snapshot();
+ }finally{
+  try{await cdp.send('Debugger.disable');}finally{cdp.watchScriptParsed(null);}
+ }
 }
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
@@ -507,6 +537,14 @@ try{
   console.log('RG-05 official content bridge control unavailable; after-restart absence remains inconclusive.');
  }
 
+ // Observe parsed official injector *files*, not content or execution.
+ // A missing parse event is inconclusive about why the manager is not responding.
+ try{
+  const baselineParsed=await collectOfficialManagerScriptEvidence(pageCdp,identity.frameId,()=>exited);
+  console.log('RG-05 official injector parsed scripts control: '+JSON.stringify(baselineParsed)+'; not GM execution proof.');
+ }catch{
+  console.log('RG-05 official injector parsed scripts control unavailable; no V4 inference.');
+ }
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
@@ -689,6 +727,14 @@ try{
    console.log('RG-05 official content bridge after two absent GM receipts: '+JSON.stringify(bridge)+'; no GM or product V4 proof.');
   }catch{
    console.log('RG-05 official content bridge diagnostic unavailable; GM gate still blocked.');
+  }
+  // Post-failure-only parse probe cannot prewarm official GM on either failed
+  // document. These fixed flags only narrow Chrome script-loading hypotheses.
+  try{
+   const postParsed=await collectOfficialManagerScriptEvidence(pageCdp,afterRestartIdentity.frameId,()=>exited);
+   console.log('RG-05 official injector parsed scripts after missing GM receipts: '+JSON.stringify(postParsed)+'; not GM execution proof.');
+  }catch{
+   console.log('RG-05 official injector parsed scripts after missing GM receipts unavailable; GM gate remains blocked.');
   }
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
