@@ -135,8 +135,10 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  // must be included or cause recovery creation to fail without a final marker.
  let sceneFile:ManifestFile|null=null;
  const sceneSource=join(source,SCENE_FILE);
+ let observedSceneSource=false;
  try{
   const info=await lstat(sceneSource);
+  observedSceneSource=true;
   if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
      info.size<1||info.size>131072)
    throw new Error('Unsafe site test case registry in core recovery');
@@ -150,7 +152,8 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
    throw new Error('Core recovery site test cases copy differs from approved bytes');
   sceneFile={path:SCENE_FILE,sha256:copied.sha256,bytes:copied.bytes};
  }catch(error){
-  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  if((error as NodeJS.ErrnoException).code!=='ENOENT'||observedSceneSource)
+   throw new Error('Site test case registry disappeared or changed during core recovery');
  }
  // A backup callback's SHA-256 and byte count are claims, not independent
  // evidence of what is now on disk. Reopen each staged SQLite file through
@@ -198,6 +201,15 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
   assertSiteTestCaseRegistryBytes(await readPinnedRegularFile(join(target,SCENE_FILE),{
    maxBytes:131072,expected:info,expectedNative:await lstat(join(target,SCENE_FILE),{bigint:true}),
   }));
+ }else{
+  // A brand-new setting can be saved while a legacy core backup is running.
+  // Never certify an apparently complete v1 archive that silently omits it.
+  try{
+   await lstat(sceneSource);
+   throw new Error('Site test case registry appeared during core recovery; retry snapshot');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
  }
  const content=Buffer.from(JSON.stringify({
   kind:sceneFile?'usshm-core-recovery-v2':'usshm-core-recovery-v1',complete:true,atomicAcrossStores:false,
