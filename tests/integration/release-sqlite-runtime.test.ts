@@ -170,3 +170,16 @@ test('release verifier rejects all six individually missing database files',()=>
   });
  }
 });
+
+test('release verifier rejects all six individually corrupted databases',()=>{
+ for(let edition=0;edition<3;edition++)for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+  withReleaseDatabases(roots=>{
+   const file=join(roots[edition],name);
+   writeFileSync(file,'not a valid SQLite file');
+   const before=readFileSync(file);
+   const result=verify(roots);
+   assert.notEqual(result.status,0);
+   assert.deepEqual(readFileSync(file),before);
+  });
+ }
+});
