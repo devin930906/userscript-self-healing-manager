@@ -83,6 +83,16 @@
 - **下轮重点**：根据 QA-031/055、RG-01/03 推进真正产品级 V2 动作白名单/安全审核/用户明示授权、V3 具名业务因果及无损清理。若缺少可信契约和授权，不执行真实网页点击；继续推进 RG-02/06/07 可独立验证 P0。不要再重复本批 synthetic-only guard。
 - 文档提交会改变最终 HEAD；下轮必须先核对最新 HEAD 的准确 CI。
 
+
+## 2026-10-14 · RG-07 / FR-040 DOM 报告内部身份隐私泄露修复（本轮）
+
+- **最新起点**：`deb7f6a83bf7cd36f1bd19d7240dabe29a5bbf3d` 对应 [Development #38517119251](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517119251)、[Continuation #38517119193](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517119193) 和 [Windows release contracts #38517119117](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517119117) 全部 SUCCESS。既有 V1 只读检查和 test-only synthetic 动作 guard 均保留；没有在真实网站上触发任何 CDP Input。
+- **发现真实隐私缺口**：`packages/reporting/src/dom-report.ts` 对 DOM JSON 报告虽只导出文件 basename、页面 origin 和受限计数，却仍原样序列化内部 `scriptId`。它可以携带邮箱、账号标识或机密字符串，属于不必要的 JSON 文件泄露；Main 的 scan/session 匹配检查需要该字段，但外部 DTO 不需要。
+- **RED**：[Commit `24acc195`](https://github.com/devin930906/userscript-self-healing-manager/commit/24acc1951c228499bc18f5804d12648ec69bb626) 新增用例，用模拟私密 `scriptId` 经真实序列化函数分别导出 JSON/Markdown，要求保留文件名、行索引、状态且不披露该 ID。[Continuation #38517757245](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517757245) Ubuntu 实际 FAIL；测试日志中的原始 JSON 明确包含 `"scriptId":"user@example.com_OAUTH_PRIVATE_API_KEY_ABCDEF"`。
+- **GREEN**：[Commit `870fa0f4`](https://github.com/devin930906/userscript-self-healing-manager/commit/870fa0f4c3023eafa63d5aec90d088fb4725d69d) 将内部脚本身份从 DOM 报告**外部数据投影**中移除（不影响 Main 的内部证据匹配），schema 由 1 升为 **2** 以显式声明该导出契约变更。仍输出 basename、index、状态、计数、V0–V4，并保持只读和不可越级。准确源代码 SHA 的 [Development #38517902393](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517902393)、[Continuation #38517902325](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517902325) 及 [Windows release contracts #38517902437](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38517902437) 全 SUCCESS。构建安装包 job skipped。
+- **验收边界**：这只是 RG-07 的一个实际产品导出隐私漏洞修复，**不**表示 RG-07 全部完成。静态/DOM 其他导出、用户选择保存到本机的真实报告、事故 ZIP、日志、审计链、真实 Windows 账户数据仍需要独立隐私验收。FR-040、RG-07 仍 PARTIAL / OPEN；RG-01～09 不能越级解锁，Stable 仍 NOT STABLE。
+- **下轮优先**：继续查真正的 P0 生产数据泄露/恢复路径（RG-06/07），同时产品级 V2/V3 的架构授权仍缺少现实安全操作契约和用户可恢复环境；不要把 synthetic click 测试改造成实站自动点击。最终文档提交会再次移动 HEAD，下一轮须按**新 HEAD**核对三项 CI。
+
 ## 下一轮直接处理
 
 1. **先核对本文件所在文档提交的实际 HEAD 和三项 CI**，不要沿用旧运行 ID 为新 HEAD 冒充验收；若 CI 有真实失败，优先排查。
