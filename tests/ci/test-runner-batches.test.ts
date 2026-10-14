@@ -49,5 +49,12 @@ test('CI test discovery never treats unreadable directories as empty suites',asy
 test('CI test discovery sorts paths to keep batches deterministic across filesystems',async()=>{
  const {readFileSync}=await import('node:fs');
  const runner=readFileSync('scripts/test.mjs','utf8');
- assert.match(runner,/const files=\[\.\.\.await collect\('packages'\),\.\.\.await collect\('apps'\),\.\.\.await collect\('tests'\)\]\.sort\(\)/);
+ assert.match(runner,/const files=\[\.\.\.packageTests,\.\.\.appTests,\.\.\.integrationTests\]\.sort\(\)/);
+});
+
+test('CI requires all three test roots to contribute files',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const runner=readFileSync('scripts/test.mjs','utf8');
+ assert.match(runner,/if\(!packageTests\.length\|\|!appTests\.length\|\|!integrationTests\.length\)/);
+ assert.match(runner,/Missing test files in a required test root/);
 });
