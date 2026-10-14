@@ -21,6 +21,7 @@ import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
+ buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -411,6 +412,27 @@ try{
  const retainedScript=await readManagerPreflight(optionsCdp,()=>exited);
  if(retainedScript.found!==true)
   throw new Error('Pinned official Violentmonkey script not retained across process restart');
+ // The name/namespace alone does not prove persisted @match/GM activation.
+ // Keep the source and complete inventory inside the official manager.
+ const auditResponse=await optionsCdp.send('Runtime.evaluate',{
+  expression:buildViolentmonkeyFixtureRuntimeConfigurationExpression(
+   fixtureMeta.name,fixtureMeta.namespace,fixtureUrl),
+  awaitPromise:true,returnByValue:true,
+ });
+ const auditText=auditResponse.result?.value;
+ if(typeof auditText!=='string'||auditText.length>256)
+  throw new Error('RG-05 persisted manager configuration receipt invalid');
+ let persistedConfig;
+ try{persistedConfig=JSON.parse(auditText);}
+ catch{throw new Error('RG-05 persisted manager configuration receipt invalid');}
+ if(!persistedConfig||typeof persistedConfig!=='object'||Array.isArray(persistedConfig)||
+    Object.keys(persistedConfig).sort().join(',')!=='enabled,gmGrants,present,scope'||
+    !['present','enabled','scope','gmGrants'].every(key=>typeof persistedConfig[key]==='boolean'))
+  throw new Error('RG-05 persisted manager configuration receipt invalid');
+ if(!(persistedConfig.present===true&&persistedConfig.enabled===true&&
+      persistedConfig.scope===true&&persistedConfig.gmGrants===true))
+  throw new Error('RG-05 persisted manager script exists but cannot prove enabled scope and GM grants');
+ console.log('RG-05 official manager persisted fixture config verified: enabled, exact scope, four GM grants (no source exported).');
  const resumedManagers=await inspectKnownUserscriptManagerTargets({
   approved:true,browserEndpoint:status.browserSocket,expectedProduct:status.browser,port:9223,
  });

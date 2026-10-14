@@ -370,6 +370,38 @@ export function buildViolentmonkeyFixturePreflightExpression(name:string,namespa
    finish(JSON.stringify({found}));`);
 }
 
+/**
+ * Reduce official GetData to four fixed booleans inside the pinned extension.
+ * This is test-only, read-only, post-restart evidence: no code, URL or raw
+ * manager inventory is returned to the CDP client.
+ */
+export function buildViolentmonkeyFixtureRuntimeConfigurationExpression(
+ name:string,namespace:string,fixtureUrl:string,
+):string{
+ let url:URL;
+ try{url=new URL(fixtureUrl);}catch{throw new Error('Invalid isolated fixture scope');}
+ if(typeof name!=='string'||name.length<1||name.length>160||
+    typeof namespace!=='string'||namespace.length<1||namespace.length>256||
+    url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port||
+    url.pathname!=='/fixture'||url.username||url.password||url.search||url.hash||
+    url.href!==fixtureUrl)
+  throw new Error('Invalid isolated fixture scope');
+ const grants=['GM_getValue','GM_setValue','GM_registerMenuCommand','GM_xmlhttpRequest'];
+ return buildViolentmonkeyManagerCommandExpression('GetData',{sizes:false},0x7ffffffb,`
+  const scripts=value?.scripts;
+  if(!Array.isArray(scripts))return finish(JSON.stringify({failed:true}));
+  const found=scripts.filter(script=>script?.meta?.name===${JSON.stringify(name)}&&
+   script?.meta?.namespace===${JSON.stringify(namespace)});
+  if(found.length!==1)
+   return finish(JSON.stringify({present:false,enabled:false,scope:false,gmGrants:false}));
+  const script=found[0];
+  const enabled=script?.config?.enabled===1;
+  const scope=Array.isArray(script?.meta?.match)&&script.meta.match.includes(${JSON.stringify(fixtureUrl)});
+  const gmGrants=Array.isArray(script?.meta?.grant)&&
+   ${JSON.stringify(grants)}.every(grant=>script.meta.grant.includes(grant));
+  finish(JSON.stringify({present:true,enabled,scope,gmGrants}));`);
+}
+
 /** Build an install request that returns only a bounded parser/install receipt. */
 export function buildViolentmonkeyFixtureInstallExpression(code:string):string{
  if(typeof code!=='string'||code.length<1||code.length>8_192||
