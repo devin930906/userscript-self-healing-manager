@@ -9,6 +9,9 @@ import {assertRegistryV1SnapshotSchema} from '../../persistence/src/index.ts';
 import {assertJournalSchemaSafety} from '../../job-journal/src/index.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {verifyCoreRecoveryBundle} from './core-recovery.ts';
+import {assertSiteTestCaseRegistryBytes} from '../../candidate-engine/src/site-test-cases.ts';
+const SCENE_FILE='site-test-cases.json';
+const sceneScope='registry+journal+managed-revisions+site-test-cases-only';
 
 const hex=/^[a-f0-9]{64}$/;
 const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/;
@@ -96,10 +99,12 @@ export async function stageCoreRecoveryForOfflineReview({
  const core=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(manifestBytes)) as {
   files:HashedFile[];
  };
- if(!Array.isArray(core.files)||core.files.length!==3||
+ const hasCases=core.files?.length===4;
+ if(!Array.isArray(core.files)||(core.files.length!==3&&!hasCases)||
     core.files[0]?.path!=='registry.sqlite'||
     core.files[1]?.path!=='diagnosis-journal.sqlite'||
-    core.files[2]?.path!=='managed-recovery/manifest.json')
+    core.files[2]?.path!=='managed-recovery/manifest.json'||
+    (hasCases&&core.files[3]?.path!==SCENE_FILE))
   throw new Error('Unexpected core recovery snapshot inventory');
  const managedBytes=await readBoundedManifest(join(source,'managed-recovery','manifest.json'));
  if(digest(managedBytes)!==core.files[2].sha256)
@@ -123,6 +128,12 @@ export async function stageCoreRecoveryForOfflineReview({
  await mkdir(target,{recursive:false,mode:0o700});
  for(const item of core.files.slice(0,2)){
   await copyChecked(join(source,item.path),join(target,item.path),item);
+ }
+ if(hasCases){
+  const entry=core.files[3]!;
+  if(entry.bytes<1||entry.bytes>131072)throw new Error('Unsafe site test case recovery byte budget');
+  await copyChecked(join(source,SCENE_FILE),join(target,SCENE_FILE),entry);
+  assertSiteTestCaseRegistryBytes(await readBoundedManifest(join(target,SCENE_FILE)));
  }
  if(files.length){
   await mkdir(join(target,'managed'));
@@ -167,11 +178,15 @@ export async function stageCoreRecoveryForOfflineReview({
  // A trusted source snapshot is not proof that its newly copied staging
  // output stayed intact while SQLite and source audits were awaited.
  await assertUnlinkedRecoveryDirectory(target);
- const expectedRoot=['registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
+ const expectedRoot=['registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[]),...(hasCases?[SCENE_FILE]:[])].sort();
  if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedRoot))
   throw new Error('Unexpected staged offline recovery root entries');
  for(const item of core.files.slice(0,2))
   await assertStagedCopy(join(target,item.path),item);
+ if(hasCases){
+  await assertStagedCopy(join(target,SCENE_FILE),core.files[3]!);
+  assertSiteTestCaseRegistryBytes(await readBoundedManifest(join(target,SCENE_FILE)));
+ }
  if(files.length){
   const managed=join(target,'managed');
   await assertUnlinkedRecoveryDirectory(managed);
@@ -196,9 +211,9 @@ export async function stageCoreRecoveryForOfflineReview({
   includesSecrets:false,
   includesOriginalUserscripts:false,
   atomicAcrossStores:false,
-  scope:'registry+journal+managed-revisions-only',
+  scope:hasCases?sceneScope:'registry+journal+managed-revisions-only',
   sourceManifestSha256,
-  fileCount:2+files.length,
+  fileCount:2+files.length+(hasCases?1:0),
   note:'NON-ACTIVE. Review offline before any separate, explicit migration; never overwrite a running Data directory.',
  };
  await writeFile(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json'),
@@ -236,10 +251,12 @@ export async function verifyCoreOfflineRecoveryStage({
  const core=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(sourceManifest)) as {
   files:HashedFile[];
  };
- if(!Array.isArray(core.files)||core.files.length!==3||
+ const hasCases=core.files?.length===4;
+ if(!Array.isArray(core.files)||(core.files.length!==3&&!hasCases)||
     core.files[0]?.path!=='registry.sqlite'||
     core.files[1]?.path!=='diagnosis-journal.sqlite'||
-    core.files[2]?.path!=='managed-recovery/manifest.json')
+    core.files[2]?.path!=='managed-recovery/manifest.json'||
+    (hasCases&&core.files[3]?.path!==SCENE_FILE))
   throw new Error('Invalid offline stage source inventory');
  const nestedManifest=await readBoundedManifest(join(source,'managed-recovery','manifest.json'));
  if(digest(nestedManifest)!==core.files[2].sha256||
@@ -291,9 +308,9 @@ export async function verifyCoreOfflineRecoveryStage({
     marker.includesBrowserProfiles!==false||marker.includesSecrets!==false||
     marker.includesOriginalUserscripts!==false||
     marker.atomicAcrossStores!==false||
-    marker.scope!=='registry+journal+managed-revisions-only'||
+    marker.scope!==(hasCases?sceneScope:'registry+journal+managed-revisions-only')||
     marker.sourceManifestSha256!==sourceManifestSha256||
-    marker.fileCount!==2+files.length||
+    marker.fileCount!==2+files.length+(hasCases?1:0)||
     marker.note!=='NON-ACTIVE. Review offline before any separate, explicit migration; never overwrite a running Data directory.')
   throw new Error('Invalid or tampered offline stage completion marker');
 
@@ -314,11 +331,15 @@ export async function verifyCoreOfflineRecoveryStage({
  await assertUnlinkedRecoveryDirectory(stage);
  const rootNames=(await readdir(stage)).sort();
  const expectedRoot=['USSHM-RECOVERY-NOT-ACTIVE.json',
-  'registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
+  'registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[]),...(hasCases?[SCENE_FILE]:[])].sort();
  if(JSON.stringify(rootNames)!==JSON.stringify(expectedRoot))
   throw new Error('Unexpected offline stage files');
  for(const item of core.files.slice(0,2))
   await assertStagedCopy(join(stage,item.path),item);
+ if(hasCases){
+  await assertStagedCopy(join(stage,SCENE_FILE),core.files[3]!);
+  assertSiteTestCaseRegistryBytes(await readBoundedManifest(join(stage,SCENE_FILE)));
+ }
  if(files.length){
   const managed=join(stage,'managed');
   await assertUnlinkedRecoveryDirectory(managed);
@@ -355,5 +376,5 @@ export async function verifyCoreOfflineRecoveryStage({
  if(!(await readBoundedManifest(markerPath)).equals(markerBytes)||
     (await lstat(markerPath)).nlink!==1)
   throw new Error('Offline stage completion marker changed during audit');
- return {valid:true,fileCount:2+files.length,sourceManifestSha256};
+ return {valid:true,fileCount:2+files.length+(hasCases?1:0),sourceManifestSha256};
 }
