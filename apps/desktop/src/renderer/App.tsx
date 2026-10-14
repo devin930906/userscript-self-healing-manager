@@ -9,6 +9,7 @@ import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.t
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import {summarizeSafeDesktopError} from './safe-error.ts';
+import type {SiteTestCase,SiteTestSelection,DeclaredPageState} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
 import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
@@ -82,6 +83,10 @@ declare global {interface Window{ussm:{
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
+ listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
+ createSiteTestCase:(input:{scanId:string;itemIndex:number;url:string;label:string;stateId:DeclaredPageState;approved:true})=>Promise<SiteTestCase>;
+ removeSiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;approved:true})=>Promise<{deleted:true}>;
+ verifySiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;targetId:string;approved:true})=>Promise<SiteTestSelection>;
  listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
@@ -149,6 +154,14 @@ function App(){
  const [exceptionBusy,setExceptionBusy]=useState(false);
  const exceptionGeneration=useRef(new LatestRequestGate());
  const [targetId,setTargetId]=useState('');
+ const [siteTestCases,setSiteTestCases]=useState<SiteTestCase[]>([]);
+ const [siteTestUrl,setSiteTestUrl]=useState('');
+ const [siteTestLabel,setSiteTestLabel]=useState('');
+ const [siteTestState,setSiteTestState]=useState<DeclaredPageState>('logged-out');
+ const [siteTestSelectedId,setSiteTestSelectedId]=useState('');
+ const [siteTestResult,setSiteTestResult]=useState<SiteTestSelection|null>(null);
+ const [siteTestBusy,setSiteTestBusy]=useState(false);
+ const siteTestGeneration=useRef(new LatestRequestGate());
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
  const [batchPaused,setBatchPaused]=useState(false);
@@ -202,6 +215,18 @@ function App(){
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{managerTargetGeneration.current.invalidate();setManagerTargetReport(null);},[cdp,chromePath]);
  useEffect(()=>{exceptionGeneration.current.invalidate();setExceptionEvidence(null);setExceptionBusy(false);},[targetId,cdp,chromePath]);
+ useEffect(()=>{
+  siteTestGeneration.current.invalidate();
+  setSiteTestCases([]);setSiteTestSelectedId('');setSiteTestResult(null);
+  setSiteTestBusy(false);
+  if(!result||focused===null||!result.items[focused]?.scriptId)return;
+  const ticket=siteTestGeneration.current.begin();
+  void window.ussm.listSiteTestCases({scanId:result.scanId,itemIndex:focused})
+   .then(rows=>siteTestGeneration.current.commit(ticket,()=>setSiteTestCases(rows)))
+   .catch(error=>siteTestGeneration.current.commit(ticket,()=>setError('无法读取测试场景：'+summarizeSafeDesktopError(error))));
+  return ()=>siteTestGeneration.current.invalidate();
+ },[result,focused]);
+ useEffect(()=>{siteTestGeneration.current.invalidate();setSiteTestResult(null);setSiteTestBusy(false);},[targetId]);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
  useEffect(()=>{
