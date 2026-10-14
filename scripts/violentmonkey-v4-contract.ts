@@ -277,6 +277,11 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    const valueField=Object.getOwnPropertyDescriptor(result,'value');
    if(!valueField||!Object.hasOwn(valueField,'value')||!Object.hasOwn(result,'value'))
     throw new Error('Isolated manager injector CDP evaluation failed');
+   // Runtime.evaluate returnByValue receipts are serialized strings only.
+   // Reject objects, booleans and numbers instead of treating them as a
+   // transient manager-unavailable response for sixteen retries.
+   if(typeof valueField.value!=='string')
+    throw new Error('Isolated manager injector CDP evaluation failed');
    return valueField.value;
   }catch{
    // A hostile or malformed CDP envelope must not leak access errors or pass readiness.
