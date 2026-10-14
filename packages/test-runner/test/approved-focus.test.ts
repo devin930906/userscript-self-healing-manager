@@ -113,3 +113,19 @@ test('FR-024 expired consent budget during slow document recheck can never dispa
  assert.ok(calls>=2,'fault injection must delay the final pre-action identity check');
  assert.equal(socket.methods.includes('DOM.focus'),false,'no action after authorization deadline');
 });
+
+test('FR-024 only native Main-owned OS confirmation may authorize a production focus action',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:approved-control-focus'");
+ const end=main.indexOf("ipcMain.handle('usshm:product-action-review'",start);
+ assert.ok(start>=0&&end>start);
+ const body=main.slice(start,end);
+ assert.match(body,/dialog\.showMessageBox\(mainWindow/);
+ assert.match(body,/decision\.response!==1/);
+ assert.ok(body.indexOf('decision.response!==1')<body.indexOf('runApprovedControlFocus('),
+  'a forged renderer-approved boolean cannot bypass native user permission');
+ assert.match(body,/assertStablePageDocument\(beforePrompt,afterPrompt\)/);
+ assert.match(body,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(body,/focusActionBusy/,
+  'native focus dialogs must not allow concurrent duplicate execution');
+});
