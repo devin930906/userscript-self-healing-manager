@@ -87,6 +87,15 @@ function validateState(value:unknown):Saved{
  }
  return {schemaVersion:1,cases};
 }
+/** Closed, bounded snapshot schema gate for *non-active* core recovery.
+ * Never imports scripts or silently repairs an invalid stored configuration. */
+export function assertSiteTestCaseRegistryBytes(bytes:Uint8Array):void{
+ if(!(bytes instanceof Uint8Array)||bytes.byteLength<1||bytes.byteLength>MAX_BYTES)
+  throw new Error('Invalid site test case recovery size');
+ try{
+  validateState(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes)));
+ }catch{throw new Error('Invalid site test case recovery registry');}
+}
 async function readState(dataRoot:string):Promise<Saved>{
  const path=filename(dataRoot);
  await assertUnlinkedRecoveryDirectory(dataRoot);
