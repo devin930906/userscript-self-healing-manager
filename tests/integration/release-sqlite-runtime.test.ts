@@ -101,3 +101,11 @@ test('Windows release SQLite verifier requires exactly three edition roots',()=>
   }
  });
 });
+
+test('Windows release SQLite verifier rejects duplicated edition roots',()=>{
+ withReleaseDatabases(roots=>{
+  const result=verify([roots[0],roots[1],roots[0]]);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Windows edition data roots must be distinct/);
+ });
+});
