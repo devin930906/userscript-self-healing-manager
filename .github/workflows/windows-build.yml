@@ -106,6 +106,8 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (!$journalReady) { throw 'Unpacked ZIP did not initialize diagnosis history SQLite' }
+            Start-Sleep -Seconds 3
+            if ($proc.HasExited) { throw 'Unpacked ZIP exited immediately after initializing databases' }
             Write-Host 'Smoke PASS: unpacked ZIP portable EXE initialized registry.sqlite'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -139,6 +141,8 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (!$journalReady) { throw 'Portable EXE did not initialize diagnosis history SQLite' }
+            Start-Sleep -Seconds 3
+            if ($proc.HasExited) { throw 'Portable EXE exited immediately after initializing databases' }
             Write-Host 'Smoke PASS: Portable EXE initialized data beside external EXE'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -179,6 +183,8 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (!$journalReady) { throw 'Installed EXE did not initialize nonempty diagnosis journal' }
+            Start-Sleep -Seconds 3
+            if ($running.HasExited) { throw 'Installed EXE exited immediately after initializing databases' }
             if (Test-Path -LiteralPath (Join-Path $root 'Data')) { throw 'Installed edition unexpectedly created portable Data beside EXE' }
             Write-Host 'Smoke PASS: installed EXE initialized SQLite in isolated APPDATA'
           } finally {
