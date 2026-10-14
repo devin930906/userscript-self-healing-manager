@@ -32,9 +32,10 @@ test('no Alpha, branch, PR or mismatched tag may reach Windows installers',()=>{
 test('Windows packaging workflow enforces tag guard before npm ci, build and electron-builder',async()=>{
  const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
  const gate=workflow.indexOf('node scripts/final-build-authorization.mjs');
- const install=workflow.indexOf('run: npm ci');
+ const packagingJob=workflow.indexOf('\n  windows:');
+ const install=workflow.indexOf('run: npm ci',packagingJob);
  const packageStep=workflow.indexOf('run: npm run dist:win');
- assert.ok(gate>0 && gate<install && install<packageStep,
+ assert.ok(packagingJob>0 && gate>packagingJob && gate<install && install<packageStep,
   'Fail closed before installing dependencies, building or uploading any edition');
  assert.match(workflow,/USSHM_BUILD_REF:\s*\$\{\{ github\.ref \}\}/);
  assert.match(workflow,/USSHM_BUILD_EVENT:\s*\$\{\{ github\.event_name \}\}/);
