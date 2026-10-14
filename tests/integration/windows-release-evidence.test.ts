@@ -301,7 +301,7 @@ test('final release checks actual SQLite quick_check on each edition database',a
  assert.match(verifier,/parse\(directory\)\.root/);
  assert.match(verifier,/lstatSync\(path,\{throwIfNoEntry:false\}\)/);
  assert.match(verifier,/info\?\.isFile\(\)/);
- assert.match(verifier,/DatabaseSync\(path,\{readOnly:true,create:false\}\)/);
+ assert.match(verifier,/DatabaseSync\(path,\{readOnly:true,create:false,timeout:5000\}\)/);
  assert.match(verifier,/PRAGMA integrity_check/);
  assert.match(verifier,/PRAGMA foreign_key_check/);
  assert.match(verifier,/foreignKeys\.length!==0/);
