@@ -315,3 +315,22 @@ test('iframe role refuses V1 certification without a private child URL identity 
  assert.equal(result.evidenceLevel,'none');
  assert.equal(observed,0,'no child CDP probe without a private URL identity');
 });
+
+test('FR-025 SiteAdapter must fence CDP endpoint identity and credential-bearing pages before delegated observation',async()=>{
+ let invoked=0;
+ const deps={...makeDeps([1,0]),confirm:async()=>{invoked++;return identity;},
+  probe:async()=>{invoked++;throw new Error('untrusted browser access');}};
+ const cases=[
+  {...target,webSocketDebuggerUrl:'ws://evil.example:9223/devtools/page/tab-01'},
+  {...target,webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/another-tab'},
+  {...target,webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/tab-01?secret=abc'},
+  {...target,url:'https://account:secret@example.org/app/inbox'},
+ ];
+ for(const candidate of cases){
+  await assert.rejects(runSiteAdapterRoleDomCheck({
+   approved:true,target:candidate,adapter,roleId:'chat.sendButton',
+   declaredStateId:'ready',deps,
+  }),/CDP|loopback|identity|credential|page URL|noncanonical/i);
+ }
+ assert.equal(invoked,0,'hostile target metadata must fail before any injected CDP dependency');
+});
