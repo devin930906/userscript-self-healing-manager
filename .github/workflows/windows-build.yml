@@ -160,6 +160,9 @@ jobs:
           # Keep the installed user's data path for post-uninstall retention checks.
           $installedRegistry = $databases[0].FullName
           $registryHashBeforeUninstall = (Get-FileHash -LiteralPath $installedRegistry -Algorithm SHA256).Hash
+          $journalPath = Join-Path (Split-Path -Parent $installedRegistry) 'diagnosis-journal.sqlite'
+          if (!(Test-Path -LiteralPath $journalPath)) { throw 'Installed EXE did not initialize diagnosis journal' }
+          $journalHashBeforeUninstall = (Get-FileHash -LiteralPath $journalPath -Algorithm SHA256).Hash
           $uninstaller = Get-ChildItem -Path $root -File -Filter '*Uninstall*.exe' | Select-Object -First 1
           if (!$uninstaller) { throw 'NSIS uninstaller is missing' }
           $removed = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/S') -Wait -PassThru
@@ -168,6 +171,9 @@ jobs:
           if (!(Test-Path -LiteralPath $installedRegistry)) { throw 'NSIS uninstall deleted user SQLite registry' }
           $registryHashAfterUninstall = (Get-FileHash -LiteralPath $installedRegistry -Algorithm SHA256).Hash
           if ($registryHashAfterUninstall -ne $registryHashBeforeUninstall) { throw 'NSIS uninstall modified user SQLite registry' }
+          if (!(Test-Path -LiteralPath $journalPath)) { throw 'NSIS uninstall deleted diagnosis journal' }
+          $journalHashAfterUninstall = (Get-FileHash -LiteralPath $journalPath -Algorithm SHA256).Hash
+          if ($journalHashAfterUninstall -ne $journalHashBeforeUninstall) { throw 'NSIS uninstall modified diagnosis journal' }
           Write-Host 'Smoke PASS: NSIS uninstall removed application and retained user SQLite data'
       - name: Record signatures and explicitly unverified Stable gates
         shell: pwsh
