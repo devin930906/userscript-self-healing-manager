@@ -572,6 +572,8 @@ try{
   JSON.stringify(initialRuntimeExceptions.snapshot())+'; no script attribution.');
  console.log('RG-05 official injector exception attribution control after genuine GM receipts: '+
   JSON.stringify(initialInjectorExceptions.snapshot())+'; no private error data.');
+ console.log('RG-05 official injected.js error class control: '+
+  initialInjectorExceptions.injectedExceptionClass()+'; allowlisted class only.');
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
@@ -784,6 +786,8 @@ try{
    JSON.stringify(restartedRuntimeExceptions.snapshot())+'; no private exception data or manager attribution.');
   console.log('RG-05 official injector exception attribution after missing GM receipts: '+
    JSON.stringify(restartedInjectorExceptions.snapshot())+'; fixed bundled assets only, not a GM receipt.');
+  console.log('RG-05 official injected.js error class after missing GM receipts: '+
+   restartedInjectorExceptions.injectedExceptionClass()+'; allowlisted class only, not GM success.');
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({

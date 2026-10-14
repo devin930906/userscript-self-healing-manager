@@ -55,6 +55,7 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
  const contexts=new Set<number>();
  const sources=new Map<string,{kind:'web'|'injected';contextId:number}>();
  let web=false,injected=false,unattributed=false;
+ let injectedClass:'not-observed'|'unknown'|'mixed'|'TypeError'|'ReferenceError'|'SyntaxError'|'RangeError'|'Error'='not-observed';
  return Object.freeze({
   observe(method:string,params:unknown):void{
    if(method==='Runtime.executionContextsCleared'){
@@ -109,9 +110,21 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
       !contexts.has(event.executionContextId as number))return;
    const source=typeof event.scriptId==='string'?sources.get(event.scriptId):undefined;
    if(source&&source.contextId===event.executionContextId){
-    if(source.kind==='web')web=true;else injected=true;
+    if(source.kind==='web')web=true;
+    else{
+     injected=true;
+     const exception=(event as {exception?:unknown}).exception;
+     const cls=exception&&typeof exception==='object'&&!Array.isArray(exception)
+      ?(exception as {className?:unknown}).className:undefined;
+     const allow=['TypeError','ReferenceError','SyntaxError','RangeError','Error'];
+     const next:typeof injectedClass=typeof cls==='string'&&allow.includes(cls)
+      ?cls as typeof injectedClass:'unknown';
+     injectedClass=injectedClass==='not-observed'?next:
+      injectedClass===next?injectedClass:'mixed';
+    }
    }else unattributed=true;
   },
+  injectedExceptionClass():string{return injectedClass;},
   snapshot():Readonly<{
    injectedWebExceptionObserved:boolean;
    injectedExceptionObserved:boolean;
