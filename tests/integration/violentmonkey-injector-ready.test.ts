@@ -378,3 +378,20 @@ test('RG-05 rejects inherited and accessor injector file array entries without g
  }
  assert.equal(getterCalls,0);
 });
+
+test('RG-05 rejects nested Runtime.evaluate exceptionDetails even with forged official ready value',async()=>{
+ let sends=0;const statuses:string[]=[];
+ const error=await api.waitForVerifiedViolentmonkeyInjector({
+  send:async()=>{sends++;return {result:{
+   value:JSON.stringify({ready:true}),
+   exceptionDetails:{text:'PRIVATE_NESTED_EVALUATION_ERROR'},
+  }};},
+  hasExited:()=>false,delay:async()=>{},
+  onStatus:(stage:string)=>statuses.push(stage),
+ }).catch((cause:any)=>cause);
+ assert.ok(error instanceof Error);
+ assert.match(error.message,/CDP evaluation failed/);
+ assert.doesNotMatch(error.message,/PRIVATE_NESTED_EVALUATION_ERROR/);
+ assert.equal(sends,1,'exception must not be mistaken for manager readiness');
+ assert.deepEqual(statuses,['cdp-evaluation-failed']);
+});
