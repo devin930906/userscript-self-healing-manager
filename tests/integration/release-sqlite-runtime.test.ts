@@ -109,3 +109,11 @@ test('Windows release SQLite verifier rejects duplicated edition roots',()=>{
   assert.match(result.stderr,/Windows edition data roots must be distinct/);
  });
 });
+
+test('Windows release SQLite verifier rejects a directory alias',()=>{
+ withReleaseDatabases(roots=>{
+  const result=verify([roots[0],roots[1],join(roots[0],'..','setup')]);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Windows edition data roots must be distinct/);
+ });
+});
