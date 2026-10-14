@@ -31,3 +31,10 @@ test('CI rejects oversized, nonregular and invalid test-source metadata',()=>{
  for(const candidate of [{size:128*1024+1,isFile:true},{size:-1,isFile:true},{size:Infinity,isFile:true},{size:0,isFile:false}])
   assert.throws(()=>assertTestSourceBudget(candidate),/budget|source/i);
 });
+
+test('CI source-size guard rejects an invalid configured budget instead of bypassing size limits',()=>{
+ for(const limit of [0,-1,NaN,Infinity,1.5,'1024'])
+  assert.throws(()=>assertTestSourceBudget({size:0,isFile:true},limit),/budget|source/i);
+ assert.equal(assertTestSourceBudget({size:1024,isFile:true},1024),true);
+ assert.throws(()=>assertTestSourceBudget({size:1025,isFile:true},1024),/budget|source/i);
+});
