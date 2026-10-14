@@ -27,7 +27,7 @@ import {assertWindowsPeExecutable} from '../packages/cdp-client/src/pe-executabl
 import {createBrowserProfile,listBrowserProfiles,setDefaultBrowserProfile,resolveBrowserProfileForLaunch} from '../packages/cdp-client/src/browser-profiles.ts';
 import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
-import {runReadOnlyInteractionReadiness} from '../packages/test-runner/src/read-only-interaction-readiness.ts';
+import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
@@ -901,6 +901,33 @@ try{
   '@noframes limits iframe execution but cannot prove an author ShadowRoot has no matching locator');
  assert.match(topOnlyDiagnosis.items[0]?.reason??'',/Shadow DOM/i);
  await confirmPageIdentity(selected);
+ // FR-025 real Chrome positive/negative only on this disposable loopback
+ // page. This proves bounded read-only CSS evidence, never clickability/V2.
+ const visibleWaitDeps={
+  confirm:confirmPageIdentity,
+  probe:(page,locators)=>probePageLocators(page,locators,{includeNodeFingerprints:true}),
+  inspectVisibility:inspectReadOnlyElementVisibility,
+  wait:()=>delay(125),
+ };
+ const visibleButton=await runReadOnlyVisibilityWait({
+  approved:true,target:selected,caseId:'CHROME_VISIBLE_BUTTON',maxSamples:4,
+  locator:{method:'querySelector',expression:'#heal-button',runtimeRequired:false},
+  deps:visibleWaitDeps,
+ });
+ assert.equal(visibleButton.status,'potentially-visible-v1');
+ assert.equal(visibleButton.samples,2);
+ assert.equal(visibleButton.V2,'blocked');
+ assert.equal(visibleButton.V3,'not-configured');
+ assert.equal(visibleButton.functionalVerified,false);
+ const absentButton=await runReadOnlyVisibilityWait({
+  approved:true,target:selected,caseId:'CHROME_MISSING_BUTTON',maxSamples:4,
+  locator:{method:'querySelector',expression:'#fixture-never-created',runtimeRequired:false},
+  deps:visibleWaitDeps,
+ });
+ assert.equal(absentButton.status,'needs-review');
+ assert.equal(absentButton.samples,4);
+ assert.equal(absentButton.V2,'blocked');
+ console.log('PASS real Chrome FR-025: pinned two-sample potentially-visible CSS evidence, bounded missing-element review; no Input or V2/V3 claims.');
  console.log('PASS real Chrome CDP: page identity, 51-script batches, bulk candidates, synthetic behavior fail/repair-pass/rollback-fail, export.');
  console.log('PASS named SYNTHETIC functional lifecycle: baseline FAIL / partial FAIL / repaired PASS / rollback FAIL; V3/V4 not certified.');
  console.log('Fixture-only browser DOM side effects verified. No Tampermonkey extension, GM_* API, or real userscript was executed.');

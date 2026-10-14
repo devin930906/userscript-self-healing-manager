@@ -172,7 +172,7 @@ export async function runReadOnlyInteractionReadiness({
  * V2 interactivity, V3 named function or V4 userscript-manager behavior. */
 export interface ReadOnlyVisibilityWaitResult {
  readonly caseId:string;
- readonly status:'visible-v1'|'needs-review';
+ readonly status:'potentially-visible-v1'|'needs-review';
  readonly samples:1|2|3|4;
  readonly reason:string;
  readonly evidenceLevel:'V1-visible-read-only';
@@ -208,7 +208,7 @@ export async function runReadOnlyVisibilityWait({
  if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||
     typeof deps.inspectVisibility!=='function'||typeof deps.wait!=='function')
   throw new Error('Invalid read-only visibility wait dependencies');
- const result=(status:'visible-v1'|'needs-review',samples:1|2|3|4,reason:string):ReadOnlyVisibilityWaitResult=>({
+ const result=(status:'potentially-visible-v1'|'needs-review',samples:1|2|3|4,reason:string):ReadOnlyVisibilityWaitResult=>({
   caseId,status,samples,reason,evidenceLevel:'V1-visible-read-only',
   V2:'blocked',V3:'not-configured',V4:'not-configured',
   interactionVerified:false,functionalVerified:false,managerVerified:false,
@@ -256,8 +256,8 @@ export async function runReadOnlyVisibilityWait({
    if(visible.status==='potentially-visible'){
     consecutive=prior===key?consecutive+1:1;
     prior=key;
-    if(consecutive>=2)return result('visible-v1',samples,
-     'Same pinned top-document node was visible in two successive read-only observations; user script and interaction not verified');
+    if(consecutive>=2)return result('potentially-visible-v1',samples,
+     'Two pinned top-document observations showed potentially visible CSS/box metadata; ancestor blockers, occlusion, interactions and userscript behavior remain unverified');
    }else{prior=null;consecutive=0;}
   }
   if(n<maxSamples){
@@ -265,5 +265,5 @@ export async function runReadOnlyVisibilityWait({
    catch{await guard();return result('needs-review',samples,'Bounded visibility wait interrupted');}
   }
  }
- return result('needs-review',maxSamples,'No two consecutive stable visible samples within approved read-only observation budget');
+ return result('needs-review',maxSamples,'No two consecutive stable potentially visible CSS samples within approved read-only observation budget');
 }

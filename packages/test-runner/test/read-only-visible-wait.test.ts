@@ -44,7 +44,7 @@ test('FR-025 bounded real-page wait requires two consecutive pinned visible samp
  assert.equal(typeof run,'function','missing bounded visible wait implementation');
  const s=scenario([{}, {fingerprint:digest}, {fingerprint:digest}, {fingerprint:digest}]);
  const result=await run!(request(s.deps));
- assert.equal(result.status,'visible-v1');
+ assert.equal(result.status,'potentially-visible-v1');
  assert.equal(result.samples,3);
  assert.equal(result.evidenceLevel,'V1-visible-read-only');
  assert.equal(result.V2,'blocked');

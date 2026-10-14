@@ -22,7 +22,7 @@ test('FR-025 preload/UI expose bounded wait, actual V1 result and never imply us
  const ui=readFileSync('apps/desktop/src/renderer/App.tsx','utf8');
  assert.match(preload,/waitUntilElementVisible:.*ipcRenderer\.invoke\('usshm:wait-until-visible',input\)/);
  assert.match(ui,/await window\.ussm\.waitUntilElementVisible\(/);
- assert.match(ui,/等待元素稳定可见（V1，只读）/);
+ assert.match(ui,/等待 CSS 可能可见（V1，只读）/);
  assert.match(ui,/visible-v1/);
  assert.match(ui,/连续可见/);
  assert.match(ui,/V2 未验证/);

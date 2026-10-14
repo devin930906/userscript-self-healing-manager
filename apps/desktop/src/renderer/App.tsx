@@ -602,7 +602,7 @@ function App(){
    });
    if(visibleWaitGeneration.current.isCurrent(token)){
     setVisibleWaitEvidence({selectorIndex,result:evidence});
-    setMessage('有界只读等待结束；连续可见仅证明 V1 DOM 状态，V2 未验证，不能证明用户脚本功能正常。');
+    setMessage('有界只读等待结束；连续 CSS 可能可见线索仅属 V1，V2 未验证，不能证明用户脚本功能正常。');
    }
   }catch{
    if(visibleWaitGeneration.current.isCurrent(token))
@@ -1151,11 +1151,11 @@ function App(){
    </div>}
    <div className="toolbar">
     <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
-     onClick={()=>void waitUntilElementVisible()}>等待元素稳定可见（V1，只读）</button>
+     onClick={()=>void waitUntilElementVisible()}>等待 CSS 可能可见（V1，只读）</button>
     <span className="dim">最多四次有界 CDP 只读采样，需要连续两次同节点可见；不点击、不执行脚本、不在后台重试。V2 未验证。</span>
    </div>
    {visibleWaitEvidence&&visibleWaitEvidence.selectorIndex===repairIndex&&<div className="notice">
-    <b>有界可见等待：</b>{visibleWaitEvidence.result.status==='visible-v1'?'连续可见（仅 V1）':'未取得连续稳定可见证据，需复核'}
+    <b>有界可见等待：</b>{visibleWaitEvidence.result.status==='potentially-visible-v1'?'连续可见线索（CSS/盒模型可能可见，仅 V1）':'未取得连续稳定 CSS 可能可见证据，需复核'}
     · 已采样 {visibleWaitEvidence.result.samples} 次
     · V2 未验证 · V3/V4 未配置
     <small>{visibleWaitEvidence.result.reason}；不能证明用户脚本已注入或实际功能已修复。</small>
