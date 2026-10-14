@@ -159,6 +159,9 @@ test('tag-only ZIP and Portable EXE smokes require diagnosis history database',a
  for(const smoke of [zip,portable]){
   assert.match(smoke,/Data\/diagnosis-journal\.sqlite/);
   assert.match(smoke,/Get-Item -LiteralPath \$journal/);
-  assert.match(smoke,/\.Length -eq 0/);
+  assert.match(smoke,/\$journalReady = \$false/);
+  assert.match(smoke,/if \(\$proc\.HasExited\)/);
+  assert.match(smoke,/\$journalReady = \$true; break/);
+  assert.match(smoke,/\.Length -gt 0/);
  }
 });
