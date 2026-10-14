@@ -254,6 +254,7 @@ jobs:
               }
             }
           }
+          node scripts/verify-release-sqlite.mjs @roots
       - name: Record signatures and explicitly unverified Stable gates
         shell: pwsh
         run: |
