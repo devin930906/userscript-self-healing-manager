@@ -7,6 +7,7 @@ if(roots.length!==3)throw new Error('Require precisely three Windows edition dat
 if(new Set(roots.map(root=>resolve(root).toLowerCase())).size!==3)
  throw new Error('Windows edition data roots must be distinct');
 const editionRoots=new Set();
+const databaseFiles=new Set();
 for(const root of roots){
   const rootStat=lstatSync(resolve(root));
   if(!rootStat.isDirectory()||rootStat.isSymbolicLink())
@@ -24,6 +25,9 @@ for(const root of roots){
     }
     const info=lstatSync(path,{throwIfNoEntry:false});
     if(!info?.isFile()||info.size===0)throw new Error('Missing or empty release SQLite database: '+path);
+    const fileIdentity=`${info.dev}:${info.ino}`;
+    if(databaseFiles.has(fileIdentity))throw new Error('Windows release databases must be independent files: '+path);
+    databaseFiles.add(fileIdentity);
     const db=new DatabaseSync(path,{readOnly:true,create:false,timeout:5000});
     try{
       const result=db.prepare('PRAGMA integrity_check').all();
