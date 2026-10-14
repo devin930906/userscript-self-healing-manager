@@ -97,3 +97,19 @@ test('FR-024 approved focus must be available from authorized Main, limited Prel
  assert.match(ui,/可能触发网页的 focus 事件/);
  assert.match(ui,/focus-observed-only/);
 });
+
+test('FR-024 expired consent budget during slow document recheck can never dispatch DOM.focus',async()=>{
+ const socket=new FocusSocket();
+ let calls=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,timeoutMs:100,
+  confirm:async()=>{
+   calls++;
+   if(calls===2)await new Promise(resolve=>setTimeout(resolve,180));
+   return frame;
+  },
+  socketFactory:()=>socket,
+ }),/timed out|expired|deadline|timeout/i);
+ assert.ok(calls>=2,'fault injection must delay the final pre-action identity check');
+ assert.equal(socket.methods.includes('DOM.focus'),false,'no action after authorization deadline');
+});
