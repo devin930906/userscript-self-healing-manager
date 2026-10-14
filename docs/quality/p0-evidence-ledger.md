@@ -4,6 +4,9 @@
 
 本表对应[FR 产品要求](../requirements/product-requirements.md)、[QA 测试矩阵](test-and-acceptance.md)及 [RG-01~09 阻断追踪 Issue #51](https://github.com/devin930906/userscript-self-healing-manager/issues/51)。每行分别记录源代码锚点、自动化测试文件、测试范围、可追溯的真实夹具/环境证据，以及仍然缺少的验收。**源文件或测试文件存在不表示相应 FR 已完成；CI 通过不表示真实环境验收通过。** `PARTIAL` 表示实现或受控测试有部分证据；`BLOCKED` 表示 Stable 的必要证据缺失。`RECORDED` 只描述单独列出的环境和夹具范围；`MISSING` / `BLOCKED` 表示没有可引用的实际验收记录。
 
+
+> **2026-10-14 RG-06 新增源代码验证（尚未整合；PR [#269](https://github.com/devin930906/userscript-self-healing-manager/pull/269)）**：`packages/repair-workflow/src/core-recovery-stage.ts` 的离线暂存/独立重验共用 `assertStagedCopy` 改为描述符绑定的 BigInt 文件身份 SHA-256 流式审计，测试 `tests/integration/core-recovery-stage-descriptor.test.ts`。RED `810f4011` 的 [Continuation #38550095906](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550095906) Ubuntu 1 项预期失败；GREEN 源码 `1309f1c9` 对应 [Continuation #38550307143](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550307143) SUCCESS、[Windows contracts #38550307135](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550307135) SUCCESS、[Development #38550307126](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550307126) verify SUCCESS，但官方 Violentmonkey Chrome 重启注入作业 FAIL，工作流整体未绿。没有真实 Win10/11、原生 FileIdInfo、正式安装包或独立审核，**RG-06 / RG-05 继续 OPEN，FR-047 保留 PARTIAL**。本记录处于尚未整合的任务分支，不能计为正式门槛提升。
+
 | FR ID | 实现锚点 | 自动化测试锚点 | 自动化测试范围 | 真实夹具／环境证据 | 状态与尚缺证据 |
 |---|---|---|---|---|---|
 | FR-001 | `packages/cdp-client/src/preferred-chrome.ts` | `packages/cdp-client/test/preferred-chrome.test.ts` | MODULE：受控可执行文件、路径和端口条件 | MISSING: 未记录 Windows 10/11 目标机上的 Chrome 路径、GUI 与权限矩阵验收。 | PARTIAL [CODE GAP] [TEST GAP] [ENV BLOCKED]：Chrome 版本和目标机启动条件尚未完整实现并验收。 |

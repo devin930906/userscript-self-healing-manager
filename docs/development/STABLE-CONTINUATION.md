@@ -6,6 +6,17 @@
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
+
+## 2026-10-14 · RG-06 离线恢复暂存改用身份绑定的描述符校验（PR #269；尚未整合）
+
+- **分支与真实 SHA**：只在隔离任务分支 `feat/rg06-pinned-stage-descriptor` 提交，起点 `0906a2b8a4da603da8ee92a215cd0fb5e1668cd6`，已验证源码 HEAD `1309f1c9f27e57b74fa6576cc7836eda4f22076f`；待整合 PR [#269](https://github.com/devin930906/userscript-self-healing-manager/pull/269) 目标为 `feat/v01-continuation`，不是 `main`。本节文档提交自身会生成新 SHA。
+- **真实代码缺口**：`packages/repair-workflow/src/core-recovery-stage.ts` 的 `assertStagedCopy` 原来用 `lstat(BigInt)` 前后验证身份，但 `createReadStream(path)` 独立重新解析路径，不能证明 hash 字节来自已验证的那个文件。创建及独立再次审计暂存包共用这条生产代码路径。
+- **TDD RED**：测试提交 [`810f4011`](https://github.com/devin930906/userscript-self-healing-manager/commit/810f40115132af110285223a1cd1d693fa8ee5f3)，[Continuation #38550095906](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550095906) Ubuntu 明确 FAIL（缺少已验证的只读文件描述符；同批测试 189 通过/1 失败）。
+- **GREEN**：生产修复 [`5078c0a9`](https://github.com/devin930906/userscript-self-healing-manager/commit/5078c0a995b726e295a9b83f29715d6df756812e) 及注释消歧 [`1309f1c9`](https://github.com/devin930906/userscript-self-healing-manager/commit/1309f1c9f27e57b74fa6576cc7836eda4f22076f)。暂存校验从 `O_RDONLY | O_NOFOLLOW` 打开的单一 `FileHandle` 读取，读取前比较 `before/opened`、完成后比较 `before/descriptor-after/path-after` 的 `BigIntStats`，继续验证受限字节数及 SHA-256，并在 `finally` 关闭句柄。
+- **准确 GREEN CI 证据**：[Continuation #38550307143](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550307143) SUCCESS（Ubuntu/Windows）；[Windows release contracts #38550307135](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550307135) SUCCESS（正式 installers job SKIPPED）；[Development #38550307126](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38550307126) `verify` **SUCCESS**（全量测试/TS/Electron 等），而独立官方 Violentmonkey 2.49.0 Chrome 重启 GM 注入任务仍 **FAIL**（Issue #141），所以 **Development 工作流整体 FAIL**。没有关闭或跳过失败。
+- **实际 Stable 状态**：只增加 RG-06 生产恢复暂存路径的描述符身份纵深防护，不构成真正 Win32 FileIdInfo（Issue #139）、Win10/11 或实际故障恢复验收；RG-06 仍 OPEN / ENV BLOCKED，RG-05 仍 OPEN / ENV BLOCKED；其余 RG-01～RG-09 全部 OPEN。FR-024/025 产品 V2/V3 仍 PARTIAL，V2 blocked、V3/V4 not-configured；`0.1.0-alpha.5`，无 Stable tag、三安装形式、Release，也没有修改用户原件或 `main`。
+- **下次优先级**：在不降低 RG-05 真管理器失败门槛的前提下继续定位官方注入根因；待开发主分支及必要检查允许后复核和整合 PR #269，再完成 RG-06 Win32 原生 FileIdInfo、真实 Windows 恢复与 FR-025 产品级受控可撤销 V2。该 PR 与主分支的并行 RG-05 任务分文件隔离，不能将草稿 PR 误报为已合并。
+
 ## 本轮实际修改与证据
 
 - 基线：`88c74a8153d60fea0c0d3819f407dafd3d63b4bc`。原有 `apps/desktop/tests/trusted-drop.test.ts` 错误地断言 Windows 发行工作流不得有开发分支 `push` 触发；实际 `.github/workflows/windows-build.yml` 已允许 `push` 和 PR 运行**无安装包**的发行合同任务，独立安装包任务仍仅在手动派发且校验最终 tag 后执行。
