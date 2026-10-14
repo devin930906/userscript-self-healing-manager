@@ -103,3 +103,64 @@ test('RG-05 runtime exception source attribution is read-only, fail-closed and n
   'source classification cannot issue a GM success result or run before two failed receipts');
  assert.doesNotMatch(harness,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
 });
+
+test('RG-05 only reports allowlisted exception class for pinned official injected.js without exposing private error strings',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+  ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedExceptionClass:()=>string};
+ assert.equal(typeof e.injectedExceptionClass,'function','missing safe injected.js exception class projection');
+ assert.equal(e.injectedExceptionClass(),'not-observed');
+ e.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:frame,isDefault:false}}});
+ e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,text:'PRIVATE_ERROR_TEXT',exception:{
+   className:'TypeError',description:'PRIVATE_STACK_WITH_SECRET',value:'PRIVATE_GM_VALUE',
+  },
+ }});
+ assert.equal(e.injectedExceptionClass(),'TypeError');
+ assert.doesNotMatch(JSON.stringify(e.snapshot())+e.injectedExceptionClass(),/PRIVATE|101|frame|chrome-extension/);
+});
+
+test('RG-05 cannot disclose arbitrary exception class names or claim a category on wrong official sources',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const make=()=>{
+  const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+   ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedExceptionClass:()=>string};
+  e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+  return e;
+ };
+ for(const [category,expected] of [
+  ['ReferenceError','ReferenceError'],['SyntaxError','SyntaxError'],['RangeError','RangeError'],
+  ['Error','Error'],['DOMException','unknown'],
+  ['PRIVATE_USER_ACCOUNT_TOKEN','unknown'],[null,'unknown'],
+ ] as const){
+  const e=make();
+  e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+   executionContextId:9,scriptId:'101',exception:{className:category,description:'PRIVATE_ERROR'},
+  }});
+  assert.equal(e.injectedExceptionClass(),expected);
+  assert.doesNotMatch(e.injectedExceptionClass(),/PRIVATE|TOKEN|URL|frame/);
+ }
+ const e=make();
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,scriptId:'not-official',
+  exception:{className:'TypeError'}}});
+ assert.equal(e.injectedExceptionClass(),'not-observed');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,scriptId:'101',
+  exception:{className:'TypeError'}}});
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,scriptId:'101',
+  exception:{className:'ReferenceError'}}});
+ assert.equal(e.injectedExceptionClass(),'mixed','conflicting official errors cannot yield a single false root cause');
+});
+
+test('RG-05 safe exception class is logged only for confirmed failed cold-start receipts',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const control=source.indexOf('RG-05 official injected.js error class control');
+ const earlier=source.indexOf('const secondReceipt=assertViolentmonkeyV4FixtureObservation');
+ const restart=source.indexOf("browserCdp.send('Browser.close')");
+ assert.ok(earlier>=0&&control>earlier&&control<restart);
+ const failed=source.indexOf('startupInjectionBlocked=true');
+ const actual=source.indexOf('RG-05 official injected.js error class after missing GM receipts');
+ const gate=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(failed>=0&&actual>failed&&gate>actual);
+ assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame|\.exception\.description/);
+});
