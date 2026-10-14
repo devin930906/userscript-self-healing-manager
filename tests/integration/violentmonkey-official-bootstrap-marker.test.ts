@@ -77,3 +77,24 @@ test('RG-05 marker sampling is post-GM only and cannot prewarm the cold-start ac
  assert.match(harness,/assertOfficialViolentmonkeyReleaseGate\(blocked.status\)/);
  assert.doesNotMatch(harness,/GetInjected\W*\(/,'never invoke upstream mutating GetInjected as diagnostic');
 });
+
+
+test('RG-05 marker never accepts nested CDP exception and error envelopes that also forge a positive boolean',async()=>{
+ const positives='{"readyMarker":true,"webBootstrap":true}';
+ for(const payload of [
+  {result:{value:positives,exceptionDetails:{text:'PRIVATE_BROWSER_ERROR'}}},
+  {result:{value:positives,error:{message:'PRIVATE_BROWSER_ERROR'}}},
+  {result:{value:positives,exceptionDetails:null}},
+ ]){
+  const evidence=factory('pinned');
+  evidence.observe('Runtime.executionContextCreated',{
+   context:{id:23,auxData:{frameId:'pinned',isDefault:false}},
+  });
+  const result=await evidence.read(async()=>payload);
+  assert.deepEqual(result,{
+   isolatedWorldsObserved:1,worldsChecked:0,
+   readyMarkerObserved:false,webBootstrapObserved:false,observationIncomplete:true,
+  });
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BROWSER_ERROR|pinned|23/);
+ }
+});
