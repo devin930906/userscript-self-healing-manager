@@ -110,7 +110,11 @@ jobs:
             if ($proc.HasExited) { throw 'Unpacked ZIP exited immediately after initializing databases' }
             Write-Host 'Smoke PASS: unpacked ZIP portable EXE initialized registry.sqlite'
           } finally {
-            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            if ($proc -and !$proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+              $proc.WaitForExit(10000) | Out-Null
+              if (!$proc.HasExited) { throw 'Portable smoke process did not terminate' }
+            }
           }
       - name: Smoke-check single-file Portable EXE
         shell: pwsh
@@ -145,7 +149,11 @@ jobs:
             if ($proc.HasExited) { throw 'Portable EXE exited immediately after initializing databases' }
             Write-Host 'Smoke PASS: Portable EXE initialized data beside external EXE'
           } finally {
-            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            if ($proc -and !$proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+              $proc.WaitForExit(10000) | Out-Null
+              if (!$proc.HasExited) { throw 'Portable smoke process did not terminate' }
+            }
           }
       - name: Smoke-check NSIS Setup installer
         shell: pwsh
