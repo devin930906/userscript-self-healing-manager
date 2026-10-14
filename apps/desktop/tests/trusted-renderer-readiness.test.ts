@@ -169,3 +169,20 @@ test('QA-048 retries only bounded initial Runtime.evaluate transport timeouts, n
   assert.equal(probes,1);
  }
 });
+
+test('QA-048 timeout retries recheck process liveness and never accept a late unsafe bridge',async()=>{
+ let calls=0,alive=0;
+ await assert.rejects(waitForTrustedRendererReady(async()=>{
+  calls++;
+  throw new Error('CDP call timed out: Runtime.evaluate');
+ },options({attempts:4,assertAlive:()=>{if(++alive===2)throw new Error('Electron exited during readiness');}})),
+ /Electron exited during readiness/);
+ assert.equal(calls,1,'after timeout a dead Electron must never receive another probe');
+ calls=0;
+ await assert.rejects(waitForTrustedRendererReady(async()=>{
+  calls++;
+  if(calls===1)throw new Error('CDP call timed out: Runtime.evaluate');
+  return {...ready,hasRawIpc:true};
+ },options()),/Unsafe trusted renderer security bridge exposure/);
+ assert.equal(calls,2,'a later security violation must not be retried away');
+});
