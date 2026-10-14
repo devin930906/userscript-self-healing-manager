@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {constants} from 'node:fs';
+import {constants,type BigIntStats} from 'node:fs';
 import {lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
@@ -13,6 +13,20 @@ import {exportManagedRecovery,verifyManagedRecovery} from './managed-export.ts';
 type ManifestFile={readonly path:string;readonly sha256:string;readonly bytes:number};
 const paths=['registry.sqlite','diagnosis-journal.sqlite','managed-recovery/manifest.json'] as const;
 const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
+/** RG-06 exact Node BigIntStats identity for the *read-only* recovery
+ * SQLite/manifest hashing path. This supplements SHA-256 and nlink checks,
+ * but does NOT certify native Win32 FileIdInfo or prevent hostile rename races.
+ */
+export function sameCoreRecoveryNativeIdentity(left:BigIntStats,right:BigIntStats):boolean{
+ return left.isFile()&&!left.isSymbolicLink()&&
+  right.isFile()&&!right.isSymbolicLink()&&
+  left.nlink===1n&&right.nlink===1n&&
+  left.dev===right.dev&&left.ino===right.ino&&
+  left.birthtimeNs===right.birthtimeNs&&
+  left.mtimeNs===right.mtimeNs&&left.ctimeNs===right.ctimeNs&&
+  left.mode===right.mode&&left.size===right.size;
+}
+
 function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
  return !!value&&typeof value==='object'&&!Array.isArray(value)&&
   Object.keys(value).length===keys.length&&
@@ -23,7 +37,10 @@ async function directory(path:string){
 }
 async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;bytes:number}>{
  const original=await lstat(file);
- if(!original.isFile()||original.isSymbolicLink()||original.size>limit)
+ const nativeBefore=await lstat(file,{bigint:true});
+ if(!original.isFile()||original.isSymbolicLink()||original.size>limit||
+    original.size<0||nativeBefore.size!==BigInt(original.size)||
+    !sameCoreRecoveryNativeIdentity(nativeBefore,nativeBefore))
   throw new Error('Unsafe or oversized recovery snapshot file');
  // Hash matching is not sufficient if an independent filename can mutate
  // these supposedly isolated SQLite / manifest recovery files.
@@ -31,6 +48,9 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
  const handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
  try{
   const opened=await handle.stat();
+  const nativeOpened=await handle.stat({bigint:true});
+  if(!sameCoreRecoveryNativeIdentity(nativeBefore,nativeOpened))
+   throw new Error('Recovery native file identity changed before pinned read');
   if(!opened.isFile()||opened.size!==original.size||
      opened.dev!==original.dev||opened.ino!==original.ino)
    throw new Error('Recovery file changed before pinned read');
@@ -43,7 +63,12 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
    digest.update(block);
   }
   const after=await handle.stat();
+  const nativeAfter=await handle.stat({bigint:true});
   const pathAfter=await lstat(file);
+  const nativePathAfter=await lstat(file,{bigint:true});
+  if(!sameCoreRecoveryNativeIdentity(nativeBefore,nativeAfter)||
+     !sameCoreRecoveryNativeIdentity(nativeBefore,nativePathAfter))
+   throw new Error('Recovery native file identity changed during hash verification');
   if(count!==opened.size||after.size!==opened.size||pathAfter.size!==opened.size||
      pathAfter.ino!==opened.ino||pathAfter.dev!==opened.dev)
    throw new Error('Recovery snapshot changed during hash verification');
