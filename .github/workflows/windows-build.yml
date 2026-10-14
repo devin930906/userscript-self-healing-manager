@@ -27,6 +27,8 @@ jobs:
           node-version: '24'
       - name: Install locked dependencies for release-contract validation
         run: npm ci
+      - name: Validate release-contract TypeScript compilation (no installers)
+        run: npm run typecheck
       - name: Release gate tests only (no installers or uploads)
         run: node --experimental-strip-types --test tests/integration/windows-release-evidence.test.ts tests/integration/release-sqlite-runtime.test.ts tests/integration/final-build-authorization.test.ts tests/integration/distribution.test.ts tests/integration/packaged-startup.test.ts tests/integration/windows-command.test.ts apps/desktop/tests/windows-release-gate.test.ts apps/desktop/tests/three-target-release-contract.test.ts
   windows:
