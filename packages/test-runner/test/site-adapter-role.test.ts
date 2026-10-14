@@ -56,9 +56,25 @@ test('two consistent DOM samples report only V1, not manager/functional verifica
  assert.equal(r.declaredStateVerified,false);
  assert.equal(probes,2);
 });
-test('two fallback selectors with matches are ambiguous even if each matches one DOM node',async()=>{
- const r=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',declaredStateId:'ready',deps:makeDeps([1,1])});
+test('two fallback selectors targeting distinct backend nodes remain ambiguous',async()=>{
+ const deps={...makeDeps([1,1]),probe:async(_t:ChromeTarget,locators:readonly LiteralLocator[]):Promise<LocatorProbeResult>=>{
+  const reply=status(Object.fromEntries(locators.map(x=>[x.expression,1])));
+  return {...reply,checks:reply.checks.map((check,i)=>({...check,nodeFingerprint:(i===0?'a':'b').repeat(64)}))} as LocatorProbeResult;
+ }};
+ const r=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',declaredStateId:'ready',deps});
  assert.equal(r.status,'needs-review');assert.equal(r.matchedSelector,null);
+});
+
+test('FR-021 confirmed identical backend node across fallback selectors resolves one V1 role without V2/V3 promotion',async()=>{
+ const r=await runSiteAdapterRoleDomCheck({approved:true,target,adapter,roleId:'chat.sendButton',
+  declaredStateId:'ready',deps:makeDeps([1,1])});
+ assert.equal(r.status,'matched-v1');
+ assert.equal(r.matchedSelector,'[data-testid="send-button"]');
+ assert.equal(r.samples,2);
+ assert.equal(r.evidenceLevel,'V1');
+ assert.equal(r.declaredStateVerified,false);
+ assert.equal(r.V2,'blocked');assert.equal(r.V3,'not-configured');assert.equal(r.V4,'not-configured');
+ assert.equal(r.functionalVerified,false);assert.equal(r.managerVerified,false);
 });
 test('unstable node counts, invalid CDP observations and same-URL reload cannot be promoted to V1 pass',async()=>{
  let calls=0;
