@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {buildTestBatches} from '../../scripts/test-batches.mjs';
+import {buildTestBatches,assertTestSourceBudget} from '../../scripts/test-batches.mjs';
 
 test('CI Windows runner batches hundreds of long paths below the process command-line limit',()=>{
  const files=Array.from({length:280},(_,index)=>
@@ -24,4 +24,10 @@ test('CI batching rejects invalid entries instead of silently omitting them',()=
   assert.throws(()=>buildTestBatches(bad as string[]),/invalid|exceeds|length|path|budget/i);
  }
  assert.throws(()=>buildTestBatches([]),/empty|no tests|invalid/i);
+});
+
+test('CI rejects oversized, nonregular and invalid test-source metadata',()=>{
+ assert.equal(assertTestSourceBudget({size:128*1024,isFile:true}),true);
+ for(const candidate of [{size:128*1024+1,isFile:true},{size:-1,isFile:true},{size:Infinity,isFile:true},{size:0,isFile:false}])
+  assert.throws(()=>assertTestSourceBudget(candidate),/budget|source/i);
 });
