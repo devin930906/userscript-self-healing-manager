@@ -230,9 +230,11 @@ test('official manager download is pinned, bounded and never bypasses the offici
  assert.match(helper,/for\(let attempt=1;attempt<=3;attempt\+\+\)/);
  assert.match(helper,/RETRYABLE_HTTP=new Set\(\[429,500,502,503,504\]\)/);
  assert.match(helper,/attempt===3\)throw error;/,'exhausted retry must fail closed');
- assert.ok(helper.indexOf('actual!==expectedSha256')<helper.indexOf('copyFile('),
-  'helper may expose final archive only after streaming SHA-256 succeeded');
- assert.match(helper,/COPYFILE_EXCL/,'never replace a pre-existing runner asset');
+ assert.match(helper,/await link\(partial,destination\)/,
+  'only fully hashed bytes may be atomically published to a new destination');
+ assert.ok(helper.indexOf('actual!==expectedSha256')>=0 &&
+  helper.indexOf('actual!==expectedSha256')<helper.indexOf('await link(partial,destination)'),
+  'helper must verify streaming SHA-256 before exclusive atomic publication');
  assert.doesNotMatch(fetchStep,/continue-on-error:\s*true|if:\s*false|\|\| true/i);
  assert.match(workflow,/node --experimental-strip-types scripts\/smoke-violentmonkey-cft\.mjs/,
   'manager GM V4 release gate remains mandatory after a valid download');
