@@ -141,3 +141,18 @@ test('release integrity verification never mutates any of the six database files
   assert.deepEqual(files.map(digest),before);
  });
 });
+
+test('SQLite release verification is read-only even when integrity validation fails',()=>{
+ withReleaseDatabases(roots=>{
+  const files=roots.flatMap(root=>['registry.sqlite','diagnosis-journal.sqlite'].map(name=>join(root,name)));
+  const db=new DatabaseSync(join(roots[2],'registry.sqlite'));
+  try{db.exec('PRAGMA foreign_keys=OFF; INSERT INTO child(id,parent_id) VALUES(42,999)');}
+  finally{db.close();}
+  const digest=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
+  const before=files.map(digest);
+  const result=verify(roots);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/foreign_key_check failed/);
+  assert.deepEqual(files.map(digest),before);
+ });
+});
