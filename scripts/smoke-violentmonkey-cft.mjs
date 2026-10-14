@@ -792,6 +792,10 @@ try{
    restartedInjectorExceptions.injectedExceptionClass()+'; allowlisted class only, not GM success.');
   console.log('RG-05 official injected.js failure signature after missing GM receipts: '+
    restartedInjectorExceptions.injectedFailureSignature()+'; fixed upstream signature only, not GM success.');
+  // Numeric line/column from the exact official bundled injected.js, not a
+  // user script or private stack. Report only AFTER two missing real receipts.
+  console.log('RG-05 official injected.js fault site after missing GM receipts: '+
+   restartedInjectorExceptions.injectedFailureSite()+'; pinned public asset coordinate, not GM success.');
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({
