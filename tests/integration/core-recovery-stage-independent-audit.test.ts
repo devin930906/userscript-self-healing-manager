@@ -64,3 +64,35 @@ for(const scenario of ['changed-file','unexpected-file','tampered-marker','wrong
   assert.deepEqual((await readdir(stage)).includes('USSHM-RECOVERY-NOT-ACTIVE.json'),true);
  }));
 }
+
+
+test('RG-06 independent stage audit rejects a late same-size mutation while finishing source revalidation',async()=>fixture(async({backup,stage,source,script})=>{
+ const live=join(source,'managed','fixture','current.user.js');
+ const original=await readFile(live);
+ const staged=join(stage,'managed','fixture','current.user.js');
+ let reached=0;
+ const injected=Buffer.from(script);
+ injected[17]=injected[17]===65?66:65;
+ assert.equal(injected.byteLength,script.byteLength);
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  // Internal test-only checkpoint, never exposed to a renderer or recovery activation.
+  beforeFinalStageAudit:async()=>{reached++;await writeFile(staged,injected);},
+ }),/stage|hash|changed|identity|mismatch|recovery|unsafe/i,
+ 'a stage changed during late source verification cannot be certified valid');
+ assert.equal(reached,1,'fault injection must happen before the last stage byte audit');
+ assert.deepEqual(await readFile(live),original,'read-only audit must never modify active Data');
+ assert.deepEqual(await readFile(staged),injected,'failed audit must not silently mutate the stage');
+}));
+
+test('RG-06 independent stage audit rejects a late unexpected file in its closed staged inventory',async()=>fixture(async({backup,stage,source})=>{
+ const live=join(source,'registry.sqlite');
+ const original=await readFile(live);
+ let reached=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  beforeFinalStageAudit:async()=>{reached++;await writeFile(join(stage,'unlisted-payload.user.js'),'SYNTHETIC_NOT_IN_MANIFEST');},
+ }),/stage|unexpected|inventory|unsafe|recovery|file/i);
+ assert.equal(reached,1);
+ assert.deepEqual(await readFile(live),original,'live database must remain byte-identical');
+}));
