@@ -101,3 +101,28 @@ test('RG-03 fixture-only V2 lifecycle cannot be imported by Electron production 
    'test-only Input is forbidden in user production UI and Main');
  }
 });
+
+test('RG-03 delayed child-frame settlement after reload requires a new stable cleanup observation',async()=>{
+ const run=await lifecycle();
+ let reset=false,observed=0,cleanupRead=false;
+ const deps={
+  confirm:async()=>{
+   if(!reset)return frame;
+   return {...frame,loaderId:'loader-after-reset',
+    subframeCount:cleanupRead?1:0};
+  },
+  observe:async()=>{
+   const index=observed++;
+   if(index>=2)cleanupRead=true;
+   return snapshot(index===0?1:index===1?2:1);
+  },
+  interact:async()=>({validationLevel:'synthetic-fixture-interaction',
+   observed:true,productionEligible:false}),
+  reset:async()=>{reset=true;},
+  wait:async()=>{},
+ };
+ const receipt=await run({approved:true,target,fixtureUrl,deps});
+ assert.equal(receipt.status,'fixture-passed');
+ assert.equal(receipt.cleanupVerified,true);
+ assert.ok(observed>=4,'first cleanup sample straddles child-frame transition and must be rechecked');
+});
