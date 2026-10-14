@@ -31,7 +31,7 @@ test('RG-05 official manager restart audit reduces the exact persisted userscrip
  const expression=build(name,namespace,fixtureUrl);
  const fixture={meta:{name,namespace,match:[fixtureUrl],grant:grants},config:{enabled:1},code:'PRIVATE_SCRIPT_BODY'};
  const {data,receipt}=await evaluateReadOnly(expression,{scripts:[fixture]});
- assert.deepEqual(data?.data,{sizes:false});
+ assert.deepEqual(JSON.parse(JSON.stringify(data?.data)),{sizes:false});
  assert.equal(data?.cmd,'GetData');
  assert.deepEqual(JSON.parse(JSON.stringify(receipt)),{present:true,enabled:true,scope:true,gmGrants:true});
  assert.doesNotMatch(JSON.stringify(receipt),/PRIVATE_SCRIPT_BODY/);
