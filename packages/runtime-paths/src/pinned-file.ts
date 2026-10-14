@@ -1,3 +1,4 @@
+import {createHash,timingSafeEqual} from 'node:crypto';
 import {constants} from 'node:fs';
 import type {Stats,BigIntStats} from 'node:fs';
 import {lstat,open} from 'node:fs/promises';
@@ -13,8 +14,8 @@ import {assertUnlinkedRecoveryDirectory} from './recovery-directory.ts';
  * enforce approval, hash validation, revision locks and safe output paths.
  */
 export async function readPinnedRegularFile(path:string,{
- maxBytes,expected,expectedNative,
-}:{maxBytes:number;expected?:Stats|BigIntStats|undefined;expectedNative?:BigIntStats|undefined}):Promise<Buffer>{
+ maxBytes,expected,expectedNative,expectedSha256,
+}:{maxBytes:number;expected?:Stats|BigIntStats|undefined;expectedNative?:BigIntStats|undefined;expectedSha256?:string|undefined}):Promise<Buffer>{
  if(typeof path!=='string'||!path||!Number.isSafeInteger(maxBytes)||
     maxBytes<1||maxBytes>1024*1024)
   throw new Error('Invalid pinned read size limit or path');
@@ -24,6 +25,9 @@ export async function readPinnedRegularFile(path:string,{
  // not a race-free Win32 file handle / directory identity guarantee.
  if(path.split(/[\\/]/).includes('..'))
   throw new Error('Unsafe pinned file parent traversal');
+ if(expectedSha256!==undefined&&
+    (typeof expectedSha256!=='string'||!/^[0-9a-f]{64}$/.test(expectedSha256)))
+  throw new Error('Invalid approved pinned file digest');
  await assertUnlinkedRecoveryDirectory(dirname(resolve(path)));
  const before=await lstat(path);
  const validateFile=(info:Stats):void=>{
@@ -130,6 +134,13 @@ export async function readPinnedRegularFile(path:string,{
   if(expectedNative&&(!nativeBefore||
       !sameNative(nativeBefore,await lstat(path,{bigint:true}))))
    throw new Error('Precise pinned-file native path changed during read');
+  // Hash the verified descriptor bytes, not a later path reopen. This
+  // supplements metadata identity where Windows file IDs can alias.
+  if(expectedSha256!==undefined){
+   const actual=createHash('sha256').update(bytes).digest();
+   if(!timingSafeEqual(actual,Buffer.from(expectedSha256,'hex')))
+    throw new Error('Pinned file bytes differ from approved digest');
+  }
   return bytes;
  }finally{
   await handle.close();
