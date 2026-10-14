@@ -59,6 +59,7 @@ export async function runNamedFixtureV2Lifecycle({
  validateIdentity(before,target);
  let failure:Error|null=null;
  let cleanupFailure:Error|null=null;
+ let cleanupPhase:'reset'|'fresh-loader'|'restore-observation'|'restore-identity'='reset';
  try{
   const start=await deps.observe(target);
   expectedObservation(start,1);
@@ -77,6 +78,7 @@ export async function runNamedFixtureV2Lifecycle({
  // receipt for a failed reset, silent navigation, or leftover marker.
  try{
   await deps.reset(target);
+  cleanupPhase='fresh-loader';
   let fresh:ConfirmedPageIdentity|null=null;
   for(let i=0;i<16;i++){
    try{
@@ -89,10 +91,12 @@ export async function runNamedFixtureV2Lifecycle({
    if(i<15)await (deps.wait?.()??new Promise<void>(resolve=>setTimeout(resolve,125)));
   }
   if(!fresh)throw new Error('Synthetic fixture cleanup did not create a fresh document');
+  cleanupPhase='restore-observation';
   const clean=await deps.observe(target);
   expectedObservation(clean,1);
+  cleanupPhase='restore-identity';
   assertStablePageDocument(fresh,await deps.confirm(target));
- }catch{cleanupFailure=new Error('Synthetic fixture cleanup could not be verified');}
+ }catch{cleanupFailure=new Error('Synthetic fixture cleanup could not be verified ('+cleanupPhase+')');}
  if(cleanupFailure)throw cleanupFailure;
  if(failure)throw failure;
  return Object.freeze({
