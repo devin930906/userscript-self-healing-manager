@@ -137,9 +137,17 @@ jobs:
           $running = $null
           try {
             $running = Start-Process -FilePath $installed -WorkingDirectory $root -PassThru
-            Start-Sleep -Seconds 5
-            if ($running.HasExited) { throw "Installed EXE exited unexpectedly: $($running.ExitCode)" }
-            Write-Host 'Smoke PASS: installed desktop EXE launched'
+            # Electron's installed userData path depends on app identity.
+            # Isolate it via APPDATA before launching and assert actual DB creation.
+            $expectedData = Join-Path $env:APPDATA 'userscript-self-healing-manager'
+            $initialized = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              if ($running.HasExited) { throw "Installed EXE exited unexpectedly: $($running.ExitCode)" }
+              if (Test-Path -LiteralPath (Join-Path $expectedData 'registry.sqlite')) { $initialized = $true; break }
+              Start-Sleep -Seconds 1
+            }
+            if (!$initialized) { throw 'Installed EXE did not initialize its registry.sqlite database' }
+            Write-Host 'Smoke PASS: installed desktop EXE launched and initialized SQLite'
           } finally {
             if ($running -and !$running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
           }
