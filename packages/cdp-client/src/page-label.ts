@@ -9,7 +9,8 @@
  */
 export function displayCdpPageOrigin(value:unknown):string{
  const unavailable='[non-web/invalid page]';
- if(typeof value!=='string'||value.length<1||value.length>8192)return unavailable;
+ if(typeof value!=='string'||value.length<1||value.length>8192||
+    value!==value.trim()||/[\u0000-\u001F\u007F]/.test(value))return unavailable;
  try{
   const parsed=new URL(value);
   if((parsed.protocol!=='http:'&&parsed.protocol!=='https:')||!parsed.hostname)
