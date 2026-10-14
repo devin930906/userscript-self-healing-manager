@@ -751,6 +751,8 @@ async function bootstrap():Promise<void>{
       typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
     throw new Error('Explicit selected button, scan identity and one-time focus approval required');
    if(focusActionBusy)throw new Error('Another browser focus confirmation is already pending');
+   focusActionBusy=true;
+   try{
    const scanSnapshot=scanSessions.require(q.scanId);
    const item=scanSnapshot.items[q.itemIndex as number];
    if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
@@ -766,8 +768,6 @@ async function bootstrap():Promise<void>{
    if(pageScope.status!=='allowed')
     throw new Error('Selected page is outside the approved userscript scope');
    scanSessions.assertCurrent(scanSnapshot);
-   focusActionBusy=true;
-   try{
     const beforePrompt=await confirmPageIdentity(selected);
     // Even a compromised renderer cannot turn an approved:true Boolean into
     // browser interaction without trusted Main's native OS-level consent.
