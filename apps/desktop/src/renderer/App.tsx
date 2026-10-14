@@ -85,7 +85,7 @@ declare global {interface Window{ussm:{
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
  createSiteTestCase:(input:{scanId:string;itemIndex:number;url:string;label:string;stateId:DeclaredPageState;approved:true})=>Promise<SiteTestCase>;
- removeSiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;approved:true})=>Promise<{deleted:true}>;
+ removeSiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;approved:true})=>Promise<{deleted:boolean}>;
  verifySiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;targetId:string;approved:true})=>Promise<SiteTestSelection>;
  listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
@@ -995,7 +995,6 @@ function App(){
   if(!result||focused===null||siteTestBusy)return;
   if(action!=='create'&&!siteTestSelectedId)return;
   if(action==='verify'&&!targetId)return;
-  if(action==='remove'&&!window.confirm('只删除这条测试场景记录，不影响脚本及浏览器数据。确定删除？'))return;
   const scanId=result.scanId,itemIndex=focused,caseId=siteTestSelectedId;
   const token=siteTestGeneration.current.begin();
   setSiteTestBusy(true);setError('');setSiteTestResult(null);
@@ -1006,8 +1005,10 @@ function App(){
    }else{
     const created=action==='create'?
      await window.ussm.createSiteTestCase({scanId,itemIndex,url:siteTestUrl.trim(),label:siteTestLabel.trim(),stateId:siteTestState,approved:true}):null;
-    if(action==='remove')
-     await window.ussm.removeSiteTestCase({scanId,itemIndex,caseId,approved:true});
+    if(action==='remove'){
+     const removal=await window.ussm.removeSiteTestCase({scanId,itemIndex,caseId,approved:true});
+     if(!removal.deleted)return;
+    }
     const items=await window.ussm.listSiteTestCases({scanId,itemIndex});
     siteTestGeneration.current.commit(token,()=>{
      setSiteTestCases(items);
