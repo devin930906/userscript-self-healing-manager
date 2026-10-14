@@ -2,7 +2,7 @@
 
 **记录日期**：2026-10-14（Asia/Kuala_Lumpur）  
 **唯一开发分支**：`feat/v01-continuation`  
-**本轮经完整 CI 验证的源代码 HEAD**：`738fc69210ba92b797eebbe40e4b6de951f1f646`  
+**本轮经完整 CI 验证的源代码 HEAD**：`0a5f9fb24b85e6d258b93ca5f117c880199e4073`  
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
@@ -37,6 +37,18 @@
 | RG-09 | 未提升 | ENV BLOCKED |
 
 **权威依据**：[Stable gate Issue #51](https://github.com/devin930906/userscript-self-healing-manager/issues/51) 和 [P0 证据台账](../quality/p0-evidence-ledger.md)。不得把本轮 CI 绿灯改写成任何 RG 完成或 V4 产品验收。
+
+## 第二批：Windows 精确 SQLite 文件身份阻断（同轮续接，2026-10-14）
+
+- **新 RED（准确文档 HEAD：`4f6d48ce3ad09a9eb4cd5fbe2c539eb65cfeedcb`）**：Development CI [#38512087921](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512087921) 在 Windows `tests/integration/release-sqlite-runtime.test.ts:35` 失败。删除最终发行形态的一个 SQLite 文件之后，预期的“Missing or empty”错误被更早的“databases must be independent files”取代，表明 `scripts/verify-release-sqlite.mjs` 的数字型 `dev:ino` 文件身份可能发生 Windows 文件索引舍入别名。该 HEAD 的 Continuation [#38512088115](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512088115) 与 Windows 发行合同 [#38512087879](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512087879) 成功；因此不能说该旧 HEAD 全绿。
+- **根因修复**：[Commit `0b933465`](https://github.com/devin930906/userscript-self-healing-manager/commit/0b93346571529a55e0bf0de5bf50a64d203e979b)；版式目录与六个真实 SQLite 数据库改用 `lstatSync(...,{bigint:true})` 的精确 `dev/ino` 身份。原有符号链接拒绝、缺失或空库拒绝、硬链接共享身份拒绝、`integrity_check` / `foreign_key_check` 均保留，不修改数据库。
+- **合同 RED → 修复**：初次代码提交的 Ubuntu 发行合同 [#38512446549](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512446549) 显示另一个旧断言只允许 `lstatSync(path,{throwIfNoEntry:false})`；[Commit `0a5f9fb`](https://github.com/devin930906/userscript-self-healing-manager/commit/0a5f9fb24b85e6d258b93ca5f117c880199e4073) 更新该断言，**新增检查明确要求 BigInt 路径和 BigInt 空文件比较**，其余发行安全合同保留。
+- **GREEN（准确代码 SHA：`0a5f9fb24b85e6d258b93ca5f117c880199e4073`）**：
+  - Development CI [#38512533517](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512533517)：SUCCESS（含 Windows 全量测试、TypeScript、Real Chrome CDP；无安装包）。
+  - Continuation integration [#38512533507](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512533507)：SUCCESS（Windows / Ubuntu）。
+  - Windows release contracts [#38512533533](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38512533533)：SUCCESS（Windows / Ubuntu 合同检查；正式安装包 job intentionally skipped）。
+- **P0/RG 影响**：此批解决本轮特定的 CI 及 numeric-inode 误认风险；并未证明 Windows 10/11 全发行版数据库恢复、真正 Windows native file-ID 路径抗所有竞态、正式三包或独立审查。RG-01～09 **全部维持 OPEN**，FR-024/025/026、FR-045～048 产品验收仍未提升。
+- **最终续接文件自身文档提交**：通过 [分支历史](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 与该文档提交后的准确 CI 核对；避免把上面代码 SHA 的结果误写成新的文档 HEAD 的运行证据。
 
 ## 下一轮直接处理
 
