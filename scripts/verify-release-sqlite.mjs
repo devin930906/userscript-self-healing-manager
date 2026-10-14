@@ -6,7 +6,14 @@ const roots=process.argv.slice(2);
 if(roots.length!==3)throw new Error('Require precisely three Windows edition data roots');
 if(new Set(roots.map(root=>resolve(root).toLowerCase())).size!==3)
  throw new Error('Windows edition data roots must be distinct');
+const editionRoots=new Set();
 for(const root of roots){
+  const rootStat=lstatSync(resolve(root));
+  if(!rootStat.isDirectory()||rootStat.isSymbolicLink())
+    throw new Error('Unsafe Windows edition data root: '+root);
+  const identity=`${rootStat.dev}:${rootStat.ino}`;
+  if(editionRoots.has(identity))throw new Error('Windows edition data roots must be distinct filesystem directories');
+  editionRoots.add(identity);
   for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
     const path=resolve(root,name);
     for(let directory=dirname(path);;directory=dirname(directory)){
