@@ -238,3 +238,16 @@ test('all three Windows release smokes reject immediate post-initialization proc
   assert.match(block,/exited immediately after initializing databases/);
  }
 });
+
+test('ZIP and Portable smoke ensure test processes are fully stopped',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const blocks=[
+  workflow.slice(workflow.indexOf('Smoke-check unpacked Windows executable'),workflow.indexOf('Smoke-check single-file Portable EXE')),
+  workflow.slice(workflow.indexOf('Smoke-check single-file Portable EXE'),workflow.indexOf('Smoke-check NSIS Setup installer')),
+ ];
+ for(const block of blocks){
+  assert.match(block,/Stop-Process -Id \$proc\.Id -Force -ErrorAction Stop/);
+  assert.match(block,/\$proc\.WaitForExit\(10000\)/);
+  assert.match(block,/if \(!\$proc\.HasExited\)/);
+ }
+});
