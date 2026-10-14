@@ -23,7 +23,18 @@ export async function waitForTrustedRendererReady(
  let last:'no-context'|'loading'|'missing-preload'='no-context';
  for(let attempt=0;attempt<options.attempts;attempt++){
   options.assertAlive();
-  const state=await probe();
+  let state:TrustedRendererState|null;
+  try{state=await probe();}
+  catch(error){
+   // Initial CDP Runtime.evaluate can stall while Electron creates its first
+   // default context. Retry only this exact bounded test-harness timeout.
+   // Every retry must still pass the full document and bridge trust check.
+   if(!(error instanceof Error)||error.message!=='CDP call timed out: Runtime.evaluate')
+    throw error;
+   options.assertAlive();
+   if(attempt+1<options.attempts){await options.pause();continue;}
+   break;
+  }
   options.assertAlive();
   if(state!==null){
    // Never wait away a security violation or a navigation into a different
