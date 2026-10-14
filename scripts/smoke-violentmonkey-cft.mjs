@@ -17,7 +17,7 @@ import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence} from './violentmonkey-script-parse-evidence.ts';
-import {createPinnedBootstrapMarkerEvidence} from './violentmonkey-bootstrap-marker-evidence.ts';
+import {createPinnedBootstrapMarkerEvidence,createPinnedIsolatedRuntimeExceptionEvidence} from './violentmonkey-bootstrap-marker-evidence.ts';
 import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker,assertOfficialViolentmonkeyReleaseGate} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
@@ -130,7 +130,8 @@ async function openCdp(endpoint,onEvent){
   catch{return;}
   if(response?.method==='Runtime.executionContextCreated'||
      response?.method==='Runtime.executionContextDestroyed'||
-     response?.method==='Runtime.executionContextsCleared'){
+     response?.method==='Runtime.executionContextsCleared'||
+     response?.method==='Runtime.exceptionThrown'){
    try{onEvent?.(response.method,response.params);}catch{}
    return;
   }
@@ -498,9 +499,11 @@ try{
  if(!identity.frameId||!identity.loaderId)throw new Error('Loopback fixture document identity was not pinned');
  const initialContextEvidence=createIsolatedFixtureFrameContextEvidence(identity.frameId);
  const initialMarkerEvidence=createPinnedBootstrapMarkerEvidence(identity.frameId);
+ const initialRuntimeExceptions=createPinnedIsolatedRuntimeExceptionEvidence(identity.frameId);
  pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl,(method,params)=>{
   initialContextEvidence.observe(method,params);
   initialMarkerEvidence.observe(method,params);
+  initialRuntimeExceptions.observe(method,params);
  });
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
@@ -561,6 +564,8 @@ try{
  }catch{
   console.log('RG-05 official VM bootstrap marker control unavailable; no V4 inference.');
  }
+ console.log('RG-05 isolated runtime exceptions control after genuine GM receipts: '+
+  JSON.stringify(initialRuntimeExceptions.snapshot())+'; no script attribution.');
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
@@ -676,9 +681,11 @@ try{
  });
  const restartedContextEvidence=createIsolatedFixtureFrameContextEvidence(afterRestartIdentity.frameId);
  const restartedMarkerEvidence=createPinnedBootstrapMarkerEvidence(afterRestartIdentity.frameId);
+ const restartedRuntimeExceptions=createPinnedIsolatedRuntimeExceptionEvidence(afterRestartIdentity.frameId);
  pageCdp=await openCdp(restartedFixturePage.webSocketDebuggerUrl,(method,params)=>{
   restartedContextEvidence.observe(method,params);
   restartedMarkerEvidence.observe(method,params);
+  restartedRuntimeExceptions.observe(method,params);
  });
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
@@ -764,6 +771,8 @@ try{
   }catch{
    console.log('RG-05 official VM bootstrap marker after missing GM receipts unavailable; GM gate still blocked.');
   }
+  console.log('RG-05 isolated runtime exceptions after missing GM receipts: '+
+   JSON.stringify(restartedRuntimeExceptions.snapshot())+'; no private exception data or manager attribution.');
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({

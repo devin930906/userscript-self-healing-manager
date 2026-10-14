@@ -98,3 +98,57 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
   },
  };
 }
+
+/**
+ * Diagnostic-only count of CDP runtime exceptions within the pinned fixture's
+ * isolated execution worlds. No exception text, URL, script ID, value or stack
+ * is ever retained or returned; this does not attribute errors to Violentmonkey
+ * or certify GM execution. Listener must be enabled before the reload.
+ */
+export function createPinnedIsolatedRuntimeExceptionEvidence(frameId:string){
+ if(typeof frameId!=='string'||frameId.length<1||frameId.length>256)
+  throw new Error('Invalid pinned fixture frame identity');
+ const contexts=new Set<number>();
+ let count=0,incomplete=false;
+ return Object.freeze({
+  observe(method:string,params:unknown):void{
+   if(method==='Runtime.executionContextsCleared'){
+    contexts.clear();return;
+   }
+   if(method==='Runtime.executionContextDestroyed'){
+    const id=(params as {executionContextId?:unknown}|null)?.executionContextId;
+    if(Number.isSafeInteger(id))contexts.delete(id as number);
+    return;
+   }
+   if(method==='Runtime.executionContextCreated'){
+    const context=(params as {context?:unknown}|null)?.context;
+    if(!context||typeof context!=='object'||Array.isArray(context))return;
+    const candidate=context as {id?:unknown;auxData?:unknown};
+    const aux=candidate.auxData;
+    if(!aux||typeof aux!=='object'||Array.isArray(aux)||
+       (aux as {frameId?:unknown;isDefault?:unknown}).frameId!==frameId||
+       (aux as {isDefault?:unknown}).isDefault!==false||
+       !Number.isSafeInteger(candidate.id)||(candidate.id as number)<1)return;
+    if(contexts.size>=8&&!contexts.has(candidate.id as number)){
+     incomplete=true;return;
+    }
+    contexts.add(candidate.id as number);
+    return;
+   }
+   if(method!=='Runtime.exceptionThrown')return;
+   const details=(params as {exceptionDetails?:unknown}|null)?.exceptionDetails;
+   if(!details||typeof details!=='object'||Array.isArray(details))return;
+   const id=(details as {executionContextId?:unknown}).executionContextId;
+   if(!Number.isSafeInteger(id)||!contexts.has(id as number))return;
+   if(count<8)count++;
+   else incomplete=true;
+  },
+  snapshot():Readonly<{isolatedExceptionObserved:boolean;isolatedExceptionCount:number;observationIncomplete:boolean}>{
+   return Object.freeze({
+    isolatedExceptionObserved:count>0,
+    isolatedExceptionCount:count,
+    observationIncomplete:incomplete,
+   });
+  },
+ });
+}
