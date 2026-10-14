@@ -146,8 +146,8 @@ test('RG-06 rejects a new staged directory inode even if every file and the ORIG
    assert.ok(different.ino!==dirBefore.ino||different.birthtimeNs!==dirBefore.birthtimeNs,
     'fault must replace the actual directory, not just its contents');
   },
- }),/stage|directory|identity|swapped|replaced|changed|unsafe/i,
- 'a newly rebound staging directory cannot inherit the old audited identity');
+ }),/offline stage directory identity changed/i,
+ 'the stage DIRECTORY identity must be independently verified, not rejected only by a moved marker ctime');
  assert.equal(swapped,1);
  assert.deepEqual(await readFile(join(source,'registry.sqlite')),dataBefore,
   'independent audit must not modify live source Data');
