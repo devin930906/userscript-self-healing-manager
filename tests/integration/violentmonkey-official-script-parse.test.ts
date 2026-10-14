@@ -56,3 +56,50 @@ test('RG-05 debugger script observation is post-receipt only, bounded, and does 
  assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.setScriptSource|Debugger.evaluateOnCallFrame/);
  assert.match(source,/assertOfficialViolentmonkeyReleaseGate\(blocked.status\)/);
 });
+
+test('RG-05 attributes live exceptions only to pinned official injector scripts without leaking script IDs',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const factory=(mod as Record<string,unknown>).createPinnedOfficialInjectorExceptionAttribution as
+  ((frameId:string,extensionId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ assert.equal(typeof factory,'function','missing official pinned injector exception attribution');
+ const evidence=factory(frame,extension);
+ evidence.observe('Debugger.scriptParsed',{scriptId:'201',url:'chrome-extension://'+extension+'/injected.js',
+  executionContextId:9,executionContextAuxData:{frameId:frame}});
+ evidence.observe('Debugger.scriptParsed',{scriptId:'202',url:'chrome-extension://'+extension+'/injected-web.js',
+  executionContextId:9,executionContextAuxData:{frameId:frame}});
+ evidence.observe('Debugger.scriptParsed',{scriptId:'203',url:'chrome-extension://'+extension+'/injected.js',
+  executionContextId:12,executionContextAuxData:{frameId:'other-frame'}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'201',executionContextId:9,
+  text:'PRIVATE_SCRIPT_STACK',exception:{description:'PRIVATE_BROWSER_TOKEN'}}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'203',executionContextId:12,text:'PRIVATE_OTHER_FRAME'}});
+ assert.deepEqual(evidence.snapshot(),{
+  injectedWebExceptionObserved:false,injectedExceptionObserved:true,unattributedExceptionObserved:false,
+ });
+ assert.doesNotMatch(JSON.stringify(evidence.snapshot()),/PRIVATE|201|202|203|chrome-extension|frame/);
+});
+
+test('RG-05 runtime exception source attribution is read-only, fail-closed and never used as a GM pass receipt',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const factory=(mod as Record<string,unknown>).createPinnedOfficialInjectorExceptionAttribution as
+  ((frameId:string,extensionId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ assert.equal(typeof factory,'function');
+ const evidence=factory(frame,extension);
+ evidence.observe('Debugger.scriptParsed',{scriptId:'111',url:'chrome-extension://'+extension+'/injected-web.js?token=PRIVATE',
+  executionContextId:9,executionContextAuxData:{frameId:frame}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'111',executionContextId:9,text:'PRIVATE'}});
+ assert.deepEqual(evidence.snapshot(),{
+  injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:true,
+ });
+ const harness=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ assert.match(harness,/createPinnedOfficialInjectorExceptionAttribution/);
+ assert.match(harness,/Runtime\.exceptionThrown/);
+ assert.match(harness,/Debugger\.scriptParsed/);
+ assert.match(harness,/await pageCdp\.send\('Debugger.enable'\)/,
+  'subscribe to official scriptParsed before the already-authorized fixture reload');
+ const failed=harness.indexOf('startupInjectionBlocked=true');
+ const diagnostic=harness.indexOf('RG-05 official injector exception attribution after missing GM receipts');
+ const denied=harness.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(failed>=0&&diagnostic>failed&&diagnostic<denied,
+  'source classification cannot issue a GM success result or run before two failed receipts');
+ assert.doesNotMatch(harness,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
+});
