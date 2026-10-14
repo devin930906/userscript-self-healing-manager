@@ -36,7 +36,7 @@ test('FR-014 P0 scenario deletion requires native Main confirmation and revalida
 test('FR-014 renderer treats cancelled Main-owned deletion as no-op and never reports deleted',async()=>{
  const app=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
  const start=app.indexOf("async function manageSiteTestCase(");
- const end=app.indexOf('async function ',start+20);
+ const end=app.indexOf(' const details=focused===null?',start);
  assert.ok(start>=0&&end>start);
  const body=app.slice(start,end);
  assert.match(body,/const removal=await window\.ussm\.removeSiteTestCase/);
