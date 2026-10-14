@@ -289,3 +289,43 @@ test('RG-05 official failure coordinate is reported only after real failed GM co
  assert.ok(blocked>=0&&site>blocked&&gate>site);
  assert.doesNotMatch(script,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
 });
+
+
+test('RG-05 pinned official injected.js AST fingerprint identifies a fixed call without revealing source',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts').catch(()=>null);
+ assert.equal(typeof mod?.mapPinnedOfficialFaultSite,'function','missing public bundle fault-site AST classification');
+ const source="(()=>{const receipt=chrome.runtime.sendMessage({cmd:'GetInjected'});return receipt;})();";
+ const spot=source.indexOf('sendMessage')+2;
+ const proof=mod!.mapPinnedOfficialFaultSite(source,0,spot);
+ assert.deepEqual(Object.keys(proof).sort(),['callKind','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
+ assert.equal(proof.locationVerified,true);
+ assert.equal(proof.callKind,'member-call');
+ assert.equal(proof.propertyKind,'sendMessage');
+ assert.equal(typeof proof.syntaxKind,'string');
+ assert.match(proof.fingerprintSha256,/^[0-9a-f]{64}$/);
+ assert.doesNotMatch(JSON.stringify(proof),/GetInjected|chrome|receipt|runtime|function|PRIVATE_TOKEN/);
+});
+
+test('RG-05 AST fault-site mapping never leaks arbitrary identifiers, asset text, or bad coordinates',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts').catch(()=>null);
+ assert.equal(typeof mod?.mapPinnedOfficialFaultSite,'function');
+ const secret="function PRIV_OAUTH_SECRET(){return accountPrivateProperty()}";
+ for(const [row,col] of [[-1,1],[0,-1],[0,9999],[5,2],[0,NaN],[0,1.5],[100001,0],[0,10000001]]){
+  assert.deepEqual(mod!.mapPinnedOfficialFaultSite(secret,row,col).locationVerified,false);
+ }
+ const proof=mod!.mapPinnedOfficialFaultSite(secret,0,20);
+ assert.equal(proof.propertyKind,'other');
+ assert.doesNotMatch(JSON.stringify(proof),/PRIV|OAUTH|account|PrivateProperty|SECRET|function/);
+ assert.deepEqual(mod!.mapPinnedOfficialFaultSite('',0,0).locationVerified,false);
+});
+
+test('RG-05 production CFT diagnostic reads only the pinned public asset after two absent GM receipts',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const failed=source.indexOf('startupInjectionBlocked=true');
+ const proof=source.indexOf('RG-05 public official injected.js AST site after missing GM receipts');
+ const gate=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(failed>=0&&proof>failed&&gate>proof);
+ assert.match(source,/mapPinnedOfficialFaultSite/);
+ assert.match(source,/readPinnedRegularFile/);
+ assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame|\\.exception\\.description/);
+});
