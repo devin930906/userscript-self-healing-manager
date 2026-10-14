@@ -62,7 +62,7 @@ function readUniqueIdentity(evidence:LocatorProbeResult,target:ChromeTarget,loca
 }
 /** Match the bounded frame/loader evidence accepted at the batch scan boundary.
  * Never promote a malformed injected confirmation to a V1 locator verdict. */
-function assertBoundedFrameIdentity(identity:ConfirmedPageIdentity):void {
+export function assertBoundedFrameIdentity(identity:ConfirmedPageIdentity):void {
  if(!identity||typeof identity.frameId!=='string'||!identity.frameId||
     identity.frameId.length>256||typeof identity.loaderId!=='string'||
     !identity.loaderId||identity.loaderId.length>256)
@@ -74,7 +74,9 @@ function assertBoundedFrameIdentity(identity:ConfirmedPageIdentity):void {
  if(child!==undefined&&
     (count!==1||!child||typeof child.frameId!=='string'||!child.frameId||
      child.frameId.length>256||child.frameId===identity.frameId||
-     typeof child.loaderId!=='string'||!child.loaderId||child.loaderId.length>256))
+     typeof child.loaderId!=='string'||!child.loaderId||child.loaderId.length>256||
+     (child.urlFingerprint!==undefined&&
+      (typeof child.urlFingerprint!=='string'||!/^[0-9a-f]{64}$/.test(child.urlFingerprint)))))
   throw new Error('Unverified CDP document identity: invalid child frame');
 }
 /** A named, non-destructive locator-level assertion, never functional userscript validation. */

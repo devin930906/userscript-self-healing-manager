@@ -5,6 +5,7 @@ import type {ReadOnlyEventListenerEvidence} from '../../cdp-client/src/read-only
 import {validateCdpPageSocket} from '../../cdp-client/src/endpoint.ts';
 import {assertCredentialFreePageUrl} from '../../cdp-client/src/page-url-safety.ts';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
+import {assertBoundedFrameIdentity} from './index.ts';
 
 export type ReadinessStatus='potentially-ready'|'blocked'|'needs-review';
 export interface ReadOnlyInteractionReadinessResult{
@@ -89,11 +90,12 @@ export async function runReadOnlyInteractionReadiness({
   interactionVerified:false,functionalVerified:false,managerVerified:false,
  });
  const baseline=await deps.confirm(target);
- if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
-    !baseline.frameId||!baseline.loaderId)
+ assertBoundedFrameIdentity(baseline);
+ if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url)
   throw new Error('Unverified CDP document identity for readiness');
  const guard=async()=>{
   const identity=await deps.confirm(target);
+  assertBoundedFrameIdentity(identity);
   assertStablePageDocument(baseline,identity);
  };
  const sample=async():Promise<
