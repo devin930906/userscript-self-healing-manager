@@ -64,3 +64,27 @@ test('FR-014 P0 aborts a precommit save when trusted scan authorization is revok
  assert.deepEqual((await listSiteTestCases({dataRoot:root,scriptId})).map(x=>x.id),[initial.id]);
  await assert.rejects(access(path+'.write-lock'),{code:'ENOENT'});
 }));
+
+test('FR-014 P0 never clobbers an independently created first registry when a new file is published after the last identity check',async()=>withRoot(async root=>{
+ const target=join(root,'site-test-cases.json');
+ const external=JSON.stringify({schemaVersion:1,cases:[]})+'\n';
+ let happened=0;
+ // The extra callback is internal deterministic fault injection, not an
+ // Electron IPC field. It must run AFTER the final prior-identity recheck.
+ const params:Parameters<typeof createSiteTestCase>[0]&{beforePublish:()=>Promise<void>}={
+  dataRoot:root,scriptId,url:'https://example.invalid/app/first-save',
+  label:'First local entry',stateId:'logged-out',metadata,
+  beforePublish:async()=>{
+   happened++;
+   await writeFile(target,external,{flag:'wx',mode:0o600});
+  },
+ };
+ await assert.rejects(createSiteTestCase(params),/exists|conflict|concurren|changed|refus|publish/i,
+  'initial registry creation must be an OS-level no-replace publish');
+ assert.equal(happened,1,'test must inject the independent writer after the final read');
+ assert.equal(await readFile(target,'utf8'),external,
+  'an independently written first registry must not be overwritten');
+ assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[]);
+ await assert.rejects(access(target+'.write-lock'),{code:'ENOENT'},
+  'the failed write must release the cooperating app lease');
+}));
