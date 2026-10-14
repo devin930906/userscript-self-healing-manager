@@ -287,3 +287,17 @@ test('final release checks SQLite header signatures for registry and journal of 
  assert.doesNotMatch(check,/FileShare\]::ReadWrite/);
  assert.match(check,/Invalid SQLite file signature/);
 });
+
+test('final release checks actual SQLite quick_check on each edition database',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Verify initialized SQLite file signatures across all Windows editions');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ assert.ok(start>=0&&end>start);
+ const check=workflow.slice(start,end);
+ assert.match(check,/node scripts\/verify-release-sqlite\.mjs @roots/);
+ const verifier=await readFile('scripts/verify-release-sqlite.mjs','utf8');
+ assert.match(verifier,/DatabaseSync\(path,\{readOnly:true\}\)/);
+ assert.match(verifier,/PRAGMA quick_check/);
+ assert.match(verifier,/result\[0\]\.quick_check!==['"]ok['"]/);
+ assert.match(verifier,/roots\.length!==3/);
+});
