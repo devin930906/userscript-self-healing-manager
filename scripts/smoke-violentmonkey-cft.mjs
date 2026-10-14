@@ -71,7 +71,6 @@ const userScript=`// ==UserScript==
 // @grant GM_registerMenuCommand
 // @grant GM_xmlhttpRequest
 // @connect 127.0.0.1
-// @inject-into content
 // @run-at document-idle
 // ==/UserScript==
 (async()=>{
