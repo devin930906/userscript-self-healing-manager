@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync,unlinkSync,symlinkSync,linkSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync,unlinkSync,symlinkSync,linkSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {DatabaseSync} from 'node:sqlite';
+import {createHash} from 'node:crypto';
 
 function withReleaseDatabases(run){
  const base=mkdtempSync(join(tmpdir(),'usshm-sqlite-release-'));
@@ -127,5 +128,16 @@ test('Windows release SQLite verifier refuses hardlinked database evidence acros
   const result=verify(roots);
   assert.notEqual(result.status,0);
   assert.match(result.stderr,/Windows release databases must be independent files/);
+ });
+});
+
+test('release integrity verification never mutates any of the six database files',()=>{
+ withReleaseDatabases(roots=>{
+  const files=roots.flatMap(root=>['registry.sqlite','diagnosis-journal.sqlite'].map(name=>join(root,name)));
+  const digest=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
+  const before=files.map(digest);
+  const result=verify(roots);
+  assert.equal(result.status,0,result.stderr);
+  assert.deepEqual(files.map(digest),before);
  });
 });
