@@ -21,6 +21,7 @@ import type {UserscriptManagerTargetReport} from '../../../../packages/cdp-clien
 import type {PassivePageExceptionEvidence} from '../../../../packages/cdp-client/src/read-only-exceptions.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {ManualDomTransitionResult} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
+import type {ProductAction,ProductActionReview} from '../../../../packages/test-runner/src/product-action-review.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {VerifiedPreviewResult} from '../../../../packages/repair-workflow/src/verified-preview.ts';
@@ -60,6 +61,7 @@ declare global {interface Window{ussm:{
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
  waitUntilElementVisible:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityWaitResult>;
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
+  reviewProductAction:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;action:ProductAction;approved:true})=>Promise<ProductActionReview>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>Promise<ReadOnlyDomContractResult>;
  observeManualDomTransition:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;phase:'start'|'finish';approved:true})=>Promise<ManualDomTransitionResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
@@ -181,6 +183,10 @@ function App(){
  const [readinessEvidence,setReadinessEvidence]=useState<{selectorIndex:number;result:ReadOnlyInteractionReadinessResult}|null>(null);
  const readinessGeneration=useRef(new LatestRequestGate());
  const readinessActive=useRef(false);
+ const [productAction,setProductAction]=useState<ProductAction>('observe');
+ const [productActionEvidence,setProductActionEvidence]=useState<{selectorIndex:number;action:ProductAction;result:ProductActionReview}|null>(null);
+ const productActionGeneration=useRef(new LatestRequestGate());
+ const productActionActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -238,6 +244,7 @@ function App(){
  useEffect(()=>{visibleWaitGeneration.current.invalidate();if(visibleWaitActive.current){visibleWaitActive.current=false;setBusy(false);}setVisibleWaitEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{readinessGeneration.current.invalidate();if(readinessActive.current){readinessActive.current=false;setBusy(false);}setReadinessEvidence(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{productActionGeneration.current.invalidate();if(productActionActive.current){productActionActive.current=false;setBusy(false);}setProductActionEvidence(null);},[focused,targetId,result,repairIndex,productAction]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -656,6 +663,28 @@ function App(){
     setError('双次交互条件评估失败：页面状态、授权或浏览器证据可能已变化。');
   }finally{
    if(readinessGeneration.current.isCurrent(token)){readinessActive.current=false;setBusy(false);}
+  }
+ }
+  async function reviewSelectedProductAction(){
+  if(focused===null||!result||!targetId||busy)return;
+  const record=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!record||record.runtimeRequired||record.receiver!=='document')return;
+  const token=productActionGeneration.current.begin();
+  const scanId=result.scanId,itemIndex=focused,selectorIndex=repairIndex,target=targetId,action=productAction;
+  productActionActive.current=true;setBusy(true);setError('');setProductActionEvidence(null);
+  try{
+   const evidence=await window.ussm.reviewProductAction({
+    scanId,itemIndex,selectorIndex,targetId:target,action,approved:true,
+   });
+   if(productActionGeneration.current.isCurrent(token)){
+    setProductActionEvidence({selectorIndex,action,result:evidence});
+    setMessage('动作风险审查完成，只读核验；不会自动执行网页操作。V2 未验证，V3/V4 未配置。');
+   }
+  }catch{
+   if(productActionGeneration.current.isCurrent(token))
+    setError('动作风险审查失败：授权、页面或只读证据可能变化；没有执行网页操作。');
+  }finally{
+   if(productActionGeneration.current.isCurrent(token)){productActionActive.current=false;setBusy(false);}
   }
  }
  async function runDomContract(){
@@ -1236,7 +1265,29 @@ function App(){
     · V2 未验证 · V3/V4 未配置
     <small>{readinessEvidence.result.reason}。不代表用户脚本已注入、控件实际可交互或任何业务操作成功。</small>
    </div>}
-   <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
+       <div className="toolbar">
+     <label>拟测试动作<select aria-label="拟测试动作风险" value={productAction} onChange={e=>setProductAction(e.target.value as ProductAction)}>
+      <option value="observe">只读观察</option><option value="focus">聚焦控件（低影响）</option>
+      <option value="click">点击（可能改变状态）</option><option value="type">输入文字（可能改变状态）</option>
+      <option value="submit">提交（危险）</option><option value="send">发送（危险）</option>
+      <option value="delete">删除（危险）</option><option value="payment">付款（危险）</option>
+     </select></label>
+     <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||
+      details.analysis.selectorRecords[repairIndex]?.runtimeRequired||details.analysis.selectorRecords[repairIndex]?.receiver!=='document'}
+      onClick={()=>void reviewSelectedProductAction()}>动作风险审查（只读）</button>
+     <span className="dim">所有动作默认拒绝执行，仅输出审查结果。V2 未验证。</span>
+    </div>
+    {productActionEvidence&&productActionEvidence.selectorIndex===repairIndex&&
+     productActionEvidence.action===productAction&&<div className="notice">
+      <b>动作审查：</b>{productActionEvidence.result.action} ·
+      {productActionEvidence.result.risk==='DESTRUCTIVE'?'DESTRUCTIVE（危险）':
+       productActionEvidence.result.risk==='STATE_CHANGING'?'STATE_CHANGING（状态变更）':
+       productActionEvidence.result.risk==='LOW_IMPACT'?'LOW_IMPACT（低影响）':'READ_ONLY（只读）'}
+      · 准备度 {productActionEvidence.result.readinessStatus}
+      · 拒绝执行 · V2 未验证，V3/V4 未配置。
+      <small>{productActionEvidence.result.reason}。不会自动执行网页操作，也不发放动作执行令牌。</small>
+     </div>}
+<div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
      <label>旧选择器<select aria-label="选择需要替换的静态定位器" value={repairIndex} onChange={e=>{setRepairIndex(Number(e.target.value));setRepairProposal(null);setRepairCandidates(null);setRepairNew('');}}>{details.analysis?.selectorRecords.map((s,i)=><option key={i} value={i} disabled={s.runtimeRequired}>{s.method} · {s.expression.slice(0,90)}{s.runtimeRequired?'（动态，不可直接补丁）':''}</option>)}</select></label>
