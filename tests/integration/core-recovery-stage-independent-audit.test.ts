@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,readdir,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
@@ -95,4 +95,26 @@ test('RG-06 independent stage audit rejects a late unexpected file in its closed
  }),/stage|unexpected|inventory|unsafe|recovery|file/i);
  assert.equal(reached,1);
  assert.deepEqual(await readFile(live),original,'live database must remain byte-identical');
+}));
+
+
+test('RG-06 independent stage audit rejects a completion marker atomically replaced with identical bytes',async()=>fixture(async({root,backup,stage,source})=>{
+ const marker=join(stage,'USSHM-RECOVERY-NOT-ACTIVE.json');
+ const original=await readFile(marker);
+ const live=await readFile(join(source,'registry.sqlite'));
+ let injections=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  // Same contents, NEW inode. A file identity guard must reject this
+  // substitution even though the final bytes and SHA-256 still match.
+  beforeFinalStageAudit:async()=>{
+   injections++;
+   await rename(marker,join(root,'displaced-marker.json'));
+   await writeFile(marker,original,{flag:'wx'});
+  },
+ }),/marker|identity|replaced|changed|unsafe|stage/i,
+ 'a marker is atomically replaced during verification and cannot be certified');
+ assert.equal(injections,1);
+ assert.deepEqual(await readFile(marker),original,'fault fixture really preserved byte-identical marker content');
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),live,'audit cannot mutate active Data');
 }));
