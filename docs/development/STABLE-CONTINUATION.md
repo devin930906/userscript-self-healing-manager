@@ -2,7 +2,7 @@
 
 **记录日期**：2026-10-14（Asia/Kuala_Lumpur）  
 **唯一开发分支**：`feat/v01-continuation`  
-**本轮经完整 CI 验证的源代码 HEAD**：`a392fb61c23f6580c9d1741d10313945ac4198b6`  
+**本轮经完整 CI 验证的源代码 HEAD**：`077e1b973ef18fa94aad6f0b9f4dd158e04634ff`  
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
@@ -126,3 +126,15 @@
 - **限制不能越级**：确实新增了桌面产品可调用的“手动前后只读 DOM 数量观察”，并有 Windows 真实 Chrome 的隔离合成正例。但不是产品自动 V2 非破坏性动作、不是 V3 具名业务因果或清理、不是 Tampermonkey/Violentmonkey 正式 V4、也不证明用户网站安全交互。输出一直 `V2:'blocked'`、`V3/V4:'not-configured'`、`interactionVerified:false`、`functionalVerified:false`。FR-025 与 FR-024 仍 PARTIAL / CODE GAP / ENV BLOCKED，P0 完整验收数不提升，RG-01～09 全 OPEN。
 - **下一最高优先级**：FR-024/025 产品级 V2 具名安全动作风险分级、明示授权、默认拒绝的执行策略及可回滚的前后状态验证；不能从按钮文案或 CSS 推断无害，不能把此次人工作用的两阶段 V1 升级。若缺实际授权/独立环境，就推进 RG-05 真正 manager 产品接口及 RG-06/08 Windows 10/11 独立恢复与发布验证，保持 ENV/REVIEW BLOCKED。Issue #139 native Windows file-ID、RG-02 独立安全审核未解除。没有 tag、Release、main 修改或中途安装包。
 - 本段只记录**源码** GREEN SHA；续接文件自身提交会移动 HEAD，必须再验证文档提交 SHA 的三项 CI。历史 `docs/development/v01-worklog.md` 未覆盖。
+
+## 2026-10-14 · FR-025 产品动作风险审查（已入 Desktop，但 V2/V3 仍然 blocked）
+
+- **起点**：`7ad16f7d056456c949c8616957c397cb2bf614b7`，该 HEAD 的三组 CI [Development #38522895957](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38522895957)、[Continuation #38522895917](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38522895917)、[Windows contracts #38522895944](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38522895944) 全绿，开放 PR 0；不重复早前两阶段人工只读 DOM 观察、RG-06 恢复审计或合成 click guard。
+- **P0 缺口与实现**：FR-025/QA-031/QA-055 既有真实 Main 只读准备度，但产品无法让使用者明确区分拟检测动作的风险。新增 `packages/test-runner/src/product-action-review.ts` 固定类别 `READ_ONLY`（observe）、`LOW_IMPACT`（focus）、`STATE_CHANGING`（click/type）、`DESTRUCTIVE`（submit/send/delete/payment），仅消费经 Main 实际重新观察的两次 DOM 身份/可见性/监听器证据。固定 `executionAllowed:false`、`V2:'blocked'`、`V3/V4:'not-configured'`、`functionalVerified:false`，没有执行令牌，拒绝未知 action、伪造 DOM 状态、未审批、非可信 CDP socket 和含凭证 URL。
+- **真正产品连接**：`apps/desktop/src/main/index.ts` 的 `usshm:product-action-review` 严格校验 sender、选中 scan/item、授权脚本目录、静态顶层 selector、Chrome 9223 可信目标与 userscript 页匹配，调用实际 `runReadOnlyInteractionReadiness` 后才能构造审查结果；`preload/index.ts` 仅提供窄接口，`renderer/App.tsx` 提供动作选择和只读审查按钮；切换脚本、页面、selector 或动作会使过期 UI 结果失效。未添加任何生产 `Input.dispatch`、`DOM.focus`、`Runtime.evaluate`、自动执行或用户源码写入路径。
+- **TDD RED**：[测试提交 `3b4c8285`](https://github.com/devin930906/userscript-self-healing-manager/commit/3b4c8285278f65ca8717a84dd54e862827019e0a)、[`1fb0a013`](https://github.com/devin930906/userscript-self-healing-manager/commit/1fb0a0131047b8d718a6e24d406fffbf10bd7c39)；[Continuation #38523616556](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38523616556) Ubuntu 实际 FAIL 6 项（缺少产品分类服务、受信任 Main IPC、preload/UI），[Development #38523616539](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38523616539) FAIL。正式发行契约在 RED SHA 通过不代表模块通过。
+- **GREEN 实现**：`44894666`（模块）、`bdbd790a`（Main）、`7eedb03f`（preload）、`24bca5b3`（界面）。最终测试扩展[`077e1b97`](https://github.com/devin930906/userscript-self-healing-manager/commit/077e1b973ef18fa94aad6f0b9f4dd158e04634ff) 将模块置于真实 CFT Chrome 155 loopback DOM readiness 之后，日志实际 `PASS real Chrome FR-025 product action risk review: click/send denied despite live ready-looking control; V2 blocked.`。
+- **准确 GREEN CI（源码 SHA `077e1b973ef18fa94aad6f0b9f4dd158e04634ff`）**：[Development #38524649632](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38524649632) SUCCESS（全量测试、TS、Electron、Chrome 155/官方 VM 合成 fixture）；[Continuation #38524649849](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38524649849) SUCCESS（Windows/Ubuntu）；[Windows release contracts #38524649687](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38524649687) SUCCESS（Windows/Ubuntu，不执行安装包）。
+- **验收范围与禁称**：此批确实是桌面产品可用的动作**风险分类与默认拒绝预审**，尚不是产品级 V2 自动交互执行，也不具备具名 V3 业务效果归因及清理证据；Chrome/VM 只覆盖隔离合成 fixture，用户网页、真实 Tampermonkey/Violentmonkey 产品 V4 仍 ENV BLOCKED。FR-024、FR-025 继续 PARTIAL [CODE GAP] [ENV BLOCKED]，RG-01～RG-09 **全部 OPEN**，0 项正式 RG 升级；不改 main/tag/Release、不生成预览包。
+- **下一轮首要任务**：评估与实现有真实可验证用户明确授权的安全 V2 行为执行闭环（固定声明动作、独立隔离场景、目标身份/来源证明、动作前状态、一次性授权、动作后状态、清理及不可归因拒绝）；必要时先完成独立安全审查或将真实站点执行标记 REVIEW/ENV BLOCKED。第二序列推进产品 V3 具名测试与 RG-05 实际 manager V4 桥，再推进 RG-06/08/09 真 Win10/11 生命周期与三包验收；不得拿本次预审充当互动验证。
+- **SHA 规则**：续接文件更新另产生文档 HEAD，下一轮须核对文档 HEAD 的三组 CI。保留原有 `docs/development/v01-worklog.md` 历史。
