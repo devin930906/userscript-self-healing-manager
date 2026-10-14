@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync,unlinkSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync,unlinkSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -56,5 +56,29 @@ test('Windows release SQLite verifier fails on broken foreign keys',()=>{
   const result=verify(roots);
   assert.notEqual(result.status,0);
   assert.match(result.stderr,/foreign_key_check failed/);
+ });
+});
+
+test('Windows release SQLite verifier rejects a symlinked database', (t)=>{
+ withReleaseDatabases(roots=>{
+  const target=join(roots[0],'registry.sqlite');
+  const link=join(roots[1],'registry.sqlite');
+  unlinkSync(link);
+  try{symlinkSync(target,link,'file');}
+  catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows user lacks symlink privilege');return;}throw error;}
+  const result=verify(roots);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Missing or empty release SQLite database/);
+ });
+});
+
+test('Windows release SQLite verifier rejects a symlinked edition directory', (t)=>{
+ withReleaseDatabases(roots=>{
+  const link=join(roots[0],'linked-zip');
+  try{symlinkSync(roots[2],link,process.platform==='win32'?'junction':'dir');}
+  catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows user lacks directory link privilege');return;}throw error;}
+  const result=verify([roots[0],roots[1],link]);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Unsafe release SQLite ancestor directory/);
  });
 });
