@@ -15,7 +15,7 @@ import {
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
-import {assertOfficialViolentmonkeyProcessRestart} from './violentmonkey-restart-attestation.ts';
+import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
@@ -431,6 +431,7 @@ try{
  console.log('RG-05 fixed stage: process-restart');
  let third;
  let startupWarmup=false;
+ let startupInjectionBlocked=false;
  try{
   third=await readViolentmonkeyFixtureObservation({
    send:pageCdp.send,frameId:afterRestartIdentity.frameId,url:fixtureUrl,hasExited:()=>exited,
@@ -451,25 +452,55 @@ try{
   startupWarmup=true;
   console.log('RG-05 cold-start injection was absent; one isolated loopback reload required (not immediate GM injection).');
   await pageCdp.send('Page.reload',{ignoreCache:true});
-  third=await readViolentmonkeyFixtureObservation({
-   send:pageCdp.send,frameId:afterRestartIdentity.frameId,
-   url:fixtureUrl,previousLoaderId:pinned.loaderId,hasExited:()=>exited,
-  });
+  try{
+   third=await readViolentmonkeyFixtureObservation({
+    send:pageCdp.send,frameId:afterRestartIdentity.frameId,
+    url:fixtureUrl,previousLoaderId:pinned.loaderId,hasExited:()=>exited,
+   });
+  }catch(retryError){
+   if(!(retryError instanceof Error)||
+      retryError.message!=='Pinned Violentmonkey fixture did not publish its bounded GM API result; stage: not-observed'||
+      requests.length!==2)throw retryError;
+   const reread=await pageCdp.send('Page.getFrameTree');
+   const current=reread.frameTree?.frame;
+   if(current?.id!==afterRestartIdentity.frameId||
+      current?.url!==fixtureUrl||typeof current.loaderId!=='string'||
+      !current.loaderId||current.loaderId===pinned.loaderId)
+    throw new Error('Cold-start non-injection report lacked a verified fresh fixture document');
+   startupInjectionBlocked=true;
+  }
  }
- assert.equal(requests.length,3,'cross-process manager test must observe exactly one additional GM request');
- assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
- const restarted=assertOfficialViolentmonkeyProcessRestart({
+ const attestationContext={
   before:{pid:previousChromePid,browserSocket:previousBrowserSocket,
    frameId:beforeRestartIdentity.frameId,loaderId:beforeRestartIdentity.loaderId},
   after:{pid:chrome.pid,browserSocket:status.browserSocket,
    frameId:afterRestartIdentity.frameId,loaderId:afterRestartIdentity.loaderId},
   chromeProduct:status.browser,managerVersion:manifest.version,managerExtensionId:extensionId,
   observedManagers:resumedManagers.observed,appV4:resumedManagers.V4,
-  appManagerVerified:resumedManagers.managerVerified,fixture:third,
-  loopbackRequestsObserved:requests.length,expectedStorageBefore:2,startupWarmup,
- });
- assert.equal(restarted.status,startupWarmup?'fixture-restart-warmup-passed':'fixture-restart-passed');
- console.log('PASS official Violentmonkey 2.49.0 isolated Chrome PROCESS restart: GM persisted 0->1->2->3, three loopback requests; cold-start injection '+restarted.coldStartInjection+'. Product V4 not-configured.');
+  appManagerVerified:resumedManagers.managerVerified,expectedStorageBefore:2,
+ };
+ if(startupInjectionBlocked){
+  // A confirmed installed manager that did not inject into TWO fresh process
+  // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
+  const blocked=classifyOfficialViolentmonkeyRestartBlocker({
+   ...attestationContext,fixture:undefined,missedColdStart:true,
+   scriptStillInstalled:retainedScript.found===true,
+   permissionStillActive:permission.result?.value===JSON.stringify({available:true}),
+   loopbackRequestsObserved:requests.length,
+  });
+  assert.equal(blocked.status,'fixture-restart-blocked');
+  assert.equal(blocked.productionEligible,false);
+  console.log('BLOCKED RG-05 official VM 2.49.0 Chrome process restart: installed script and permission retained, but GM injection absent after first visit and one isolated reload. Product V4 not-configured.');
+ }else{
+  assert.equal(requests.length,3,'cross-process manager test must make exactly one extra GM loopback request');
+  assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
+  const restarted=assertOfficialViolentmonkeyProcessRestart({
+   ...attestationContext,fixture:third,
+   loopbackRequestsObserved:requests.length,startupWarmup,
+  });
+  assert.equal(restarted.status,startupWarmup?'fixture-restart-warmup-passed':'fixture-restart-passed');
+  console.log('PASS official VM 2.49.0 isolated Chrome process restart: GM 0->1->2->3; cold-start injection '+restarted.coldStartInjection+'. Product V4 not-configured.');
+ }
 
  console.log('PASS isolated official Violentmonkey 2.49.0: GM storage persisted across reload, menu command registered and GM_xmlhttpRequest reached loopback. Product V4 remains not-configured; Tampermonkey is not covered.');
 }catch(error){
