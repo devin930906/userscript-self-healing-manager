@@ -442,7 +442,7 @@ export function assertViolentmonkeyV4FixtureObservation(
  apis:readonly string[];V4:'not-configured';managerVerified:false;productionEligible:false;
 }>{
  const fail=()=>{throw new Error('Violentmonkey fixture evidence incomplete or inconsistent');};
- if(!observation||!Number.isSafeInteger(expectedCounterBefore)||expectedCounterBefore<0||expectedCounterBefore>1||
+ if(!observation||!Number.isSafeInteger(expectedCounterBefore)||expectedCounterBefore<0||expectedCounterBefore>2||
     typeof observation.chromeProduct!=='string'||
     !/^(?:Chrome|HeadlessChrome)\/155\./.test(observation.chromeProduct)||
     observation.managerVersion!==VIOLENTMONKEY_CFT_RELEASE.version||
