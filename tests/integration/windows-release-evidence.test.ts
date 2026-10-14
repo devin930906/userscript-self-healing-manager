@@ -110,3 +110,15 @@ test('tag-only Setup smoke verifies isolated installed SQLite and never accepts 
  assert.match(smoke,/\$env:APPDATA = \$previousAppData/);
  assert.match(smoke,/unexpectedly created portable Data beside EXE/);
 });
+
+test('tag-only NSIS uninstall smoke must remove executable but retain installed user registry',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check NSIS Setup installer');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ assert.ok(start>=0&&end>start);
+ const smoke=workflow.slice(start,end);
+ assert.match(smoke,/\$installedRegistry = \$databases\[0\]\.FullName/);
+ assert.match(smoke,/if \(Test-Path -LiteralPath \$installed\)/);
+ assert.match(smoke,/if \(!\(Test-Path -LiteralPath \$installedRegistry\)\)/);
+ assert.match(smoke,/uninstall removed application and retained user SQLite data/);
+});
