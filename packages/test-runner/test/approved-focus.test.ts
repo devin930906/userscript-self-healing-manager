@@ -15,7 +15,7 @@ class FocusSocket extends EventEmitter{
  readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean};
  focused=false;
  constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean}={}){
-  super();this.opts=opts;setImmediate(()=>this.emit('open'));
+  super();this.opts=opts;this.focused=opts.initiallyFocused===true;setImmediate(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(e:any)=>void){this.off(name,fn);}
@@ -141,4 +141,11 @@ test('FR-024 fail closed if an ordinary button becomes submit or disabled before
   assert.equal(socket.methods.includes('DOM.focus'),false,
    'never dispatch focus after dynamic mutation to unsafe control');
  }
+});
+
+test('FR-024 a button already focused before authorization cannot earn a new V2 focus transition',async()=>{
+ const socket=new FocusSocket({initiallyFocused:true});
+ await assert.rejects(run(socket),/already focused|no focus transition|pre-action focus/i);
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'do not send an observable focus command when there is no possible before/after transition');
 });
