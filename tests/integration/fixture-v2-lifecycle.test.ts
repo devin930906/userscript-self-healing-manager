@@ -68,7 +68,8 @@ test('RG-03 simulated action fault is cleanup-safe and cannot be promoted to a s
  await assert.rejects(run({approved:true,target,fixtureUrl,deps}),/click|fixture|action|interact/i);
  assert.equal(events.filter(e=>e==='reset').length,1);
  assert.equal(events.filter(e=>e==='interact').length,1);
- assert.equal(events.at(-1),'observe');
+ assert.ok(events.lastIndexOf('observe')>events.lastIndexOf('reset'));
+ assert.equal(events.at(-1),'confirm','a final document identity recheck is mandatory');
 });
 test('RG-03 failed cleanup or missing baseline rejects instead of emitting a success receipt',async()=>{
  const run=await lifecycle();
