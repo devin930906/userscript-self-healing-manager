@@ -141,7 +141,20 @@ export async function runSiteAdapterRoleDomCheck({
  if(second===null||first.some((sample,i)=>sample.count!==second[i]?.count||sample.fingerprint!==second[i]?.fingerprint))
   return result('needs-review','DOM selector evidence incomplete or unstable',null,2);
  const matching=second.map((sample,i)=>({n:sample.count,i})).filter(x=>x.n>0);
- if(matching.length>1)return result('needs-review','Multiple fallback locators matched: element identity cannot be proven',null,2);
+ if(matching.length>1){
+  // Different fallback selectors can name the SAME element. Two stable
+  // read-only samples already pin every positive backend-node fingerprint.
+  // Resolve only single-node roles when every matching strategy certifies
+  // one identical node; otherwise retain the ambiguity barrier.
+  const oneNode=second[matching[0]!.i]?.fingerprint;
+  const cardinality=adapter.roles[roleId]!.cardinality;
+  if(typeof oneNode!=='string'||cardinality.min>1||cardinality.max<1||
+     matching.some(({n,i})=>n!==1||second[i]?.fingerprint!==oneNode))
+   return result('needs-review','Multiple fallback locators matched distinct or unverified elements',null,2);
+  return result('matched-v1',
+   'Two stable samples confirm every matching fallback names the same DOM node; userscript function not verified',
+   locators[matching[0]!.i]!.expression,2);
+ }
  if(matching.length===1){
   const {n,i}=matching[0]!,cardinality=adapter.roles[roleId]!.cardinality;
   if(n<cardinality.min||n>cardinality.max)
