@@ -161,3 +161,51 @@ test('a genuine pinned blocked control still reports the blocker without clickin
  assert.equal(d.calls.filter(method=>method==='listeners').length,0);
  assert.equal(result.V2,'blocked');
 });
+
+test('FR-025 readiness must reject malformed baseline frame and nested-document identity before probing',async()=>{
+ const invalid=[
+  {frameId:'f'.repeat(257)},
+  {loaderId:'l'.repeat(257)},
+  {frameId:7},
+  {loaderId:{id:'x'}},
+  {subframeCount:-1},
+  {subframeCount:65},
+  {subframeCount:1.5},
+  {subframeCount:'0'},
+  {subframeCount:0,soleSameOriginSubframe:{frameId:'child',loaderId:'a'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'frame',loaderId:'child-loader'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'child',loaderId:''}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'child',loaderId:'child',urlFingerprint:'not-a-hmac'}},
+ ];
+ for(const malformed of invalid){
+  const d=deps();
+  d.confirm=async()=>({...identity,...malformed} as any);
+  await assert.rejects(
+   runReadOnlyInteractionReadiness(request(d) as any),
+   /identity|frame|loader|subframe|invalid|unverified/i,
+   'No malformed frame tree is allowed to produce a readiness verdict',
+  );
+  assert.equal(d.calls.includes('probe'),false,
+   'A malformed frame tree must not be used to collect or combine control metadata');
+ }
+});
+
+test('FR-025 readiness must reject a malformed follow-up frame tree even if node and URL appear stable',async()=>{
+ const malformed=[
+  {subframeCount:66},
+  {subframeCount:0,soleSameOriginSubframe:{frameId:'child',loaderId:'child'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'frame',loaderId:'child'}},
+  {subframeCount:1,soleSameOriginSubframe:{frameId:'child',loaderId:'child',urlFingerprint:'bad'}},
+ ];
+ for(const mutation of malformed){
+  const d=deps();
+  let index=0;
+  d.confirm=async()=>index++===0?identity:{...identity,...mutation} as any;
+  await assert.rejects(
+   runReadOnlyInteractionReadiness(request(d) as any),
+   /identity|frame|subframe|invalid|unverified/i,
+  );
+  assert.equal(d.calls.filter(x=>x==='probe').length,0,
+   'Malformed follow-up frame identity must stop before probing');
+ }
+});
