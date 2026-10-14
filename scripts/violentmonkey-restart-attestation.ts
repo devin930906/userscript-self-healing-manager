@@ -16,6 +16,8 @@ export type OfficialViolentmonkeyRestartObservation=ViolentmonkeyFixtureObservat
  after:RestartEndpoint;
  loopbackRequestsObserved:number;
  expectedStorageBefore:2;
+ /** True only if exactly one isolated fixture Page.reload was required after Chrome cold-start. */
+ startupWarmup?:boolean;
 }>;
 
 /**
@@ -28,7 +30,8 @@ export type OfficialViolentmonkeyRestartObservation=ViolentmonkeyFixtureObservat
 export function assertOfficialViolentmonkeyProcessRestart(
  input:OfficialViolentmonkeyRestartObservation,
 ):Readonly<{
- status:'fixture-restart-passed';
+ status:'fixture-restart-passed'|'fixture-restart-warmup-passed';
+ coldStartInjection:'immediate'|'reload-required';
  validationLevel:'isolated-manager-process-restart';
  storageBefore:2;storageAfter:3;
  requestsObserved:3;
@@ -38,7 +41,8 @@ export function assertOfficialViolentmonkeyProcessRestart(
  const fail=():never=>{throw new Error('Pinned manager restart identity or fixture evidence incomplete');};
  if(!input||typeof input!=='object'||Array.isArray(input)||
     !input.before||!input.after||input.expectedStorageBefore!==2||
-    input.loopbackRequestsObserved!==3)fail();
+    input.loopbackRequestsObserved!==3||
+    (input.startupWarmup!==undefined&&typeof input.startupWarmup!=='boolean'))fail();
  const valid=(part:RestartEndpoint)=>{
   if(!part||!Number.isSafeInteger(part.pid)||part.pid<2||part.pid>0x7fffffff||
      typeof part.frameId!=='string'||!part.frameId||part.frameId.length>256||
@@ -64,7 +68,8 @@ export function assertOfficialViolentmonkeyProcessRestart(
   },2);
  }catch{fail();}
  return Object.freeze({
-  status:'fixture-restart-passed',
+  status:input.startupWarmup===true?'fixture-restart-warmup-passed':'fixture-restart-passed',
+  coldStartInjection:input.startupWarmup===true?'reload-required':'immediate',
   validationLevel:'isolated-manager-process-restart',
   storageBefore:2,storageAfter:3,requestsObserved:3,
   productionEligible:false,V4:'not-configured',
