@@ -340,6 +340,108 @@ try{
  assert.equal(requests.length,2,'only the two fixed loopback GM request callbacks are allowed');
  assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
  assert.deepEqual(secondReceipt.apis,firstReceipt.apis);
+
+ // RG-05: Page.reload never proves storage survives actual browser restart.
+ const previousChromePid=chrome.pid;
+ const previousBrowserSocket=status.browserSocket;
+ const beforeRestartIdentity=await confirmPageIdentity(fixturePage);
+ if(!Number.isSafeInteger(previousChromePid)||previousChromePid<2||
+    !previousBrowserSocket||beforeRestartIdentity.targetId!==fixturePage.id||
+    beforeRestartIdentity.confirmedUrl!==fixtureUrl||
+    !beforeRestartIdentity.frameId||!beforeRestartIdentity.loaderId)
+  throw new Error('Pinned isolated Chrome restart baseline identity unavailable');
+ pageCdp.close();pageCdp=undefined;
+ optionsCdp.close();optionsCdp=undefined;
+ // Gracefully close only the spawned pinned CI process so GM storage flushes.
+ // Browser.close may terminate its WebSocket before returning its response.
+ try{await browserCdp.send('Browser.close');}catch{}
+ browserCdp.close();browserCdp=undefined;
+ for(let i=0;i<60&&!exited;i++)await delay(250);
+ if(!exited)throw new Error('Original pinned isolated Chrome did not exit');
+ let released=false;
+ for(let i=0;i<40;i++){
+  try{await assertChromeDebuggerPortFree(9223);released=true;break;}
+  catch{await delay(150);}
+ }
+ if(!released)throw new Error('Pinned Chrome debugger port remained occupied after exit');
+ // Reuse the exact same disposable profile. No user profile or manager install.
+ exited=false;spawnFailure=undefined;
+ chrome=spawn(executable,pinnedLaunchArgs,{windowsHide:true,stdio:['ignore','ignore','ignore']});
+ chrome.on('error',error=>{spawnFailure=error;exited=true;});
+ chrome.on('exit',()=>{exited=true;});
+ let freshStatus;
+ for(let i=0;i<100;i++){
+  if(spawnFailure||exited)throw new Error('Restarted pinned Chrome exited before GM verification');
+  try{
+   freshStatus=await getVerifiedChromeStatus({port:9223});
+   if(expectedProduct.test(freshStatus.browser))break;
+   throw new Error('Restarted Chrome product mismatch');
+  }catch(error){
+   if(error instanceof Error&&error.message==='Restarted Chrome product mismatch')throw error;
+  }
+  await delay(300);
+ }
+ if(!freshStatus||!expectedProduct.test(freshStatus.browser)||
+    !freshStatus.browserSocket||freshStatus.browserSocket===previousBrowserSocket||
+    chrome.pid===previousChromePid)
+  throw new Error('A distinct verified Chrome browser process was not observed');
+ status=freshStatus;
+ browserCdp=await openCdp(status.browserSocket);
+ const newOptionsTarget=await browserCdp.send('Target.createTarget',{url:optionsUrl});
+ if(typeof newOptionsTarget.targetId!=='string'||!newOptionsTarget.targetId)
+  throw new Error('Reopened manager options page unavailable after real process restart');
+ const restartedOptionsPage=await waitForPage(newOptionsTarget.targetId,optionsUrl,()=>exited);
+ optionsCdp=await openCdp(restartedOptionsPage.webSocketDebuggerUrl);
+ await optionsCdp.send('Runtime.enable');
+ // A genuine restarted manager must retain both permission and installed
+ // script. Do not grant again, reinitialize profile settings or reinstall.
+ const permission=await optionsCdp.send('Runtime.evaluate',{
+  expression:buildViolentmonkeyUserScriptsProbeExpression(),awaitPromise:true,returnByValue:true,
+ });
+ if(permission.result?.value!==JSON.stringify({available:true}))
+  throw new Error('Pinned manager userScripts permission not retained across process restart');
+ await waitForVerifiedViolentmonkeyInjector({
+  send:(method,params)=>optionsCdp.send(method,params),
+  hasExited:()=>exited,
+ });
+ const retainedScript=await readManagerPreflight(optionsCdp,()=>exited);
+ if(retainedScript.found!==true)
+  throw new Error('Pinned official Violentmonkey script not retained across process restart');
+ const resumedManagers=await inspectKnownUserscriptManagerTargets({
+  approved:true,browserEndpoint:status.browserSocket,expectedProduct:status.browser,port:9223,
+ });
+ if(!resumedManagers.observed.includes('violentmonkey')||
+    resumedManagers.V4!=='not-configured'||resumedManagers.managerVerified!==false)
+  throw new Error('Official manager target missing after process restart');
+ const createdRestartFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
+ if(typeof createdRestartFixture.targetId!=='string'||!createdRestartFixture.targetId)
+  throw new Error('Restarted Chrome could not create isolated fixture');
+ const restartedFixturePage=await waitForPage(createdRestartFixture.targetId,fixtureUrl,()=>exited);
+ const afterRestartIdentity=await waitForPinnedFixtureFrame({
+  expectedUrl:fixtureUrl,inspect:()=>confirmPageIdentity(restartedFixturePage),
+  hasExited:()=>exited,pause:()=>delay(250),
+ });
+ pageCdp=await openCdp(restartedFixturePage.webSocketDebuggerUrl);
+ await pageCdp.send('Runtime.enable');
+ await pageCdp.send('Page.enable');
+ const third=await readViolentmonkeyFixtureObservation({
+  send:pageCdp.send,frameId:afterRestartIdentity.frameId,url:fixtureUrl,hasExited:()=>exited,
+ });
+ assert.equal(requests.length,3,'cross-process manager test must observe exactly one additional GM request');
+ assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
+ const restarted=assertOfficialViolentmonkeyProcessRestart({
+  before:{pid:previousChromePid,browserSocket:previousBrowserSocket,
+   frameId:beforeRestartIdentity.frameId,loaderId:beforeRestartIdentity.loaderId},
+  after:{pid:chrome.pid,browserSocket:status.browserSocket,
+   frameId:afterRestartIdentity.frameId,loaderId:afterRestartIdentity.loaderId},
+  chromeProduct:status.browser,managerVersion:manifest.version,managerExtensionId:extensionId,
+  observedManagers:resumedManagers.observed,appV4:resumedManagers.V4,
+  appManagerVerified:resumedManagers.managerVerified,fixture:third,
+  loopbackRequestsObserved:requests.length,expectedStorageBefore:2,
+ });
+ assert.equal(restarted.status,'fixture-restart-passed');
+ console.log('PASS official Violentmonkey 2.49.0 isolated Chrome PROCESS restart: GM persisted 0->1->2->3, permission/script retained, three loopback requests. Product V4 not-configured.');
+
  console.log('PASS isolated official Violentmonkey 2.49.0: GM storage persisted across reload, menu command registered and GM_xmlhttpRequest reached loopback. Product V4 remains not-configured; Tampermonkey is not covered.');
 }catch(error){
  console.error('FAIL isolated Violentmonkey fixture:',error instanceof Error?error.message:'unknown');
