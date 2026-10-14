@@ -45,3 +45,9 @@ test('CI test discovery never treats unreadable directories as empty suites',asy
  assert.match(runner,/const entries=await readdir\(dir,\{withFileTypes:true\}\)/);
  assert.doesNotMatch(runner,/catch\s*\{\s*return\s*\[\s*\]\s*;?\s*\}/);
 });
+
+test('CI test discovery sorts paths to keep batches deterministic across filesystems',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const runner=readFileSync('scripts/test.mjs','utf8');
+ assert.match(runner,/const files=\[\.\.\.await collect\('packages'\),\.\.\.await collect\('apps'\),\.\.\.await collect\('tests'\)\]\.sort\(\)/);
+});
