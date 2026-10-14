@@ -2,7 +2,7 @@
 
 **记录日期**：2026-10-14（Asia/Kuala_Lumpur）  
 **唯一开发分支**：`feat/v01-continuation`  
-**本轮经完整 CI 验证的源代码 HEAD**：`0a5f9fb24b85e6d258b93ca5f117c880199e4073`  
+**本轮经完整 CI 验证的源代码 HEAD**：`dd67056f3c37e0b6b1720e39a0c1b8b7a875335a`  
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
@@ -58,6 +58,19 @@
 - 本轮无 PR 合并（已获授权在指定开发分支直接提交）；无真实用户脚本执行/写入、无中途安装包、未变更 `main` 或 Stable tag。P0 与 RG 进度：两个实际源码缺口的局部修复得到自动化证据，**无 P0 FR 获完整验收**；RG-01~09 未解除。
 - 下一项最高优先级仍是 **FR-025 / FR-024 真正 V2 安全交互及具名 V3 功能验证**（当前仅只读 V1 和 synthetic/test-only click，尚无产品级认证）。必须先建立权限、动作安全分类、实际交互归因及失败/清理/回滚合约，再接生产 GUI；不要复用隔离 fixture 来声称实际用户网站通过。其次为 RG-05 真正 manager V4 及 RG-06/08 独立 Windows 恢复和发行验收。
 - 此续接文件的更新 commit 会使分支 HEAD 前移；**下一轮先检查该文档最终 HEAD 的三项 CI**，不要用上述代码 SHA 的结果冒充文档 SHA 证据。
+
+
+## 2026-10-14 FR-025 有界真实 Chrome 只读等待（本次续接）
+
+- 起始可信分支 HEAD：`fc0b47618c2be09d1c97f58802f8926c8ac7be1a`；[Development CI #38514210719](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38514210719)、[Continuation #38514210707](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38514210707)、[Windows contract #38514210757](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38514210757) 均 SUCCESS。无开放 PR；未重做原有 SiteAdapter 或 SQLite 修复。
+- **模块 RED**：[测试提交 `eeea009b`](https://github.com/devin930906/userscript-self-healing-manager/commit/eeea009b4a8355f95b07502081dbee76409454f2)，[Development CI #38514764916](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38514764916) FAIL，四个 FR-025 用例实际因缺少 `runReadOnlyVisibilityWait` 失败；含有界等待、先缺失后出现、隐藏/缺失耗尽、节点替换、伪造 CSS 证据、未批准/坏 CDP 目标。
+- **真实模块实现**：[Commit `3027901c`](https://github.com/devin930906/userscript-self-healing-manager/commit/3027901ce65a771ef106b7882dee562e9894d02d)：最多四次由用户触发的只读样本，须有连续两次相同的私密节点指纹、顶层 frame/loader 未变及 CSS/盒模型 `potentially-visible` 元数据。失败、漂移、模糊结果需要复核；不执行页面 JS、用户脚本或 Input 命令，不驻留后台。
+- **Desktop 桥 RED**：[测试提交 `de31a7db`](https://github.com/devin930906/userscript-self-healing-manager/commit/de31a7db6b7eb7fd400a0b5c0421f787b11808a8)，[Continuation #38514969379](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38514969379) 的 Windows/Ubuntu 测试均 FAIL，明确报告缺少原生 IPC 入口及 preload/UI 操作。**GREEN**：[Commit `080ba878`](https://github.com/devin930906/userscript-self-healing-manager/commit/080ba8788723ff02c1ad1a5c2072fbe3cc1906d0) 接入受信任 Main 的 scan/session、静态顶层 selector、脚本授权目录、网页匹配范围、外部 Chrome 目标、精确 page identity、受限 preload 及 React 操作按钮；[Development CI #38515217248](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515217248)、[Continuation #38515217315](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515217315) 与 [Windows contract #38515217424](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515217424) 均 SUCCESS。
+- **实际 Chrome 正/负集成**：[Commit `dd67056f`](https://github.com/devin930906/userscript-self-healing-manager/commit/dd67056f3c37e0b6b1720e39a0c1b8b7a875335a) 在 `scripts/smoke-chrome.mjs` 的独立真实 Windows Chrome（受控 loopback 合成页面）执行本模块，正例连续两次 `potentially-visible-v1`，负例四次缺失 `needs-review`；运行日志直接包含 `PASS real Chrome FR-025`。准确 SHA：[Development CI #38515579431](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515579431)、[Continuation #38515579434](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515579434)、[Windows release contracts #38515579433](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38515579433) 均 SUCCESS。正式安装包 job 未执行。
+- **审查修正**：实际底层返回 `potentially-visible` 而非已排除遮挡和祖先阻断的真可见；类型、文案统一为 `potentially-visible-v1`／「CSS 可能可见」，不升级 V2/V3/V4、`functionalVerified:false`、`managerVerified:false`。
+- **FR/RG**：FR-025 新增可在桌面产品调用的有界等待＋受控真实 Chrome V1 集成证据，但整个 FR-025 仍 **PARTIAL [CODE GAP] [ENV BLOCKED]**，尚无真实网页/manager 具名业务动作、交互因果和无损清理验收。FR-024 V2 仍 `blocked`，V3/V4 `not-configured`；RG-01～09 全部 OPEN。未修改真实用户脚本、`main`、正式 tag 或 GitHub Release。
+- **下一项最高优先级**：产品级 V2 真正非破坏性动作的权限及动作安全分类（不能从 CSS/button 自动推断无害），V3 具名业务前后状态归因和清理机制；随后 RG-05 官方 Tampermonkey/Violentmonkey 真 manager 产品桥与 RG-06/08 Windows 真实恢复。若缺少安全授权或真实 Windows 环境，应标 `ENV BLOCKED`、`REVIEW BLOCKED` 并推进其他可验证的 P0；**不要反复增加合成边界微测试替代产品工作**。
+- 续接文件自身提交将使 HEAD 前移。下一轮先核对该最后文档 HEAD 的三项 CI，不得把以上代码 SHA 的 CI 冒充最终文档 SHA 的验证结果。
 
 ## 下一轮直接处理
 
