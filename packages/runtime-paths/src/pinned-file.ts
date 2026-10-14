@@ -74,7 +74,9 @@ export async function readPinnedRegularFile(path:string,{
  validateFile(before);
  const nativeBefore=expectedNative?await lstat(path,{bigint:true}):undefined;
  if(expectedNative){
-  if(typeof expectedNative.ino!=='bigint'||typeof expectedNative.dev!=='bigint'||
+  if(typeof expectedNative.isFile!=='function'||
+     typeof expectedNative.isSymbolicLink!=='function'||
+     typeof expectedNative.ino!=='bigint'||typeof expectedNative.dev!=='bigint'||
      typeof expectedNative.size!=='bigint'||typeof expectedNative.nlink!=='bigint'||
      typeof expectedNative.birthtimeNs!=='bigint'||
      typeof expectedNative.mtimeNs!=='bigint'||typeof expectedNative.ctimeNs!=='bigint'||
