@@ -857,7 +857,7 @@ async function bootstrap():Promise<void>{
   const sourceInfo=await lstat(item.path);
   if(sourceInfo.isSymbolicLink()||!sourceInfo.isFile())
    throw new Error('Source script must be an ordinary file; rescan required');
-  const current=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo,expectedNative:await lstat(item.path,{bigint:true})});
+  const current=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis.sourceSha256});
   const currentSha=createHash('sha256').update(current).digest('hex');
   if(currentSha!==item.analysis.sourceSha256)throw new Error('Source changed since static scan, please rescan');
   scanSessions.assertCurrent(scanSnapshot);
