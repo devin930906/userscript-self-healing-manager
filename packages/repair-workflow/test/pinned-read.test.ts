@@ -222,3 +222,22 @@ test('RG-06 rejects malformed precise native snapshots missing regular-file iden
   maxBytes:512*1024,expected:numeric,expectedNative:native,
  }),original);
 }));
+
+test('RG-06 optionally binds a pinned read to the approved SHA-256 bytes',async()=>fixture(async dir=>{
+ const {createHash}=await import('node:crypto');
+ const path=join(dir,'hash-bound.user.js');
+ const approved=Buffer.from('APPROVED!');
+ const replacement=Buffer.from('MALICIOUS');
+ assert.equal(approved.length,replacement.length);
+ const digest=createHash('sha256').update(approved).digest('hex');
+ await writeFile(path,approved);
+ assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:100,expectedSha256:digest}),approved);
+ await writeFile(path,replacement);
+ await assert.rejects(readPinnedRegularFile(path,{maxBytes:100,expectedSha256:digest}),
+  /digest|hash|identity|approved/i);
+ for(const bad of ['', 'not-a-hash', digest.toUpperCase(), '0'.repeat(63)]){
+  await assert.rejects(readPinnedRegularFile(path,{maxBytes:100,expectedSha256:bad}),
+   /invalid|digest|hash/i);
+ }
+ assert.deepEqual(await readFile(path),replacement);
+}));
