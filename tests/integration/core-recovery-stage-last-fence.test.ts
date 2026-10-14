@@ -87,3 +87,30 @@ for(const scenario of ['managed-same-size-rewrite','registry-corruption','manage
   })
  );
 }
+
+
+test('RG-06 late source snapshot mutation after the last audit cannot receive an offline stage completion marker',async()=>withSnapshot(async({source,backup,target})=>{
+ // The existing fence checks only the staged copy after this test-only
+ // callback. Simulate an external writer corrupting the still-referenced
+ // source backup AFTER the previous verifyCoreRecoveryBundle call.
+ const activeOriginal=await readFile(join(source,'registry.sqlite'));
+ const originalBackup=await readFile(join(backup,'registry.sqlite'));
+ let injected=0;
+ await assert.rejects(stageCoreRecoveryForOfflineReview({
+  snapshotDirectory:backup,activeDataRoot:source,destination:target,
+  beforeFinalMarker:async()=>{
+   injected++;
+   // Mutate only a disposable BACKUP inside this synthetic temporary root.
+   // Never write to the active source or any real userscript/profile.
+   await writeFile(join(backup,'registry.sqlite'),'SYNTHETIC_LATE_SOURCE_CORRUPTION');
+  },
+ }),/source|snapshot|recovery|changed|hash|corrupt|integrity|mismatch/i,
+  'a late changed source backup must not be blessed by a completed stage marker');
+ assert.equal(injected,1,'inject after copied files and earlier source verification');
+ await assert.rejects(access(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json')),{code:'ENOENT'},
+  'the offline stage completion marker must remain absent');
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),activeOriginal,
+  'the active Data registry must remain byte-identical');
+ assert.notDeepEqual(await readFile(join(backup,'registry.sqlite')),originalBackup,
+  'fault injection must actually alter the backup snapshot');
+}));
