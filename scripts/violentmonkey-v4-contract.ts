@@ -82,6 +82,31 @@ export function buildViolentmonkeyFixtureRegistrationExpression(fixtureUrl:strin
 }
 
 /**
+ * RG-05 TEST ONLY: inspect Chrome's actual USER_SCRIPT world settings before
+ * and after the isolated browser-process restart. Chrome 133+ exposes the
+ * official getWorldConfigurations API; never export the original CSP, script
+ * source, private world IDs or extension inventory to the CDP caller.
+ * A world-state observation alone is never manager V4 evidence.
+ */
+export function buildViolentmonkeyWorldConfigurationExpression():string{
+ const expectedCsp=JSON.stringify("script-src 'self' 'unsafe-inline' 'unsafe-eval';style-src * 'unsafe-inline' data: blob:");
+ return `(async()=>{
+  const empty=()=>JSON.stringify({defaultWorldConfigured:false,messagingEnabled:false,expectedCsp:false});
+  try{
+   if(typeof chrome.userScripts?.getWorldConfigurations!=='function')return empty();
+   const worlds=await chrome.userScripts.getWorldConfigurations();
+   if(!Array.isArray(worlds))return empty();
+   const defaults=worlds.filter(item=>item&&typeof item==='object'&&
+    (item.worldId===''||item.worldId===undefined));
+   if(defaults.length!==1)return empty();
+   const world=defaults[0];
+   return JSON.stringify({defaultWorldConfigured:true,
+    messagingEnabled:world.messaging===true,expectedCsp:world.csp===${expectedCsp}});
+  }catch{return empty();}
+ })()`;
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
