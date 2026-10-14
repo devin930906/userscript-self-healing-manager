@@ -36,3 +36,19 @@ test('RG-07 origin projection stays useful for Unicode domains, localhost and or
  assert.equal(safeDomReportPageOrigin('https://example.invalid/app'),'https://example.invalid');
  assert.equal(safeDomReportPageOrigin('https://example.invalid/'),'https://example.invalid');
 });
+
+
+test('RG-07 DOM batch diagnosis never puts the full local userscript path in the result-cell tooltip',async()=>{
+ const source=await readFile(new URL('../src/renderer/App.tsx',import.meta.url),'utf8');
+ const start=source.indexOf('className="batch-diagnosis"');
+ assert.ok(start>=0,'batch diagnosis section must exist');
+ const end=source.indexOf('</section>',start);
+ assert.ok(end>start,'batch diagnosis section must have a bounded render subtree');
+ const batch=source.slice(start,end);
+ assert.doesNotMatch(batch,/title=\\{row\\.path\\}/,
+  'hovering over a batch result must not disclose its full absolute script path');
+ assert.doesNotMatch(batch,/\\{row\\.path\\}/,
+  'batch diagnosis cells must render a filename only, not an absolute path');
+ assert.match(batch,/nameOf\\(row\\.path\\)/,
+  'keep the useful safe basename label without a full-path hover attribute');
+});
