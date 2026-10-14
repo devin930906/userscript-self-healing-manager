@@ -91,3 +91,40 @@ test('RG-05 live official manager cold-start recovery is one bounded loopback re
  assert.match(script,/fixture-restart-warmup-passed/);
  assert.doesNotMatch(script,/--no-sandbox|localhost\.evil|disable-web-security/i);
 });
+
+test('RG-05 official manager present but no GM injection after fresh process and one fixture reload is an explicit blocker, never pass',async()=>{
+ const module=await import('../../scripts/violentmonkey-restart-attestation.ts');
+ const classify=(module as any).classifyOfficialViolentmonkeyRestartBlocker;
+ assert.equal(typeof classify,'function','Official manager blocked result must be implemented');
+ const result=classify({...input,fixture:undefined,
+  missedColdStart:true,scriptStillInstalled:true,permissionStillActive:true,
+  loopbackRequestsObserved:2,expectedStorageBefore:2});
+ assert.equal(result.status,'fixture-restart-blocked');
+ assert.equal(result.reason,'cold-start-injection-not-observed');
+ assert.equal(result.productionEligible,false);
+ assert.equal(result.V4,'not-configured');
+ assert.equal(result.managerVerified,false);
+ assert.equal(result.functionalVerified,false);
+ assert.equal(Object.keys(result).includes('apis'),false);
+ assert.equal(Object.keys(result).includes('productionPass'),false);
+ for(const invalid of [
+  {missedColdStart:false},
+  {scriptStillInstalled:false},
+  {permissionStillActive:false},
+  {loopbackRequestsObserved:3},
+  {after:{...after,pid:before.pid}},
+  {appV4:'passed'},
+  {observedManagers:[]},
+ ]){
+  assert.throws(()=>classify({...input,fixture:undefined,missedColdStart:true,
+   scriptStillInstalled:true,permissionStillActive:true,loopbackRequestsObserved:2,...invalid}),
+   /manager|restart|fixture|identity|incomplete|blocked|invalid/i);
+ }
+});
+test('RG-05 smoke never turns absent manager injection into a PASS or a product V4 claim',async()=>{
+ const smoke=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ assert.match(smoke,/classifyOfficialViolentmonkeyRestartBlocker/);
+ assert.match(smoke,/BLOCKED RG-05/);
+ assert.match(smoke,/fixture-restart-blocked/);
+ assert.doesNotMatch(smoke,/restarted\.status\s*===\s*'fixture-restart-passed'\s*\|\|/);
+});
