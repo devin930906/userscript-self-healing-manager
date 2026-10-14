@@ -135,20 +135,26 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "NSIS silent install failed with code $($install.ExitCode)" }
           if (!(Test-Path $installed)) { throw 'NSIS install did not create the desktop executable' }
           $running = $null
+          $previousAppData = $env:APPDATA
+          $isolatedAppData = Join-Path $env:RUNNER_TEMP 'usshm-installed-appdata-smoke'
+          if (Test-Path -LiteralPath $isolatedAppData) { throw 'Setup smoke requires an unused APPDATA directory' }
+          New-Item -Path $isolatedAppData -ItemType Directory | Out-Null
           try {
+            # Use a new APPDATA tree; never confuse existing developer files with evidence.
+            $env:APPDATA = $isolatedAppData
             $running = Start-Process -FilePath $installed -WorkingDirectory $root -PassThru
-            # Electron's installed userData path depends on app identity.
-            # Isolate it via APPDATA before launching and assert actual DB creation.
-            $expectedData = Join-Path $env:APPDATA 'userscript-self-healing-manager'
             $initialized = $false
             for ($i = 0; $i -lt 20; $i++) {
               if ($running.HasExited) { throw "Installed EXE exited unexpectedly: $($running.ExitCode)" }
-              if (Test-Path -LiteralPath (Join-Path $expectedData 'registry.sqlite')) { $initialized = $true; break }
+              $databases = @(Get-ChildItem -LiteralPath $isolatedAppData -Filter 'registry.sqlite' -Recurse -File -ErrorAction Stop)
+              if ($databases.Count -eq 1 -and $databases[0].Length -gt 0) { $initialized = $true; break }
               Start-Sleep -Seconds 1
             }
-            if (!$initialized) { throw 'Installed EXE did not initialize its registry.sqlite database' }
-            Write-Host 'Smoke PASS: installed desktop EXE launched and initialized SQLite'
+            if (!$initialized) { throw 'Installed EXE did not initialize exactly one SQLite registry in isolated APPDATA' }
+            if (Test-Path -LiteralPath (Join-Path $root 'Data')) { throw 'Installed edition unexpectedly created portable Data beside EXE' }
+            Write-Host 'Smoke PASS: installed EXE initialized SQLite in isolated APPDATA'
           } finally {
+            $env:APPDATA = $previousAppData
             if ($running -and !$running.HasExited) { Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue }
           }
           $uninstaller = Get-ChildItem -Path $root -File -Filter '*Uninstall*.exe' | Select-Object -First 1
