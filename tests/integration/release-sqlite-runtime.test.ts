@@ -183,3 +183,19 @@ test('release verifier rejects all six individually corrupted databases',()=>{
   });
  }
 });
+
+test('release verifier rejects foreign-key violations in every edition database',()=>{
+ for(let edition=0;edition<3;edition++)for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+  withReleaseDatabases(roots=>{
+   const file=join(roots[edition],name);
+   const db=new DatabaseSync(file);
+   try{db.exec('PRAGMA foreign_keys=OFF; INSERT INTO child(id,parent_id) VALUES(99,100)');}
+   finally{db.close();}
+   const before=readFileSync(file);
+   const result=verify(roots);
+   assert.notEqual(result.status,0);
+   assert.match(result.stderr,/foreign_key_check failed/);
+   assert.deepEqual(readFileSync(file),before);
+  });
+ }
+});
