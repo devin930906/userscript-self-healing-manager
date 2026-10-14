@@ -70,6 +70,7 @@ test('Windows PR gate executes release unit tests only; installer job remains ma
  assert.match(workflow,/windows:\s*\n\s*if:\s*github\.event_name == 'workflow_dispatch'/);
  assert.match(workflow,/push:\s*\n\s*branches:\s*\[feat\/v01-continuation\]/);
  assert.match(workflow,/release-contracts:\s*\n\s*if:\s*github\.event_name == 'pull_request' \|\| github\.event_name == 'push'/);
+ assert.match(workflow,/Install locked dependencies for release-contract validation[\s\S]*?run: npm ci/);
  assert.match(workflow,/--test tests\/integration\/windows-release-evidence\.test\.ts/);
  assert.match(workflow,/USSHM_BUILD_SHA:\s*\$\{\{ github\.sha \}\}/);
 });
