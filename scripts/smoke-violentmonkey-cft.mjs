@@ -803,7 +803,7 @@ try{
   // before Chrome launched. Never request CDP source or inspect a userscript.
   // No original source span, variable, URL, exception or stack is logged.
   try{
-   const site=/^L(\\d{1,6}):C(\\d{1,8})$/.exec(
+   const site=/^L(\d{1,6}):C(\d{1,8})$/.exec(
     restartedInjectorExceptions.injectedFailureSite());
    if(!site)throw new Error('no fixed official exception site');
    const asset=join(absoluteExtensionRoot,'injected.js');
