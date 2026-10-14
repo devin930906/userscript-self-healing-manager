@@ -261,10 +261,10 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    if(response&&typeof response==='object'&&('error' in response||'exceptionDetails' in response))
     throw new Error('Isolated manager injector CDP evaluation failed');
    // CDP JSON response members must be own data; reject prototype-inherited fixtures.
-   if(!response||typeof response!=='object')
+   if(!response||typeof response!=='object'||Array.isArray(response))
     throw new Error('Isolated manager injector CDP evaluation failed');
    const resultField=Object.getOwnPropertyDescriptor(response,'result');
-   if(!resultField||!Object.hasOwn(resultField,'value'))
+   if(!resultField||!Object.hasOwn(resultField,'value')||!Object.hasOwn(response,'result'))
     throw new Error('Isolated manager injector CDP evaluation failed');
    const result=resultField.value;
    // Runtime.evaluate exceptionDetails lives inside the CDP command's result
@@ -272,10 +272,10 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    if(result&&typeof result==='object'&&
       ('exceptionDetails' in result||'error' in result))
     throw new Error('Isolated manager injector CDP evaluation failed');
-   if(!result||typeof result!=='object')
+   if(!result||typeof result!=='object'||Array.isArray(result))
     throw new Error('Isolated manager injector CDP evaluation failed');
    const valueField=Object.getOwnPropertyDescriptor(result,'value');
-   if(!valueField||!Object.hasOwn(valueField,'value'))
+   if(!valueField||!Object.hasOwn(valueField,'value')||!Object.hasOwn(result,'value'))
     throw new Error('Isolated manager injector CDP evaluation failed');
    return valueField.value;
   }catch{
