@@ -43,9 +43,12 @@ test('Windows release SQLite verifier fails if a required database is missing',(
 
 test('Windows release SQLite verifier fails for a corrupt database',()=>{
  withReleaseDatabases(roots=>{
-  writeFileSync(join(roots[1],'diagnosis-journal.sqlite'),'corrupt SQLite evidence');
+  const file=join(roots[1],'diagnosis-journal.sqlite');
+  writeFileSync(file,'corrupt SQLite evidence');
+  const before=readFileSync(file);
   const result=verify(roots);
   assert.notEqual(result.status,0);
+  assert.deepEqual(readFileSync(file),before);
  });
 });
 
