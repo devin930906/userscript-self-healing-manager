@@ -404,7 +404,11 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
         const frame=document.createElement('iframe');
         frame.id='usshm-security-probe';
         frame.srcdoc='<!doctype html><html><body><span id="proof">FRAME_MARKER_44</span></body></html>';
-        document.body.append(frame);
+        // Defer navigation until the current CDP Runtime.evaluate has returned.
+        // Synchronous iframe attachment can suspend its own evaluation context.
+        // The marker, browser frame and isolated execution-world assertions below
+        // still require real evidence; this does not bypass any security gate.
+        setTimeout(()=>document.body.append(frame),0);
         return true;
       })()`);
       let outcome:{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}|undefined;
