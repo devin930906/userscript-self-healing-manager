@@ -27,6 +27,7 @@ import {
  buildViolentmonkeyFixtureMatchExpression,
  buildViolentmonkeyFixtureRegistrationExpression,
  buildViolentmonkeyWorldConfigurationExpression,
+ buildViolentmonkeyContentBridgeDiagnosticExpression,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -293,6 +294,31 @@ async function readManagerWorldConfiguration(cdp,hasExited){
   throw new Error('RG-05 official world configuration receipt invalid');
  if(hasExited())throw new Error('RG-05 world configuration diagnostic Chrome exited');
  return result;
+}
+
+/** Diagnostic only after TWO missing real GM receipts, not an injection prewarm. */
+async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
+ if(hasExited())throw new Error('RG-05 bridge diagnostic browser exited');
+ let value;
+ try{
+  const answer=await cdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyContentBridgeDiagnosticExpression(fixtureUrl),
+   awaitPromise:true,returnByValue:true,
+  });
+  if(answer.exceptionDetails||answer.result?.exceptionDetails)throw Error('invalid');
+  value=answer.result?.value;
+ }catch{throw new Error('RG-05 official bridge diagnostic transport failed');}
+ if(typeof value!=='string'||value.length>120)
+  throw new Error('RG-05 official bridge diagnostic receipt invalid');
+ let receipt;
+ try{receipt=JSON.parse(value);}catch{throw new Error('RG-05 official bridge diagnostic receipt invalid');}
+ if(!receipt||typeof receipt!=='object'||Array.isArray(receipt)||
+    Object.keys(receipt).sort().join(',')!=='bridgeResponded,targetFound'||
+    typeof receipt.bridgeResponded!=='boolean'||typeof receipt.targetFound!=='boolean'||
+    (receipt.bridgeResponded&&!receipt.targetFound))
+  throw new Error('RG-05 official bridge diagnostic receipt invalid');
+ if(hasExited())throw new Error('RG-05 bridge diagnostic browser exited');
+ return receipt;
 }
 
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
@@ -647,6 +673,14 @@ try{
   appManagerVerified:resumedManagers.managerVerified,expectedStorageBefore:2,
  };
  if(startupInjectionBlocked){
+  // Only AFTER cold restart and one bounded reload both lacked the GM receipt.
+  // A bridge response must never count as actual user script GM execution.
+  try{
+   const bridge=await readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl,()=>exited);
+   console.log('RG-05 official content bridge after two absent GM receipts: '+JSON.stringify(bridge)+'; no GM or product V4 proof.');
+  }catch{
+   console.log('RG-05 official content bridge diagnostic unavailable; GM gate still blocked.');
+  }
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({
