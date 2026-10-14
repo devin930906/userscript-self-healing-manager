@@ -70,7 +70,7 @@ const verifiedManagedCurrentHash=async(scriptId)=>{
 };
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<button id="fixture-safe-click" type="button">Safe synthetic interaction</button><button id="safe-focus" type="button">One approved focus</button><div id="manual-observation"><span class="manual-count">Seed</span></div>
+<button id="fixture-safe-click" type="button">Safe synthetic interaction</button><button id="safe-focus" type="button">One approved focus</button><button id="hidden-focus" type="button" style="display:none">Hidden test target</button><div id="manual-observation"><span class="manual-count">Seed</span></div>
 <button id="disabled-demo" disabled>Disabled</button><button id="aria-disabled-demo" aria-disabled="true">ARIA disabled</button><input id="readonly-demo" readonly value="synthetic"><div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  document.getElementById('fixture-safe-click').addEventListener('click',event=>{
@@ -259,6 +259,14 @@ try{
  // FR-024: this REAL Chrome action is limited to a fixed button on our
  // disposable 127.0.0.1 fixture. Never copy this blanket consent to real
  // accounts, and never classify a focus as named userscript functionality.
+ // Actual disposable Chrome negative: DOM.focus must never be sent to a
+ // display:none control, even when it is unique and type="button".
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target:selected,
+  locator:{method:'querySelector',expression:'#hidden-focus',runtimeRequired:false},
+  confirm:confirmPageIdentity,timeoutMs:7000,
+ }),/invisible|visibility|layout|focus/i);
+ console.log('PASS real Chrome FR-024 hidden control blocked before any approved DOM.focus; no V2 credit.');
  const focusReceipt=await runApprovedControlFocus({
   approved:true,target:selected,
   locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
