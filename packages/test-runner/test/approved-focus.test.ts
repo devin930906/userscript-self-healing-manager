@@ -12,9 +12,9 @@ const frame={targetId:target.id,confirmedUrl:url,frameId:'mainframe',loaderId:'m
 const locator={method:'querySelector',expression:'#safe-focus',runtimeRequired:false};
 class FocusSocket extends EventEmitter{
  readonly methods:string[]=[];readonly inputs:any[]=[];
- readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean};
+ readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean};
  focused=false;
- constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean}={}){
+ constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean}={}){
   super();this.opts=opts;this.focused=opts.initiallyFocused===true;setImmediate(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
@@ -26,7 +26,14 @@ class FocusSocket extends EventEmitter{
   const result=msg.method==='DOM.getDocument'?{root:{nodeId:1}}:
    msg.method==='DOM.querySelectorAll'?{nodeIds:this.opts.changed&&this.methods.filter(x=>x==='DOM.querySelectorAll').length===2?[57]:ids}:
    msg.method==='DOM.describeNode'?{node:{nodeName:'BUTTON',nodeId:42}}:
-   msg.method==='DOM.getAttributes'?{attributes:['id','safe-focus','type',this.opts.submit||this.opts.lateSubmit&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?'submit':'button',...(this.opts.disabled||this.opts.lateDisabled&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?['disabled','']:[])]}:
+   msg.method==='DOM.getAttributes'?{attributes:['id','safe-focus','type',this.opts.submit||this.opts.lateSubmit&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?'submit':'button',...(this.opts.disabled||this.opts.lateDisabled&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?['disabled','']:[]),...(this.opts.htmlHidden?['hidden','']:[])]}:
+   msg.method==='CSS.getComputedStyleForNode'?{computedStyle:[
+    {name:'display',value:'inline-block'},
+    {name:'visibility',value:this.opts.cssHidden?'hidden':'visible'},
+    {name:'opacity',value:this.opts.cssTransparent?'0':'1'},
+    {name:'content-visibility',value:'visible'},
+   ]}:
+   msg.method==='DOM.getBoxModel'?{model:{width:this.opts.zeroBox?0:96,height:24}}:
    msg.method==='DOM.focus'?{}:{};
   if(msg.method==='DOM.focus')this.focused=true;
   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({id:msg.id,result})}));
@@ -180,4 +187,24 @@ test('FR-024 production Main connects final focus authorization to current scan 
  const guard=body.slice(callback);
  assert.match(guard,/scanSessions\.assertCurrent\(scanSnapshot\)/);
  assert.match(guard,/withinAuthorized\(item\.path\)/);
+});
+
+test('FR-024 unrendered or invisible approved controls never dispatch DOM.focus or gain V2 credit',async()=>{
+ for(const [label,opts] of [
+  ['HTML hidden',{htmlHidden:true}],
+  ['computed visibility hidden',{cssHidden:true}],
+  ['fully transparent',{cssTransparent:true}],
+  ['zero-size layout',{zeroBox:true}],
+ ] as const){
+  const socket=new FocusSocket(opts);
+  await assert.rejects(run(socket),/focus|hidden|visible|visibility|layout|opacity|render|control/i,
+   label+' must fail closed before any observable focus side effect');
+  assert.equal(socket.methods.includes('DOM.focus'),false,label+' must never be focused');
+ }
+});
+
+test('FR-024 actual Chrome isolation smoke must exercise a hidden target denial, not mock-only evidence',async()=>{
+ const smoke=await readFile('scripts/smoke-chrome.mjs','utf8');
+ assert.match(smoke,/PASS real Chrome FR-024 hidden.*blocked/i,
+  'the product flow must also refuse a genuinely hidden browser node');
 });
