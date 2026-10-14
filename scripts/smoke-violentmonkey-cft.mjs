@@ -16,7 +16,7 @@ import {
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
-import {createOfficialManagerScriptEvidence} from './violentmonkey-script-parse-evidence.ts';
+import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
 import {createPinnedBootstrapMarkerEvidence,createPinnedIsolatedRuntimeExceptionEvidence} from './violentmonkey-bootstrap-marker-evidence.ts';
 import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker,assertOfficialViolentmonkeyReleaseGate} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
@@ -136,6 +136,7 @@ async function openCdp(endpoint,onEvent){
    return;
   }
   if(response?.method==='Debugger.scriptParsed'){
+   try{onEvent?.(response.method,response.params);}catch{}
    try{scriptParsedObserver?.(response.method,response.params);}catch{}
    return;
   }
@@ -500,12 +501,15 @@ try{
  const initialContextEvidence=createIsolatedFixtureFrameContextEvidence(identity.frameId);
  const initialMarkerEvidence=createPinnedBootstrapMarkerEvidence(identity.frameId);
  const initialRuntimeExceptions=createPinnedIsolatedRuntimeExceptionEvidence(identity.frameId);
+ const initialInjectorExceptions=createPinnedOfficialInjectorExceptionAttribution(identity.frameId,extensionId);
  pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl,(method,params)=>{
   initialContextEvidence.observe(method,params);
   initialMarkerEvidence.observe(method,params);
   initialRuntimeExceptions.observe(method,params);
+  initialInjectorExceptions.observe(method,params);
  });
  await pageCdp.send('Runtime.enable');
+ await pageCdp.send('Debugger.enable');
  await pageCdp.send('Page.enable');
  console.log('RG-05 fixed stage: first-document');
  const first=await readViolentmonkeyFixtureObservation({
@@ -566,6 +570,8 @@ try{
  }
  console.log('RG-05 isolated runtime exceptions control after genuine GM receipts: '+
   JSON.stringify(initialRuntimeExceptions.snapshot())+'; no script attribution.');
+ console.log('RG-05 official injector exception attribution control after genuine GM receipts: '+
+  JSON.stringify(initialInjectorExceptions.snapshot())+'; no private error data.');
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
@@ -682,12 +688,15 @@ try{
  const restartedContextEvidence=createIsolatedFixtureFrameContextEvidence(afterRestartIdentity.frameId);
  const restartedMarkerEvidence=createPinnedBootstrapMarkerEvidence(afterRestartIdentity.frameId);
  const restartedRuntimeExceptions=createPinnedIsolatedRuntimeExceptionEvidence(afterRestartIdentity.frameId);
+ const restartedInjectorExceptions=createPinnedOfficialInjectorExceptionAttribution(afterRestartIdentity.frameId,extensionId);
  pageCdp=await openCdp(restartedFixturePage.webSocketDebuggerUrl,(method,params)=>{
   restartedContextEvidence.observe(method,params);
   restartedMarkerEvidence.observe(method,params);
   restartedRuntimeExceptions.observe(method,params);
+  restartedInjectorExceptions.observe(method,params);
  });
  await pageCdp.send('Runtime.enable');
+ await pageCdp.send('Debugger.enable');
  await pageCdp.send('Page.enable');
  console.log('RG-05 fixed stage: process-restart');
  let third;
@@ -773,6 +782,8 @@ try{
   }
   console.log('RG-05 isolated runtime exceptions after missing GM receipts: '+
    JSON.stringify(restartedRuntimeExceptions.snapshot())+'; no private exception data or manager attribution.');
+  console.log('RG-05 official injector exception attribution after missing GM receipts: '+
+   JSON.stringify(restartedInjectorExceptions.snapshot())+'; fixed bundled assets only, not a GM receipt.');
   // A confirmed installed manager that did not inject into TWO fresh process
   // documents is a real RG-05 BLOCKER. Never produce a fixture pass receipt.
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({
