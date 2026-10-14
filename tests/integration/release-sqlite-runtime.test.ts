@@ -79,7 +79,7 @@ test('Windows release SQLite verifier rejects a symlinked edition directory', (t
   catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows user lacks directory link privilege');return;}throw error;}
   const result=verify([roots[0],roots[1],link]);
   assert.notEqual(result.status,0);
-  assert.match(result.stderr,/Unsafe release SQLite ancestor directory/);
+  assert.match(result.stderr,/(?:Unsafe Windows edition data root|Unsafe release SQLite ancestor directory)/);
  });
 });
 
