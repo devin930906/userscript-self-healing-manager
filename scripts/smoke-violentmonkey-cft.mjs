@@ -15,6 +15,7 @@ import {
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
+import {assertOfficialViolentmonkeyProcessRestart} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
@@ -202,7 +203,7 @@ try{
  if(!address||typeof address==='string')throw new Error('Loopback fixture failed to bind');
  const fixtureUrl=`http://127.0.0.1:${address.port}/fixture`;
  const optionsUrl=`chrome-extension://${extensionId}/options/index.html#settings`;
- chrome=spawn(executable,[
+ const pinnedLaunchArgs=[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
   '--headless=new','--no-first-run','--no-default-browser-check',
   '--disable-background-networking','--disable-sync','--disable-gpu',
@@ -213,7 +214,8 @@ try{
   '--disable-extensions-except='+absoluteExtensionRoot,
   '--load-extension='+absoluteExtensionRoot,
   '--new-window','about:blank',
- ],{windowsHide:true,stdio:['ignore','ignore','ignore']});
+ ];
+ chrome=spawn(executable,pinnedLaunchArgs,{windowsHide:true,stdio:['ignore','ignore','ignore']});
  chrome.on('error',error=>{spawnFailure=error;exited=true;});
  chrome.on('exit',()=>{exited=true;});
  let status;
