@@ -2,7 +2,7 @@
 
 **记录日期**：2026-10-14（Asia/Kuala_Lumpur）  
 **唯一开发分支**：`feat/v01-continuation`  
-**本轮经完整 CI 验证的源代码 HEAD**：`dd67056f3c37e0b6b1720e39a0c1b8b7a875335a`  
+**本轮经完整 CI 验证的源代码 HEAD**：`454dc79d4b682ebcbc4d38b6df5ffc5a4e9ffc1a`  
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
@@ -102,3 +102,15 @@
 5. 完整 Windows 10/11 生命周期、三包最终同源构建、独立安全及供应链审查仍须在有授权和相应环境时执行；不得提前发布 Stable。
 
 **续接原则**：先读当前分支最新 HEAD / CI 和本文件，再只读当前问题所需源码及 Issue #51；持续优先处理真正的 P0 阻断，保持 FR/RG 证据范围精确，不使用百分比虚报进度。
+
+
+## 2026-10-14 · RG-06 独立离线恢复审计最后时序修复（不升级 Stable 门槛）
+
+- **准确基线 HEAD**：`9c9b123d4435c8a42a10c94f112e9226e928112f`，Development [#38518167334](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38518167334)、Continuation [#38518167538](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38518167538)、Windows release contracts [#38518167402](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38518167402) SUCCESS。已有 trusted-drop CI 契约和 RG-07 私密 scriptId 修复均不重复实施。
+- **RG-06 根因**：`verifyCoreOfflineRecoveryStage` 之前先审计 stage 中的 SQLite 与管理修订文件，再重新验证整个 source backup；此后直接确认 marker 并返回 `valid:true`。如果在耗时 source 验证期间 stage 字节或闭合目录清单变化，最后的 stage 审计证据便已过期。
+- **TDD RED**：[提交 `2d5ded79`](https://github.com/devin930906/userscript-self-healing-manager/commit/2d5ded79a360a1f887bf3735584b4f593a38abbf) 在 `tests/integration/core-recovery-stage-independent-audit.test.ts` 增加两项真实临时文件和 SQLite 的受控故障注入：stage 同长度修订篡改，以及 stage 新增未列入 manifest 的 payload。精确 [Continuation #38519776854](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519776854) Ubuntu 两个测试均以 `Missing expected rejection` 实际 FAIL；[Development #38519776945](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519776945) 也失败；Windows release contracts [#38519776874](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519776874) SUCCESS，原因是发行合同测试不是这一模块的全量验证。
+- **GREEN 源码提交 `454dc79d4b682ebcbc4d38b6df5ffc5a4e9ffc1a`**：在 `packages/repair-workflow/src/core-recovery-stage.ts` 的独立 read-only verifier 中，来源 bundle 最终重验移到 stage 最后目录、逐文件 SHA/精确身份和 SQLite schema 检查之前；增加仅供内部自动化的 `beforeFinalStageAudit` 故障注入钩子，renderer 不可传入。保持只读离线审计、完整目录清单与 marker 最后确认；不自动激活恢复或修改运行中 Data。
+- **精确 GREEN CI**：[Development #38519937946](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519937946) SUCCESS（含全套检查和 Chrome/Electron 关联任务）；[Continuation #38519937925](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519937925) SUCCESS（Ubuntu / Windows）；[Windows release contracts #38519938056](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519938056) SUCCESS（Ubuntu / Windows 合同；`windows` 安装包 job SKIPPED）。
+- **准确结论**：本批实质性缩小 RG-06 中独立离线恢复验收的最后校验时序窗口，仅在 CI 托管系统、临时合成文件/SQLite 中验证，不能证明对抗全部真实文件系统并发写入、native Win32 FileIdInfo、真实 Windows 10/11 恢复、跨安装模式迁移与独立安全审查。FR-047/恢复链仍 PARTIAL／ENV BLOCKED，**P0 完整验收数不提高，RG-01～RG-09 全部维持 OPEN**。版本仍 `0.1.0-alpha.5`，不发布安装包、tag、main 或 GitHub Release。
+- **下一轮优先任务**：先验证本续接文档提交后的实际 HEAD 与准确三个 CI；然后优先推进 FR-025 / FR-024 产品 V2 的具名非破坏性动作安全契约和 V3 归因／清理完整流程（不得把 test-only 合成 click 记为产品 V2）。其后是 RG-05 真实 Tampermonkey／Violentmonkey manager 产品级验收及 RG-06/08 Windows 10/11 真实升级、恢复和三包生命周期验证。Issue #139 的 Windows 原生文件身份边界以及 RG-02 独立审查仍需证据。
+- 原始 `docs/development/v01-worklog.md` 未修改。文档自身提交将推进分支 HEAD，不能把源代码 SHA 的 CI 当作文档 HEAD 的运行证据。

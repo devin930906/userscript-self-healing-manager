@@ -64,3 +64,10 @@
 2. 将真实环境证据记录为具体 FR/QA、Windows 版本/Chrome/manager、夹具、完整范围、准确 Git commit、GitHub CI Run 或受控验收记录，并核对失败和跳过项。合成夹具必须注明 synthetic。
 3. `BLOCKED` 发行项必须等最终发行完成并独立验收后才可解除；QA-061~074 / RG-08~09 不能由发行合同测试替代。
 4. Stable 的最低条件仍是全部 P0 和适用的条件阻断项完整通过、独立安全审查及 RG-01~09 均有证据。当前没有门禁可标为完成，尚未授权最终 Tag/Release。
+
+
+## 2026-10-14 RG-06 独立恢复暂存审计：已记录的有限新证据（不升级 FR/RG）
+
+- 涉及 FR-047、RG-06。TDD RED `2d5ded79a360a1f887bf3735584b4f593a38abbf`：临时合成 SQLite/managed-stage 的两种后期变更过去可能被已经完成的 stage 审计漏掉；[Continuation #38519776854](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519776854) Ubuntu 两个新断言实际 `Missing expected rejection`。
+- GREEN `454dc79d4b682ebcbc4d38b6df5ffc5a4e9ffc1a`：`packages/repair-workflow/src/core-recovery-stage.ts` 将独立 source 重验提前，让 staged 闭合清单、字节、SQLite 校验保持在成功返回前的最后数据验收段；对应 `tests/integration/core-recovery-stage-independent-audit.test.ts`。[Development #38519937946](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519937946)、[Continuation #38519937925](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519937925)、[Windows release contracts #38519938056](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38519938056) 均 SUCCESS，安装包 job SKIPPED。
+- **范围**：真实 CI 上的合成临时文件/SQLite 与离线只读回归；不是实际 Win10/11 迁移、故障恢复或三发行包验收。无法据此关闭 FR-047、RG-06，正式 FR/RG 状态均不提升；Windows native file identity 和独立审查仍待完成。
