@@ -15,6 +15,7 @@ import {
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
+import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker,assertOfficialViolentmonkeyReleaseGate} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
@@ -108,7 +109,7 @@ const fixtureMeta={
  name:'USSHM Isolated Violentmonkey V4 Fixture',
  namespace:'https://usshm.invalid/isolated-fixture',
 };
-async function openCdp(endpoint){
+async function openCdp(endpoint,onEvent){
  const socket=new WebSocket(endpoint);
  const pending=new Map();
  let sequence=0,closed=false;
@@ -120,6 +121,10 @@ async function openCdp(endpoint){
   let response;
   try{response=JSON.parse(typeof event.data==='string'?event.data:String(event.data));}
   catch{return;}
+  if(response?.method==='Runtime.executionContextCreated'){
+   try{onEvent?.(response.method,response.params);}catch{}
+   return;
+  }
   const task=pending.get(response.id);
   if(!task)return;
   pending.delete(response.id);clearTimeout(task.timer);
@@ -343,7 +348,8 @@ try{
  });
  assert.equal(identity.confirmedUrl,fixtureUrl);
  if(!identity.frameId||!identity.loaderId)throw new Error('Loopback fixture document identity was not pinned');
- pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl);
+ const initialContextEvidence=createIsolatedFixtureFrameContextEvidence(identity.frameId);
+ pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl,initialContextEvidence.observe);
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
  console.log('RG-05 fixed stage: first-document');
@@ -356,6 +362,7 @@ try{
   appV4:managerReport.V4,appManagerVerified:managerReport.managerVerified,
   fixture:first,
  },0);
+ console.log('RG-05 initial fixture CDP contexts: '+JSON.stringify(initialContextEvidence.snapshot())+'; not manager verification.');
  console.log('RG-05 fixed stage: first-documented');
  const beforeReload=await pageCdp.send('Page.getFrameTree');
  const previousLoaderId=beforeReload.frameTree?.frame?.loaderId;
@@ -482,7 +489,8 @@ try{
   expectedUrl:fixtureUrl,inspect:()=>confirmPageIdentity(restartedFixturePage),
   hasExited:()=>exited,pause:()=>delay(250),
  });
- pageCdp=await openCdp(restartedFixturePage.webSocketDebuggerUrl);
+ const restartedContextEvidence=createIsolatedFixtureFrameContextEvidence(afterRestartIdentity.frameId);
+ pageCdp=await openCdp(restartedFixturePage.webSocketDebuggerUrl,restartedContextEvidence.observe);
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
  console.log('RG-05 fixed stage: process-restart');
@@ -493,7 +501,9 @@ try{
   third=await readViolentmonkeyFixtureObservation({
    send:pageCdp.send,frameId:afterRestartIdentity.frameId,url:fixtureUrl,hasExited:()=>exited,
   });
+  console.log('RG-05 restarted fixture CDP contexts: '+JSON.stringify(restartedContextEvidence.snapshot())+'; not manager verification.');
  }catch(error){
+  console.log('RG-05 restarted fixture CDP contexts: '+JSON.stringify(restartedContextEvidence.snapshot())+'; not manager verification.');
   // Official MV3 can show a registered manager yet miss FIRST cold-start
   // injection. Report that fact truthfully, never treat inventory as V4 pass.
   // Retry ONLY a no-marker cold start with zero additional GM requests, using
