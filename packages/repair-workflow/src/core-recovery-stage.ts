@@ -324,8 +324,9 @@ export async function verifyCoreOfflineRecoveryStage({
  if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
     info.size>1024*1024)
   throw new Error('Unsafe offline stage completion marker');
+ const markerNative=await lstat(markerPath,{bigint:true});
  const markerBytes=await readPinnedRegularFile(markerPath,{
-  maxBytes:1024*1024,expected:info,expectedNative:await lstat(markerPath,{bigint:true}),
+  maxBytes:1024*1024,expected:info,expectedNative:markerNative,
  });
  if((await lstat(markerPath)).nlink!==1)
   throw new Error('Unsafe offline stage completion marker hardlink');
@@ -407,8 +408,14 @@ export async function verifyCoreOfflineRecoveryStage({
    }
   }finally{db.close();}
  }
- if(!(await readBoundedManifest(markerPath)).equals(markerBytes)||
-    (await lstat(markerPath)).nlink!==1)
+ // The final marker must be the SAME pinned file object originally
+ // approved, not merely newly substituted byte-identical JSON. In particular,
+ // never follow a late symlink or trust a replacement with the same SHA-256.
+ // This narrows a concurrent pathname swap; it is not an atomic filesystem lock.
+ const finalMarker=await readPinnedRegularFile(markerPath,{
+  maxBytes:1024*1024,expected:info,expectedNative:markerNative,
+ });
+ if(!finalMarker.equals(markerBytes))
   throw new Error('Offline stage completion marker changed during audit');
  // Staged bytes and the marker can remain valid even when another process
  // corrupts the SOURCE snapshot while this independent review awaits stage
