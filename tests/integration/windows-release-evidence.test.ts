@@ -68,7 +68,8 @@ test('Windows PR gate executes release unit tests only; installer job remains ma
  const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
  assert.match(workflow,/pull_request:\s*\n\s*branches:\s*\[feat\/v01-continuation\]/);
  assert.match(workflow,/windows:\s*\n\s*if:\s*github\.event_name == 'workflow_dispatch'/);
- assert.match(workflow,/release-contracts:\s*\n\s*if:\s*github\.event_name == 'pull_request'/);
+ assert.match(workflow,/push:\s*\n\s*branches:\s*\[feat\/v01-continuation\]/);
+ assert.match(workflow,/release-contracts:\s*\n\s*if:\s*github\.event_name == 'pull_request' \|\| github\.event_name == 'push'/);
  assert.match(workflow,/--test tests\/integration\/windows-release-evidence\.test\.ts/);
  assert.match(workflow,/USSHM_BUILD_SHA:\s*\$\{\{ github\.sha \}\}/);
 });
