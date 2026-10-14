@@ -216,23 +216,24 @@ test('official MV3 service-worker commands return only bounded fixture receipts 
 });
 
 
-test('official manager download retries only bounded upstream failures without bypassing checksum or GM test',async()=>{
+test('official manager download is pinned, bounded and never bypasses the official GM gate',async()=>{
  const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
+ const helper=await readFile(resolve('scripts/download-violentmonkey-release.mjs'),'utf8');
  const fetchStep=workflow.split('- name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration')[1]
   ?.split('- name: Real Violentmonkey 2.49.0 GM API integration')[0];
  assert.ok(fetchStep,'official manager download job must remain mandatory');
- assert.match(fetchStep,/for \(\$attempt = 1; \$attempt -le 3; \$attempt\+\+\)/,
-  'bounded retry budget must cover transient GitHub 5xx/429 download failures');
- assert.match(fetchStep,/\$status -eq 429/);
- assert.match(fetchStep,/\$status -ge 500/);
- assert.match(fetchStep,/\$status -le 599/);
- assert.match(fetchStep,/\$attempt -lt 3/);
- assert.match(fetchStep,/throw ['"]Official manager download failed/,
-  'exhausted/fatal downloads must fail closed; never silently skip RG-05');
+ assert.match(fetchStep,/node scripts\/download-violentmonkey-release\.mjs \$archive/);
+ assert.match(fetchStep,/if \(\$LASTEXITCODE -ne 0\) \{ throw 'Verified Violentmonkey download failed' \}/);
  assert.match(fetchStep,/Pinned official Violentmonkey archive SHA-256 mismatch/);
  assert.ok(fetchStep.indexOf('Pinned official Violentmonkey archive SHA-256 mismatch')<
-  fetchStep.indexOf('Expand-Archive'),'verify trusted bytes before extracting');
+  fetchStep.indexOf('Expand-Archive'),'PowerShell must recheck pinned SHA before extraction');
+ assert.match(helper,/for\(let attempt=1;attempt<=3;attempt\+\+\)/);
+ assert.match(helper,/RETRYABLE_HTTP=new Set\(\[429,500,502,503,504\]\)/);
+ assert.match(helper,/attempt===3\)throw error;/,'exhausted retry must fail closed');
+ assert.ok(helper.indexOf('actual!==expectedSha256')<helper.indexOf('copyFile('),
+  'helper may expose final archive only after streaming SHA-256 succeeded');
+ assert.match(helper,/COPYFILE_EXCL/,'never replace a pre-existing runner asset');
  assert.doesNotMatch(fetchStep,/continue-on-error:\s*true|if:\s*false|\|\| true/i);
  assert.match(workflow,/node --experimental-strip-types scripts\/smoke-violentmonkey-cft\.mjs/,
-  'downloading successfully must still run the unchanged GM V4 release gate');
+  'manager GM V4 release gate remains mandatory after a valid download');
 });
