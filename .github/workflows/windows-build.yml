@@ -228,6 +228,31 @@ jobs:
           $journalHashAfterUninstall = (Get-FileHash -LiteralPath $journalPath -Algorithm SHA256).Hash
           if ($journalHashAfterUninstall -ne $journalHashBeforeUninstall) { throw 'NSIS uninstall modified diagnosis journal' }
           Write-Host 'Smoke PASS: NSIS uninstall removed application and retained user SQLite data'
+      - name: Verify initialized SQLite file signatures across all Windows editions
+        shell: pwsh
+        run: |
+          $roots = @(
+            (Join-Path $env:RUNNER_TEMP 'usshm-verified-zip/Data'),
+            (Join-Path $env:RUNNER_TEMP 'usshm-portable-exe-smoke/Data')
+          )
+          $installedData = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'usshm-installed-appdata-smoke') -Filter 'registry.sqlite' -Recurse -File -ErrorAction Stop | Select-Object -First 1
+          if (!$installedData) { throw 'Installed SQLite registry missing for signature inspection' }
+          $roots += (Split-Path -Parent $installedData.FullName)
+          foreach ($root in $roots) {
+            foreach ($name in @('registry.sqlite', 'diagnosis-journal.sqlite')) {
+              $db = Join-Path $root $name
+              if (!(Test-Path -LiteralPath $db)) { throw "Missing SQLite database: $db" }
+              $stream = [System.IO.File]::Open($db, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+              try {
+                $header = [byte[]]::new(16)
+                if ($stream.Read($header, 0, 16) -ne 16 -or [System.Text.Encoding]::ASCII.GetString($header) -ne "SQLite format 3`0") {
+                  throw "Invalid SQLite file signature: $db"
+                }
+              } finally {
+                $stream.Dispose()
+              }
+            }
+          }
       - name: Record signatures and explicitly unverified Stable gates
         shell: pwsh
         run: |
