@@ -271,6 +271,16 @@ try{
  assert.equal(focusReceipt.V3,'not-configured');
  assert.equal(focusReceipt.V4,'not-configured');
  console.log('PASS real Chrome FR-024 approved local button focus and :focus postcondition; no real userscript or named V3 proof.');
+ // A second invocation on the same STILL-focused control must not earn a
+ // fresh V2 interaction receipt. This is an actual Chrome DOM precondition,
+ // not merely a synthetic CDP reply or a postcondition-only check.
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target:selected,
+  locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
+  confirm:confirmPageIdentity,timeoutMs:7000,
+ }),/already focused|no verifiable new focus transition/i);
+ console.log('PASS real Chrome FR-024 already-focused replay rejected: no false positive V2 transition.');
+
  // Observe a REAL isolated Chrome Page target without any page injection.
  // Natural fixture exceptions (if any) are counts only, NEVER evidence that
  // a userscript/GM manager executed or that V3/V4 functionality passed.
