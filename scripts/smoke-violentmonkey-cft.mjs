@@ -25,6 +25,7 @@ import {
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
+ buildViolentmonkeyFixtureRegistrationExpression,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -239,6 +240,32 @@ async function readManagerFixtureMatch(cdp,fixtureUrl,scriptId,hasExited){
  return {matched:result.matched};
 }
 
+/** Four bounded read-only booleans from Chrome's official userScripts registry. */
+async function readManagerFixtureRegistration(cdp,fixtureUrl,hasExited){
+ if(hasExited())throw new Error('RG-05 registration diagnostic Chrome exited');
+ let value;
+ try{
+  const answer=await cdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyFixtureRegistrationExpression(fixtureUrl),
+   awaitPromise:true,returnByValue:true,
+  });
+  if(answer.exceptionDetails||answer.result?.exceptionDetails)
+   throw new Error('unexpected diagnostic exception');
+  value=answer.result?.value;
+ }catch{throw new Error('RG-05 official registration diagnostic failed');}
+ if(typeof value!=='string'||value.length>160)
+  throw new Error('RG-05 official registration receipt invalid');
+ let receipt;
+ try{receipt=JSON.parse(value);}catch{throw new Error('RG-05 official registration receipt invalid');}
+ if(!receipt||typeof receipt!=='object'||Array.isArray(receipt)||
+    Object.keys(receipt).sort().join(',')!==
+     'baseMatchesFixture,baseRegistered,dataMatchesFixture,fixtureDataRegistered'||
+    !Object.values(receipt).every(v=>typeof v==='boolean'))
+  throw new Error('RG-05 official registration receipt invalid');
+ if(hasExited())throw new Error('RG-05 registration diagnostic Chrome exited');
+ return receipt;
+}
+
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -365,6 +392,8 @@ try{
  const firstMatch=await readManagerFixtureMatch(optionsCdp,fixtureUrl,verifiedInstall.scriptId,()=>exited);
  if(!firstMatch.matched)throw new Error('RG-05 official manager fixture matcher did not match before first injection');
  console.log('RG-05 official manager fixture matcher: initial fixed URL matched.');
+  const beforeFirstRegistration=await readManagerFixtureRegistration(optionsCdp,fixtureUrl,()=>exited);
+  console.log('RG-05 official Chrome registration before initial fixture: '+JSON.stringify(beforeFirstRegistration));
  const createdFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
  if(typeof createdFixture.targetId!=='string'||!createdFixture.targetId)
   throw new Error('Loopback GM fixture page target could not be created');
@@ -513,6 +542,8 @@ try{
  const resumedMatch=await readManagerFixtureMatch(optionsCdp,fixtureUrl,verifiedInstall.scriptId,()=>exited);
  if(!resumedMatch.matched)throw new Error('RG-05 official manager fixture matcher did not match after Chrome restart');
  console.log('RG-05 official manager fixture matcher: restarted fixed URL matched.');
+  const afterRestartRegistration=await readManagerFixtureRegistration(optionsCdp,fixtureUrl,()=>exited);
+  console.log('RG-05 official Chrome registration before restarted fixture: '+JSON.stringify(afterRestartRegistration));
  const createdRestartFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
  if(typeof createdRestartFixture.targetId!=='string'||!createdRestartFixture.targetId)
   throw new Error('Restarted Chrome could not create isolated fixture');
@@ -548,7 +579,9 @@ try{
   if(pinned?.id!==afterRestartIdentity.frameId||
      pinned?.url!==fixtureUrl||pinned?.loaderId!==afterRestartIdentity.loaderId)
    throw new Error('Cold-start fixture page identity was not stable before one bounded reload');
-  startupWarmup=true;
+  const coldMissingRegistration=await readManagerFixtureRegistration(optionsCdp,fixtureUrl,()=>exited);
+   console.log('RG-05 official Chrome registration after missing cold-start GM receipt: '+JSON.stringify(coldMissingRegistration));
+   startupWarmup=true;
   console.log('RG-05 cold-start injection was absent; one isolated loopback reload required (not immediate GM injection).');
   await pageCdp.send('Page.reload',{ignoreCache:true});
   try{
@@ -566,7 +599,9 @@ try{
       current?.url!==fixtureUrl||typeof current.loaderId!=='string'||
       !current.loaderId||current.loaderId===pinned.loaderId)
     throw new Error('Cold-start non-injection report lacked a verified fresh fixture document');
-   startupInjectionBlocked=true;
+   const reloadMissingRegistration=await readManagerFixtureRegistration(optionsCdp,fixtureUrl,()=>exited);
+    console.log('RG-05 official Chrome registration after missing reload GM receipt: '+JSON.stringify(reloadMissingRegistration));
+    startupInjectionBlocked=true;
   }
  }
  const attestationContext={
