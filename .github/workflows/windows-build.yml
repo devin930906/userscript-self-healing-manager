@@ -97,6 +97,8 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (!$ok) { throw "Packaged application did not initialize portable registry.sqlite" }
+            $journal = Join-Path $root 'Data/diagnosis-journal.sqlite'
+            if (!(Test-Path -LiteralPath $journal) -or (Get-Item -LiteralPath $journal).Length -eq 0) { throw 'Unpacked ZIP did not initialize diagnosis history SQLite' }
             Write-Host 'Smoke PASS: unpacked ZIP portable EXE initialized registry.sqlite'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -121,6 +123,8 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (!$ok) { throw 'Portable single-file EXE did not initialize nonempty adjacent Data/registry.sqlite' }
+            $journal = Join-Path $root 'Data/diagnosis-journal.sqlite'
+            if (!(Test-Path -LiteralPath $journal) -or (Get-Item -LiteralPath $journal).Length -eq 0) { throw 'Portable EXE did not initialize diagnosis history SQLite' }
             Write-Host 'Smoke PASS: Portable EXE initialized data beside external EXE'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
