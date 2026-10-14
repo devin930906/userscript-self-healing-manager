@@ -7,7 +7,8 @@ const target={id:'synthetic-fixture',type:'page' as const,url:fixtureUrl,
  webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/synthetic-fixture'};
 class ResetSocket extends EventEmitter{
  readonly calls:string[]=[];
- constructor(private rejectReload=false){super();queueMicrotask(()=>this.emit('open'));}
+ private readonly rejectReload:boolean;
+ constructor(rejectReload=false){super();this.rejectReload=rejectReload;queueMicrotask(()=>this.emit('open'));}
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(e:any)=>void){this.off(name,fn);}
  send(value:string){const message=JSON.parse(value);this.calls.push(message.method);

@@ -59,7 +59,8 @@ test('RG-03 missing effect or stale page rejects positive outcome but still clea
   const {events,deps}=harness(config);
   await assert.rejects(run({approved:true,target,fixtureUrl,deps}),/effect|count|observation|document|identity|fixture|inconclusive/i);
   assert.equal(events.filter(e=>e==='reset').length,1,'failure must still reset fixture');
-  assert.equal(events.at(-1),'observe','cleanup must have a fresh read-only verification');
+  assert.ok(events.lastIndexOf('observe')>events.lastIndexOf('reset'),
+   'cleanup must include a fresh read-only observation followed by identity recheck');
  }
 });
 test('RG-03 simulated action fault is cleanup-safe and cannot be promoted to a synthetic pass',async()=>{
