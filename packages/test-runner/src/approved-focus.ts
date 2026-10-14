@@ -56,11 +56,14 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,s
  let sequence=0;
  let pending:{id:number;resolve:(value:Record<string,any>)=>void;reject:(error:Error)=>void}|null=null;
  let opened=false,finished=false;
+ let aborted:Error|null=null;
  let openResolve:()=>void=()=>{},openReject:(error:Error)=>void=()=>{};
  const ready=new Promise<void>((resolve,reject)=>{openResolve=resolve;openReject=reject;});
  const error=(msg:string)=>new Error(msg);
  const abort=(reason:string)=>{
+  if(aborted!==null)return;
   const e=error(reason);
+  aborted=e;
   if(!opened)openReject(e);
   if(pending){const prior=pending;pending=null;prior.reject(e);}
  };
@@ -88,6 +91,10 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,s
  for(const [name,handler] of handlers)socket.addEventListener(name,handler);
  const timer=setTimeout(()=>abort('Approved focus timed out'),timeoutMs);
  const send=async(method:string,params:Record<string,unknown>={}):Promise<Record<string,any>>=>{
+  // Deadline can expire while Page.getFrameTree is awaiting a slow response
+  // with no CDP command pending. Never send DOM.focus (or any other command)
+  // after the one-time approval budget is exhausted.
+  if(aborted!==null)throw aborted;
   if(pending||finished)throw error('Concurrent CDP focus command rejected');
   const id=++sequence;
   return new Promise<Record<string,any>>((resolve,reject)=>{
