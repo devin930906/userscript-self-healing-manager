@@ -26,6 +26,7 @@ import {
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
  buildViolentmonkeyFixtureRegistrationExpression,
+ buildViolentmonkeyWorldConfigurationExpression,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -266,6 +267,34 @@ async function readManagerFixtureRegistration(cdp,fixtureUrl,hasExited){
  return receipt;
 }
 
+
+/** Official Chrome world state only: bounded boolean projection, not GM proof. */
+async function readManagerWorldConfiguration(cdp,hasExited){
+ if(hasExited())throw new Error('RG-05 world configuration diagnostic Chrome exited');
+ let value;
+ try{
+  const response=await cdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyWorldConfigurationExpression(),
+   awaitPromise:true,returnByValue:true,
+  });
+  if(response.exceptionDetails||response.result?.exceptionDetails)
+   throw new Error('invalid world diagnostic');
+  value=response.result?.value;
+ }catch{throw new Error('RG-05 official world configuration diagnostic failed');}
+ if(typeof value!=='string'||value.length>160)
+  throw new Error('RG-05 official world configuration receipt invalid');
+ let result;
+ try{result=JSON.parse(value);}
+ catch{throw new Error('RG-05 official world configuration receipt invalid');}
+ if(!result||typeof result!=='object'||Array.isArray(result)||
+    Object.keys(result).sort().join(',')!==
+     'defaultWorldConfigured,expectedCsp,messagingEnabled'||
+    !Object.values(result).every(v=>typeof v==='boolean'))
+  throw new Error('RG-05 official world configuration receipt invalid');
+ if(hasExited())throw new Error('RG-05 world configuration diagnostic Chrome exited');
+ return result;
+}
+
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -361,6 +390,8 @@ try{
  });
  console.log('PASS isolated official Violentmonkey base injector registration.');
  const beforeRestartOptions=await readManagerInjectionOptions(optionsCdp,()=>exited);
+ const beforeWorld=await readManagerWorldConfiguration(optionsCdp,()=>exited);
+ console.log('RG-05 official Chrome USER_SCRIPT world before first fixture: '+JSON.stringify(beforeWorld));
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
@@ -536,6 +567,8 @@ try{
     resumedManagers.V4!=='not-configured'||resumedManagers.managerVerified!==false)
   throw new Error('Official manager target missing after process restart');
  const afterRestartOptions=await readManagerInjectionOptions(optionsCdp,()=>exited);
+ const afterWorld=await readManagerWorldConfiguration(optionsCdp,()=>exited);
+ console.log('RG-05 official Chrome USER_SCRIPT world after Chrome restart: '+JSON.stringify(afterWorld));
  if(JSON.stringify(afterRestartOptions)!==JSON.stringify(beforeRestartOptions))
   throw new Error('RG-05 official manager options differ after restart');
  console.log('RG-05 official manager injection options retained after process restart (bounded booleans).');
