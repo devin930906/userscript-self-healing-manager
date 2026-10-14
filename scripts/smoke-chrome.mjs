@@ -71,6 +71,10 @@ const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></h
 <script>
  document.getElementById('fixture-safe-click').addEventListener('click',event=>{
   event.currentTarget.setAttribute('data-usshm-v2-fixture','yes');
+  // Only this disposable localhost fixture gains a second countable node.
+  const marker=document.createElement('span');
+  marker.className='manual-count';
+  document.getElementById('manual-observation').appendChild(marker);
   // Local synthetic fixture ONLY; deliberately emit one unhandled exception
   // to verify passive CDP counting without ever evaluating a user script.
   setTimeout(()=>{throw new Error('USSHM_FR018_SYNTHETIC_EVENT_ONLY');},0);
