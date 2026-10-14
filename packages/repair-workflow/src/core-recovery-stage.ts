@@ -285,6 +285,23 @@ export async function verifyCoreOfflineRecoveryStage({
  const source=resolve(snapshotDirectory),stage=resolve(stagedDirectory);
  await assertUnlinkedRecoveryDirectory(source);
  await assertUnlinkedRecoveryDirectory(stage);
+ // Bind the entire NON-ACTIVE directory object before any lengthy audits.
+ // File and marker identity checks alone cannot attest the selected root.
+ // This is a bounded native-stats defense, NOT a Win32 FileIdInfo guarantee
+ // or an atomic lock against all hostile concurrent filesystem mutations.
+ const stageDirectoryBefore=await lstat(stage,{bigint:true});
+ if(!stageDirectoryBefore.isDirectory()||stageDirectoryBefore.isSymbolicLink())
+  throw new Error('Unsafe offline stage directory');
+ const assertStageDirectoryIdentity=async()=>{
+  await assertUnlinkedRecoveryDirectory(stage);
+  const current=await lstat(stage,{bigint:true});
+  if(!current.isDirectory()||current.isSymbolicLink()||
+     current.dev!==stageDirectoryBefore.dev||
+     current.ino!==stageDirectoryBefore.ino||
+     current.birthtimeNs!==stageDirectoryBefore.birthtimeNs||
+     current.mode!==stageDirectoryBefore.mode)
+   throw new Error('Offline stage directory identity changed during audit');
+ };
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
  const sourceManifest=await readBoundedManifest(join(source,'manifest.json'));
  const sourceManifestSha256=digest(sourceManifest);
@@ -365,9 +382,9 @@ export async function verifyCoreOfflineRecoveryStage({
    throw new Error('Invalid offline stage final-audit dependency');
   await beforeFinalStageAudit();
  }
- // The last complete file inspection covers actual staged outputs, including
- // unexpected entries, directory aliases, verified hashes and SQLite schemas.
- await assertUnlinkedRecoveryDirectory(stage);
+ // The last complete file inspection must still address the SAME directory
+ // selected before the slow backup audit, not merely the same pathname.
+ await assertStageDirectoryIdentity();
  const rootNames=(await readdir(stage)).sort();
  const expectedRoot=['USSHM-RECOVERY-NOT-ACTIVE.json',
   'registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
@@ -425,5 +442,6 @@ export async function verifyCoreOfflineRecoveryStage({
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
  if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
   throw new Error('Offline stage source snapshot changed during independent audit');
+ await assertStageDirectoryIdentity();
  return {valid:true,fileCount:2+files.length,sourceManifestSha256};
 }
