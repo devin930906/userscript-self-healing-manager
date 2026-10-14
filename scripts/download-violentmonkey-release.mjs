@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
-import {constants as copyFlags,createWriteStream} from 'node:fs';
-import {copyFile,lstat,mkdtemp,rm} from 'node:fs/promises';
+import {createWriteStream} from 'node:fs';
+import {link,lstat,mkdtemp,rm} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {Readable,Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
@@ -51,8 +51,8 @@ export async function downloadPinnedZip({url,expectedSha256,destination,fetchImp
     }
     const actual=hash.digest('hex');
     if(bytes===0||actual!==expectedSha256)throw new DownloadFailure('Pinned archive SHA-256 integrity mismatch');
-    // Refuse an already-existing destination even after verification.
-    await copyFile(partial,destination,copyFlags.COPYFILE_EXCL);
+    // An exclusive hardlink publishes verified bytes atomically; never leave a partial destination.
+    await link(partial,destination);
     return {sha256:actual,bytes,attempts:attempt};
    } catch(error) {
     await rm(partial,{force:true});
