@@ -123,8 +123,8 @@ test('tag-only NSIS uninstall smoke must remove executable but retain installed 
  assert.match(smoke,/registryHashBeforeUninstall = \(Get-FileHash/);
  assert.match(smoke,/registryHashAfterUninstall = \(Get-FileHash/);
  assert.match(smoke,/registryHashAfterUninstall -ne \$registryHashBeforeUninstall/);
- assert.match(smoke,/diagnosis-journal\\.sqlite/);
+ assert.match(smoke,/diagnosis-journal\.sqlite/);
  assert.match(smoke,/journalHashBeforeUninstall/);
- assert.match(smoke,/journalHashAfterUninstall -ne \\$journalHashBeforeUninstall/);
+ assert.match(smoke,/journalHashAfterUninstall -ne \$journalHashBeforeUninstall/);
  assert.match(smoke,/uninstall removed application and retained user SQLite data/);
 });
