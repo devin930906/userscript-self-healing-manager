@@ -48,3 +48,19 @@ test('FR-014 P0 refuses an external first registry created while an initially mi
  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{schemaVersion:1,cases:[]});
  assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[]);
 }));
+
+test('FR-014 P0 aborts a precommit save when trusted scan authorization is revoked',async()=>withRoot(async root=>{
+ const initial=await createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/initial',label:'Saved before revocation',stateId:'custom',metadata});
+ const path=join(root,'site-test-cases.json');
+ const savedBefore=await readFile(path,'utf8');
+ let revoked=0;
+ await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/unauthorized',label:'Must not persist',stateId:'custom',metadata,
+  beforeFinalWrite:async()=>{revoked++;throw new Error('Trusted scan session was revoked');},
+ }),/revoked/);
+ assert.equal(revoked,1,'revocation happened inside the real pre-rename filesystem gate');
+ assert.equal(await readFile(path,'utf8'),savedBefore,'revocation cannot mutate committed scenarios');
+ assert.deepEqual((await listSiteTestCases({dataRoot:root,scriptId})).map(x=>x.id),[initial.id]);
+ await assert.rejects(access(path+'.write-lock'),{code:'ENOENT'});
+}));

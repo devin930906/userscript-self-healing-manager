@@ -813,6 +813,14 @@ async function bootstrap():Promise<void>{
   return createSiteTestCase({
    dataRoot,scriptId:item.scriptId!,url:q.url,label:q.label,
    stateId:q.stateId as 'logged-out'|'logged-in'|'custom',metadata:item.analysis!.metadata,
+   // The initial IPC consent may be revoked while filesystem I/O yields.
+   // Check the trusted scan and authorized source path at the last save gate.
+   // No renderer callback, browser action or userscript execution is involved.
+   beforeFinalWrite:async()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))
+     throw new Error('Site test case source authorization changed before commit');
+   },
   });
  });
  // Renderer approved:true is not authorization to delete persisted data.
