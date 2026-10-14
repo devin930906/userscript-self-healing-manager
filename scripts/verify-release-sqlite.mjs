@@ -4,6 +4,8 @@ import {lstatSync} from 'node:fs';
 
 const roots=process.argv.slice(2);
 if(roots.length!==3)throw new Error('Require precisely three Windows edition data roots');
+if(new Set(roots.map(root=>resolve(root).toLowerCase())).size!==3)
+ throw new Error('Windows edition data roots must be distinct');
 for(const root of roots){
   for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
     const path=resolve(root,name);
