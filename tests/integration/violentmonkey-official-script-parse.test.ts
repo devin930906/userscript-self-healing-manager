@@ -164,3 +164,67 @@ test('RG-05 safe exception class is logged only for confirmed failed cold-start 
  assert.ok(failed>=0&&actual>failed&&gate>actual);
  assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame|\.exception\.description/);
 });
+
+test('RG-05 recognizes only the official injected.js missing data.info TypeError signature',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+  ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedFailureSignature:()=>string};
+ assert.equal(typeof e.injectedFailureSignature,'function','missing pinned injected.js failure signature classifier');
+ assert.equal(e.injectedFailureSignature(),'not-observed');
+ e.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:frame,isDefault:false}}});
+ e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,exception:{
+   className:'TypeError',
+   description:"TypeError: Cannot read properties of undefined (reading 'info')\\n  at init (PRIVATE_ACCOUNT_URL)",
+  },
+ }});
+ assert.equal(e.injectedFailureSignature(),'missing-injection-data-info');
+ assert.equal(e.injectedExceptionClass(),'TypeError');
+ assert.doesNotMatch(e.injectedFailureSignature()+JSON.stringify(e.snapshot()),/PRIVATE|URL|chrome-extension|101|frame/);
+});
+
+test('RG-05 rejects other, malformed and private TypeError descriptions without leaking them',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const factory=()=>{
+  const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+   ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedFailureSignature:()=>string};
+  e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+  return e;
+ };
+ for(const [description,expected] of [
+  ["TypeError: Cannot read properties of undefined (reading 'password')",'other-type-error'],
+  ["TypeError: Cannot read properties of null (reading 'info')",'missing-injection-data-info'],
+  ['TypeError: PRIVATE_CUSTOM_MESSAGE','other-type-error'],
+  ['TypeError: Cannot read properties of undefined (reading \\'info\\')','other-type-error'],
+  [null,'other-type-error'],
+ ] as const){
+  const e=factory();
+  e.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'101',executionContextId:9,
+   exception:{className:'TypeError',description}}});
+  assert.equal(e.injectedFailureSignature(),expected);
+  assert.doesNotMatch(e.injectedFailureSignature(),/PRIVATE|password|\\binfo\\b|TOKEN|URL/);
+ }
+ const e=factory();
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'bogus',executionContextId:9,
+  exception:{className:'TypeError',description:"TypeError: Cannot read properties of undefined (reading 'info')"}}});
+ assert.equal(e.injectedFailureSignature(),'not-observed');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'101',executionContextId:9,
+  exception:{className:'TypeError',description:"TypeError: Cannot read properties of undefined (reading 'info')"}}});
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'101',executionContextId:9,
+  exception:{className:'TypeError',description:'TypeError: PRIVATE_OTHER_FAILURE'}}});
+ assert.equal(e.injectedFailureSignature(),'mixed');
+});
+
+test('RG-05 reports missing-data signature only after two real failed restart documents',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const healthy=source.indexOf('RG-05 official injected.js failure signature control');
+ const control=source.indexOf('const secondReceipt=assertViolentmonkeyV4FixtureObservation');
+ const stopped=source.indexOf("browserCdp.send('Browser.close')");
+ assert.ok(healthy>control&&healthy<stopped);
+ const failed=source.indexOf('startupInjectionBlocked=true');
+ const diagnostic=source.indexOf('RG-05 official injected.js failure signature after missing GM receipts');
+ const strictGate=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(diagnostic>failed&&diagnostic<strictGate,'cannot use a signature as a GM receipt');
+ assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame|\\.exception\\.description/);
+});
