@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {mkdtemp,readFile,writeFile,rm,access} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {createSiteTestCase,listSiteTestCases} from '../src/site-test-cases.ts';
+
+const metadata={match:['https://example.invalid/app/*'],include:[],raw:{match:['https://example.invalid/app/*']}};
+const scriptId='scenario-review';
+async function withRoot(run:(root:string)=>Promise<void>){
+ const root=await mkdtemp(join(tmpdir(),'usshm-site-lost-update-'));
+ try{await run(root);}finally{await rm(root,{recursive:true,force:true});}
+}
+
+test('FR-014 P0 prevents silently overwriting an externally changed valid scenario registry',async()=>withRoot(async root=>{
+ const original=await createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/a',label:'Original',stateId:'custom',metadata});
+ const path=join(root,'site-test-cases.json');
+ let injected=0;
+ await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/b',label:'New entry',stateId:'custom',metadata,
+  // Test-only fault injection between temporary write and final rename.
+  beforeFinalWrite:async()=>{
+   injected++;
+   const external=JSON.parse(await readFile(path,'utf8'));
+   external.cases[0].label='Externally updated';
+   await writeFile(path,JSON.stringify(external)+'\n');
+  },
+ }),/concurren|changed|conflict|stale/i);
+ assert.equal(injected,1,'the concurrent mutation was actually executed at the commit boundary');
+ const saved=await listSiteTestCases({dataRoot:root,scriptId});
+ assert.deepEqual(saved.map(x=>[x.id,x.label]),[[original.id,'Externally updated']]);
+ const files=await readFile(path,'utf8');
+ assert.equal(files.includes('New entry'),false,'disputed write must not overwrite the other writer');
+ await assert.rejects(access(join(root,'site-test-cases.json.write-lock')),{code:'ENOENT'});
+}));
+test('FR-014 P0 refuses an external first registry created while an initially missing one is being committed',async()=>withRoot(async root=>{
+ const path=join(root,'site-test-cases.json');
+ let callbackRan=0;
+ await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/a',label:'First local',stateId:'logged-out',metadata,
+  beforeFinalWrite:async()=>{
+   callbackRan++;
+   await writeFile(path,JSON.stringify({schemaVersion:1,cases:[]})+'\n',{flag:'wx'});
+  },
+ }),/concurren|changed|conflict|stale/i);
+ assert.equal(callbackRan,1);
+ assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{schemaVersion:1,cases:[]});
+ assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[]);
+}));
