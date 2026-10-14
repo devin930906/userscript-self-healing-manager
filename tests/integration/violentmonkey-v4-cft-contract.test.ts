@@ -214,3 +214,28 @@ test('official MV3 service-worker commands return only bounded fixture receipts 
  assert.throws(()=>buildViolentmonkeyFixturePreflightExpression('x'.repeat(161),'fixed namespace'),/fixed/i);
  assert.throws(()=>buildViolentmonkeyFixtureInstallExpression('untrusted source'),/fixed/i);
 });
+
+
+test('official manager download is pinned, bounded and never bypasses the official GM gate',async()=>{
+ const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
+ const helper=await readFile(resolve('scripts/download-violentmonkey-release.mjs'),'utf8');
+ const fetchStep=workflow.split('- name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration')[1]
+  ?.split('- name: Real Violentmonkey 2.49.0 GM API integration')[0];
+ assert.ok(fetchStep,'official manager download job must remain mandatory');
+ assert.match(fetchStep,/node scripts\/download-violentmonkey-release\.mjs \$archive/);
+ assert.match(fetchStep,/if \(\$LASTEXITCODE -ne 0\) \{ throw 'Verified Violentmonkey download failed' \}/);
+ assert.match(fetchStep,/Pinned official Violentmonkey archive SHA-256 mismatch/);
+ assert.ok(fetchStep.indexOf('Pinned official Violentmonkey archive SHA-256 mismatch')<
+  fetchStep.indexOf('Expand-Archive'),'PowerShell must recheck pinned SHA before extraction');
+ assert.match(helper,/for\(let attempt=1;attempt<=3;attempt\+\+\)/);
+ assert.match(helper,/RETRYABLE_HTTP=new Set\(\[429,500,502,503,504\]\)/);
+ assert.match(helper,/attempt===3\)throw error;/,'exhausted retry must fail closed');
+ assert.match(helper,/await link\(partial,destination\)/,
+  'only fully hashed bytes may be atomically published to a new destination');
+ assert.ok(helper.indexOf('actual!==expectedSha256')>=0 &&
+  helper.indexOf('actual!==expectedSha256')<helper.indexOf('await link(partial,destination)'),
+  'helper must verify streaming SHA-256 before exclusive atomic publication');
+ assert.doesNotMatch(fetchStep,/continue-on-error:\s*true|if:\s*false|\|\| true/i);
+ assert.match(workflow,/node --experimental-strip-types scripts\/smoke-violentmonkey-cft\.mjs/,
+  'manager GM V4 release gate remains mandatory after a valid download');
+});
