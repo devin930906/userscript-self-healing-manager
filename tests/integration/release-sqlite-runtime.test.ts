@@ -251,3 +251,23 @@ test('release SQLite verification preserves databases at Unicode and spaced path
   assert.deepEqual(files.map(digest),before);
  });
 });
+
+test('release verifier rejects corrupt SQLite evidence under Unicode and spaced paths without rewriting it',()=>{
+ withReleaseDatabases(roots=>{
+  const moved=roots.map((root,i)=>join(root,['安装版 数据','便携 版本','ZIP 解压版'][i]));
+  for(let i=0;i<roots.length;i++){
+   mkdirSync(moved[i]);
+   for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+    const original=join(roots[i],name);
+    writeFileSync(join(moved[i],name),readFileSync(original));
+    unlinkSync(original);
+   }
+  }
+  const badFile=join(moved[1],'diagnosis-journal.sqlite');
+  writeFileSync(badFile,'invalid SQLite file');
+  const before=readFileSync(badFile);
+  const result=verify(moved);
+  assert.notEqual(result.status,0);
+  assert.deepEqual(readFileSync(badFile),before);
+ });
+});
