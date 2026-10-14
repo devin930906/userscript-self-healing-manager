@@ -211,3 +211,17 @@ test('installed release smoke terminates its process before data hashes and alwa
  assert.match(block,/\$running\.WaitForExit\(10000\)/);
  assert.match(block,/if \(!\$running\.HasExited\)/);
 });
+
+test('installed Setup smoke waits for a nonempty diagnosis journal while process remains alive',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check NSIS Setup installer');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ assert.ok(start>=0&&end>start);
+ const block=workflow.slice(start,end);
+ const journalStart=block.indexOf('$journalReady = $false');
+ const shutdown=block.indexOf('Stop-Process -Id $running.Id');
+ assert.ok(journalStart>=0&&shutdown>journalStart);
+ assert.match(block,/if \(\$running\.HasExited\) \{ throw 'Installed EXE exited before diagnosis journal initialization'/);
+ assert.match(block,/Get-Item -LiteralPath \$journalPath\)\.Length -gt 0/);
+ assert.match(block,/if \(!\$journalReady\)/);
+});
