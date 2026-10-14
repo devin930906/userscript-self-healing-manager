@@ -13,7 +13,7 @@ test('Main owns verified candidate discovery, source hash, site scope and approv
  assert.match(handler,/withinAuthorized\(item\.path\)/);
  assert.match(handler,/record\.receiver!=='document'/);
  assert.match(handler,/checkUserscriptPageScope\(item\.analysis\.metadata,selected\.url\)/);
- assert.match(handler,/readPinnedRegularFile\(item\.path,\{maxBytes:512\*1024,expected:sourceInfo,expectedNative:await lstat\(item\.path,\{bigint:true\}\)\}\)/);
+ assert.match(handler,/readPinnedRegularFile\(item\.path,\{maxBytes:512\*1024,expected:sourceInfo,expectedNative:await lstat\(item\.path,\{bigint:true\}\),expectedSha256:item\.analysis!\.sourceSha256\}\)/);
  assert.match(handler,/suggestCandidateRepairs\(/);
  assert.match(handler,/prepareVerifiedRepairPreview\(/);
  assert.match(handler,/pendingApprovals\.register\(receipt\.proposal\.proposalId,scanSnapshot\.scanId\)/);
