@@ -69,6 +69,7 @@ const api={
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:probe-locators',input),
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:read-only-visibility',input),
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:read-only-event-listeners',input),
+ waitUntilElementVisible:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:wait-until-visible',input),
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>ipcRenderer.invoke('usshm:read-only-interaction-readiness',input),
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>ipcRenderer.invoke('usshm:run-dom-contract',input),
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>ipcRenderer.invoke('usshm:batch-diagnose',input),

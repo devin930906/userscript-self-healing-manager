@@ -16,7 +16,7 @@ import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locat
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
 import type {ReadOnlyVisibilityEvidence} from '../../../../packages/cdp-client/src/read-only-visibility.ts';
 import type {ReadOnlyEventListenerEvidence} from '../../../../packages/cdp-client/src/read-only-event-listeners.ts';
-import type {ReadOnlyInteractionReadinessResult} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
+import type {ReadOnlyInteractionReadinessResult,ReadOnlyVisibilityWaitResult} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import type {UserscriptManagerTargetReport} from '../../../../packages/cdp-client/src/manager-targets.ts';
 import type {PassivePageExceptionEvidence} from '../../../../packages/cdp-client/src/read-only-exceptions.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
@@ -57,6 +57,7 @@ declare global {interface Window{ussm:{
  probeLocators:(input:{scanId:string;itemIndex:number;targetId:string;approved:true})=>Promise<{summary:DomSummary;probe:LocatorProbeResult;totalLocators:number;checkedLocators:number}>;
  inspectElementVisibility:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityEvidence>;
  inspectEventListeners:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyEventListenerEvidence>;
+ waitUntilElementVisible:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityWaitResult>;
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>Promise<ReadOnlyDomContractResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
@@ -166,6 +167,9 @@ function App(){
  const [visibilityEvidence,setVisibilityEvidence]=useState<{selectorIndex:number;result:ReadOnlyVisibilityEvidence}|null>(null);
  const visibilityGeneration=useRef(new LatestRequestGate());
  const visibilityActive=useRef(false);
+ const [visibleWaitEvidence,setVisibleWaitEvidence]=useState<{selectorIndex:number;result:ReadOnlyVisibilityWaitResult}|null>(null);
+ const visibleWaitGeneration=useRef(new LatestRequestGate());
+ const visibleWaitActive=useRef(false);
  const [listenerEvidence,setListenerEvidence]=useState<{selectorIndex:number;result:ReadOnlyEventListenerEvidence}|null>(null);
  const listenerGeneration=useRef(new LatestRequestGate());
  const listenerActive=useRef(false);
@@ -225,6 +229,7 @@ function App(){
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{visibilityGeneration.current.invalidate();if(visibilityActive.current){visibilityActive.current=false;setBusy(false);}setVisibilityEvidence(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{visibleWaitGeneration.current.invalidate();if(visibleWaitActive.current){visibleWaitActive.current=false;setBusy(false);}setVisibleWaitEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{readinessGeneration.current.invalidate();if(readinessActive.current){readinessActive.current=false;setBusy(false);}setReadinessEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
@@ -582,6 +587,28 @@ function App(){
    if(visibilityGeneration.current.isCurrent(token))setError('CSS 可见性检查失败：'+summarizeSafeDesktopError(error));
   }finally{
    if(visibilityGeneration.current.isCurrent(token)){visibilityActive.current=false;setBusy(false);}
+  }
+ }
+ async function waitUntilElementVisible(){
+  if(focused===null||!result||!targetId||busy)return;
+  const selector=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!selector||selector.runtimeRequired||selector.receiver!=='document')return;
+  const token=visibleWaitGeneration.current.begin();
+  const itemIndex=focused,selectorIndex=repairIndex,scanId=result.scanId,target=targetId;
+  visibleWaitActive.current=true;setBusy(true);setError('');setVisibleWaitEvidence(null);
+  try{
+   const evidence=await window.ussm.waitUntilElementVisible({
+    scanId,itemIndex,selectorIndex,targetId:target,approved:true,
+   });
+   if(visibleWaitGeneration.current.isCurrent(token)){
+    setVisibleWaitEvidence({selectorIndex,result:evidence});
+    setMessage('有界只读等待结束；连续可见仅证明 V1 DOM 状态，V2 未验证，不能证明用户脚本功能正常。');
+   }
+  }catch{
+   if(visibleWaitGeneration.current.isCurrent(token))
+    setError('元素可见性等待失败：页面身份、定位器或用户授权可能已变化。');
+  }finally{
+   if(visibleWaitGeneration.current.isCurrent(token)){visibleWaitActive.current=false;setBusy(false);}
   }
  }
  async function inspectEventListeners(){
@@ -1121,6 +1148,17 @@ function App(){
     · Pointer events {visibilityEvidence.result.pointerBlocked===true?'禁止':visibilityEvidence.result.pointerBlocked===false?'未禁止':'未知'}
     · 控件属性 {visibilityEvidence.result.controlBlocker==='disabled-attribute'?'存在 disabled（禁用）':visibilityEvidence.result.controlBlocker==='aria-disabled'?'声明 aria-disabled=true':visibilityEvidence.result.controlBlocker==='readonly-attribute'?'存在 readonly（只读）':visibilityEvidence.result.controlBlocker==='none-detected'?'未发现直接禁用属性（不等于可点击）':'无法确认'}
     · V2 未验证；仅供人工判断，不能证明元素可点击或业务功能正常。
+   </div>}
+   <div className="toolbar">
+    <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
+     onClick={()=>void waitUntilElementVisible()}>等待元素稳定可见（V1，只读）</button>
+    <span className="dim">最多四次有界 CDP 只读采样，需要连续两次同节点可见；不点击、不执行脚本、不在后台重试。V2 未验证。</span>
+   </div>
+   {visibleWaitEvidence&&visibleWaitEvidence.selectorIndex===repairIndex&&<div className="notice">
+    <b>有界可见等待：</b>{visibleWaitEvidence.result.status==='visible-v1'?'连续可见（仅 V1）':'未取得连续稳定可见证据，需复核'}
+    · 已采样 {visibleWaitEvidence.result.samples} 次
+    · V2 未验证 · V3/V4 未配置
+    <small>{visibleWaitEvidence.result.reason}；不能证明用户脚本已注入或实际功能已修复。</small>
    </div>}
    <div className="toolbar">
     <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}

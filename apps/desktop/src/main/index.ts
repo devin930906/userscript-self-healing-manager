@@ -56,7 +56,7 @@ import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/sr
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
-import {runReadOnlyInteractionReadiness} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
+import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
@@ -659,6 +659,44 @@ async function bootstrap():Promise<void>{
     return {...observed,status:'unknown',listenerCount:null};
   }
   return observed;
+ });
+ ipcMain.handle('usshm:wait-until-visible',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
+   targetId?:unknown;approved?:unknown}|null;
+  if(!q||q.approved!==true||typeof q.scanId!=='string'||
+     !Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit visible wait target, static selector and user approval required');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[q.itemIndex as number];
+  if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+   throw new Error('Visible wait requires an authorized scanned userscript');
+  const record=item.analysis.selectorRecords[q.selectorIndex as number];
+  if(!record||record.runtimeRequired||record.receiver!=='document')
+   throw new Error('Visible wait requires a static top-document selector');
+  const cdp=await getVerifiedChromeStatus({port:9223});
+  const selected=cdp.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome target unavailable for visible wait');
+  const scope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+  if(scope.status!=='allowed')
+   throw new Error('Script scope does not authorize this target for visibility wait');
+  const report=await runReadOnlyVisibilityWait({
+   approved:true,target:selected,
+   caseId:'WAIT:'+item.scriptId.slice(0,55)+':IDX_'+q.selectorIndex,
+   locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+   maxSamples:4,
+   deps:{
+    confirm:confirmPageIdentity,
+    probe:(target,locators)=>probePageLocators(target,locators,{includeNodeFingerprints:true}),
+    inspectVisibility:(target,locator)=>inspectReadOnlyElementVisibility(target,locator),
+    wait:()=>new Promise<void>(resolve=>setTimeout(resolve,250)),
+   },
+  });
+  scanSessions.assertCurrent(scanSnapshot);
+  return report;
  });
  ipcMain.handle('usshm:read-only-interaction-readiness',async(event,input:unknown)=>{
   assertSender(event);
