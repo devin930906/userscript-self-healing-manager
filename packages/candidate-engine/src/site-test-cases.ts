@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import type {BigIntStats} from 'node:fs';
-import {lstat,mkdir,readFile,rename,rmdir,unlink,writeFile} from 'node:fs/promises';
+import {link,lstat,mkdir,readFile,rename,rmdir,unlink,writeFile} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
@@ -160,7 +160,7 @@ async function writeLocked<T>(dataRoot:string,operation:()=>Promise<T>):Promise<
 }
 async function persist(dataRoot:string,state:Saved,previous:{
  state:Saved;identity:SceneIdentity;
-},beforeFinalWrite?:()=>Promise<void>):Promise<void>{
+},beforeFinalWrite?:()=>Promise<void>,beforePublish?:()=>Promise<void>):Promise<void>{
  const target=filename(dataRoot);
  const content=JSON.stringify(state)+'\n';
  if(Buffer.byteLength(content,'utf8')>MAX_BYTES)
@@ -176,7 +176,25 @@ async function persist(dataRoot:string,state:Saved,previous:{
   if(!sameSceneIdentity(previous.identity,current.identity)||
      JSON.stringify(previous.state)!==JSON.stringify(current.state))
    throw new Error('Site test case registry changed concurrently; preserve other writer');
-  await rename(temp,target);
+  // Test-only deterministic boundary; not accessible from desktop IPC.
+  if(beforePublish)await beforePublish();
+  if(previous.identity===null){
+   // First save: rename() overwrites an independently created registry after
+   // the final lstat. Atomic same-directory link() publishes only if absent.
+   // Never fall back to overwrite on filesystems without hard-link support.
+   // The temporary second link is removed in finally before app readers
+   // observe a successfully completed write (nlink must then return to 1).
+   try{await link(temp,target);}
+   catch(error){
+    if((error as NodeJS.ErrnoException).code==='EEXIST')
+     throw new Error('Site test case registry appeared concurrently; initial publish refused');
+    throw error;
+   }
+  }else{
+   // Existing registry updates still require the app lease and full identity
+   // check. This is NOT a cross-process compare-and-swap for an existing file.
+   await rename(temp,target);
+  }
  }finally{
   await unlink(temp).catch(error=>{
    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
@@ -189,11 +207,13 @@ export async function listSiteTestCases({dataRoot,scriptId}:{
  scriptIdentity(scriptId);
  return (await readState(dataRoot)).cases.filter(c=>c.scriptId===scriptId);
 }
-export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,metadata,beforeFinalWrite}:{
+export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,metadata,beforeFinalWrite,beforePublish}:{
  dataRoot:string;scriptId:string;url:string;label:string;
  stateId:DeclaredPageState;metadata:UserscriptPageMetadata;
  /** Internal deterministic fault injection only; never forwarded from IPC. */
  beforeFinalWrite?:()=>Promise<void>;
+ /** Only test code can inject after the last optimistic identity comparison. */
+ beforePublish?:()=>Promise<void>;
 }):Promise<SiteTestCase>{
  scriptIdentity(scriptId);
  const safeUrl=exactPageUrl(url),safeLabel=labelOf(label),safeState=stateOf(stateId);
@@ -208,7 +228,7 @@ export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,me
   if(state.cases.some(c=>c.scriptId===scriptId&&c.url===safeUrl&&c.stateId===safeState))
    throw new Error('Site test case already exists');
   const entry:SiteTestCase={id:randomUUID(),scriptId,label:safeLabel,url:safeUrl,stateId:safeState};
-  await persist(dataRoot,{schemaVersion:1,cases:[...state.cases,entry]},previous,beforeFinalWrite);
+  await persist(dataRoot,{schemaVersion:1,cases:[...state.cases,entry]},previous,beforeFinalWrite,beforePublish);
   return entry;
  });
 }
