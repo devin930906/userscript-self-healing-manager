@@ -274,6 +274,8 @@ test('final release checks SQLite header signatures for registry and journal of 
  assert.match(check,/usshm-verified-zip\/Data/);
  assert.match(check,/usshm-portable-exe-smoke\/Data/);
  assert.match(check,/usshm-installed-appdata-smoke/);
+ assert.match(check,/\$installedData\.Count -ne 1/);
+ assert.doesNotMatch(check,/Select-Object -First 1/);
  assert.match(check,/registry\.sqlite/);
  assert.match(check,/diagnosis-journal\.sqlite/);
  assert.match(check,/SQLite format 3/);
