@@ -410,5 +410,13 @@ export async function verifyCoreOfflineRecoveryStage({
  if(!(await readBoundedManifest(markerPath)).equals(markerBytes)||
     (await lstat(markerPath)).nlink!==1)
   throw new Error('Offline stage completion marker changed during audit');
+ // Staged bytes and the marker can remain valid even when another process
+ // corrupts the SOURCE snapshot while this independent review awaits stage
+ // hashes and SQLite checks. Re-audit the original backup as the final gate;
+ // never return valid:true on the strength of an earlier source verification.
+ // This is fail-closed verification, not a cross-process atomicity guarantee.
+ await verifyCoreRecoveryBundle({snapshotDirectory:source});
+ if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
+  throw new Error('Offline stage source snapshot changed during independent audit');
  return {valid:true,fileCount:2+files.length,sourceManifestSha256};
 }
