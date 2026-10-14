@@ -429,9 +429,33 @@ try{
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
  console.log('RG-05 fixed stage: process-restart');
- const third=await readViolentmonkeyFixtureObservation({
-  send:pageCdp.send,frameId:afterRestartIdentity.frameId,url:fixtureUrl,hasExited:()=>exited,
- });
+ let third;
+ let startupWarmup=false;
+ try{
+  third=await readViolentmonkeyFixtureObservation({
+   send:pageCdp.send,frameId:afterRestartIdentity.frameId,url:fixtureUrl,hasExited:()=>exited,
+  });
+ }catch(error){
+  // Official MV3 can show a registered manager yet miss FIRST cold-start
+  // injection. Report that fact truthfully, never treat inventory as V4 pass.
+  // Retry ONLY a no-marker cold start with zero additional GM requests, using
+  // one explicitly isolated localhost reload and a NEW document loader.
+  if(!(error instanceof Error)||
+     error.message!=='Pinned Violentmonkey fixture did not publish its bounded GM API result; stage: not-observed'||
+     requests.length!==2)throw error;
+  const prior=await pageCdp.send('Page.getFrameTree');
+  const pinned=prior.frameTree?.frame;
+  if(pinned?.id!==afterRestartIdentity.frameId||
+     pinned?.url!==fixtureUrl||pinned?.loaderId!==afterRestartIdentity.loaderId)
+   throw new Error('Cold-start fixture page identity was not stable before one bounded reload');
+  startupWarmup=true;
+  console.log('RG-05 cold-start injection was absent; one isolated loopback reload required (not immediate GM injection).');
+  await pageCdp.send('Page.reload',{ignoreCache:true});
+  third=await readViolentmonkeyFixtureObservation({
+   send:pageCdp.send,frameId:afterRestartIdentity.frameId,
+   url:fixtureUrl,previousLoaderId:pinned.loaderId,hasExited:()=>exited,
+  });
+ }
  assert.equal(requests.length,3,'cross-process manager test must observe exactly one additional GM request');
  assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
  const restarted=assertOfficialViolentmonkeyProcessRestart({
@@ -442,10 +466,10 @@ try{
   chromeProduct:status.browser,managerVersion:manifest.version,managerExtensionId:extensionId,
   observedManagers:resumedManagers.observed,appV4:resumedManagers.V4,
   appManagerVerified:resumedManagers.managerVerified,fixture:third,
-  loopbackRequestsObserved:requests.length,expectedStorageBefore:2,
+  loopbackRequestsObserved:requests.length,expectedStorageBefore:2,startupWarmup,
  });
- assert.equal(restarted.status,'fixture-restart-passed');
- console.log('PASS official Violentmonkey 2.49.0 isolated Chrome PROCESS restart: GM persisted 0->1->2->3, permission/script retained, three loopback requests. Product V4 not-configured.');
+ assert.equal(restarted.status,startupWarmup?'fixture-restart-warmup-passed':'fixture-restart-passed');
+ console.log('PASS official Violentmonkey 2.49.0 isolated Chrome PROCESS restart: GM persisted 0->1->2->3, three loopback requests; cold-start injection '+restarted.coldStartInjection+'. Product V4 not-configured.');
 
  console.log('PASS isolated official Violentmonkey 2.49.0: GM storage persisted across reload, menu command registered and GM_xmlhttpRequest reached loopback. Product V4 remains not-configured; Tampermonkey is not covered.');
 }catch(error){
