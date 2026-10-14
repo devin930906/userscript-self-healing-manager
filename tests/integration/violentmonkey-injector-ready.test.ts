@@ -395,3 +395,18 @@ test('RG-05 rejects nested Runtime.evaluate exceptionDetails even with forged of
  assert.equal(sends,1,'exception must not be mistaken for manager readiness');
  assert.deepEqual(statuses,['cdp-evaluation-failed']);
 });
+
+test('RG-05 rejects a nested CDP result error even alongside a forged ready receipt',async()=>{
+ for(const payload of [null,{code:-32000,message:'PRIVATE_NESTED_ERROR'}]){
+  const stages:string[]=[];let calls=0;
+  const cause=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return {result:{value:JSON.stringify({ready:true}),error:payload}};},
+   hasExited:()=>false,delay:async()=>{},onStatus:(stage:string)=>stages.push(stage),
+  }).catch((error:any)=>error);
+  assert.ok(cause instanceof Error);
+  assert.match(cause.message,/CDP evaluation failed/);
+  assert.doesNotMatch(cause.message,/PRIVATE_NESTED_ERROR/);
+  assert.equal(calls,1);
+  assert.deepEqual(stages,['cdp-evaluation-failed']);
+ }
+});
