@@ -1010,7 +1010,32 @@ try{
  // An earlier independent FR-018 synthetic exception test left a success
  // marker. Reset it, independently check a clean frame, then start a NEW
  // single-click named lifecycle. No user profile or real site is involved.
+ const priorSyntheticDocument=await confirmPageIdentity(selected);
  await reloadOwnedSyntheticFixture({approved:true,target:selected,fixtureUrl});
+ // Page.reload acknowledges a request before the new document's loader has
+ // necessarily started. Do NOT reuse a stale same-URL snapshot: require
+ // observed loader replacement AND two stable, independently confirmed frame
+ // records before the first read-only count. This is a bounded condition gate,
+ // not a sleep-based waiver of the existing document guard.
+ let stableNewSyntheticDocument=false;
+ for(let attempt=0;attempt<20;attempt++){
+  try{
+   const first=await confirmPageIdentity(selected);
+   if(first.targetId===priorSyntheticDocument.targetId&&
+      first.confirmedUrl===priorSyntheticDocument.confirmedUrl&&
+      first.frameId===priorSyntheticDocument.frameId&&
+      first.loaderId&&first.loaderId!==priorSyntheticDocument.loaderId){
+    await delay(125);
+    const second=await confirmPageIdentity(selected);
+    assertStablePageDocument(first,second);
+    stableNewSyntheticDocument=true;
+    break;
+   }
+  }catch{/* The isolated fixture may be in the middle of reloading. */}
+  await delay(125);
+ }
+ assert.equal(stableNewSyntheticDocument,true,
+  'A fresh stable synthetic document loader must be observed after test-only reload');
  const cleanBefore=await fixtureLifecycleDeps.observe(selected);
  assert.equal(cleanBefore.matchCount,1,'fixture reset must restore the original single node');
  const fixtureV2Lifecycle=await runNamedFixtureV2Lifecycle({
