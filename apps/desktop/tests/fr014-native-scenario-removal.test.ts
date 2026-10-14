@@ -42,3 +42,20 @@ test('FR-014 renderer treats cancelled Main-owned deletion as no-op and never re
  assert.match(body,/const removal=await window\.ussm\.removeSiteTestCase/);
  assert.match(body,/if\(!removal\.deleted\)return/,'native cancellation must not emit a success notice');
 });
+
+test('FR-014 P0 create rechecks Main scan consent before final registry commit',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:site-test-case-create'");
+ const end=main.indexOf("ipcMain.handle('usshm:site-test-case-remove'",start);
+ assert.ok(start>=0&&end>start,'bounded create handler must exist');
+ const handler=main.slice(start,end);
+ const create=handler.indexOf('return createSiteTestCase(');
+ const beforeFinal=handler.indexOf('beforeFinalWrite:');
+ assert.ok(create>=0&&beforeFinal>create,
+  'asynchronous scenario save needs a Main-owned precommit revocation gate');
+ const precommit=handler.slice(beforeFinal);
+ assert.match(precommit,/scanSessions\.assertCurrent\(scanSnapshot\)/,
+  'revoked scan session must block file publication');
+ assert.match(precommit,/withinAuthorized\(item\.path\)/,
+  'a changed approved script directory must block file publication');
+});
