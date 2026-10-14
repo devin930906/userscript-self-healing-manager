@@ -314,6 +314,7 @@ try{
  pageCdp=await openCdp(fixturePage.webSocketDebuggerUrl);
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
+ console.log('RG-05 fixed stage: first-document');
  const first=await readViolentmonkeyFixtureObservation({
   send:pageCdp.send,frameId:identity.frameId,url:fixtureUrl,hasExited:()=>exited,
  });
@@ -323,11 +324,13 @@ try{
   appV4:managerReport.V4,appManagerVerified:managerReport.managerVerified,
   fixture:first,
  },0);
+ console.log('RG-05 fixed stage: first-documented');
  const beforeReload=await pageCdp.send('Page.getFrameTree');
  const previousLoaderId=beforeReload.frameTree?.frame?.loaderId;
  if(typeof previousLoaderId!=='string'||!previousLoaderId)
   throw new Error('Pre-reload fixture document identity is missing');
  await pageCdp.send('Page.reload',{ignoreCache:true});
+ console.log('RG-05 fixed stage: page-reload');
  const second=await readViolentmonkeyFixtureObservation({
   send:pageCdp.send,frameId:identity.frameId,url:fixtureUrl,previousLoaderId,hasExited:()=>exited,
  });
@@ -342,6 +345,7 @@ try{
  assert.deepEqual(secondReceipt.apis,firstReceipt.apis);
 
  // RG-05: Page.reload never proves storage survives actual browser restart.
+ console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
  const previousBrowserSocket=status.browserSocket;
  const beforeRestartIdentity=await confirmPageIdentity(fixturePage);
@@ -424,6 +428,7 @@ try{
  pageCdp=await openCdp(restartedFixturePage.webSocketDebuggerUrl);
  await pageCdp.send('Runtime.enable');
  await pageCdp.send('Page.enable');
+ console.log('RG-05 fixed stage: process-restart');
  const third=await readViolentmonkeyFixtureObservation({
   send:pageCdp.send,frameId:afterRestartIdentity.frameId,url:fixtureUrl,hasExited:()=>exited,
  });
