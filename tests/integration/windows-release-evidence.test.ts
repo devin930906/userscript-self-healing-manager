@@ -296,7 +296,9 @@ test('final release checks actual SQLite quick_check on each edition database',a
  const check=workflow.slice(start,end);
  assert.match(check,/node scripts\/verify-release-sqlite\.mjs @roots/);
  const verifier=await readFile('scripts/verify-release-sqlite.mjs','utf8');
- assert.match(verifier,/realpathSync\(dirname\(path\)\)/);
+ assert.match(verifier,/lstatSync\(directory\)/);
+ assert.match(verifier,/info\.isSymbolicLink\(\)/);
+ assert.match(verifier,/parse\(directory\)\.root/);
  assert.match(verifier,/lstatSync\(path,\{throwIfNoEntry:false\}\)/);
  assert.match(verifier,/info\?\.isFile\(\)/);
  assert.match(verifier,/DatabaseSync\(path,\{readOnly:true,create:false\}\)/);
