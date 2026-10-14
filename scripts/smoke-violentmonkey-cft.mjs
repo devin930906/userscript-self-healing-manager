@@ -497,6 +497,15 @@ try{
  assert.equal(requests.length,2,'only the two fixed loopback GM request callbacks are allowed');
  assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
  assert.deepEqual(secondReceipt.apis,firstReceipt.apis);
+ // This is a control sample only after TWO independently validated real GM
+ // receipts in the original process. Without a known working control we
+ // cannot claim that a false restarted response identifies the failing layer.
+ try{
+  const bridgeControl=await readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl,()=>exited);
+  console.log('RG-05 official content bridge control after two REAL GM receipts: '+JSON.stringify(bridgeControl)+'; not product V4 proof.');
+ }catch{
+  console.log('RG-05 official content bridge control unavailable; after-restart absence remains inconclusive.');
+ }
 
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
