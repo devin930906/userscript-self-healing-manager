@@ -302,7 +302,10 @@ test('final release checks actual SQLite quick_check on each edition database',a
  assert.match(verifier,/lstatSync\(directory\)/);
  assert.match(verifier,/info\.isSymbolicLink\(\)/);
  assert.match(verifier,/parse\(directory\)\.root/);
- assert.match(verifier,/lstatSync\(path,\{throwIfNoEntry:false\}\)/);
+ // Windows numeric Stats.ino may alias distinct MFT file identities.
+ assert.match(verifier,/lstatSync\(resolve\(root\),\{bigint:true\}\)/);
+ assert.match(verifier,/lstatSync\(path,\{bigint:true,throwIfNoEntry:false\}\)/);
+ assert.match(verifier,/info\.size===0n/);
  assert.match(verifier,/info\?\.isFile\(\)/);
  assert.match(verifier,/DatabaseSync\(path,\{readOnly:true,create:false,timeout:5000\}\)/);
  assert.match(verifier,/PRAGMA integrity_check/);
