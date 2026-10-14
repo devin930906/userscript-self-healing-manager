@@ -150,3 +150,34 @@ test('FR-024 a button already focused before authorization cannot earn a new V2 
  assert.equal(socket.methods.includes('DOM.focus'),false,
   'do not send an observable focus command when there is no possible before/after transition');
 });
+
+test('FR-024 revoked scan during CDP preparation cannot dispatch an observable focus',async()=>{
+ const socket=new FocusSocket();
+ let checks=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,confirm:async()=>frame,timeoutMs:2000,
+  socketFactory:()=>socket,
+  assertAuthorizedBeforeAction:()=>{
+   checks++;
+   throw new Error('Trusted scan authorization revoked before DOM.focus');
+  },
+ }),/revoked/i);
+ assert.equal(checks,1,'the privileged authorization was actually checked at the action boundary');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'revocation must be checked before the potentially observable browser action');
+});
+
+test('FR-024 production Main connects final focus authorization to current scan and source root',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:approved-control-focus'");
+ const end=main.indexOf("ipcMain.handle('usshm:product-action-review'",start);
+ assert.ok(start>=0&&end>start);
+ const body=main.slice(start,end);
+ const callback=body.indexOf('assertAuthorizedBeforeAction:');
+ const action=body.indexOf('runApprovedControlFocus(');
+ assert.ok(action>=0&&callback>action,
+  'only trusted Main may provide the just-in-time focus authorization');
+ const guard=body.slice(callback);
+ assert.match(guard,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(guard,/withinAuthorized\(item\.path\)/);
+});
