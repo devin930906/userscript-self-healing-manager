@@ -280,7 +280,8 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
    // Runtime.evaluate returnByValue receipts are serialized strings only.
    // Reject objects, booleans and numbers instead of treating them as a
    // transient manager-unavailable response for sixteen retries.
-   if(typeof valueField.value!=='string')
+   if(valueField.value!==null&&valueField.value!==undefined&&
+      typeof valueField.value!=='string')
     throw new Error('Isolated manager injector CDP evaluation failed');
    return valueField.value;
   }catch{
