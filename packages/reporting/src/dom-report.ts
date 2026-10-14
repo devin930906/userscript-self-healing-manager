@@ -66,16 +66,19 @@ export function serializeDomBatchReport(
    throw new Error('Unsupported V1 failed verification claim');
   if(v.V1==='skipped'&&row.status!=='out-of-scope'&&row.status!=='skipped')
    throw new Error('Unsupported V1 skipped verification claim');
+  // The private scriptId authenticates Main's scan-session evidence, but is
+  // NOT part of the external report. Index + basename are enough to review
+  // a row without leaking an opaque ID, account name or token.
   // Do not serialize evidence reason strings or private absolute directories:
   // CDP errors and source paths can contain credentials or personal details.
   const name=row.path.replace(/\\/g,'/').split('/').at(-1)??'';
   if(!name||name.length>255)throw new Error('Invalid script basename');
-  return {index:row.index,name,scriptId:row.scriptId,status:row.status,
+  return {index:row.index,name,status:row.status,
    checked:row.checked,found:row.found,missing:row.missing,needsReview:row.needsReview,
    verification:{V0:v.V0,V1:v.V1,V2:'blocked',V3:'not-configured',V4:'not-configured',
     functionalVerified:false,managerVerified:false}};
  });
- const dto={schemaVersion:1,scanMode:'dom-only',createdAt,pageOrigin:url.origin,
+ const dto={schemaVersion:2,scanMode:'dom-only',createdAt,pageOrigin:url.origin,
   processedCount:entries.length,items:entries,
   disclaimer:'Read-only DOM evidence only. No userscript, GM API or business functionality verified.'};
  if(format==='json')return JSON.stringify(dto,null,2)+'\n';

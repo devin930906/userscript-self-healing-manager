@@ -18,7 +18,7 @@ const sample:BatchDomResult={
 test('DOM report JSON preserves statuses but redacts URLs, internal tokens, private paths and raw DOM reasons',()=>{
  const json=serializeDomBatchReport(sample,'json','2026-10-09T06:30:00.000Z');
  const dto=JSON.parse(json);
- assert.equal(dto.schemaVersion,1);
+ assert.equal(dto.schemaVersion,2);
  assert.equal(dto.scanMode,'dom-only');
  assert.equal(dto.pageOrigin,'https://example.org');
  assert.equal(dto.items[0].name,'example.user.js');
