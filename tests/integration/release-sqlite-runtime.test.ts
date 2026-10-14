@@ -230,3 +230,24 @@ test('release SQLite verification accepts independent Unicode and space-containi
   assert.equal((result.stdout.match(/integrity_check and foreign_key_check PASS:/g)||[]).length,6);
  });
 });
+
+test('release SQLite verification preserves databases at Unicode and spaced paths',()=>{
+ withReleaseDatabases(roots=>{
+  const names=['安装版 数据','便携 版本','ZIP 解压版'];
+  const relocated=roots.map((root,i)=>join(root,names[i]));
+  for(let i=0;i<roots.length;i++){
+   mkdirSync(relocated[i]);
+   for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+    const original=join(roots[i],name);
+    writeFileSync(join(relocated[i],name),readFileSync(original));
+    unlinkSync(original);
+   }
+  }
+  const files=relocated.flatMap(root=>['registry.sqlite','diagnosis-journal.sqlite'].map(name=>join(root,name)));
+  const digest=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
+  const before=files.map(digest);
+  const result=verify(relocated);
+  assert.equal(result.status,0,result.stderr);
+  assert.deepEqual(files.map(digest),before);
+ });
+});
