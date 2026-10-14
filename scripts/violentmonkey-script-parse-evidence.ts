@@ -56,6 +56,7 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
  const sources=new Map<string,{kind:'web'|'injected';contextId:number}>();
  let web=false,injected=false,unattributed=false;
  let injectedClass:'not-observed'|'unknown'|'mixed'|'TypeError'|'ReferenceError'|'SyntaxError'|'RangeError'|'Error'='not-observed';
+ let injectedSignature:'not-observed'|'missing-injection-data-info'|'other-type-error'|'unknown'|'mixed'='not-observed';
  return Object.freeze({
   observe(method:string,params:unknown):void{
    if(method==='Runtime.executionContextsCleared'){
@@ -121,10 +122,29 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
       ?cls as typeof injectedClass:'unknown';
      injectedClass=injectedClass==='not-observed'?next:
       injectedClass===next?injectedClass:'mixed';
+     // Only an exception that CDP attributes to the exact official
+     // injected.js asset in the pinned disposable frame may be classified.
+     // Compare fixed upstream source's data.info nullish-failure prefix
+     // locally; neither the description nor any tail/stack is exported.
+     const description=exception&&typeof exception==='object'&&!Array.isArray(exception)
+      ?(exception as {description?:unknown}).description:undefined;
+     const signatures=[
+      "TypeError: Cannot read properties of undefined (reading 'info')",
+      "TypeError: Cannot read properties of null (reading 'info')",
+     ];
+     const missingData=next==='TypeError'&&typeof description==='string'&&
+      description.length<=4096&&signatures.some(prefix=>
+       description===prefix||description.startsWith(prefix+'\\n')||
+       description.startsWith(prefix+'\n'));
+     const nextSignature:typeof injectedSignature=next!=='TypeError'?'unknown':
+      missingData?'missing-injection-data-info':'other-type-error';
+     injectedSignature=injectedSignature==='not-observed'?nextSignature:
+      injectedSignature===nextSignature?injectedSignature:'mixed';
     }
    }else unattributed=true;
   },
   injectedExceptionClass():string{return injectedClass;},
+  injectedFailureSignature():string{return injectedSignature;},
   snapshot():Readonly<{
    injectedWebExceptionObserved:boolean;
    injectedExceptionObserved:boolean;
