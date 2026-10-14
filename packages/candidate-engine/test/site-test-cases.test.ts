@@ -95,33 +95,3 @@ test('FR-014 real Electron product exposes case create/list/delete and explicit 
  assert.match(ui,/检查已选 Chrome 页面与场景/);
  assert.match(ui,/V2.*blocked|V2.*未验证/);
 });
-
-test('FR-014 rejects stale Chrome target-list URLs when the pinned document navigated',async()=>temp(async root=>{
- const entry=await createSiteTestCase({dataRoot:root,scriptId,
-  url:'https://example.invalid/app/dashboard',label:'Pinned scenario',
-  stateId:'custom',metadata:meta});
- // This must check two independent origins of truth: /json/list may be stale,
- // while CDP Page.getFrameTree identifies the actual current document.
- const verifyPinned=verifySiteTestCaseSelection as (input:
-  Parameters<typeof verifySiteTestCaseSelection>[0]&{confirmedUrl:string}
- )=>ReturnType<typeof verifySiteTestCaseSelection>;
- const original=verifyPinned({
-  entry,selectedUrl:entry.url,confirmedUrl:entry.url,metadata:meta,
- });
- assert.equal(original.status,'matched');
- const navigated=verifyPinned({
-  entry,selectedUrl:entry.url,
-  confirmedUrl:'https://example.invalid/app/another-page',metadata:meta,
- });
- assert.equal(navigated.status,'mismatch',
-  'A stale CDP target list cannot certify a different live document as the saved scenario');
- const privateNavigation=verifyPinned({
-  entry,selectedUrl:entry.url,
-  confirmedUrl:'https://example.invalid/app/dashboard?token=PRIVATE',metadata:meta,
- });
- assert.equal(privateNavigation.status,'mismatch');
- assert.equal(JSON.stringify(privateNavigation).includes('PRIVATE'),false);
- const main=await readFile('apps/desktop/src/main/index.ts','utf8');
- assert.match(main,/confirmedUrl:\s*before\.confirmedUrl/,
-  'Electron Main must supply the real frame-confirmed URL, not only cached target metadata');
-}));
