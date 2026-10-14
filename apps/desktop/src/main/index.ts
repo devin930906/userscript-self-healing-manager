@@ -1101,7 +1101,7 @@ async function bootstrap():Promise<void>{
    const info=await lstat(row.sourcePath);
    if(!info.isFile()||info.isSymbolicLink())
     throw new Error('Unsafe original script; rescan required');
-   const bytes=await readPinnedRegularFile(row.sourcePath,{maxBytes:512*1024,expected:info,expectedNative:await lstat(row.sourcePath,{bigint:true}),expectedSha256:row.sourceHash})};
+   const bytes=await readPinnedRegularFile(row.sourcePath,{maxBytes:512*1024,expected:info,expectedNative:await lstat(row.sourcePath,{bigint:true}),expectedSha256:row.sourceHash});
    if(createHash('sha256').update(bytes).digest('hex')!==row.sourceHash)
     throw new Error('Original script changed since approved scan');
    pendingApprovals.require(row.proposalId,scanSnapshot.scanId);
@@ -1162,7 +1162,7 @@ async function bootstrap():Promise<void>{
    throw new Error('Batch revision approval is stale or unrelated');
   const info=await lstat(item.path);
   if(!info.isFile()||info.isSymbolicLink())throw new Error('Unsafe batch source');
-  const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256})};
+  const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256});
   if(createHash('sha256').update(bytes).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Original script changed since the scan');
   scanSessions.assertCurrent(scanSnapshot);
@@ -1216,7 +1216,7 @@ async function bootstrap():Promise<void>{
    throw new Error('Unrelated or stale approved batch repair');
   const info=await lstat(item.path);
   if(!info.isFile()||info.isSymbolicLink())throw new Error('Unsafe original source');
-  const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256})};
+  const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256});
   if(createHash('sha256').update(source).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Original source changed after batch approval');
   const chrome=await getVerifiedChromeStatus({port:9223});
@@ -1330,7 +1330,7 @@ async function bootstrap():Promise<void>{
   const sourceInfo=await lstat(item.path);
   if(!sourceInfo.isFile()||sourceInfo.isSymbolicLink())
    throw new Error('Unsafe source file; rescan required');
-  const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256})};
+  const source=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:sourceInfo,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256});
   if(createHash('sha256').update(source).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Source script changed; rescan before approved repair');
   const status=await getVerifiedChromeStatus({port:9223});
@@ -1372,7 +1372,7 @@ async function bootstrap():Promise<void>{
       if(!withinAuthorized(item.path))return false;
       const info=await lstat(item.path);
       if(!info.isFile()||info.isSymbolicLink())return false;
-      const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256})};
+      const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256});
       if(createHash('sha256').update(bytes).digest('hex')!==item.analysis!.sourceSha256)return false;
       assertStablePageDocument(documentBefore,await confirmPageIdentity(selected));
       pendingApprovals.require(proposalId,scanSnapshot.scanId);
@@ -1504,7 +1504,7 @@ async function bootstrap():Promise<void>{
   const originalInfo=await lstat(item.path);
   if(!originalInfo.isFile()||originalInfo.isSymbolicLink())
    throw new Error('Original source changed into an unsafe file; rescan required');
-  const originalBytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:originalInfo,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256})};
+  const originalBytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:originalInfo,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis!.sourceSha256});
   if(createHash('sha256').update(originalBytes).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Original source hash changed; do not trust a stale managed V1 test');
   scanSessions.assertCurrent(scanSnapshot);
