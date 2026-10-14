@@ -235,9 +235,9 @@ jobs:
             (Join-Path $env:RUNNER_TEMP 'usshm-verified-zip/Data'),
             (Join-Path $env:RUNNER_TEMP 'usshm-portable-exe-smoke/Data')
           )
-          $installedData = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'usshm-installed-appdata-smoke') -Filter 'registry.sqlite' -Recurse -File -ErrorAction Stop | Select-Object -First 1
-          if (!$installedData) { throw 'Installed SQLite registry missing for signature inspection' }
-          $roots += (Split-Path -Parent $installedData.FullName)
+          $installedData = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'usshm-installed-appdata-smoke') -Filter 'registry.sqlite' -Recurse -File -ErrorAction Stop)
+          if ($installedData.Count -ne 1) { throw 'Expected exactly one installed SQLite registry for signature inspection' }
+          $roots += (Split-Path -Parent $installedData[0].FullName)
           foreach ($root in $roots) {
             foreach ($name in @('registry.sqlite', 'diagnosis-journal.sqlite')) {
               $db = Join-Path $root $name
