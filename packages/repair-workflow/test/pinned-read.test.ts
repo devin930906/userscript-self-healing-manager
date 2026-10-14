@@ -204,3 +204,21 @@ test('RG-06 rejects malformed native hardlink count before reading a pinned sour
   maxBytes:512*1024,expected:numeric,expectedNative:native,
  }),original);
 }));
+
+test('RG-06 rejects malformed precise native snapshots missing regular-file identity methods',async()=>fixture(async dir=>{
+ const path=join(dir,'malformed-methods.user.js');
+ const original=Buffer.from('SYNTHETIC_METHODS');
+ await writeFile(path,original);
+ const numeric=await lstat(path),native=await lstat(path,{bigint:true});
+ for(const field of ['isFile','isSymbolicLink'] as const){
+  const invalid=Object.create(native) as typeof native;
+  Object.defineProperty(invalid,field,{value:undefined});
+  await assert.rejects(readPinnedRegularFile(path,{
+   maxBytes:512*1024,expected:numeric,expectedNative:invalid,
+  }),/precise|identity|snapshot/i);
+  assert.deepEqual(await readFile(path),original);
+ }
+ assert.deepEqual(await readPinnedRegularFile(path,{
+  maxBytes:512*1024,expected:numeric,expectedNative:native,
+ }),original);
+}));
