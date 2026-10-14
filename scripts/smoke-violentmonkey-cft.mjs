@@ -22,6 +22,7 @@ import {
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
+ buildViolentmonkeyManagerInjectionOptionsExpression,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -178,6 +179,35 @@ async function readManagerPreflight(cdp,hasExited){
  return {found:receipt.found};
 }
 
+/**
+ * RG-05 read-only official SW option receipt, before and after restart.
+ * A retained script is insufficient if its global injection mode differs.
+ */
+async function readManagerInjectionOptions(cdp,hasExited){
+ if(hasExited())throw new Error('RG-05 isolated Chrome exited before official manager options inspection');
+ let value;
+ try{
+  const result=await cdp.send('Runtime.evaluate',{
+   expression:buildViolentmonkeyManagerInjectionOptionsExpression(),
+   awaitPromise:true,returnByValue:true,
+  });
+  if(result.exceptionDetails||result.result?.exceptionDetails)
+   throw new Error('unexpected evaluation');
+  value=result.result?.value;
+ }catch{throw new Error('RG-05 official manager injection options inspection failed');}
+ if(typeof value!=='string'||value.length>160)
+  throw new Error('RG-05 official manager injection options receipt invalid');
+ let parsed;
+ try{parsed=JSON.parse(value);}catch{throw new Error('RG-05 official manager injection options receipt invalid');}
+ if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
+    Object.keys(parsed).sort().join(',')!=='applied,fastInject,xhrInject'||
+    !Object.values(parsed).every(v=>typeof v==='boolean'))
+  throw new Error('RG-05 official manager injection options receipt invalid');
+ if(!parsed.applied)throw new Error('RG-05 official manager injection disabled');
+ if(hasExited())throw new Error('RG-05 isolated Chrome exited during official manager options inspection');
+ return parsed;
+}
+
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -272,6 +302,7 @@ try{
   onStatus:stage=>console.log('Isolated official Violentmonkey readiness: '+stage),
  });
  console.log('PASS isolated official Violentmonkey base injector registration.');
+ const beforeRestartOptions=await readManagerInjectionOptions(optionsCdp,()=>exited);
  const preflightReceipt=await readManagerPreflight(optionsCdp,()=>exited);
  if(preflightReceipt.found!==false)
   throw new Error('Fixed synthetic userscript already existed or could not be checked in the disposable profile');
@@ -439,6 +470,10 @@ try{
  if(!resumedManagers.observed.includes('violentmonkey')||
     resumedManagers.V4!=='not-configured'||resumedManagers.managerVerified!==false)
   throw new Error('Official manager target missing after process restart');
+ const afterRestartOptions=await readManagerInjectionOptions(optionsCdp,()=>exited);
+ if(JSON.stringify(afterRestartOptions)!==JSON.stringify(beforeRestartOptions))
+  throw new Error('RG-05 official manager options differ after restart');
+ console.log('RG-05 official manager injection options retained after process restart (bounded booleans).');
  const createdRestartFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
  if(typeof createdRestartFixture.targetId!=='string'||!createdRestartFixture.targetId)
   throw new Error('Restarted Chrome could not create isolated fixture');

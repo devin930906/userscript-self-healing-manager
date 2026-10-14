@@ -186,7 +186,7 @@ export async function readViolentmonkeyFixtureObservation(input:{
  * one boolean before the CDP caller receives any response.
  */
 function buildViolentmonkeyManagerCommandExpression(
- command:'GetData'|'ParseScript'|'GetInjectorError',data:Record<string,unknown>,requestId:number,responseCode:string,
+ command:'GetData'|'ParseScript'|'GetInjectorError'|'GetAllOptions',data:Record<string,unknown>,requestId:number,responseCode:string,
 ):string{
  const serializedData=JSON.stringify(data);
  if(!Number.isSafeInteger(requestId)||!serializedData||serializedData.length>16_384)
@@ -350,6 +350,19 @@ export function buildViolentmonkeyInjectorProbeExpression():string{
    return JSON.stringify({ready:!!ready});
   }catch{return JSON.stringify({ready:false});}
  })()`;
+}
+
+/**
+ * TEST ONLY: read three official manager injection option flags after MV3
+ * service-worker initialization. Return a bounded boolean DTO, never
+ * serialize the full options object or script inventory over CDP.
+ */
+export function buildViolentmonkeyManagerInjectionOptionsExpression():string{
+ return buildViolentmonkeyManagerCommandExpression('GetAllOptions',{},0x7ffffffa,`
+  const applied=value?.isApplied===true;
+  const fastInject=value?.ffInject===true;
+  const xhrInject=value?.xhrInject===true;
+  finish(JSON.stringify({applied,fastInject,xhrInject}));`);
 }
 
 /**
