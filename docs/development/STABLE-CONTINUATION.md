@@ -6,6 +6,15 @@
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
+## 2026-10-14 · FR-014 测试页面场景任务分支索引（未合并、NOT STABLE）
+
+- **指定主开发分支基线**：本条提交前 `feat/v01-continuation` HEAD `9c54fbf4789f2443e638a2b90b0d10848c59c2c3`；历史 `v01-worklog.md` 不变。此为主分支**续接索引**，不意味着完成代码已整合。
+- **本轮真实产品开发**：[Draft PR #271](https://github.com/devin930906/userscript-self-healing-manager/pull/271) 源分支 `feat/fr014-persistent-site-test-cases`，最终经验证 HEAD `3e2a97a52c130e168f3afc49280bc4cdae0f7ae5`；完成 FR-014 部分实际桌面功能（每脚本多个已批准 URL／声明页面状态，本地版本化设置、脚本 scope 绑定、Main/Preload/React 操作、当前 Chrome CDP 页面精确只读匹配与显式删除确认）。明确未执行用户脚本、不自动导航，页面状态非验证。
+- **实际 TDD/CI**：RED `261f0a53` 的 [Continuation #38555743030](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38555743030) Ubuntu Job 观察到模块缺失失败（workflow 后续被取消）。最终准确 PR SHA `3e2a97a5` 的 [Continuation #38557083024](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38557083024) Windows/Ubuntu **SUCCESS**；[Windows contracts #38557082934](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38557082934) **SUCCESS**（installer skipped）；[Development #38557082942](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38557082942) 全量 `verify` **SUCCESS**，真实官方 VM Chrome restart GM 注入任务 **FAIL**，故工作流整体 FAIL。详细测试／安全边界及缺失项记录在 PR #271 及其分支的 `docs/quality/p0-evidence-ledger.md`。
+- **尚未整合**：PR #271 **DRAFT / OPEN**，不可将其源码视为此主分支已实现。并行 [RG-06 PR #269](https://github.com/devin930906/userscript-self-healing-manager/pull/269) 与 [RG-07 PR #270](https://github.com/devin930906/userscript-self-healing-manager/pull/270) 同样为 Draft；在必要检查／独立评审符合仓库要求前不合并。RG-01～RG-09 **全部 OPEN**，FR-014 PARTIAL，V2 blocked、V3/V4 not-configured。新增 `site-test-cases.json` 仍缺完整恢复迁移覆盖；真正 Win10/11 三安装形态／GM 管理器／供应链独立验收仍缺。
+- **下轮直接任务**：先读主分支最新 HEAD 和 CI、PR #269/#270/#271 实际状态，检查 RG-05 Issue [#141](https://github.com/devin930906/userscript-self-healing-manager/issues/141)；官方稳定 Violentmonkey v2.49.0 仍重启注入缺收据，最新 v2.49.5 为 Beta 且没有可据以确认修复该问题的发行说明，禁止因 Beta 名称或普通 verify 绿色而宣称 RG-05 通过。随后复核、审查并在仓库全部必需门槛满足时整合实质 P0 PR，再推进 FR-024/025 产品 V2/V3、RG-06 native Win32 FileIdInfo、真机 Windows10/11 独立安全和三形态生命周期。此文档提交会生成更新 HEAD，必须对其自身 CI 单独核对，不将上列 PR SHA 的绿色检查冒充当前主分支 CI。
+
+
 ## 本轮实际修改与证据
 
 - 基线：`88c74a8153d60fea0c0d3819f407dafd3d63b4bc`。原有 `apps/desktop/tests/trusted-drop.test.ts` 错误地断言 Windows 发行工作流不得有开发分支 `push` 触发；实际 `.github/workflows/windows-build.yml` 已允许 `push` 和 PR 运行**无安装包**的发行合同任务，独立安装包任务仍仅在手动派发且校验最终 tag 后执行。
