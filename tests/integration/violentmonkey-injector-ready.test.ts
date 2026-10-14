@@ -440,3 +440,14 @@ test('RG-05 refuses array-shaped CDP response/result carrying forged ready',asyn
   assert.equal(sends,1);
  }
 });
+
+test('RG-05 rejects non-string CDP readiness values instead of coercing forged objects',async()=>{
+ for(const value of [{toString:()=>JSON.stringify({ready:true})},[JSON.stringify({ready:true})],true,42]){
+  let calls=0;
+  await assert.rejects(api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return {result:{value}};},
+   hasExited:()=>false,delay:async()=>{},
+  }),/CDP evaluation failed/);
+  assert.equal(calls,1,'malformed CDP value must fail before polling');
+ }
+});
