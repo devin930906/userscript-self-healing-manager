@@ -49,11 +49,12 @@ test('FR-024 actual approved focus uses only DOM CDP and proves the same button 
  assert.equal(result.managerVerified,false);
  assert.deepEqual(socket.methods,[
   'DOM.getDocument','DOM.querySelectorAll','DOM.describeNode','DOM.getAttributes',
-  'DOM.querySelectorAll','DOM.getAttributes','DOM.focus','DOM.querySelectorAll',
+  'DOM.querySelectorAll','DOM.getAttributes','DOM.querySelectorAll','DOM.focus','DOM.querySelectorAll',
  ]);
  assert.equal(socket.inputs[4].selector,'#safe-focus');
- assert.equal(socket.inputs[6].nodeId,42);
- assert.equal(socket.inputs[7].selector,':focus');
+ assert.equal(socket.inputs[6].selector,':focus');
+ assert.equal(socket.inputs[7].nodeId,42);
+ assert.equal(socket.inputs[8].selector,':focus');
  assert.equal(socket.methods.some(x=>x.startsWith('Runtime.')||x.startsWith('Input.')),false);
 });
 test('FR-024 missing actual focus is inconclusive and never a false V2 result',async()=>{
