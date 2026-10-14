@@ -134,6 +134,15 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,s
    throw error('Button type or disabled state blocks approved focus');
   if(await unique(css)!==node)
    throw error('Approved button changed before focus');
+  // A handler, live page update, or accessibility mutation can turn a
+  // previously ordinary button into a submit/disabled control between
+  // inspection and focus. Re-read the same node's attributes at the
+  // final action boundary and refuse any changed snapshot.
+  const finalAttributes=(await send('DOM.getAttributes',{nodeId:node})).attributes;
+  if(!Array.isArray(finalAttributes)||
+     finalAttributes.length!==attributes.length||
+     finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
+   throw error('Approved button attributes changed before focus');
   await guard();
   // No fallback or retry after this potentially observable operation.
   await send('DOM.focus',{nodeId:node});
