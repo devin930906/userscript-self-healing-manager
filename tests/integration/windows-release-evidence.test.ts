@@ -188,3 +188,15 @@ test('tag-only NSIS Setup smoke refuses a stale install destination',async()=>{
  assert.ok(fresh>=0&&install>fresh,'Stale directory must be rejected before invoking Setup');
  assert.match(smoke,/if \(Test-Path -LiteralPath \$root\)/);
 });
+
+test('tag-only extracted ZIP startup refuses prepopulated Data before launching',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check unpacked Windows executable');
+ const end=workflow.indexOf('Smoke-check single-file Portable EXE');
+ assert.ok(start>=0&&end>start);
+ const smoke=workflow.slice(start,end);
+ const guard=smoke.indexOf('ZIP smoke found pre-existing Data in extracted release');
+ const launch=smoke.indexOf('Start-Process -FilePath $exe');
+ assert.ok(guard>=0&&launch>guard,'Reject pre-existing ZIP Data before launching');
+ assert.match(smoke,/Test-Path -LiteralPath \(Join-Path \$root 'Data'\)/);
+});
