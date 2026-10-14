@@ -116,10 +116,11 @@ jobs:
             $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
             $ok = $false
             for ($i = 0; $i -lt 30; $i++) {
-              if (Test-Path $db) { $ok = $true; break }
+              if ($proc.HasExited) { throw "Portable EXE exited before database initialization: $($proc.ExitCode)" }
+              if ((Test-Path -LiteralPath $db) -and (Get-Item -LiteralPath $db).Length -gt 0) { $ok = $true; break }
               Start-Sleep -Seconds 1
             }
-            if (!$ok) { throw 'Portable single-file EXE did not initialize adjacent Data/registry.sqlite' }
+            if (!$ok) { throw 'Portable single-file EXE did not initialize nonempty adjacent Data/registry.sqlite' }
             Write-Host 'Smoke PASS: Portable EXE initialized data beside external EXE'
           } finally {
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
