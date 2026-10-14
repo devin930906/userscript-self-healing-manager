@@ -204,11 +204,6 @@ export async function stageCoreRecoveryForOfflineReview({
    }
   }finally{db.close();}
  }
- // If a source file changed during copying, its manifest audit must no longer
- // be trusted. Do not mark a partial or moving snapshot as complete.
- await verifyCoreRecoveryBundle({snapshotDirectory:source});
- if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
-  throw new Error('Source recovery manifest changed while staging');
  if(beforeFinalMarker){
   if(typeof beforeFinalMarker!=='function')
    throw new Error('Invalid offline recovery fault-injection dependency');
@@ -239,6 +234,16 @@ export async function stageCoreRecoveryForOfflineReview({
   for(const item of files)
    await assertStagedCopy(join(target,...item.path.split('/')),item);
  }
+ // The fault hook and all staged-file audits may run AFTER the earlier
+ // source check. Revalidate the ORIGINAL backup as the last read-only fence
+ // before publishing a stage completion marker, so a concurrent late
+ // mutation of the source cannot be blessed by a previously valid digest.
+ // This still does not promise atomicity across unrelated processes.
+ // If a source file changed during copying, its manifest audit must no longer
+ // be trusted. Do not mark a partial or moving snapshot as complete.
+ await verifyCoreRecoveryBundle({snapshotDirectory:source});
+ if(digest(await readBoundedManifest(join(source,'manifest.json')))!==sourceManifestSha256)
+  throw new Error('Source recovery manifest changed while staging');
  const record={
   kind:'usshm-core-offline-stage-v1',
   activated:false,
