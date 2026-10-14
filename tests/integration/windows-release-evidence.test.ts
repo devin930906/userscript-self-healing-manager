@@ -128,3 +128,15 @@ test('tag-only NSIS uninstall smoke must remove executable but retain installed 
  assert.match(smoke,/journalHashAfterUninstall -ne \$journalHashBeforeUninstall/);
  assert.match(smoke,/uninstall removed application and retained user SQLite data/);
 });
+
+test('tag-only Portable EXE smoke requires a live process and a nonempty SQLite registry',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check single-file Portable EXE');
+ const end=workflow.indexOf('Smoke-check NSIS Setup installer');
+ assert.ok(start>=0&&end>start);
+ const smoke=workflow.slice(start,end);
+ assert.match(smoke,/\$proc\.HasExited/);
+ assert.match(smoke,/Get-Item -LiteralPath \$db/);
+ assert.match(smoke,/\.Length -gt 0/);
+ assert.match(smoke,/Portable EXE exited before database initialization/);
+});
