@@ -115,7 +115,8 @@ jobs:
           $portable = Get-ChildItem release -File -Filter '*-Portable-*.exe' | Select-Object -First 1
           if (!$portable) { throw 'Missing Portable.exe' }
           $root = Join-Path $env:RUNNER_TEMP 'usshm-portable-exe-smoke'
-          New-Item -Path $root -ItemType Directory -Force | Out-Null
+          if (Test-Path -LiteralPath $root) { throw 'Portable EXE smoke requires a fresh directory without prior Data' }
+          New-Item -Path $root -ItemType Directory | Out-Null
           $exe = Join-Path $root $portable.Name
           Copy-Item $portable.FullName $exe -Force
           $db = Join-Path $root 'Data/registry.sqlite'
