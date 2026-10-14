@@ -109,6 +109,9 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
   await ready;
   const root=Number((await send('DOM.getDocument',{depth:0,pierce:false})).root?.nodeId);
   if(!Number.isSafeInteger(root)||root<1)throw error('Invalid DOM document for focus');
+  // Style inspection is read-only. Failure to obtain computed visibility is
+  // NOT permission to focus an invisible or layout-less control.
+  await send('CSS.enable');
   const unique=async(selector:string)=>{
    const nodes=(await send('DOM.querySelectorAll',{nodeId:root,selector})).nodeIds;
    if(!Array.isArray(nodes)||nodes.length!==1||!Number.isSafeInteger(nodes[0])||nodes[0]<1)
@@ -130,10 +133,46 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
     throw error('Invalid approved button attributes');
    attrs.set(attributes[i].toLowerCase(),attributes[i+1]);
   }
-  if(attrs.get('type')!=='button'||attrs.has('disabled')||attrs.has('inert')||
+  if(attrs.get('type')!=='button'||attrs.has('disabled')||attrs.has('inert')||attrs.has('hidden')||
      (attrs.has('aria-disabled')&&attrs.get('aria-disabled')!=='false')||
      (attrs.has('aria-hidden')&&attrs.get('aria-hidden')!=='false'))
    throw error('Button type or disabled state blocks approved focus');
+  // A button can be syntactically safe and uniquely addressed but not even
+  // rendered (display:none, visibility:hidden, opacity:0 or zero layout).
+  // DOM.focus is still observable and may trigger page listeners. Require
+  // computed style and real geometry before an explicitly approved action;
+  // this does NOT prove unobscured viewport visibility or named functionality.
+  const rendered=async()=>{
+   const values=(await send('CSS.getComputedStyleForNode',{nodeId:node})).computedStyle;
+   if(!Array.isArray(values)||values.length<1||values.length>500)
+    throw error('Unverified computed focus visibility');
+   const wanted=new Set(['display','visibility','opacity','content-visibility']);
+   const selected=new Map<string,string>();
+   for(const value of values){
+    if(!value||typeof value!=='object'||typeof value.name!=='string'||
+       typeof value.value!=='string'||value.value.length>128)continue;
+    if(wanted.has(value.name)){
+     if(selected.has(value.name))throw error('Ambiguous computed focus visibility');
+     selected.set(value.name,value.value);
+    }
+   }
+   const opacity=Number(selected.get('opacity'));
+   if(!selected.has('display')||selected.get('display')==='none'||
+      selected.get('visibility')!=='visible'||
+      !selected.has('opacity')||!Number.isFinite(opacity)||opacity<=0||
+      selected.get('content-visibility')==='hidden')
+    throw error('Invisible approved button cannot receive focus');
+   const box=(await send('DOM.getBoxModel',{nodeId:node})).model;
+   if(!box||typeof box!=='object'||
+      ![box.width,box.height].every(v=>typeof v==='number'&&Number.isFinite(v)&&v>0&&v<=100000))
+    throw error('Approved focus control has no safe rendered layout');
+   return JSON.stringify({
+    display:selected.get('display'),visibility:selected.get('visibility'),
+    opacity:selected.get('opacity'),contentVisibility:selected.get('content-visibility')??'visible',
+    width:box.width,height:box.height,
+   });
+  };
+  const beforeRendered=await rendered();
   if(await unique(css)!==node)
    throw error('Approved button changed before focus');
   // A handler, live page update, or accessibility mutation can turn a
@@ -145,6 +184,8 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
      finalAttributes.length!==attributes.length||
      finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
    throw error('Approved button attributes changed before focus');
+  if(await rendered()!==beforeRendered)
+   throw error('Approved focus visibility changed before action');
   // A post-focus :focus match is not evidence of a new interaction if this
   // button was already focused before the consented command. Preserve that
   // distinction even in a page that changes focus without our action.
