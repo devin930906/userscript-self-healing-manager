@@ -58,3 +58,10 @@ test('CI requires all three test roots to contribute files',async()=>{
  assert.match(runner,/if\(!packageTests\.length\|\|!appTests\.length\|\|!integrationTests\.length\)/);
  assert.match(runner,/Missing test files in a required test root/);
 });
+
+test('CI test discovery rejects symlinked tests instead of silently skipping them',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const runner=readFileSync('scripts/test.mjs','utf8');
+ assert.match(runner,/entry\.isSymbolicLink\(\)/);
+ assert.match(runner,/Symbolic link in test discovery tree/);
+});
