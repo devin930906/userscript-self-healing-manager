@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync,unlinkSync,symlinkSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync,unlinkSync,symlinkSync,linkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -115,5 +115,17 @@ test('Windows release SQLite verifier rejects a directory alias',()=>{
   const result=verify([roots[0],roots[1],join(roots[0],'..','setup')]);
   assert.notEqual(result.status,0);
   assert.match(result.stderr,/Windows edition data roots must be distinct/);
+ });
+});
+
+test('Windows release SQLite verifier refuses hardlinked database evidence across editions',()=>{
+ withReleaseDatabases(roots=>{
+  const target=join(roots[0],'registry.sqlite');
+  const alias=join(roots[1],'registry.sqlite');
+  unlinkSync(alias);
+  linkSync(target,alias);
+  const result=verify(roots);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Windows release databases must be independent files/);
  });
 });
