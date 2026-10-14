@@ -45,10 +45,10 @@ test('RG-07 DOM batch diagnosis never puts the full local userscript path in the
  const end=source.indexOf('</section>',start);
  assert.ok(end>start,'batch diagnosis section must have a bounded render subtree');
  const batch=source.slice(start,end);
- assert.doesNotMatch(batch,/title=\\{row\\.path\\}/,
+ assert.equal(batch.includes('title={row.path}'),false,
   'hovering over a batch result must not disclose its full absolute script path');
- assert.doesNotMatch(batch,/\\{row\\.path\\}/,
+ assert.equal(batch.includes('{row.path}'),false,
   'batch diagnosis cells must render a filename only, not an absolute path');
- assert.match(batch,/nameOf\\(row\\.path\\)/,
-  'keep the useful safe basename label without a full-path hover attribute');
+ assert.ok(batch.includes('nameOf(row.path)'),
+  'keep the useful filename-only label without a full-path hover attribute');
 });
