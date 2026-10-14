@@ -263,3 +263,19 @@ test('tag-only NSIS uninstall waits briefly for installed executable removal',as
  assert.match(block,/if \(!\(Test-Path -LiteralPath \$installed\)\) \{ \$uninstallCleared = \$true; break \}/);
  assert.match(block,/if \(!\$uninstallCleared\)/);
 });
+
+test('final release checks SQLite header signatures for registry and journal of all three editions',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Verify initialized SQLite file signatures across all Windows editions');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ const setup=workflow.indexOf('Smoke-check NSIS Setup installer');
+ assert.ok(start>setup&&end>start);
+ const check=workflow.slice(start,end);
+ assert.match(check,/usshm-verified-zip\/Data/);
+ assert.match(check,/usshm-portable-exe-smoke\/Data/);
+ assert.match(check,/usshm-installed-appdata-smoke/);
+ assert.match(check,/registry\.sqlite/);
+ assert.match(check,/diagnosis-journal\.sqlite/);
+ assert.match(check,/SQLite format 3/);
+ assert.match(check,/Invalid SQLite file signature/);
+});
