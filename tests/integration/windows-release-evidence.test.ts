@@ -251,3 +251,14 @@ test('ZIP and Portable smoke ensure test processes are fully stopped',async()=>{
   assert.match(block,/if \(!\$proc\.HasExited\)/);
  }
 });
+
+test('tag-only NSIS uninstall waits briefly for installed executable removal',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check NSIS Setup installer');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ assert.ok(start>=0&&end>start);
+ const block=workflow.slice(start,end);
+ assert.match(block,/\$uninstallCleared = \$false/);
+ assert.match(block,/if \(!\(Test-Path -LiteralPath \$installed\)\) \{ \$uninstallCleared = \$true; break \}/);
+ assert.match(block,/if \(!\$uninstallCleared\)/);
+});
