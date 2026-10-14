@@ -898,7 +898,7 @@ async function bootstrap():Promise<void>{
   const info=await lstat(item.path);
   if(!info.isFile()||info.isSymbolicLink())
    throw new Error('Unsafe original script: rescan required');
-  const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true})});
+  const bytes=await readPinnedRegularFile(item.path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(item.path,{bigint:true}),expectedSha256:item.analysis.sourceSha256});
   if(createHash('sha256').update(bytes).digest('hex')!==item.analysis.sourceSha256)
    throw new Error('Original batch script changed after scan');
   scanSessions.assertCurrent(scanSnapshot);
