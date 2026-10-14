@@ -130,3 +130,20 @@ export function classifyOfficialViolentmonkeyRestartBlocker(input:
   managerVerified:false,functionalVerified:false,
  });
 }
+
+/**
+ * RG-05 test-only release evidence gate. A registered official manager is
+ * insufficient: immediate GM execution after a NEW Chrome process is required.
+ * The synthetic one-reload fallback remains useful diagnostics, not a pass.
+ * This never upgrades the production application's V4 status.
+ */
+export function assertOfficialViolentmonkeyReleaseGate(
+ status:'fixture-restart-passed'|'fixture-restart-warmup-passed'|'fixture-restart-blocked',
+):void{
+ if(status==='fixture-restart-passed')return;
+ if(status==='fixture-restart-warmup-passed')
+  throw new Error('RG-05 cold-start GM injection needed a fixture reload; official-manager acceptance blocked');
+ if(status==='fixture-restart-blocked')
+  throw new Error('RG-05 cold-start GM injection not observed after Chrome restart; official-manager acceptance blocked');
+ throw new Error('RG-05 invalid official-manager acceptance state');
+}

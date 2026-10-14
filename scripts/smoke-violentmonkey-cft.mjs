@@ -15,7 +15,7 @@ import {
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
-import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker} from './violentmonkey-restart-attestation.ts';
+import {assertOfficialViolentmonkeyProcessRestart,classifyOfficialViolentmonkeyRestartBlocker,assertOfficialViolentmonkeyReleaseGate} from './violentmonkey-restart-attestation.ts';
 import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/manager-targets.ts';
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
@@ -491,6 +491,7 @@ try{
   assert.equal(blocked.status,'fixture-restart-blocked');
   assert.equal(blocked.productionEligible,false);
   console.log('BLOCKED RG-05 official VM 2.49.0 Chrome process restart: installed script and permission retained, but GM injection absent after first visit and one isolated reload. Product V4 not-configured.');
+  assertOfficialViolentmonkeyReleaseGate(blocked.status);
  }else{
   assert.equal(requests.length,3,'cross-process manager test must make exactly one extra GM loopback request');
   assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
@@ -499,10 +500,11 @@ try{
    loopbackRequestsObserved:requests.length,startupWarmup,
   });
   assert.equal(restarted.status,startupWarmup?'fixture-restart-warmup-passed':'fixture-restart-passed');
+  assertOfficialViolentmonkeyReleaseGate(restarted.status);
   console.log('PASS official VM 2.49.0 isolated Chrome process restart: GM 0->1->2->3; cold-start injection '+restarted.coldStartInjection+'. Product V4 not-configured.');
  }
 
- console.log('PASS isolated official Violentmonkey 2.49.0: GM storage persisted across reload, menu command registered and GM_xmlhttpRequest reached loopback. Product V4 remains not-configured; Tampermonkey is not covered.');
+ // Only the exact immediate post-restart receipt above may report PASS.
 }catch(error){
  console.error('FAIL isolated Violentmonkey fixture:',error instanceof Error?error.message:'unknown');
  process.exitCode=1;
