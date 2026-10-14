@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [feat/v01-continuation]
+  push:
+    branches: [feat/v01-continuation]
 concurrency:
   group: usshm-windows-${{ github.ref }}
   cancel-in-progress: true
@@ -10,7 +12,7 @@ permissions:
   contents: read
 jobs:
   release-contracts:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
