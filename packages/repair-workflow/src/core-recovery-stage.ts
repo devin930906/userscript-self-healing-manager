@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
-import {constants,createReadStream} from 'node:fs';
-import {copyFile,lstat,mkdir,readdir,writeFile} from 'node:fs/promises';
+import {constants} from 'node:fs';
+import {copyFile,lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {DatabaseSync} from 'node:sqlite';
@@ -8,7 +8,7 @@ import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/re
 import {assertRegistryV1SnapshotSchema} from '../../persistence/src/index.ts';
 import {assertJournalSchemaSafety} from '../../job-journal/src/index.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
-import {verifyCoreRecoveryBundle} from './core-recovery.ts';
+import {sameCoreRecoveryNativeIdentity,verifyCoreRecoveryBundle} from './core-recovery.ts';
 
 const hex=/^[a-f0-9]{64}$/;
 const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/;
@@ -26,22 +26,30 @@ async function assertStagedCopy(path:string,expected:HashedFile):Promise<void>{
  if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||
     before.size!==BigInt(expected.bytes))
   throw new Error('Unsafe staged offline recovery file type, alias or size');
- const hash=createHash('sha256');
- let copied=0;
- for await(const part of createReadStream(path)){
-  copied+=(part as Buffer).byteLength;
-  if(copied>expected.bytes)throw new Error('Staged recovery exceeded byte budget');
-  hash.update(part);
- }
- const after=await lstat(path,{bigint:true});
- if(!after.isFile()||after.isSymbolicLink()||after.nlink!==1n||
-    before.dev!==after.dev||before.ino!==after.ino||
-    before.size!==after.size||before.birthtimeNs!==after.birthtimeNs||
-    before.mtimeNs!==after.mtimeNs||before.ctimeNs!==after.ctimeNs||
-    before.mode!==after.mode)
-  throw new Error('Staged offline recovery file changed during verification');
- if(copied!==expected.bytes||hash.digest('hex')!==expected.sha256)
-  throw new Error('Staged offline recovery file hash mismatch');
+ // The pathname is an untrusted lookup. The complete hash must come from the
+ // exact descriptor whose native identity was checked, not another open by
+ // createReadStream(path) between two lstat calls. This is still not a Win32
+ // FileIdInfo guarantee or a cross-process filesystem lock.
+ const handle=await open(path,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
+ try{
+  const opened=await handle.stat({bigint:true});
+  if(!sameCoreRecoveryNativeIdentity(before,opened))
+   throw new Error('Staged offline recovery native identity changed before pinned read');
+  const hash=createHash('sha256');
+  let copied=0;
+  for await(const part of handle.createReadStream({autoClose:false})){
+   copied+=(part as Buffer).byteLength;
+   if(copied>expected.bytes)throw new Error('Staged recovery exceeded byte budget');
+   hash.update(part);
+  }
+  const after=await handle.stat({bigint:true});
+  const pathAfter=await lstat(path,{bigint:true});
+  if(!sameCoreRecoveryNativeIdentity(before,after)||
+     !sameCoreRecoveryNativeIdentity(before,pathAfter))
+   throw new Error('Staged offline recovery native identity changed during verification');
+  if(copied!==expected.bytes||hash.digest('hex')!==expected.sha256)
+   throw new Error('Staged offline recovery file hash mismatch');
+ }finally{await handle.close();}
 }
 
 async function readBoundedManifest(path:string):Promise<Buffer>{
