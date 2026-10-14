@@ -24,13 +24,13 @@ test('RG-05 fixed VM bootstrap marker probes only the exact disposable fixture i
   assert.doesNotMatch(params.expression as string,/\beval\(|Function\(|getScriptSource|\.innerHTML|\.cookie|localStorage/);
   ids.push(params.contextId as number);
   return {result:{value:params.contextId===21
-   ?JSON.stringify({readyMarker:true,webBootstrap:false})
-   :JSON.stringify({readyMarker:false,webBootstrap:true})}};
+   ?JSON.stringify({readyMarker:true,webBootstrap:false,officialRuntimeId:true})
+   :JSON.stringify({readyMarker:false,webBootstrap:true,officialRuntimeId:false})}};
  });
  assert.deepEqual(ids,[21,22]);
  assert.deepEqual(receipt,{
   isolatedWorldsObserved:2,worldsChecked:2,
-  readyMarkerObserved:true,webBootstrapObserved:true,observationIncomplete:false,
+  readyMarkerObserved:true,webBootstrapObserved:true,officialRuntimeIdObserved:true,observationIncomplete:false,
  });
  assert.doesNotMatch(JSON.stringify(receipt),/pinned-frame|VMInitInjection|21|22|private/i);
 });
@@ -50,13 +50,13 @@ test('RG-05 marker probe excludes destroyed/cleared worlds and fails closed for 
  assert.deepEqual(seen,[4]);
  assert.deepEqual(result,{
   isolatedWorldsObserved:1,worldsChecked:0,
-  readyMarkerObserved:false,webBootstrapObserved:false,observationIncomplete:true,
+  readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,observationIncomplete:true,
  });
  e.observe('Runtime.executionContextsCleared',{});
  const empty=await e.read(async()=>{throw Error('must not inspect a cleared context');});
  assert.deepEqual(empty,{
   isolatedWorldsObserved:0,worldsChecked:0,
-  readyMarkerObserved:false,webBootstrapObserved:false,observationIncomplete:true,
+  readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,observationIncomplete:true,
  });
  for(const bad of ['', 'x'.repeat(257)])assert.throws(()=>factory(bad),/frame|identity/i);
 });
@@ -80,7 +80,7 @@ test('RG-05 marker sampling is post-GM only and cannot prewarm the cold-start ac
 
 
 test('RG-05 marker never accepts nested CDP exception and error envelopes that also forge a positive boolean',async()=>{
- const positives='{"readyMarker":true,"webBootstrap":true}';
+ const positives='{"readyMarker":true,"webBootstrap":true,"officialRuntimeId":true}';
  for(const payload of [
   {result:{value:positives,exceptionDetails:{text:'PRIVATE_BROWSER_ERROR'}}},
   {result:{value:positives,error:{message:'PRIVATE_BROWSER_ERROR'}}},
@@ -93,8 +93,27 @@ test('RG-05 marker never accepts nested CDP exception and error envelopes that a
   const result=await evidence.read(async()=>payload);
   assert.deepEqual(result,{
    isolatedWorldsObserved:1,worldsChecked:0,
-   readyMarkerObserved:false,webBootstrapObserved:false,observationIncomplete:true,
+   readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,observationIncomplete:true,
   });
   assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BROWSER_ERROR|pinned|23/);
  }
+});
+
+
+test('RG-05 official runtime identity diagnostic is only a pinned boolean with no extension ID disclosure',async()=>{
+ const src=await readFile('scripts/violentmonkey-bootstrap-marker-evidence.ts','utf8');
+ assert.match(src,/chrome\.runtime/);
+ assert.match(src,/jinjaccalgkegednnccohejagnlnfdag/);
+ assert.doesNotMatch(src,/GetInjected\s*\(|\.getScriptSource\s*\(/);
+ const e=factory('frame');
+ e.observe('Runtime.executionContextCreated',{context:{id:91,auxData:{frameId:'frame',isDefault:false}}});
+ const values=await e.read(async()=>({result:{value:JSON.stringify({
+  readyMarker:false,webBootstrap:true,officialRuntimeId:true,
+ })}}));
+ assert.deepEqual(values,{
+  isolatedWorldsObserved:1,worldsChecked:1,
+  readyMarkerObserved:false,webBootstrapObserved:true,
+  officialRuntimeIdObserved:true,observationIncomplete:false,
+ });
+ assert.doesNotMatch(JSON.stringify(values),/jinjaccalgkegednnccohejagnlnfdag|91|frame/);
 });
