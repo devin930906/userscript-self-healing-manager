@@ -220,10 +220,14 @@ export async function runReadOnlyVisibilityWait({
   catch{throw new Error('CDP document confirmation unavailable during visibility wait');}
  };
  const baseline=await confirm();
- if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
-    !baseline.frameId||!baseline.loaderId)
+ assertBoundedFrameIdentity(baseline);
+ if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url)
   throw new Error('Invalid pinned visibility wait document identity');
- const guard=async()=>assertStablePageDocument(baseline,await confirm());
+ const guard=async()=>{
+  const identity=await confirm();
+  assertBoundedFrameIdentity(identity);
+  assertStablePageDocument(baseline,identity);
+ };
  let prior:string|null=null,consecutive=0;
  for(let n=1;n<=maxSamples;n++){
   const samples=n as 1|2|3|4;
