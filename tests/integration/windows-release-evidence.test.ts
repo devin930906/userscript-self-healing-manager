@@ -225,3 +225,16 @@ test('installed Setup smoke waits for a nonempty diagnosis journal while process
  assert.match(block,/Get-Item -LiteralPath \$journalPath\)\.Length -gt 0/);
  assert.match(block,/if \(!\$journalReady\)/);
 });
+
+test('all three Windows release smokes reject immediate post-initialization process crashes',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const blocks=[
+  workflow.slice(workflow.indexOf('Smoke-check unpacked Windows executable'),workflow.indexOf('Smoke-check single-file Portable EXE')),
+  workflow.slice(workflow.indexOf('Smoke-check single-file Portable EXE'),workflow.indexOf('Smoke-check NSIS Setup installer')),
+  workflow.slice(workflow.indexOf('Smoke-check NSIS Setup installer'),workflow.indexOf('Record signatures and explicitly unverified Stable gates')),
+ ];
+ for(const block of blocks){
+  assert.match(block,/Start-Sleep -Seconds 3/);
+  assert.match(block,/exited immediately after initializing databases/);
+ }
+});
