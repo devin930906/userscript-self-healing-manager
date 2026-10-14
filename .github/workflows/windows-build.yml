@@ -87,6 +87,7 @@ jobs:
           $exe = Join-Path $root 'Userscript-Self-Healing-Manager.exe'
           if (!(Test-Path $exe)) { throw "Missing unpacked EXE" }
           $database = Join-Path $root 'Data/registry.sqlite'
+          if (Test-Path -LiteralPath (Join-Path $root 'Data')) { throw 'ZIP smoke found pre-existing Data in extracted release' }
           $proc = $null
           try {
             $proc = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
