@@ -283,5 +283,7 @@ test('final release checks SQLite header signatures for registry and journal of 
  assert.match(check,/GetString\(\$header, 0, 15\)/);
  assert.match(check,/\$stream\.ReadExactly\(\$header, 0, 16\)/);
  assert.doesNotMatch(check,/\$stream\.Read\(\$header, 0, 16\)/);
+ assert.match(check,/FileShare\]::Read\)/);
+ assert.doesNotMatch(check,/FileShare\]::ReadWrite/);
  assert.match(check,/Invalid SQLite file signature/);
 });
