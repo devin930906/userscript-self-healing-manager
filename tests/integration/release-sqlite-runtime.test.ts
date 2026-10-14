@@ -199,3 +199,15 @@ test('release verifier rejects foreign-key violations in every edition database'
   });
  }
 });
+
+test('release verifier rejects zero-byte databases in all six positions',()=>{
+ for(let edition=0;edition<3;edition++)for(const name of ['registry.sqlite','diagnosis-journal.sqlite']){
+  withReleaseDatabases(roots=>{
+   const file=join(roots[edition],name);
+   writeFileSync(file,'');
+   const result=verify(roots);
+   assert.notEqual(result.status,0);
+   assert.match(result.stderr,/Missing or empty release SQLite database/);
+  });
+ }
+});
