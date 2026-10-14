@@ -410,3 +410,20 @@ test('RG-05 rejects a nested CDP result error even alongside a forged ready rece
   assert.deepEqual(stages,['cdp-evaluation-failed']);
  }
 });
+
+test('RG-05 refuses accessor-based CDP result/value envelopes even when getter returns ready',async()=>{
+ for(const field of ['result','value'] as const){
+  let calls=0;const statuses:string[]=[];
+  const forged=field==='result'
+   ?Object.defineProperty({},'result',{get(){return {value:JSON.stringify({ready:true})};},enumerable:true})
+   :{result:Object.defineProperty({},'value',{get(){return JSON.stringify({ready:true});},enumerable:true})};
+  const error=await api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{calls++;return forged;},hasExited:()=>false,delay:async()=>{},
+   onStatus:(stage:string)=>statuses.push(stage),
+  }).catch((cause:any)=>cause);
+  assert.ok(error instanceof Error);
+  assert.match(error.message,/CDP evaluation failed/);
+  assert.equal(calls,1);
+  assert.deepEqual(statuses,['cdp-evaluation-failed']);
+ }
+});
