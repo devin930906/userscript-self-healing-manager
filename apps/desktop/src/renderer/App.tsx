@@ -20,6 +20,7 @@ import type {ReadOnlyInteractionReadinessResult,ReadOnlyVisibilityWaitResult} fr
 import type {UserscriptManagerTargetReport} from '../../../../packages/cdp-client/src/manager-targets.ts';
 import type {PassivePageExceptionEvidence} from '../../../../packages/cdp-client/src/read-only-exceptions.ts';
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
+import type {ManualDomTransitionResult} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {VerifiedPreviewResult} from '../../../../packages/repair-workflow/src/verified-preview.ts';
@@ -60,6 +61,7 @@ declare global {interface Window{ussm:{
  waitUntilElementVisible:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityWaitResult>;
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>Promise<ReadOnlyDomContractResult>;
+ observeManualDomTransition:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;phase:'start'|'finish';approved:true})=>Promise<ManualDomTransitionResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
  batchDiagnose:(input:{targetId:string;scanId:string;approved:true;offset:number})=>Promise<BatchDomResult&{remainingItems:number;startIndex:number}>;
  listDiagnosisHistory:()=>Promise<JournalRun[]>;
@@ -164,6 +166,9 @@ function App(){
  const [contractEvidence,setContractEvidence]=useState<{selectorIndex:number;result:ReadOnlyDomContractResult}|null>(null);
  const contractGeneration=useRef(new LatestRequestGate());
  const contractActive=useRef(false);
+ const [manualTransitionEvidence,setManualTransitionEvidence]=useState<{selectorIndex:number;scanId:string;itemIndex:number;targetId:string;result:ManualDomTransitionResult}|null>(null);
+ const manualTransitionGeneration=useRef(new LatestRequestGate());
+ const manualTransitionActive=useRef(false);
  const [visibilityEvidence,setVisibilityEvidence]=useState<{selectorIndex:number;result:ReadOnlyVisibilityEvidence}|null>(null);
  const visibilityGeneration=useRef(new LatestRequestGate());
  const visibilityActive=useRef(false);
@@ -228,6 +233,7 @@ function App(){
  useEffect(()=>{batchGeneration.current.invalidate();batchCancel.current=true;batchPauseGate.current?.cancel();batchPauseGate.current=null;setBatchPaused(false);if(batchActive.current){batchActive.current=false;setBatchRunning(false);setBusy(false);}setBatchResult(null);setBatchProgress(0);},[targetId,result]);
  useEffect(()=>{probeGeneration.current.invalidate();if(probeActive.current){probeActive.current=false;setBusy(false);}setPageProbe(null);},[focused,targetId,result]);
  useEffect(()=>{contractGeneration.current.invalidate();if(contractActive.current){contractActive.current=false;setBusy(false);}setContractEvidence(null);},[focused,targetId,result,repairIndex]);
+ useEffect(()=>{manualTransitionGeneration.current.invalidate();if(manualTransitionActive.current){manualTransitionActive.current=false;setBusy(false);}setManualTransitionEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{visibilityGeneration.current.invalidate();if(visibilityActive.current){visibilityActive.current=false;setBusy(false);}setVisibilityEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{visibleWaitGeneration.current.invalidate();if(visibleWaitActive.current){visibleWaitActive.current=false;setBusy(false);}setVisibleWaitEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
@@ -675,6 +681,39 @@ function App(){
    if(contractGeneration.current.isCurrent(token)){contractActive.current=false;setBusy(false);}
   }
  }
+  async function observeManualTransition(phase:'start'|'finish'){
+  if(focused===null||!result||!targetId||busy)return;
+  const locator=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!locator||locator.runtimeRequired||locator.receiver!=='document')return;
+  const scanId=result.scanId,itemIndex=focused,selectorIndex=repairIndex,target=targetId;
+  if(phase==='finish'&&(
+   manualTransitionEvidence?.result.status!=='awaiting-user-action'||
+   manualTransitionEvidence.scanId!==scanId||
+   manualTransitionEvidence.itemIndex!==itemIndex||
+   manualTransitionEvidence.selectorIndex!==selectorIndex||
+   manualTransitionEvidence.targetId!==target))return;
+  const token=manualTransitionGeneration.current.begin();
+  manualTransitionActive.current=true;setBusy(true);setError('');
+  if(phase==='start')setManualTransitionEvidence(null);
+  try{
+   const evidence=await window.ussm.observeManualDomTransition({
+    scanId,itemIndex,selectorIndex,targetId:target,phase,approved:true,
+   });
+   if(manualTransitionGeneration.current.isCurrent(token)){
+    setManualTransitionEvidence({selectorIndex,scanId,itemIndex,targetId:target,result:evidence});
+    setMessage(phase==='start'?
+     '已记录起始 DOM 状态；用户可自行进行安全操作后再复核。程序不会自动点击网页；V2 未验证。':
+     '完成两阶段 DOM 数量观察；不能证明由用户脚本引起，也不构成 V2/V3/V4 功能通过。');
+   }
+  }catch{
+   if(manualTransitionGeneration.current.isCurrent(token)){
+    setManualTransitionEvidence(null);
+    setError('手动前后观察无法完成：页面身份、范围、证据或一分钟有效期可能已变化。');
+   }
+  }finally{
+   if(manualTransitionGeneration.current.isCurrent(token)){manualTransitionActive.current=false;setBusy(false);}
+  }
+ }
  async function suggestBulkRepairs(offset=0){
   if(focused===null||!targetId||!result)return;
   const token=bulkGeneration.current.begin();
@@ -1112,6 +1151,21 @@ function App(){
      {details.analysis.managerApiCalls.length>30&&<small>其余 {details.analysis.managerApiCalls.length-30} 项已折叠；完整证据保留在扫描结果中。</small>}
     </div> : null}
    <div className="toolbar"><button disabled={!cdp||!targetId||busy} onClick={()=>void probePage()}>页面定位器核验（只读）</button><span className="dim">每次最多检查前 50 个定位器；不执行脚本、不自动修改文件。</span></div>
+    <div className="toolbar">
+     <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||details.analysis?.selectorRecords[repairIndex]?.runtimeRequired||details.analysis?.selectorRecords[repairIndex]?.receiver!=='document'}
+      onClick={()=>void observeManualTransition('start')}>记录手动操作前 DOM 状态</button>
+     <button disabled={busy||manualTransitionEvidence?.result.status!=='awaiting-user-action'||manualTransitionEvidence.selectorIndex!==repairIndex||manualTransitionEvidence.scanId!==result?.scanId||manualTransitionEvidence.itemIndex!==focused||manualTransitionEvidence.targetId!==targetId}
+      onClick={()=>void observeManualTransition('finish')}>复核手动操作后 DOM 状态</button>
+     <span className="dim">两阶段最多相隔一分钟；只读观察当前 document。程序不会自动点击网页；V2 未验证，V3/V4 未配置。</span>
+    </div>
+    {manualTransitionEvidence&&manualTransitionEvidence.selectorIndex===repairIndex&&<div className="notice">
+     <b>用户操作前后 DOM 观察（非功能测试）：</b>
+     {manualTransitionEvidence.result.status==='awaiting-user-action'?'起始样本已记录，等待用户自行操作':
+      manualTransitionEvidence.result.status==='changed-observed'?'匹配数量发生变化':'匹配数量未变化'}
+     · 起始 {manualTransitionEvidence.result.beforeCount}
+     {manualTransitionEvidence.result.afterCount===null?'':<> → 结束 {manualTransitionEvidence.result.afterCount}</>}
+     · V2 未验证 · V3/V4 未配置；不证明脚本触发事件或业务功能正常。
+    </div>}
     <div className="toolbar"><button disabled={!cdp||!targetId||busy||(!watchEnabled&&!pageProbe)} onClick={()=>setWatchEnabled(old=>!old)}>{watchEnabled?'停止巡检':'启动每分钟只读巡检'}</button><span className="dim">只有窗口运行、目标页面保持匹配时定期复核；不写入脚本、不自动修复。</span></div>
     <p className="dim">巡检只用于 DOM 检测，不代表 Tampermonkey 功能通过。</p>
     {watchStatus&&<div className="notice">最近巡检：{watchCheckedAt} · {watchStatus.status==='locator-missing'?'当前页面存在未匹配的选择器':watchStatus.status==='dom-present'?'当前 DOM 有匹配节点（非功能通过）':watchStatus.status==='needs-review'?'当前结果需人工确认':'当前没有可检查的定位器'} · 匹配 {watchStatus.found} · 缺失 {watchStatus.missing} · 未确定 {watchStatus.needsReview}</div>}
