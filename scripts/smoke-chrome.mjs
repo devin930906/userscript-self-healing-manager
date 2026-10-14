@@ -29,6 +29,7 @@ import {diagnoseScriptsOnPage} from '../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
 import {ManualDomTransitionGate} from '../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../packages/test-runner/src/read-only-interaction-readiness.ts';
+import {reviewProductAction} from '../packages/test-runner/src/product-action-review.ts';
 import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
@@ -308,6 +309,22 @@ try{
  assert.equal(readOnlyReadiness.directClickListeners,1);
  assert.equal(readOnlyReadiness.V2,'blocked');
  assert.equal(readOnlyReadiness.interactionVerified,false);
+ // Product risk classification uses actual live Chrome readiness, not a
+ // renderer-forged status. No Input is sent; this does not pass V2 or V3.
+ const liveClickReview=reviewProductAction({
+  approved:true,action:'click',target:selected,readiness:readOnlyReadiness,
+ });
+ assert.equal(liveClickReview.risk,'STATE_CHANGING');
+ assert.equal(liveClickReview.executionAllowed,false);
+ assert.equal(liveClickReview.V2,'blocked');
+ const liveSendReview=reviewProductAction({
+  approved:true,action:'send',target:selected,readiness:readOnlyReadiness,
+ });
+ assert.equal(liveSendReview.risk,'DESTRUCTIVE');
+ assert.equal(liveSendReview.executionAllowed,false);
+ assert.equal(liveSendReview.functionalVerified,false);
+ console.log('PASS real Chrome FR-025 product action risk review: click/send denied despite live ready-looking control; V2 blocked.');
+
  const disabledReadiness=await runReadOnlyInteractionReadiness({
   approved:true,target:selected,caseId:'SYNTHETIC:READINESS:DISABLED',
   locator:{method:'querySelector',expression:'#disabled-demo',runtimeRequired:false},
