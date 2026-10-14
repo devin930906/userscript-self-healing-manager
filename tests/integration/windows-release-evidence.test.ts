@@ -302,7 +302,8 @@ test('final release checks actual SQLite quick_check on each edition database',a
  assert.match(verifier,/lstatSync\(path,\{throwIfNoEntry:false\}\)/);
  assert.match(verifier,/info\?\.isFile\(\)/);
  assert.match(verifier,/DatabaseSync\(path,\{readOnly:true,create:false\}\)/);
- assert.match(verifier,/PRAGMA quick_check/);
- assert.match(verifier,/result\[0\]\.quick_check!==['"]ok['"]/);
+ assert.match(verifier,/PRAGMA integrity_check/);
+ assert.match(verifier,/result\[0\]\.integrity_check!==['"]ok['"]/);
+ assert.doesNotMatch(verifier,/PRAGMA quick_check/);
  assert.match(verifier,/roots\.length!==3/);
 });
