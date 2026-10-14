@@ -60,7 +60,11 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
         Object.hasOwn(response,'error')){incomplete=true;continue;}
      const packet=response as {result?:{value?:unknown};exceptionDetails?:unknown};
      if(Object.hasOwn(packet,'exceptionDetails')||
-        !packet.result||typeof packet.result.value!=='string'||
+        !packet.result||typeof packet.result!=='object'||
+        Array.isArray(packet.result)||
+        Object.hasOwn(packet.result,'exceptionDetails')||
+        Object.hasOwn(packet.result,'error')||
+        typeof packet.result.value!=='string'||
         packet.result.value.length>100){incomplete=true;continue;}
      const parsed:unknown=JSON.parse(packet.result.value);
      if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
