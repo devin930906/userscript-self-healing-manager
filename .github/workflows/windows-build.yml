@@ -245,7 +245,7 @@ jobs:
               $stream = [System.IO.File]::Open($db, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
               try {
                 $header = [byte[]]::new(16)
-                if ($stream.Read($header, 0, 16) -ne 16 -or [System.Text.Encoding]::ASCII.GetString($header) -ne "SQLite format 3`0") {
+                if ($stream.Read($header, 0, 16) -ne 16 -or ([System.Text.Encoding]::ASCII.GetString($header, 0, 15) -ne "SQLite format 3" -or $header[15] -ne 0)) {
                   throw "Invalid SQLite file signature: $db"
                 }
               } finally {
