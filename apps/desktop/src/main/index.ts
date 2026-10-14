@@ -843,7 +843,7 @@ async function bootstrap():Promise<void>{
    throw new Error('Selected Chrome page is unavailable for test case review');
   const before=await confirmPageIdentity(selected);
   const verdict=verifySiteTestCaseSelection({
-   entry,selectedUrl:before.confirmedUrl,metadata:item.analysis!.metadata,
+   entry,selectedUrl:selected.url,metadata:item.analysis!.metadata,
   });
   const after=await confirmPageIdentity(selected);
   assertStablePageDocument(before,after);
