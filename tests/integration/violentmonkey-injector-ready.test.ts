@@ -427,3 +427,16 @@ test('RG-05 refuses accessor-based CDP result/value envelopes even when getter r
   assert.deepEqual(statuses,['cdp-evaluation-failed']);
  }
 });
+
+test('RG-05 refuses array-shaped CDP response/result carrying forged ready',async()=>{
+ for(const variant of ['outer','inner'] as const){
+  const outer:any=variant==='outer'?[]:{result:[]};
+  if(variant==='outer')outer.result={value:JSON.stringify({ready:true})};
+  else outer.result.value=JSON.stringify({ready:true});
+  let sends=0;
+  await assert.rejects(api.waitForVerifiedViolentmonkeyInjector({
+   send:async()=>{sends++;return outer;},hasExited:()=>false,delay:async()=>{},
+  }),/CDP evaluation failed/);
+  assert.equal(sends,1);
+ }
+});
