@@ -95,3 +95,18 @@ test('PowerShell fallback validates the created ZIP and all three artifacts befo
  assert.doesNotMatch(script.slice(created,gate),/\|\s*Set-Content\s+-Path\s+\$manifest/,
   'No checksum manifest should be written before final release validation');
 });
+
+test('tag-only Setup smoke verifies isolated installed SQLite and never accepts portable Data',async()=>{
+ const workflow=await readFile('.github/workflows/windows-build.yml','utf8');
+ const start=workflow.indexOf('Smoke-check NSIS Setup installer');
+ const end=workflow.indexOf('Record signatures and explicitly unverified Stable gates');
+ assert.ok(start>=0&&end>start,'Setup smoke must precede release evidence recording');
+ const smoke=workflow.slice(start,end);
+ assert.match(smoke,/RUNNER_TEMP.*usshm-installed-appdata-smoke/);
+ assert.match(smoke,/\$env:APPDATA = \$isolatedAppData/);
+ assert.match(smoke,/Get-ChildItem.*registry\.sqlite.*-Recurse.*-File/);
+ assert.match(smoke,/\$databases\.Count -eq 1/);
+ assert.match(smoke,/\$databases\[0\]\.Length -gt 0/);
+ assert.match(smoke,/\$env:APPDATA = \$previousAppData/);
+ assert.match(smoke,/unexpectedly created portable Data beside EXE/);
+});
