@@ -145,3 +145,27 @@ test('QA-048 exhausted readiness probes explain missing-context versus missing-p
   assert.equal(calls,2);
  }
 });
+
+test('QA-048 retries only bounded initial Runtime.evaluate transport timeouts, never unsafe CDP errors',async()=>{
+ let probes=0;
+ await waitForTrustedRendererReady(async()=>{
+  probes++;
+  if(probes===1)throw new Error('CDP call timed out: Runtime.evaluate');
+  return ready;
+ },options());
+ assert.equal(probes,2);
+ probes=0;
+ await assert.rejects(waitForTrustedRendererReady(async()=>{
+  probes++;
+  throw new Error('CDP call timed out: Runtime.evaluate');
+ },options({attempts:3})),/trusted renderer.*not ready|preload.*not ready/i);
+ assert.equal(probes,3);
+ for(const message of ['CDP call timed out: Page.navigate','CDP disconnected','unsafe bridge']){
+  probes=0;
+  await assert.rejects(waitForTrustedRendererReady(async()=>{
+   probes++;
+   throw new Error(message);
+  },options()),(error:unknown)=>error instanceof Error&&error.message===message);
+  assert.equal(probes,1);
+ }
+});
