@@ -165,3 +165,105 @@ export async function runReadOnlyInteractionReadiness({
   'Stable top-document node and direct control metadata observed twice; no click or userscript functionality verified',
   2,second.value.listenerCount);
 }
+
+/** FR-025: user-triggered, bounded read-only wait until one pinned top-document
+ * node is visible in TWO consecutive observations. No DOM mutation, page JS,
+ * input event or userscript execution. A V1 visibility witness cannot prove
+ * V2 interactivity, V3 named function or V4 userscript-manager behavior. */
+export interface ReadOnlyVisibilityWaitResult {
+ readonly caseId:string;
+ readonly status:'visible-v1'|'needs-review';
+ readonly samples:1|2|3|4;
+ readonly reason:string;
+ readonly evidenceLevel:'V1-visible-read-only';
+ readonly V2:'blocked';
+ readonly V3:'not-configured';
+ readonly V4:'not-configured';
+ readonly interactionVerified:false;
+ readonly functionalVerified:false;
+ readonly managerVerified:false;
+}
+export async function runReadOnlyVisibilityWait({
+ approved,target,locator,caseId,maxSamples,deps,
+}:{
+ readonly approved:boolean;readonly target:ChromeTarget;
+ readonly locator:LiteralLocator;readonly caseId:string;
+ readonly maxSamples:2|3|4;
+ readonly deps:Pick<ReadinessDeps,'confirm'|'probe'|'inspectVisibility'|'wait'>;
+}):Promise<ReadOnlyVisibilityWaitResult>{
+ if(approved!==true)throw new Error('Explicit read-only visibility wait approval required');
+ if(!target||target.type!=='page'||typeof target.id!=='string'||!target.id||
+    target.id.length>128||typeof target.url!=='string')
+  throw new Error('Invalid read-only visibility wait target');
+ assertCredentialFreePageUrl(target.url);
+ validateCdpPageSocket(target);
+ if(typeof caseId!=='string'||!/^[A-Za-z0-9_.:-]{1,100}$/.test(caseId)||
+    ![2,3,4].includes(maxSamples))
+  throw new Error('Invalid visibility wait case or samples');
+ if(!locator||locator.runtimeRequired||typeof locator.expression!=='string'||
+    locator.expression.length>1024||!locator.expression.trim()||
+    !['querySelector','querySelectorAll','getElementById','getElementsByClassName',
+      'getElementsByName'].includes(locator.method)||asCss(locator)===null)
+  throw new Error('Supported static locator required for read-only visibility wait');
+ if(!deps||typeof deps.confirm!=='function'||typeof deps.probe!=='function'||
+    typeof deps.inspectVisibility!=='function'||typeof deps.wait!=='function')
+  throw new Error('Invalid read-only visibility wait dependencies');
+ const result=(status:'visible-v1'|'needs-review',samples:1|2|3|4,reason:string):ReadOnlyVisibilityWaitResult=>({
+  caseId,status,samples,reason,evidenceLevel:'V1-visible-read-only',
+  V2:'blocked',V3:'not-configured',V4:'not-configured',
+  interactionVerified:false,functionalVerified:false,managerVerified:false,
+ });
+ const confirm=async()=>{
+  try{return await deps.confirm(target);}
+  catch{throw new Error('CDP document confirmation unavailable during visibility wait');}
+ };
+ const baseline=await confirm();
+ if(baseline.targetId!==target.id||baseline.confirmedUrl!==target.url||
+    !baseline.frameId||!baseline.loaderId)
+  throw new Error('Invalid pinned visibility wait document identity');
+ const guard=async()=>assertStablePageDocument(baseline,await confirm());
+ let prior:string|null=null,consecutive=0;
+ for(let n=1;n<=maxSamples;n++){
+  const samples=n as 1|2|3|4;
+  await guard();
+  let pre:LocatorProbeResult;
+  try{pre=await deps.probe(target,[locator]);}
+  catch{await guard();return result('needs-review',samples,'DOM observation unavailable');}
+  await guard();
+  if(!pre||pre.validationLevel!=='dom-only'||pre.targetId!==target.id||
+     pre.url!==target.url||!Array.isArray(pre.checks)||pre.checks.length!==1||
+     pre.checks[0]?.method!==locator.method||pre.checks[0]?.expression!==locator.expression)
+   return result('needs-review',samples,'Inconsistent DOM visibility wait evidence');
+  const observed=pre.checks[0]!;
+  if(observed.status==='missing'&&observed.matchCount===0){
+   prior=null;consecutive=0;
+  }else{
+   const key=fingerprint(pre,target,locator);
+   if(!key)return result('needs-review',samples,'Target not uniquely pinned for visibility wait');
+   let visible:ReadOnlyVisibilityEvidence;
+   try{visible=await deps.inspectVisibility(target,locator);}
+   catch{await guard();return result('needs-review',samples,'CSS visibility observation unavailable');}
+   await guard();
+   if(!validateVisibility(visible,target)||visible.matchCount!==1||
+      (visible.status!=='potentially-visible'&&visible.status!=='hidden'))
+    return result('needs-review',samples,'Invalid or inconclusive CSS visibility metadata');
+   let post:LocatorProbeResult;
+   try{post=await deps.probe(target,[locator]);}
+   catch{await guard();return result('needs-review',samples,'DOM identity reconfirmation unavailable');}
+   await guard();
+   if(fingerprint(post,target,locator)!==key)
+    return result('needs-review',samples,'DOM node changed during visibility observation');
+   if(visible.status==='potentially-visible'){
+    consecutive=prior===key?consecutive+1:1;
+    prior=key;
+    if(consecutive>=2)return result('visible-v1',samples,
+     'Same pinned top-document node was visible in two successive read-only observations; user script and interaction not verified');
+   }else{prior=null;consecutive=0;}
+  }
+  if(n<maxSamples){
+   try{await deps.wait();}
+   catch{await guard();return result('needs-review',samples,'Bounded visibility wait interrupted');}
+  }
+ }
+ return result('needs-review',maxSamples,'No two consecutive stable visible samples within approved read-only observation budget');
+}
