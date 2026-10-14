@@ -2,7 +2,7 @@
 
 **记录日期**：2026-10-14（Asia/Kuala_Lumpur）  
 **唯一开发分支**：`feat/v01-continuation`  
-**本轮经完整 CI 验证的源代码 HEAD**：`e8171efd6308ff88b71467c09b4b4525fb242f64`  
+**本轮经完整 CI 验证的源代码 HEAD**：`aba7518cad66a32ed6f000fa5b27d7cd4cd2cc0f`  
 **分支当前 HEAD**：以 [实时分支 HEAD](https://github.com/devin930906/userscript-self-healing-manager/commits/feat/v01-continuation) 为准；本文件本身的文档提交也会改变 HEAD，不能在同一提交中自引用最终 SHA。  
 **产品版本**：`0.1.0-alpha.5`；不是最终 Stable。
 
@@ -160,3 +160,13 @@
 - **GREEN 准确源码 SHA**：`e8171efd6308ff88b71467c09b4b4525fb242f64`，[Development #38529459358](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459358) SUCCESS（Windows 全量 TS/Node/Electron/Chrome），[Continuation #38529459442](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459442) SUCCESS（Ubuntu/Windows），[Windows release contracts #38529459399](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459399) SUCCESS（Ubuntu/Windows；installer job SKIPPED）。
 - **范围与剩余门槛**：修复是产品证据完整性防误判；不是用户真实网站的可撤销 V2 安全交互、V3 业务功能成功、V4 manager/GM 功能认证，也不完成真 Windows 10/11 三发行包独立验收。FR-024/025 仍 PARTIAL [CODE GAP] [ENV BLOCKED]；RG-01～09 **全部 OPEN**；不建安装包、tag、Release 或改 `main`。下一优先级应直接瞄准**经批准的产品级 V2 安全动作闭环及 V3 具名归因**，或 RG-05 正式 manager 产品桥；不得重复合成-only 点击验收或未经授权触碰用户网站。Issue #139 Win32 原生 File ID 与 RG-02 独立审查仍有缺口。
 - 文档提交将推进 HEAD，必须核对该文档 HEAD 的三组 CI；不覆盖 `docs/development/v01-worklog.md`。
+
+## 2026-10-14 · RG-06 已扫描原件 SHA-256 绑定到六处 Electron Main 描述符内读取（不升级 Stable）
+
+- **起点**：`b04ed083096e3afc865cde72335911711caf8b31`，该 SHA 的 Development [#38533618335](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38533618335)、Continuation [#38533618353](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38533618353)、Windows contracts [#38533618298](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38533618298) 全绿。较旧续接文本以先前 HEAD 结束；本轮以真实 GitHub HEAD 为准，不重做正在其他提交推进的 RG-05 官方 VM cold-start 注入阻断（仍 BLOCKED）。
+- **真实缺口**：`apps/desktop/src/main/index.ts` 中六处批准源文件（批处理审批检查／受管副本复核／修订提交前再次核验）虽在 `readPinnedRegularFile` **之后**使用 `createHash('sha256')` 对扫描批准哈希作核验，但未将同一 SHA-256 传入 **pinned reader 内部** 的描述符字节校验。现有 reader 支持 `expectedSha256` 且对真实 descriptor bytes 做 `timingSafeEqual`，所以统一补齐纵深防御，防止调用方未来遗漏后置检查。这不是已证明的跨验收绕过，也不能消除 Win32 FileIdInfo 原生身份信心缺口。
+- **TDD RED**：新增 `apps/desktop/tests/pinned-source-digest-boundary-ui.test.ts` [`ad5fbc5f`](https://github.com/devin930906/userscript-self-healing-manager/commit/ad5fbc5fa25e91a0a513b97407a1ffb5cd1a208c)，[Continuation #38535197999](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535197999) Ubuntu 实际 FAIL，`source read 0 must verify its scanned SHA-256 before releasing descriptor bytes`。
+- **修复与调试**：[`726c5bee`](https://github.com/devin930906/userscript-self-healing-manager/commit/726c5beecfeaa3a5155ddaf41221437ba0da6193) 初次代码编辑将摘要错误地放入嵌套的 `lstat({bigint:true})`；[Windows contracts #38535382956](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535382956) TypeScript 实际报告六处 TS2769。此为编辑构造失误，不是业务行为。按完整报错修正层级、消除多余闭合符号，并将测试从非贪婪括号匹配改为逐完整调用行检查；最终六处内置 `expectedSha256` 及原有后置摘要检查都保留，不改变源码或受管备份字节。
+- **GREEN 源码 SHA**：[`aba7518cad66a32ed6f000fa5b27d7cd4cd2cc0f`](https://github.com/devin930906/userscript-self-healing-manager/commit/aba7518cad66a32ed6f000fa5b27d7cd4cd2cc0f)：[Development #38535667635](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535667635) SUCCESS（Node/TS/Electron/Chrome 155/官方 VM 合成只读集成），[Continuation #38535667494](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535667494) SUCCESS（Ubuntu/Windows），[Windows release contracts #38535667622](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535667622) SUCCESS（Ubuntu/Windows，Windows 打包仍 SKIPPED）。
+- **安全与验收边界**：只加固扫描批准来源的 hash-bound file descriptor read，不新增外部浏览器动作／网络访问／原件写入。RG-06 仍 OPEN：需要真 Windows 10/11、多发行形态迁移／中断／恢复及原生 File ID 证据（Issue #139）；RG-05 真 manager cold-start 注入验证仍 BLOCKED；RG-01～09 全部 OPEN，`0.1.0-alpha.5`，绝不标 Stable、打 tag、发布安装包或更动 main。
+- **下轮建议**：优先追踪最新 RG-05 官方 Violentmonkey 重启后注入缺失，或 RG-06 Windows native handle identity + Win10/11 生命周期；继续以准确 HEAD / 可复现 RED / 完整 GREEN 工作流为准，勿重复本次 SHA 补齐。文档提交会移动 HEAD，需另行验证。

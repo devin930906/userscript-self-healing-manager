@@ -94,3 +94,9 @@
 
 - RED：`80848e8c` [Continuation #38528939132](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38528939132) Ubuntu 准备度身份边界 `Missing expected rejection`；`19aadcd2` [Continuation #38529208669](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529208669) Ubuntu 有界 CSS 可见性入口同类 RED。
 - GREEN：`e8171efd6308ff88b71467c09b4b4525fb242f64` [Development #38529459358](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459358)、[Continuation #38529459442](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459442)、[Windows contracts #38529459399](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38529459399) SUCCESS。真实产品只读 evidence path 用共享 bounded frame/loader/child-frame HMAC 验证，拒绝畸形 baseline 与 recheck；Chrome 155 正例与 Windows Electron 套件继续通过。**不代表产品 V2、V3、V4 完成**，FR-025 PARTIAL，RG-01..09 继续 OPEN。
+
+## 2026-10-14 RG-06 描述符读取的批准 SHA-256 纵深绑定（仍 OPEN）
+
+- 六处 Electron Main `readPinnedRegularFile` 现于内部 read-boundary 执行 `expectedSha256`，仍保留原调用方 `createHash` 检查；对应 `apps/desktop/tests/pinned-source-digest-boundary-ui.test.ts`。不修改任何用户原件。
+- RED [Continuation #38535197999](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535197999) Ubuntu，后续编辑错误由 [Windows contracts #38535382956](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535382956) TS2769 明确定位并修复。
+- GREEN `aba7518cad66a32ed6f000fa5b27d7cd4cd2cc0f`：[Development #38535667635](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535667635)、[Continuation #38535667494](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535667494)、[Windows contracts #38535667622](https://github.com/devin930906/userscript-self-healing-manager/actions/runs/38535667622) 全部 SUCCESS；仅 CODE 层纵深防御，不等于 Win32 原生 FileIdInfo 或三正式发行包。**RG-01～09 均 OPEN**。
