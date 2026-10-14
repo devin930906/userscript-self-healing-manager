@@ -43,6 +43,8 @@ import {inspectManagedIntegrity} from '../packages/repair-workflow/src/managed-h
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
 import {runIsolatedFixtureInteraction} from './local-fixture-interaction.ts';
+import {runNamedFixtureV2Lifecycle} from './fixture-v2-named-lifecycle.ts';
+import {reloadOwnedSyntheticFixture} from './local-fixture-reset.ts';
 import {runSyntheticFunctionalLifecycle,SYNTHETIC_LIFECYCLE_SOURCES} from './synthetic-functional-lifecycle.ts';
 
 if(process.platform!=='win32')throw new Error('Real Chrome smoke is for Windows CI; no Linux browser substitutions');
@@ -984,6 +986,45 @@ try{
  assert.equal(absentButton.V2,'blocked');
  console.log('PASS real Chrome FR-025: pinned two-sample potentially-visible CSS evidence, bounded missing-element review; no Input or V2/V3 claims.');
  console.log('PASS real Chrome CDP: page identity, 51-script batches, bulk candidates, synthetic behavior fail/repair-pass/rollback-fail, export.');
+
+ // RG-03 real Chrome fixture lifecycle: a named observed click must have
+ // two corroborated DOM samples before/after, then a fresh-loader reload
+ // and a verified clean baseline. This NEVER grants product V2.
+ const fixtureLifecycleDeps={
+  confirm:confirmPageIdentity,
+  observe:page=>runReadOnlyDomContract({
+   approved:true,target:page,caseId:'SYNTHETIC:V2:NAMED',
+   locator:{method:'querySelectorAll',expression:'.manual-count',runtimeRequired:false},
+   expectation:'exists',
+   deps:{
+    confirm:confirmPageIdentity,
+    probe:(target,locators)=>probePageLocators(target,locators,{includeNodeFingerprints:true}),
+    summarize:captureDomSummary,
+    wait:()=>delay(125),
+   },
+  }),
+  interact:page=>runIsolatedFixtureInteraction({approved:true,target:page,fixtureUrl}),
+  reset:page=>reloadOwnedSyntheticFixture({approved:true,target:page,fixtureUrl}),
+  wait:()=>delay(125),
+ };
+ // An earlier independent FR-018 synthetic exception test left a success
+ // marker. Reset it, independently check a clean frame, then start a NEW
+ // single-click named lifecycle. No user profile or real site is involved.
+ await reloadOwnedSyntheticFixture({approved:true,target:selected,fixtureUrl});
+ const cleanBefore=await fixtureLifecycleDeps.observe(selected);
+ assert.equal(cleanBefore.matchCount,1,'fixture reset must restore the original single node');
+ const fixtureV2Lifecycle=await runNamedFixtureV2Lifecycle({
+  approved:true,target:selected,fixtureUrl,deps:fixtureLifecycleDeps,
+ });
+ assert.equal(fixtureV2Lifecycle.status,'fixture-passed');
+ assert.equal(fixtureV2Lifecycle.cleanupVerified,true);
+ assert.equal(fixtureV2Lifecycle.beforeCount,1);
+ assert.equal(fixtureV2Lifecycle.afterCount,2);
+ assert.equal(fixtureV2Lifecycle.cleanedCount,1);
+ assert.equal(fixtureV2Lifecycle.V2,'blocked');
+ assert.equal(fixtureV2Lifecycle.productionEligible,false);
+ console.log('PASS real Chrome RG-03 named synthetic V2 lifecycle: pre 1 -> effect 2 -> verified cleanup 1; production V2 blocked.');
+
  console.log('PASS named SYNTHETIC functional lifecycle: baseline FAIL / partial FAIL / repaired PASS / rollback FAIL; V3/V4 not certified.');
  console.log('Fixture-only browser DOM side effects verified. No Tampermonkey extension, GM_* API, or real userscript was executed.');
 }catch(error){
