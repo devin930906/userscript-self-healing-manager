@@ -991,6 +991,34 @@ function App(){
   try{const restored=await window.ussm.rollbackManaged({scanId:result.scanId,itemIndex:focused,hash,approved:true});setManagedActive(restored);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
   catch(e){setError('恢复受管副本失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
+ async function manageSiteTestCase(action:'create'|'remove'|'verify'){
+  if(!result||focused===null||siteTestBusy)return;
+  if(action!=='create'&&!siteTestSelectedId)return;
+  if(action==='verify'&&!targetId)return;
+  if(action==='remove'&&!window.confirm('只删除这条测试场景记录，不影响脚本及浏览器数据。确定删除？'))return;
+  const scanId=result.scanId,itemIndex=focused,caseId=siteTestSelectedId;
+  const token=siteTestGeneration.current.begin();
+  setSiteTestBusy(true);setError('');setSiteTestResult(null);
+  try{
+   if(action==='verify'){
+    const evidence=await window.ussm.verifySiteTestCase({scanId,itemIndex,caseId,targetId,approved:true});
+    siteTestGeneration.current.commit(token,()=>setSiteTestResult(evidence));
+   }else{
+    const created=action==='create'?
+     await window.ussm.createSiteTestCase({scanId,itemIndex,url:siteTestUrl.trim(),label:siteTestLabel.trim(),stateId:siteTestState,approved:true}):null;
+    if(action==='remove')
+     await window.ussm.removeSiteTestCase({scanId,itemIndex,caseId,approved:true});
+    const items=await window.ussm.listSiteTestCases({scanId,itemIndex});
+    siteTestGeneration.current.commit(token,()=>{
+     setSiteTestCases(items);
+     setSiteTestSelectedId(created?.id??items[0]?.id??'');
+     if(created){setSiteTestUrl('');setSiteTestLabel('');}
+     setMessage(action==='create'?'已保存测试页面场景；不执行页面操作或脚本。':'仅删除本地测试场景记录。');
+    });
+   }
+  }catch(error){siteTestGeneration.current.commit(token,()=>setError('测试页面场景操作失败：'+summarizeSafeDesktopError(error)));}
+  finally{siteTestGeneration.current.commit(token,()=>setSiteTestBusy(false));}
+ }
  const details=focused===null?null:result?.items[focused];
  return <div className="shell">
   <aside className="sidebar"><div className="logo"><span className="logo-icon">✦</span><span>USSHM <small>SELF-HEALING MANAGER</small></span></div>
