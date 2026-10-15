@@ -24,6 +24,16 @@ const SAFE_FRAME_DIAGNOSTICS=new Set([
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
+ // Two absent (or invalid) tokens comparing equal is not proof that a
+ // same-URL navigation did not happen. Require the actual live document
+ // identity on both sides before any equality comparison can pass.
+ const pinned=(item:ConfirmedPageIdentity):boolean=>!!item&&
+  typeof item.targetId==='string'&&item.targetId.length>0&&
+  typeof item.confirmedUrl==='string'&&item.confirmedUrl.length>0&&
+  typeof item.frameId==='string'&&item.frameId.length>0&&item.frameId.length<=256&&
+  typeof item.loaderId==='string'&&item.loaderId.length>0&&item.loaderId.length<=256;
+ if(!pinned(before)||!pinned(after))
+  throw new Error('CDP main-frame document identity unavailable during inspection');
  if(before.targetId!==after.targetId||before.confirmedUrl!==after.confirmedUrl||
     before.frameId!==after.frameId||before.loaderId!==after.loaderId||
     before.subframeCount!==after.subframeCount||
