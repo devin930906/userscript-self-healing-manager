@@ -147,6 +147,32 @@ export function buildViolentmonkeyWorldConfigurationExpression():string{
 }
 
 /**
+ * RG-05 TEST ONLY: read the pinned unpacked manager's Chrome 138+ Allow User
+ * Scripts setting without changing it. The CDP caller receives only three
+ * booleans; extension metadata and arbitrary developerPrivate fields stay in
+ * the chrome://extensions execution context.
+ */
+export function buildViolentmonkeyUserScriptsAccessStatusExpression():string{
+ const id=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.extensionId);
+ const version=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.version);
+ return `(async()=>{
+  const empty=()=>JSON.stringify({matched:false,enabled:false,active:false});
+  try{
+   if(location.href!=='chrome://extensions/')return empty();
+   const api=chrome.developerPrivate;
+   if(typeof api?.getExtensionInfo!=='function')return empty();
+   const info=await api.getExtensionInfo(${id});
+   const matched=info?.id===${id}&&info.version===${version}&&
+    info.state==='ENABLED'&&info.location==='UNPACKED';
+   if(!matched)return empty();
+   const enabled=info.userScriptsAccess?.isEnabled===true;
+   const active=enabled&&info.userScriptsAccess?.isActive===true;
+   return JSON.stringify({matched:true,enabled:!!enabled,active:!!active});
+  }catch{return empty();}
+ })()`;
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
