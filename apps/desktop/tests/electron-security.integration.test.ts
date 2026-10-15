@@ -26,6 +26,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 import { resolveDataRoot } from '../../../packages/runtime-paths/src/index.ts';
 import {waitForTrustedRendererReady} from './trusted-renderer-readiness.ts';
+import {attachSyntheticSecurityIframeViaCdp} from './iframe-cdp-attach.ts';
 import type {TrustedRendererState} from './trusted-renderer-readiness.ts';
 
 function securityScratchRoot(env: NodeJS.ProcessEnv, fallback: string): string {
@@ -397,20 +398,26 @@ test('Electron 44 enforces renderer/IPC boundaries after hostile navigation atte
     });
 
     await t.test('iframe must load marker and have an executable CDP context', async () => {
-      // QA-048: never keep a CDP Runtime.evaluate command pending while a
-      // srcdoc iframe performs asynchronous navigation/load. Chrome may
-      // suspend the original execution context and never answer that command.
-      await evaluate<boolean>(`(()=>{
-        const frame=document.createElement('iframe');
-        frame.id='usshm-security-probe';
-        frame.srcdoc='<!doctype html><html><body><span id="proof">FRAME_MARKER_44</span></body></html>';
-        // Defer navigation until the current CDP Runtime.evaluate has returned.
-        // Synchronous iframe attachment can suspend its own evaluation context.
-        // The marker, browser frame and isolated execution-world assertions below
-        // still require real evidence; this does not bypass any security gate.
-        setTimeout(()=>document.body.append(frame),0);
-        return true;
+      // Create an inert host in the verified renderer; no navigation occurs
+      // inside this Runtime.evaluate. Then invoke DOM.setOuterHTML over CDP to
+      // insert the fixed srcdoc fixture without suspending a pending JavaScript
+      // evaluation during child-frame execution-context creation.
+      const hostReady=await evaluate<boolean>(`(()=>{
+        if(document.querySelector('#usshm-security-probe-host'))return false;
+        const host=document.createElement('div');
+        host.id='usshm-security-probe-host';
+        document.body.append(host);
+        return document.querySelectorAll('#usshm-security-probe-host').length===1;
       })()`);
+      assert.equal(hostReady,true,'trusted fixture host not created');
+      await attachSyntheticSecurityIframeViaCdp({
+        expectedUrl:trustedUrl,
+        call:(method,params)=>cdp!.call(method,params),
+        assertAlive:()=>{
+          if(spawnError)throw new Error('Electron launch failed before iframe attachment');
+          if(exit)throw new Error('Electron exited before iframe attachment');
+        },
+      });
       let outcome:{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}|undefined;
       for(let attempt=0;attempt<30;attempt++){
         const probe=await evaluate<{loaded:boolean;marker:string;bridge:string;ipc:string;node:string}|null>(`(()=>{
