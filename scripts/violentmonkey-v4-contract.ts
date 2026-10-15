@@ -480,6 +480,35 @@ export function buildViolentmonkeyManagerInjectionOptionsExpression():string{
 }
 
 /**
+ * RG-05 / test-only official manager GetData preflight.
+ * A script-present flag is trustworthy only inside a clean CDP evaluation
+ * envelope carrying exactly one fixed boolean. Never return manager source,
+ * URLs, response errors or arbitrary service-worker inventory.
+ */
+export function assertViolentmonkeyPreflightReceipt(response:unknown):{found:boolean}{
+ const fail=():never=>{
+  throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');
+ };
+ const ownData=(object:unknown,key:string):unknown=>{
+  if(!object||typeof object!=='object'||Array.isArray(object)||
+     'error' in object||'exceptionDetails' in object)fail();
+  const descriptor=Object.getOwnPropertyDescriptor(object,key);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))fail();
+  return descriptor.value;
+ };
+ let value:unknown;
+ try{value=ownData(ownData(response,'result'),'value');}
+ catch{fail();}
+ if(typeof value!=='string'||value.length>512)fail();
+ let parsed:unknown;
+ try{parsed=JSON.parse(value);}catch{fail();}
+ if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
+    Object.keys(parsed).length!==1||!Object.hasOwn(parsed,'found')||
+    typeof (parsed as {found?:unknown}).found!=='boolean')fail();
+ return {found:(parsed as {found:boolean}).found};
+}
+
+/**
  * Build a fixed-shape query using Violentmonkey's official MV3 client/SW
  * channel. Its script inventory is reduced to one boolean inside the page.
  */
