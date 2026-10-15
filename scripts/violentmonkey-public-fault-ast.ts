@@ -205,9 +205,11 @@ function classifyFixedUpstreamShape(
  if(!call||!ts.isIdentifier(call.expression)||call.arguments.length!==2||
     !ts.isVariableDeclaration(calleeBinding)||!ts.isArrowFunction(calleeBinding.initializer)||
     calleeBinding.initializer.parameters.length!==2||
-    !ts.isArrowFunction(calleeBinding.initializer.body)||
     !ts.isVariableDeclaration(elementBaseBinding)||elementBaseBinding.initializer)
   return 'other';
+ let returned:ts.Expression|ts.Block=calleeBinding.initializer.body;
+ while(ts.isParenthesizedExpression(returned))returned=returned.expression;
+ if(!ts.isArrowFunction(returned))return 'other';
  const first=call.arguments[0];
  const second=call.arguments[1];
  if(!ts.isIdentifier(first)||!ts.isElementAccessExpression(second)||
