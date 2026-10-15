@@ -54,3 +54,16 @@ test('RG-01 accepts an ordinary credential-free page target without a proposal o
  assert.equal(result.proposal,null);
  assert.deepEqual(counts(),{confirms:2,discoveries:1,proposals:0});
 });
+
+test('RG-01 rejects malformed target IDs before any repair-preview CDP observation',async()=>{
+ for(const id of [
+  ' ', 'bad/page', 'target?private', 'target\\nchild'.replace('\\n','\n'),
+  'target.with.dots',
+ ]){
+  const {input,counts}=buildInput('https://example.test/editor');
+  input.target.id=id;
+  await assert.rejects(prepareVerifiedRepairPreview(input),/Invalid selected CDP target/,
+   'a selected target identity must be a bounded Chrome target ID, not free-form page data');
+  assert.deepEqual(counts(),{confirms:0,discoveries:0,proposals:0});
+ }
+});
