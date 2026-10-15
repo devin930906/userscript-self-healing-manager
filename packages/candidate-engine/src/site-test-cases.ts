@@ -195,6 +195,16 @@ async function persist(dataRoot:string,state:Saved,previous:{
    maxBytes:MAX_BYTES,expectedNative:stagedIdentity,
    expectedSha256:createHash('sha256').update(content,'utf8').digest('hex'),
   });
+  // An uncoordinated editor may modify the existing registry after the
+  // earlier optimistic check (including through the test-only hook).
+  // Recheck after staging validation, as close to publication as async I/O
+  // permits. This reduces lost updates; rename is still NOT an atomic CAS.
+  if(previous.identity!==null){
+   const latest=await readForWrite(dataRoot);
+   if(!sameSceneIdentity(previous.identity,latest.identity)||
+      JSON.stringify(previous.state)!==JSON.stringify(latest.state))
+    throw new Error('Site test case registry changed concurrently before publish');
+  }
   // Main's trusted synchronous guard runs AFTER the last preparatory I/O.
   // Do not insert an await between this guard and publication dispatch.
   assertAuthorized?.();
