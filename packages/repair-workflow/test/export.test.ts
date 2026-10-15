@@ -209,3 +209,28 @@ test('RG-06 export never publishes substituted staging bytes after a verified or
    'a failed export must never silently delete the other writer\'s replacement');
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
+
+
+test('RG-06 byte-identical staged export replacement cannot inherit approved file identity',async()=>{
+ const q=await setup();
+ try{
+  const approved=Buffer.from('// SYNTHETIC APPROVED BYTE-IDENTICAL STAGE');
+  const displaced=join(q.root,'displaced-byte-identical.user.js');
+  let replacement:string|undefined;
+  await assert.rejects(publishExclusiveExport({
+   destinationPath:q.destination,bytes:approved,
+   beforePublish:async()=>{
+    const entries=(await readdir(q.root)).filter(name=>name.includes('.staging-'));
+    assert.equal(entries.length,1);
+    replacement=join(q.root,entries[0]!);
+    await rename(replacement,displaced);
+    await writeFile(replacement,approved);
+   },
+  }),/stage|identity|changed|unsafe|verification/i,
+   'matching SHA-256 bytes alone cannot transfer approval to another staged file');
+  await assert.rejects(readFile(q.destination),{code:'ENOENT'});
+  assert.deepEqual(await readFile(displaced),approved);
+  assert.deepEqual(await readFile(replacement!),approved,
+   'do not delete a different writer\'s substituted pathname');
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
