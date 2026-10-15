@@ -180,15 +180,6 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
   await guard();
   if(await unique(css)!==node)
    throw error('Approved button changed before focus');
-  // A handler, live page update, or accessibility mutation can turn a
-  // previously ordinary button into a submit/disabled control between
-  // inspection and focus. Re-read the same node's attributes at the
-  // final action boundary and refuse any changed snapshot.
-  const finalAttributes=(await send('DOM.getAttributes',{nodeId:node})).attributes;
-  if(!Array.isArray(finalAttributes)||
-     finalAttributes.length!==attributes.length||
-     finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
-   throw error('Approved button attributes changed before focus');
   if(await rendered()!==beforeRendered)
    throw error('Approved focus visibility changed before action');
   // A post-focus :focus match is not evidence of a new interaction if this
@@ -200,6 +191,15 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
    throw error('Invalid pre-action focus evidence');
   if(beforeFocus.includes(node))
    throw error('Approved button already focused; no verifiable new focus transition');
+  // Keep the action-critical button policy as the LAST awaited CDP safety
+  // snapshot before synchronous authorization + DOM.focus. Any mutation while
+  // identity/render/focus evidence was collected is therefore observed here.
+  // This narrows, but cannot make atomic, a hostile cross-process DOM race.
+  const finalAttributes=(await send('DOM.getAttributes',{nodeId:node})).attributes;
+  if(!Array.isArray(finalAttributes)||
+     finalAttributes.length!==attributes.length||
+     finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
+   throw error('Approved button attributes changed before focus');
   // A scan or directory approval may be revoked while the CDP preflight yields.
   // Production Main owns the check; it runs synchronously, just before focus.
   assertAuthorizedBeforeAction?.();
