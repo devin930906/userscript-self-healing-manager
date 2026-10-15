@@ -45,3 +45,17 @@ test('RG-05 reload diagnostic classifies missing userScripts API separately from
  assert.doesNotMatch(source,/reloadDiagnostic\.capabilityStatus[^\n]*(?:error|message|stack|PRIVATE)/i,
   'capability diagnostic must not print private browser errors or payloads');
 });
+
+
+test('RG-05 reload diagnostic records an allowlisted Chrome userScripts access reason',async()=>{
+ const source=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
+ const optionsReady=source.indexOf("stage='options-ready'");
+ const reasonProbe=source.indexOf('buildViolentmonkeyUserScriptsAccessReasonExpression()',optionsReady);
+ const capabilityProbe=source.indexOf('buildViolentmonkeyUserScriptsCapabilityStatusExpression()',optionsReady);
+ assert.ok(optionsReady>=0&&reasonProbe>optionsReady&&reasonProbe<capabilityProbe,
+  'allowlisted access reason must be sampled before the options-page capability result');
+ assert.match(source,/reloadDiagnostic\.accessReason/,
+  'final diagnostic must expose the fixed Chrome access-state reason');
+ assert.doesNotMatch(source,/reloadDiagnostic\.accessReason[^\n]*(?:error\.message|stack|PRIVATE)/i,
+  'access reason output must not contain private browser payloads');
+});
