@@ -8,6 +8,7 @@ import {parseMultiScriptBatchRequest} from './multi-script-batch-request.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
+import {persistRetainedRepairAudit} from './retained-repair-audit.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -20,6 +21,7 @@ import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
+import {openAuditJournal} from '../../../../packages/audit-journal/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {DiagnosisRequestGate} from '../../../../packages/scan-service/src/diagnosis-request-gate.ts';
@@ -111,13 +113,14 @@ async function bootstrap():Promise<void>{
  approvedChromePath=await loadPreferredChromePath({dataRoot});
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
+ const auditJournal=openAuditJournal(join(dataRoot,'audit-journal.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
  const batchRepairs=createBatchRepairWorkflow({managedRoot:dataRoot});
  const adapters=createSiteAdapterLibrary({dataRoot});
  const manualTransitions=new ManualDomTransitionGate();
  let manualTransitionBusy=false;
- app.on('before-quit',()=>{db.close();journal.close();});
+ app.on('before-quit',()=>{db.close();journal.close();auditJournal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
  ipcMain.handle('usshm:cancel-batch-repair',async(event,input:unknown)=>{
@@ -1346,6 +1349,7 @@ async function bootstrap():Promise<void>{
   // rollback target nor replacement selector, even with IPC tampering.
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
+  let auditApproval={checkedAt:-1,expiresAt:-1};
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
   try{
    applied=await approveAndApplyManagedRevision({
@@ -1356,7 +1360,7 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     pendingApprovals.require(proposalId,scanSnapshot.scanId);
+     auditApproval=pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
@@ -1366,7 +1370,7 @@ async function bootstrap():Promise<void>{
      // The durable queue rechecks native approval, source evidence and page
      // identity before recording the running checkpoint and dispatching write.
      preflight:async()=>{
-      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      auditApproval=pendingApprovals.require(proposalId,scanSnapshot.scanId);
       scanSessions.assertCurrent(scanSnapshot);
       assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
       if(!withinAuthorized(item.path))return false;
@@ -1440,6 +1444,20 @@ async function bootstrap():Promise<void>{
    },
    restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
+  if(safety.status==='retained-v1'){
+   await persistRetainedRepairAudit({
+    journal:auditJournal,jobId:proposalId,scriptId:item.scriptId,attemptId:scanSnapshot.scanId,
+    sourceSha256:item.analysis.sourceSha256,revisionSha256:applied.hash,
+    previousHash:trusted.previousHash,approval:auditApproval,
+    restore:expectedCurrentHash=>{
+     if(expectedCurrentHash!==applied.hash)
+      throw new Error('Retained audit rollback identity mismatch');
+     return repairs.restore({
+      scriptId:item.scriptId!,hash:trusted.previousHash,approved:true,expectedCurrentHash:applied.hash,
+     });
+    },
+   });
+  }
   return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath,
    activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
  });
