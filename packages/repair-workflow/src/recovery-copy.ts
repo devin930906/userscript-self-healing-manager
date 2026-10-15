@@ -49,7 +49,15 @@ export async function copyPinnedRecoveryFile({
   throw new Error('Unsafe pinned recovery source identity or size');
  if(beforeSourceOpen)await beforeSourceOpen();
  const flags=constants.O_RDONLY|(typeof constants.O_NOFOLLOW==='number'?constants.O_NOFOLLOW:0);
- const input=await open(source,flags);
+ // POSIX O_NOFOLLOW rejects the late symlink with ELOOP. Do not pass
+ // its absolute source path to a UI-facing recovery error.
+ let input;
+ try{input=await open(source,flags);}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='ELOOP')
+   throw new Error('Unsafe pinned recovery source symlink at descriptor open');
+  throw error;
+ }
  try{
   const opened=await input.stat({bigint:true});
   if(!identical(before,opened)||
