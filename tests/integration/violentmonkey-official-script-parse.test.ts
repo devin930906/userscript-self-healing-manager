@@ -297,7 +297,7 @@ test('RG-05 pinned official injected.js AST fingerprint identifies a fixed call 
  const source="(()=>{const receipt=chrome.runtime.sendMessage({cmd:'GetInjected'});return receipt;})();";
  const spot=source.indexOf('sendMessage')+2;
  const proof=mod!.mapPinnedOfficialFaultSite(source,0,spot);
- assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','binaryOperandRoles','binaryOperatorKinds','boundMethodKind','callArgumentCount','callArgumentIndex','callKind','calleeBindingKind','calleeFunctionKind','calleeParameterCount','calleeStatementCount','elementBaseBindingKind','elementBaseKind','elementIndexKind','expressionRole','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
+ assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','binaryOperandRoles','binaryOperatorKinds','boundMethodKind','callArgumentCount','callArgumentIndex','callArgumentKinds','callKind','calleeBindingKind','calleeBodyBinaryOperatorKinds','calleeBodyKind','calleeFunctionKind','calleeParameterCount','calleeStatementCount','elementBaseBindingKind','elementBaseInitializerKind','elementBaseKind','elementIndexKind','expressionRole','fingerprintSha256','firstArgumentLiteralKind','locationVerified','propertyKind','syntaxKind'].sort());
  assert.equal(proof.locationVerified,true);
  assert.equal(proof.callKind,'member-call');
  assert.equal(proof.propertyKind,'sendMessage');
@@ -392,4 +392,24 @@ test('RG-05 public fault mapper exposes bounded call, element and binary structu
   assert.ok(Array.isArray(proof[key])&&proof[key].length<=4);
  }
  assert.doesNotMatch(JSON.stringify(proof),/helper|\blist\b|\bgate\b|\bout\b|PRIVATE|identifierText/i);
+});
+
+
+test('RG-05 public fault mapper can prove or falsify the fixed notification relay source shape without raw names',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts');
+ const source=[
+  "const sink=(a,b,c)=>b;",
+  "const relay=(msg,n)=>n&&sink(msg,n.id,n.realm)&&n;",
+  "const notifications=Object.create(null);",
+  "const nid='fixed';",
+  "relay('NotificationClicked',notifications[nid]);",
+ ].join('');
+ const spot=source.lastIndexOf('notifications[nid]')+4;
+ const proof=mod.mapPinnedOfficialFaultSite(source,0,spot) as any;
+ assert.deepEqual(proof.callArgumentKinds,['StringLiteral','ElementAccessExpression']);
+ assert.equal(proof.firstArgumentLiteralKind,'NotificationClicked');
+ assert.equal(proof.calleeBodyKind,'BinaryExpression');
+ assert.deepEqual(proof.calleeBodyBinaryOperatorKinds.slice(0,2),['AmpersandAmpersandToken','AmpersandAmpersandToken']);
+ assert.equal(proof.elementBaseInitializerKind,'CallExpression');
+ assert.doesNotMatch(JSON.stringify(proof),/\brelay\b|notifications|\bnid\b|\bsink\b|PRIVATE|identifierText/i);
 });
