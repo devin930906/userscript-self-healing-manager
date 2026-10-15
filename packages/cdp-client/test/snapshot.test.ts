@@ -53,3 +53,24 @@ test('malformed Shadow DOM rare-string indexes fail closed',async()=>{
  });
  await assert.rejects(captureDomSummary(target,{socketFactory:()=>socket as any}),/shadow|invalid|range/i);
 });
+
+test('RG-01 DOM snapshots reject error-bearing CDP envelopes even with plausible results',async()=>{
+ for(const errorValue of [null,false,0,''] as const){
+  class ForgedSnapshotSocket extends FakeSocket{
+   override send(raw:string){
+    const request=JSON.parse(raw);
+    this.sent.push(raw);
+    queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+     id:request.id,
+     result:{strings:[],documents:[{nodes:{nodeName:[0]}}]},
+     error:errorValue,
+    })}));
+   }
+  }
+  await assert.rejects(
+   captureDomSummary(target,{socketFactory:()=>new ForgedSnapshotSocket({}) as any}),
+   /CDP snapshot failed/,
+   'an explicit CDP error field must prevent publishing any V1 DOM node counts',
+  );
+ }
+});
