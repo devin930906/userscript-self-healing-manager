@@ -22,3 +22,15 @@ test('RG-07 retains valid leap day and ISO timezone timestamps',()=>{
   assert.equal(result.createdAt,stamp);
  }
 });
+
+test('RG-07 rejects timestamps with invalid suffixes or incomplete timezone',()=>{
+ for(const stamp of [
+  '2026-10-15T12:30:00.000Z ignored',
+  '2026-10-15T12:30:00',
+  '2026-10-15T12:30:00+08',
+  '2026-10-15T12:30:00.1234567890Z',
+ ]){
+  for(const format of ['json','markdown'] as const)
+   assert.throws(()=>serializeDomBatchReport(fixture,format,stamp),/Invalid diagnosis report timestamp/);
+ }
+});
