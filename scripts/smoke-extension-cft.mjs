@@ -56,10 +56,36 @@ let stderr='';
 try{
  // Generated from fixed source at test time; no user scripts, credentials,
  // arbitrary extension IDs or remote extension download URLs are accepted.
- const manifest='{"manifest_version":3,"name":"USSHM Synthetic Extension Fixture","version":"0.0.1","content_scripts":[{"matches":["http://127.0.0.1/*"],"js":["content.js"],"run_at":"document_idle"}]}';
- const content='if(location.protocol==="http:"&&location.hostname==="127.0.0.1"&&location.pathname==="/fixture"){const runtimeOnMessage=Boolean(globalThis.chrome?.runtime?.onMessage&&typeof globalThis.chrome.runtime.onMessage.addListener==="function");document.documentElement.setAttribute("data-usshm-extension-runtime-onmessage",runtimeOnMessage?"yes":"no");document.documentElement.setAttribute("data-usshm-extension-fixture","yes");}\n';
+ const manifest='{"manifest_version":3,"name":"USSHM Synthetic Extension Fixture","version":"0.0.1","background":{"service_worker":"background.js"},"content_scripts":[{"matches":["http://127.0.0.1/*"],"js":["content.js"],"run_at":"document_idle"}]}';
+ // Fixed loopback-only synthetic MV3 service-worker echo. A callable API
+ // does not prove a working bridge: require a real content->worker->content
+ // response on both the initial document and the NEW post-restart document.
+ const background=`chrome.runtime.onMessage.addListener((message,sender,reply)=>{
+  try{
+   if(message?.kind!=='usshm-synthetic-runtime-ping')return;
+   const url=new URL(sender?.url);
+   if(url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.pathname==='/fixture')
+    reply({kind:'usshm-synthetic-runtime-pong'});
+  }catch{}
+ });
+ `;
+ const content=`if(location.protocol==="http:"&&location.hostname==="127.0.0.1"&&location.pathname==="/fixture"){
+  const runtimeOnMessage=Boolean(globalThis.chrome?.runtime?.onMessage&&typeof chrome.runtime.onMessage.addListener==="function");
+  document.documentElement.setAttribute("data-usshm-extension-runtime-onmessage",runtimeOnMessage?"yes":"no");
+  document.documentElement.setAttribute("data-usshm-extension-fixture","yes");
+  if(runtimeOnMessage&&typeof chrome.runtime.sendMessage==="function"){
+   chrome.runtime.sendMessage({kind:"usshm-synthetic-runtime-ping"},reply=>{
+    if(chrome.runtime.lastError)return;
+    if(reply?.kind==="usshm-synthetic-runtime-pong"&&
+       location.protocol==="http:"&&location.hostname==="127.0.0.1"&&location.pathname==="/fixture")
+     document.documentElement.setAttribute("data-usshm-extension-roundtrip","yes");
+   });
+  }
+ }
+ `;
  await writeFile(join(extension,'manifest.json'),manifest,{flag:'wx'});
  await writeFile(join(extension,'content.js'),content,{flag:'wx'});
+ await writeFile(join(extension,'background.js'),background,{flag:'wx'});
  await new Promise((resolve,reject)=>{
   server.once('error',reject);
   server.listen(0,'127.0.0.1',resolve);
@@ -102,10 +128,14 @@ try{
      method:'querySelectorAll',
      expression:'[data-usshm-extension-runtime-onmessage="yes"]',
      runtimeRequired:false,
+    },{
+     method:'querySelectorAll',
+     expression:'[data-usshm-extension-roundtrip="yes"]',
+     runtimeRequired:false,
     }]);
     selected=page;
     if(probe.validationLevel==='dom-only'&&probe.targetId===page.id&&
-       probe.url===fixtureUrl&&probe.checks.length===2&&
+       probe.url===fixtureUrl&&probe.checks.length===3&&
        probe.checks.every(check=>check?.status==='found'&&check?.matchCount===1)){
      const after=await confirmPageIdentity(page);
      if(after.frameId!==identity.frameId||after.loaderId!==identity.loaderId)
@@ -169,9 +199,13 @@ try{
      method:'querySelectorAll',
      expression:'[data-usshm-extension-runtime-onmessage="yes"]',
      runtimeRequired:false,
+    },{
+     method:'querySelectorAll',
+     expression:'[data-usshm-extension-roundtrip="yes"]',
+     runtimeRequired:false,
     }]);
     if(probe.validationLevel==='dom-only'&&probe.targetId===page.id&&
-       probe.url===fixtureUrl&&probe.checks.length===2&&
+       probe.url===fixtureUrl&&probe.checks.length===3&&
        probe.checks.every(check=>check?.status==='found'&&check?.matchCount===1)){
      const after=await confirmPageIdentity(page);
      if(after.frameId!==identity.frameId||after.loaderId!==identity.loaderId)
@@ -187,7 +221,7 @@ try{
  }
  if(!restartedVerified||!restartedStatus)
   throw new Error('Synthetic CFT runtime messaging cold-restart control failed: '+restartReason);
- console.log('PASS real CFT 155 synthetic MV3 isolated-world runtime messaging survived process restart using the same disposable profile; NOT USER_SCRIPT, Tampermonkey or GM_* V4.');
+ console.log('PASS real CFT 155 synthetic MV3 isolated-world runtime messaging survived process restart; runtime-roundtrip handshake survived process restart using the same disposable profile; NOT USER_SCRIPT, Tampermonkey or GM_* V4.');
 }catch(error){
  console.error('FAIL isolated CFT 155 extension fixture:',error instanceof Error?error.message:'unknown');
  if(stderr)console.error('CFT stderr (tail):',stderr);
