@@ -223,3 +223,24 @@ test('same-loader iframe SPA navigation invalidates evidence without exposing th
  assert.doesNotMatch(JSON.stringify([before,after]),/ALPHA_TOKEN|BETA_TOKEN|\/account|\/settings/);
  assert.throws(()=>assertStablePageDocument(before,after),/document|navigation|frame|identity/i);
 });
+
+test('RG-01 stable document fence rejects malformed same-origin child receipts on both sides',()=>{
+ const valid={
+  targetId:page.id,confirmedUrl:page.url,
+  frameId:'root',loaderId:'loader-one',subframeCount:1,
+  soleSameOriginSubframe:{frameId:'child',loaderId:'child-loader',urlFingerprint:'a'.repeat(64)},
+ };
+ assert.doesNotThrow(()=>assertStablePageDocument(valid,valid));
+ const malformed=[
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,frameId:''}},
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,loaderId:''}},
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,frameId:'root'}},
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,urlFingerprint:'not-a-digest'}},
+  {...valid,subframeCount:2},
+ ];
+ for(const [index,receipt] of malformed.entries()){
+  assert.throws(()=>assertStablePageDocument(receipt,receipt),
+   /document identity|frame identity|child identity/i,
+   'identical invalid child receipt '+index+' must not certify a stable frame');
+ }
+});
