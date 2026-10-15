@@ -24,7 +24,6 @@ class AckSocket extends EventEmitter{
   super();
   this.fault=privateFault;
   this.stage=privateStage;
-  queueMicrotask(()=>this.emit('open'));
  }
  readonly fault:Fault;
  readonly stage:'Runtime.enable'|'Runtime.disable'|'none';
@@ -44,7 +43,7 @@ test('FR-018 rejects malformed Runtime.enable acknowledgements before opening a 
  for(const fault of ['nested-error','nested-exception','outer-exception'] as const){
   const socket=new AckSocket(fault,'Runtime.enable');
   await assert.rejects(observeReadOnlyPageExceptions(target,{
-   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
   }),error=>{
    assert.ok(error instanceof Error);
    assert.match(error.message,/Runtime exception observer rejected|CDP/i);
@@ -61,7 +60,7 @@ test('FR-018 malformed Runtime.disable acknowledgements invalidate zero-event ev
  for(const fault of ['nested-error','nested-exception','outer-exception'] as const){
   const socket=new AckSocket(fault,'Runtime.disable');
   const evidence=await observeReadOnlyPageExceptions(target,{
-   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
   });
   assert.equal(evidence.status,'unknown',fault);
   assert.equal(evidence.observedCount,null,fault);
@@ -88,7 +87,7 @@ test('FR-018 damaged Runtime.disable ack cannot preserve previously counted exce
  }
  const socket=new ExceptionBeforeDisable('nested-error','Runtime.disable');
  const evidence=await observeReadOnlyPageExceptions(target,{
-  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
  });
  assert.equal(evidence.status,'unknown');
  assert.equal(evidence.observedCount,null);
@@ -100,7 +99,7 @@ test('FR-018 damaged Runtime.disable ack cannot preserve previously counted exce
 test('FR-018 genuine empty CDP runtime acknowledgements still allow count-only zero evidence',async()=>{
  const socket=new AckSocket('nested-error','none');
  const evidence=await observeReadOnlyPageExceptions(target,{
-  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
  });
  assert.equal(evidence.status,'none-observed');
  assert.equal(evidence.observedCount,0);
