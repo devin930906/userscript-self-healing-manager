@@ -26,3 +26,19 @@ test('RG-05 synthetic CFT control checks runtime.onMessage across a real Chrome 
  assert.match(source,/runtime messaging survived process restart/i,
   'control must report the bounded post-restart result without implying GM or V4 success');
 });
+
+test('RG-05 synthetic CFT control requires a genuine extension message roundtrip before and after process restart',async()=>{
+ const source=await readFile(new URL('../../scripts/smoke-extension-cft.mjs',import.meta.url),'utf8');
+ // Property presence alone cannot distinguish a working extension bridge
+ // from a cold-start chrome.runtime.onMessage object that never delivers.
+ assert.match(source,/data-usshm-extension-roundtrip/,
+  'a successful bounded background/content response must be visible in the fixture');
+ assert.match(source,/chrome\\.runtime\\.sendMessage/,
+  'content must initiate an actual runtime message, not merely check typeof');
+ assert.match(source,/chrome\\.runtime\\.onMessage\\.addListener/,
+  'extension background must register an actual synthetic reply listener');
+ assert.match(source,/runtime-roundtrip.*survived process restart/i,
+  'the result must report the observed roundtrip, not API presence alone');
+ assert.doesNotMatch(source,/GM_setValue\s*\(|GM_xmlhttpRequest\s*\(|GetInjected\s*\(/,
+  'the control must not execute real or synthetic GM userscript APIs');
+});
