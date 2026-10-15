@@ -273,3 +273,59 @@ test('RG-07 FR-018 redacts failure to initialize approved loopback exception soc
  );
  assert.equal(confirms,1,'socket factory failure must never claim a completed observation');
 });
+
+
+test('FR-018 passive observer closes the socket when a CDP listener cannot register',async()=>{
+ const secret='PRIVATE_LISTENER_REGISTRATION_TOKEN=https://private.example/?session=123';
+ const socket=new FakeSocket();
+ const originalAdd=socket.addEventListener.bind(socket);
+ socket.addEventListener=(name,listener)=>{
+  if(name==='message')throw new Error(secret);
+  originalAdd(name,listener);
+ };
+ await assert.rejects(observeReadOnlyPageExceptions(target,{
+  approved:true,durationMs:100,confirm:async()=>confirmed(),
+  socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
+ }),error=>{
+  assert.ok(error instanceof Error);
+  assert.equal(error.message,'CDP exception observation listener initialization failed');
+  assert.equal('cause' in error,false);
+  assert.doesNotMatch(String(error),/PRIVATE_|session=|private[.]example/);
+  return true;
+ });
+ assert.equal(socket.closed,1);
+ assert.deepEqual(socket.sent,[]);
+ assert.equal(socket.listenerCount('open'),0);
+ assert.equal(socket.listenerCount('message'),0);
+});
+
+test('FR-018 passive observer settles and closes even when removing a CDP listener throws',async()=>{
+ const secret='PRIVATE_LISTENER_REMOVAL_TOKEN=https://private.example/?auth=secret';
+ const socket=new FakeSocket();
+ const originalRemove=socket.removeEventListener.bind(socket);
+ socket.removeEventListener=(name,listener)=>{
+  if(name==='message')throw new Error(secret);
+  originalRemove(name,listener);
+ };
+ // Guard the regression against a forever-pending observer after it has
+ // already cleared its own deadline timer but failed halfway through cleanup.
+ let watchdog:ReturnType<typeof setTimeout>|undefined;
+ try{
+  const result=await Promise.race([
+   observeReadOnlyPageExceptions(target,{
+    approved:true,durationMs:100,confirm:async()=>confirmed(),
+    socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
+   }),
+   new Promise<never>((_,reject)=>{watchdog=setTimeout(
+    ()=>reject(new Error('Observer never settled after cleanup failure')),600);
+   }),
+  ]);
+  assert.equal(result.status,'none-observed');
+  assert.equal(result.observedCount,0);
+  assert.equal(result.V4,'not-configured');
+  assert.equal(socket.closed,1);
+  assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable']);
+ }finally{
+  if(watchdog!==undefined)clearTimeout(watchdog);
+ }
+});
