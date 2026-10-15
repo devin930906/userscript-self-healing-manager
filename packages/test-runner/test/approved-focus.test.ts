@@ -314,3 +314,28 @@ test('FR-024 a stalled pre-action identity recheck expires without dispatching f
   if(watchdog!==undefined)clearTimeout(watchdog);
  }
 });
+
+test('FR-024 rejects any CDP error envelope even when its error value is falsy',async()=>{
+ for(const method of ['DOM.getDocument','DOM.focus'] as const){
+  for(const errorField of [null,false,0,''] as const){
+   class MalformedEnvelopeSocket extends FocusSocket{
+    override send(raw:string){
+     const message=JSON.parse(raw);
+     if(message.method!==method)return super.send(raw);
+     this.methods.push(message.method);
+     this.inputs.push(message.params);
+     const result=method==='DOM.getDocument'?{root:{nodeId:1}}:{};
+     queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+      id:message.id,result,error:errorField,
+     })}));
+    }
+   }
+   const socket=new MalformedEnvelopeSocket();
+   await assert.rejects(()=>run(socket),/CDP focus command did not return a valid result/,
+    'a forged '+method+' result with an error property must not be accepted');
+   if(method==='DOM.getDocument')
+    assert.equal(socket.methods.includes('DOM.focus'),false,
+     'reject a malformed preflight before dispatching the observable action');
+  }
+ }
+});
