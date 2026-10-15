@@ -12,15 +12,17 @@ const frame={targetId:target.id,confirmedUrl:url,frameId:'mainframe',loaderId:'m
 const locator={method:'querySelector',expression:'#safe-focus',runtimeRequired:false};
 class FocusSocket extends EventEmitter{
  readonly methods:string[]=[];readonly inputs:any[]=[];
- readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean};
+ readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;mutateDisabledOnPreFocus?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean};
  focused=false;
- constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean}={}){
+ constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;mutateDisabledOnPreFocus?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean}={}){
   super();this.opts=opts;this.focused=opts.initiallyFocused===true;setImmediate(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(e:any)=>void){this.off(name,fn);}
  send(raw:string){
   const msg=JSON.parse(raw);this.methods.push(msg.method);this.inputs.push(msg.params);
+  if(msg.method==='DOM.querySelectorAll'&&msg.params?.selector===':focus'&&
+     this.opts.mutateDisabledOnPreFocus&&!this.focused)this.opts.lateDisabled=true;
   const ids=msg.params?.selector===':focus'?
    (this.opts.focusMissing?[]:this.focused?[42]:[]):(this.opts.ambiguous?[42,43]:[42]);
   const result=msg.method==='DOM.getDocument'?{root:{nodeId:1}}:
@@ -228,4 +230,14 @@ test('FR-024 mutation during final page identity recheck cannot dispatch DOM.foc
  assert.ok(confirms>=2,'fault injection must occur during the final pre-action identity guard');
  assert.equal(socket.methods.includes('DOM.focus'),false,
   'never dispatch the observable focus after a control changes during identity recheck');
+});
+
+test('FR-024 mutation during pre-action focus evidence cannot dispatch DOM.focus',async()=>{
+ const socket=new FocusSocket({mutateDisabledOnPreFocus:true});
+ await assert.rejects(run(socket),/button|disabled|changed|unsafe|focus/i,
+  'a control that becomes disabled while collecting pre-action focus evidence must be revalidated');
+ assert.ok(socket.methods.includes('DOM.querySelectorAll'),
+  'fault injection must occur during the final pre-action focus evidence query');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'never dispatch the observable focus after a control changes during pre-action evidence');
 });
