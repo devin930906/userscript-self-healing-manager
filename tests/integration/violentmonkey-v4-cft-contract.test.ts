@@ -152,7 +152,14 @@ test('read-only manager preflight proves script absence from the official option
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
  assert.match(smoke,/buildViolentmonkeyFixturePreflightExpression\(fixtureMeta\.name,fixtureMeta\.namespace\)/);
  assert.match(smoke,/await readManagerPreflight\(optionsCdp/);
- assert.match(smoke,/typeof value!=='string'\|\|value\.length>512/);
+ // The same 512-byte cap now lives in the shared strict CDP receipt
+ // validator, used by the real pre-restart and post-restart smoke entrypoints.
+ const contract=await readFile(resolve('scripts/violentmonkey-v4-contract.ts'),'utf8');
+ const validator=contract.split('export function assertViolentmonkeyPreflightReceipt(')[1]
+  ?.split('export function buildViolentmonkeyFixturePreflightExpression(')[0];
+ assert.ok(validator,'bounded preflight validator must be present');
+ assert.match(validator,/typeof value!=='string'\|\|value\.length>512/);
+ assert.match(smoke,/assertViolentmonkeyPreflightReceipt\(answer\)/);
  assert.doesNotMatch(smoke,/cmd:'GetData'|cmd:'GetScript'/);
  assert.doesNotMatch(smoke,/chrome\.runtime\.sendMessage/);
 });
