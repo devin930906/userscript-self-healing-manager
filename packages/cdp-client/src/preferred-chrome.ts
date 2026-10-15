@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {lstat,writeFile,rename,unlink} from 'node:fs/promises';
+import {lstat,writeFile,rename,unlink,mkdir,rmdir} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {dirname,isAbsolute,join} from 'node:path';
@@ -46,17 +46,28 @@ export async function savePreferredChromePath({dataRoot,executablePath}:{
  // otherwise legitimate user-selected Chrome path outside app-owned storage.
  // This directory preflight is fail-closed, but not a concurrent rename lock.
  await assertUnlinkedRecoveryDirectory(dataRoot);
- const state:PreferredChromeState={schemaVersion:1,executablePath};
- const config=join(dataRoot,PREFERENCE_FILE),temp=join(dataRoot,'.chrome-preference-'+randomUUID()+'.tmp');
- await checkConfigPath(config);
+ // Cross-process settings writes must never bypass another owner's atomic
+ // directory lease. Stale locks are deliberately not stolen on startup.
+ const lock=join(dataRoot,PREFERENCE_FILE+'.write-lock');
+ try{await mkdir(lock,{mode:0o700});}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='EEXIST')
+   throw new Error('Another Chrome preference writer holds the lock');
+  throw error;
+ }
  try{
-  await writeFile(temp,JSON.stringify(state)+'\n',{flag:'wx',mode:0o600});
-  // Only replace settings that are regular files; do not overwrite a link.
-  // Recheck directory ancestry after staging and before publishing the write.
-  await assertUnlinkedRecoveryDirectory(dataRoot);
+  const state:PreferredChromeState={schemaVersion:1,executablePath};
+  const config=join(dataRoot,PREFERENCE_FILE),temp=join(dataRoot,'.chrome-preference-'+randomUUID()+'.tmp');
   await checkConfigPath(config);
-  await rename(temp,config);
- }finally{await unlink(temp).catch(error=>{if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;});}
+  try{
+   await writeFile(temp,JSON.stringify(state)+'\n',{flag:'wx',mode:0o600});
+   // Only replace settings that are regular files; do not overwrite a link.
+   // Recheck directory ancestry after staging and before publishing the write.
+   await assertUnlinkedRecoveryDirectory(dataRoot);
+   await checkConfigPath(config);
+   await rename(temp,config);
+  }finally{await unlink(temp).catch(error=>{if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;});}
+ }finally{await rmdir(lock);}
 }
 /** Missing, invalid or moved Chrome binaries are unselected; never autorun paths read from disk. */
 export async function loadPreferredChromePath({dataRoot}:{dataRoot:string}):Promise<string|null>{
