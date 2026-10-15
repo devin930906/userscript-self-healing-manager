@@ -38,6 +38,9 @@ async function directory(path:string){
 /** Hash only a verified open descriptor; test-only callback models a path
  * replacement exactly between the pre-open lstat and descriptor open. */
 export async function shaFile(file:string,limit=512*1024*1024,beforeOpen?:()=>Promise<void>):Promise<{sha256:string;bytes:number}>{
+ // Reject linked or reparse-point parents before taking the approved file snapshot.
+ // Recheck after the injectable race window and again before releasing the hash.
+ await assertUnlinkedRecoveryDirectory(dirname(file));
  const original=await lstat(file);
  const nativeBefore=await lstat(file,{bigint:true});
  if(!original.isFile()||original.isSymbolicLink()||original.size>limit||
@@ -52,6 +55,7 @@ export async function shaFile(file:string,limit=512*1024*1024,beforeOpen?:()=>Pr
    throw new Error('Invalid pinned recovery hash injection dependency');
   await beforeOpen();
  }
+ await assertUnlinkedRecoveryDirectory(dirname(file));
  // O_NOFOLLOW fails with ELOOP when a late source symlink replaces the
  // approved file. Never leak the raw absolute pathname through this error.
  let handle;
@@ -89,6 +93,7 @@ export async function shaFile(file:string,limit=512*1024*1024,beforeOpen?:()=>Pr
    throw new Error('Recovery snapshot changed during hash verification');
   if(after.nlink!==1||pathAfter.nlink!==1)
    throw new Error('Unsafe recovery snapshot hardlink alias after hash verification');
+  await assertUnlinkedRecoveryDirectory(dirname(file));
   return {sha256:digest.digest('hex'),bytes:count};
  }finally{await handle.close();}
 }
