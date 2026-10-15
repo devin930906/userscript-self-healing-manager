@@ -186,6 +186,10 @@ WHERE r.id=?
    if(!row)throw new Error('Corrupt audit journal chain');
    for(const key of ['revision_id','job_id','finding_id','candidate_id','test_id','approval_id','script_id','attempt_id'] as const)
     if(!uuid.test(row[key]??''))throw new Error('Corrupt audit journal identity');
+   const persistedEntityIds=['revision_id','job_id','finding_id','candidate_id','test_id','approval_id']
+    .map(key=>row[key]??'');
+   if(new Set(persistedEntityIds).size!==persistedEntityIds.length)
+    throw new Error('Corrupt audit journal duplicate entity identity');
    for(const key of ['source_sha256','revision_sha256'] as const)
     if(!sha256.test(row[key]??''))throw new Error('Corrupt audit journal hash');
    const expiry=row.expires_at??'';
