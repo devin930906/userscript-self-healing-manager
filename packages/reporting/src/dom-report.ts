@@ -28,6 +28,9 @@ export function serializeDomBatchReport(
  const year=Number(createdAt.slice(0,4));
  const month=Number(createdAt.slice(5,7));
  const day=Number(createdAt.slice(8,10));
+ // ISO 8601 permits 24:00 for the next day, but a forensic report must not
+ // retain yesterday's date alongside a normalized next-day instant.
+ if(createdAt.slice(11,13)==='24')throw new Error('Invalid diagnosis report timestamp');
  const calendarDate=new Date(0);
  calendarDate.setUTCFullYear(year,month-1,day);
  if(calendarDate.getUTCFullYear()!==year||
