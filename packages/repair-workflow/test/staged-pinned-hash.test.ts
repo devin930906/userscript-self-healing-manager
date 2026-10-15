@@ -91,3 +91,12 @@ test('RG-06 pinned recovery hash rejects a linked ancestor substituted after ini
   'the same open inode must not mask a parent that became a junction during the hash');
  assert.deepEqual(await readFile(file),bytes);
 }));
+
+test('RG-06 pinned recovery hashing rejects invalid and unbounded size budgets',async()=>fixture(async({source,bytes})=>{
+ for(const budget of [Number.NaN,Number.POSITIVE_INFINITY,-1,1.5,512*1024*1024+1]){
+  await assert.rejects(shaFile(source,budget),/invalid recovery snapshot size budget/i,
+   'non-finite, negative, fractional or excessive limits must never bypass the bounded read');
+ }
+ assert.deepEqual(await shaFile(source,bytes.length),
+  {sha256:hash(bytes),bytes:bytes.length},'a valid finite exact bound still hashes normally');
+}));
