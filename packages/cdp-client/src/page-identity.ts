@@ -94,7 +94,8 @@ export async function confirmPageIdentity(
     let nestedFrames=0;
     for(let index=0;index<queue.length;index++){
      const node=queue[index] as {frame?:{id?:unknown};childFrames?:unknown}|null;
-     if(!node||!node.frame||typeof node.frame.id!=='string')
+     if(!node||!node.frame||typeof node.frame.id!=='string'||
+        !node.frame.id||node.frame.id.length>256)
       throw new Error('Invalid nested CDP frame tree');
      if(node.childFrames!==undefined){
       if(!Array.isArray(node.childFrames))throw new Error('Invalid nested CDP frame list');
