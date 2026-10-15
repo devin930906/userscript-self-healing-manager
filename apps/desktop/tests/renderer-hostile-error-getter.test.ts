@@ -16,3 +16,14 @@ test('RG-07 renderer rejects non-string Error.message without coercion',()=>{
  Object.defineProperty(hostile,'message',{get(){return {toString(){throw new Error('private token');}};}});
  assert.equal(summarizeSafeDesktopError(hostile),fallback);
 });
+
+test('RG-07 renderer reads a stateful message getter at most once',()=>{
+ const hostile=new Error('private');
+ let reads=0;
+ Object.defineProperty(hostile,'message',{get(){
+  reads++;
+  return reads===1?'CDP locator probe timeout':{toString(){throw new Error('private token');}};
+ }});
+ assert.equal(summarizeSafeDesktopError(hostile),'页面 DOM 检查超时，请刷新目标页状态后重试。');
+ assert.equal(reads,1);
+});
