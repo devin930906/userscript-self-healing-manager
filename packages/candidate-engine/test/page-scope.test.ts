@@ -99,3 +99,32 @@ test('RG-04 credentialed CDP target URLs cannot inherit an authorized userscript
  }
  assert.equal(checkUserscriptPageScope(m,'https://example.org/settings').status,'allowed');
 });
+
+test('RG-01 accessor-backed deny rules fail closed without running untrusted getters',()=>{
+ let invoked=0;
+ const raw:Record<string,string[]>={};
+ Object.defineProperty(raw,'exclude',{
+  enumerable:true,
+  get(){invoked++;throw new Error('PRIVATE-METADATA-GETTER');},
+ });
+ const verdict=checkUserscriptPageScope(
+  meta(['https://example.org/*'],[],raw),
+  'https://example.org/private',
+ );
+ assert.equal(verdict.status,'unknown');
+ assert.equal(invoked,0,'the policy decision must inspect only metadata data properties');
+ assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE-METADATA/);
+});
+
+test('RG-01 getter-backed rule-array elements cannot grant page authorization',()=>{
+ let invoked=0;
+ const allow=['https://example.org/*'];
+ Object.defineProperty(allow,'0',{
+  configurable:true,enumerable:true,
+  get(){invoked++;throw new Error('PRIVATE-PATTERN-GETTER');},
+ });
+ const verdict=checkUserscriptPageScope(meta(allow),'https://example.org/private');
+ assert.equal(verdict.status,'unknown');
+ assert.equal(invoked,0,'a hostile array element getter must never be evaluated');
+ assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE-PATTERN/);
+});
