@@ -260,3 +260,22 @@ test('FR-024 a delayed event loop cannot dispatch focus before the expired timer
  assert.equal(socket.methods.includes('DOM.focus'),false,
   'elapsed monotonic deadline must block action even when timer delivery is delayed');
 });
+
+test('FR-024 mutation during final page identity recheck cannot dispatch DOM.focus',async()=>{
+ const options:{lateDisabled?:boolean}={};
+ const socket=new FocusSocket(options);
+ let confirms=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,approvedDocument:frame,timeoutMs:2000,
+  confirm:async()=>{
+   confirms++;
+   if(confirms===2)options.lateDisabled=true;
+   return frame;
+  },
+  socketFactory:()=>socket,
+ }),/button|disabled|changed|unsafe|focus/i,
+ 'page mutation while the final identity guard yields must be revalidated before action');
+ assert.ok(confirms>=2,'fault injection must occur during the final pre-action identity guard');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'never dispatch the observable focus after a control changes during identity recheck');
+});
