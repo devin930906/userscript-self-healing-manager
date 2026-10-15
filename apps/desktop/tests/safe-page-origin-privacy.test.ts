@@ -9,7 +9,7 @@ test('RG-07 DOM report origin drops private paths, query, fragments and port-pre
 });
 
 test('RG-07 DOM report origin fails closed on URL parser normalization of whitespace and controls',()=>{
- for(const suffix of [' ', '\${n}', '\${n}', '\${n}', '\${n}', '\${n}']){
+ for(const suffix of [' ', '\n', '\r', '\t', '\u0000', '\u007f']){
   const value=suffix===' '? ' https://example.invalid/private?token=SECRET' : 'https://example.invalid/pri'+suffix+'vate?token=SECRET';
   assert.equal(safeDomReportPageOrigin(value),'站点来源未确认',JSON.stringify(value));
  }
