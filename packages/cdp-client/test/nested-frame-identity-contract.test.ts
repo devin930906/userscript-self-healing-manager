@@ -55,3 +55,16 @@ test('RG-01 still accepts a valid pinned single same-origin child',async()=>{
  assert.doesNotMatch(JSON.stringify(receipt),/DO_NOT_LOG|\/child\?/);
  assert.equal(socket.listenerCount('message'),0);
 });
+
+test('RG-01 rejects child frame IDs that collide with the trusted main-frame ID',async()=>{
+ // A colliding ID would let an untrusted CDP frame tree claim that the
+ // selected top document is simultaneously its own same-origin child.
+ const socket=new NestedIdentitySocket('legitimate-top');
+ await assert.rejects(
+  confirmPageIdentity(target,{socketFactory:()=>socket}),
+  /Invalid nested CDP frame tree/,
+  'duplicated frame identities must not authorize a child inspection scope',
+ );
+ assert.equal(socket.listenerCount('message'),0,
+  'rejected duplicate frame identities must release WebSocket listeners');
+});
