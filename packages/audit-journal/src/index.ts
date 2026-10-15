@@ -104,12 +104,13 @@ COMMIT;`);
  const testInsert=db.prepare("INSERT INTO audit_tests(id,candidate_id,job_id,status) VALUES(?,?,?,'passed')");
  const approvalInsert=db.prepare('INSERT INTO audit_approvals(id,test_id,candidate_id,job_id,source_sha256,expires_at) VALUES(?,?,?,?,?,?)');
  const revisionInsert=db.prepare('INSERT INTO audit_revisions(id,approval_id,candidate_id,job_id,script_id,source_sha256,revision_sha256) VALUES(?,?,?,?,?,?,?)');
+ const revisionPresent=db.prepare('SELECT 1 AS present FROM audit_revisions WHERE id=?');
  const byRevision=db.prepare(`
 SELECT r.id AS revision_id,r.revision_sha256,r.source_sha256,r.script_id,r.job_id,
  j.attempt_id,f.id AS finding_id,c.id AS candidate_id,t.id AS test_id,
  a.id AS approval_id,a.expires_at
 FROM audit_revisions r
-JOIN audit_jobs j ON j.id=r.job_id
+JOIN audit_jobs j ON j.id=r.job_id AND j.script_id=r.script_id AND j.source_sha256=r.source_sha256
 JOIN audit_findings f ON f.job_id=j.id AND f.script_id=j.script_id AND f.attempt_id=j.attempt_id
 JOIN audit_candidates c ON c.id=r.candidate_id AND c.finding_id=f.id AND c.job_id=j.id
 JOIN audit_tests t ON t.candidate_id=c.id AND t.job_id=j.id AND t.status='passed'
@@ -167,8 +168,9 @@ WHERE r.id=?
   getByRevision(revisionId:string):AuditTrace|null{
    if(typeof revisionId!=='string'||!uuid.test(revisionId))
     throw new Error('Invalid canonical audit revision id');
+   if(!revisionPresent.get(revisionId))return null;
    const row=byRevision.get(revisionId) as SqlRow|undefined;
-   if(!row)return null;
+   if(!row)throw new Error('Corrupt audit journal chain');
    for(const key of ['revision_id','job_id','finding_id','candidate_id','test_id','approval_id'] as const)
     if(!uuid.test(row[key]??''))throw new Error('Corrupt audit journal identity');
    for(const key of ['source_sha256','revision_sha256'] as const)
