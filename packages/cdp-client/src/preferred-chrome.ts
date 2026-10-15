@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {lstat,writeFile,rename,unlink,mkdir,rmdir} from 'node:fs/promises';
+import {lstat,writeFile,unlink,mkdir,rmdir} from 'node:fs/promises';
+import {publishRegistrySettingsFile} from './atomic-registry-publish.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {dirname,isAbsolute,join} from 'node:path';
@@ -58,14 +59,14 @@ export async function savePreferredChromePath({dataRoot,executablePath}:{
  try{
   const state:PreferredChromeState={schemaVersion:1,executablePath};
   const config=join(dataRoot,PREFERENCE_FILE),temp=join(dataRoot,'.chrome-preference-'+randomUUID()+'.tmp');
-  await checkConfigPath(config);
+  const previouslyPresent=await checkConfigPath(config);
   try{
    await writeFile(temp,JSON.stringify(state)+'\n',{flag:'wx',mode:0o600});
    // Only replace settings that are regular files; do not overwrite a link.
    // Recheck directory ancestry after staging and before publishing the write.
    await assertUnlinkedRecoveryDirectory(dataRoot);
    await checkConfigPath(config);
-   await rename(temp,config);
+   await publishRegistrySettingsFile(temp,config,previouslyPresent);
   }finally{await unlink(temp).catch(error=>{if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;});}
  }finally{await rmdir(lock);}
 }

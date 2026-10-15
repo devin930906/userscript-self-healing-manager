@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {lstat,rename,writeFile,unlink,mkdir,rmdir} from 'node:fs/promises';
+import {lstat,writeFile,unlink,mkdir,rmdir} from 'node:fs/promises';
+import {publishRegistrySettingsFile} from './atomic-registry-publish.ts';
 import {dirname,isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
@@ -116,6 +117,15 @@ async function withRegistryWriteLease<T>(dataRoot:string,fn:()=>Promise<T>):Prom
 }
 async function persist(dataRoot:string,state:SavedState):Promise<void>{
  const target=rootPath(dataRoot);
+ // Capture first-create intent before reading the registry. If another
+ // process creates the file at any later checkpoint, no-replace publication
+ // must not silently replace their independent settings.
+ let previouslyPresent:boolean;
+ try{await lstat(target);previouslyPresent=true;}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  previouslyPresent=false;
+ }
  // Do not repair or overwrite corrupted data silently. No browser is
  // automatically launched while reading or writing this optional registry.
  await readState(dataRoot);
@@ -128,7 +138,7 @@ async function persist(dataRoot:string,state:SavedState):Promise<void>{
   // A last-minute symlink/reparse point at the target must never be
   // implicitly followed. Single-instance Electron serializes UI writes.
   await readState(dataRoot);
-  await rename(temp,target);
+  await publishRegistrySettingsFile(temp,target,previouslyPresent);
  }finally{
   await unlink(temp).catch(error=>{
    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
