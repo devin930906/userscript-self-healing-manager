@@ -108,6 +108,10 @@ try{
  const address=server.address();
  if(!address||typeof address==='string')throw new Error('Failed to bind local HTTP fixture');
  const fixtureUrl='http://127.0.0.1:'+address.port+'/fixture';
+ // QA-004/005: never attach a real-browser smoke to a listener left by
+ // another process. The post-launch CDP socket and document checks still
+ // authenticate our fresh isolated fixture; this bind check alone is not proof.
+ await assertChromeDebuggerPortFree(9223);
  chrome=spawn(executable,[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
   '--headless=new','--no-first-run','--no-default-browser-check',
