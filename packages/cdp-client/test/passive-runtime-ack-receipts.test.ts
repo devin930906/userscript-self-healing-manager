@@ -20,14 +20,14 @@ const unsafeAck=(id:number,fault:Fault)=>{
 class AckSocket extends EventEmitter{
  readonly sent:string[]=[];
  closed=0;
- constructor(privateFault:Fault,privateStage:'Runtime.enable'|'Runtime.disable'){
+ constructor(privateFault:Fault,privateStage:'Runtime.enable'|'Runtime.disable'|'none'){
   super();
   this.fault=privateFault;
   this.stage=privateStage;
   queueMicrotask(()=>this.emit('open'));
  }
  readonly fault:Fault;
- readonly stage:'Runtime.enable'|'Runtime.disable';
+ readonly stage:'Runtime.enable'|'Runtime.disable'|'none';
  addEventListener(event:string,callback:(value:any)=>void){this.on(event,callback);}
  removeEventListener(event:string,callback:(value:any)=>void){this.off(event,callback);}
  send(payload:string){
@@ -73,8 +73,32 @@ test('FR-018 malformed Runtime.disable acknowledgements invalidate zero-event ev
  }
 });
 
+test('FR-018 damaged Runtime.disable ack cannot preserve previously counted exception evidence',async()=>{
+ class ExceptionBeforeDisable extends AckSocket{
+  override send(payload:string){
+   const command=JSON.parse(payload) as {method:string};
+   super.send(payload);
+   if(command.method==='Runtime.enable')
+    queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+     method:'Runtime.exceptionThrown',params:{exceptionDetails:{
+      exceptionId:42,text:'PRIVATE_SECRET_SHOULD_NOT_LEAK',
+     }},
+    })}));
+  }
+ }
+ const socket=new ExceptionBeforeDisable('nested-error','Runtime.disable');
+ const evidence=await observeReadOnlyPageExceptions(target,{
+  approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
+ });
+ assert.equal(evidence.status,'unknown');
+ assert.equal(evidence.observedCount,null);
+ assert.equal(evidence.V3,'not-configured');
+ assert.equal(socket.closed,1);
+ assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_SECRET/);
+});
+
 test('FR-018 genuine empty CDP runtime acknowledgements still allow count-only zero evidence',async()=>{
- const socket=new AckSocket('nested-error','not-a-stage' as 'Runtime.enable');
+ const socket=new AckSocket('nested-error','none');
  const evidence=await observeReadOnlyPageExceptions(target,{
   approved:true,durationMs:100,confirm:async()=>confirmed(),socketFactory:()=>socket,
  });
