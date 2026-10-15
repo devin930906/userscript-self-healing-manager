@@ -110,4 +110,30 @@ CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT 1; 
   }finally{await rm(root,{recursive:true,force:true});}
  });
 
+ it('rejects non-UUID persisted script and attempt identities even when all linked rows agree',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'usshm-audit-'));
+  try{
+   const file=join(root,'audit.sqlite');
+   let journal=openAuditJournal(file);
+   journal.append(trace(),now);
+   journal.close();
+   const raw=new DatabaseSync(file);
+   try{
+    for(const table of ['audit_jobs','audit_findings','audit_revisions'])
+     raw.exec(`DROP TRIGGER ${table}_no_update`);
+    raw.prepare('UPDATE audit_jobs SET script_id=?,attempt_id=? WHERE id=?').run('not-a-uuid','also-not-a-uuid',id(1));
+    raw.prepare('UPDATE audit_findings SET script_id=?,attempt_id=? WHERE id=?').run('not-a-uuid','also-not-a-uuid',id(4));
+    raw.prepare('UPDATE audit_revisions SET script_id=? WHERE id=?').run('not-a-uuid',id(8));
+    for(const table of ['audit_jobs','audit_findings','audit_revisions'])
+     raw.exec(`CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'audit journal is append-only'); END;`);
+   }finally{raw.close();}
+   journal=openAuditJournal(file);
+   let issue:unknown;
+   try{journal.getByRevision(id(8));}catch(error){issue=error;}
+   journal.close();
+   assert.ok(issue instanceof Error,'retrieval must validate persisted script and attempt identities, not only stage entity IDs');
+   assert.match(issue.message,/corrupt|identity|uuid|audit/i);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+
 });
