@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,readFile,access,link,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,access,link,rm,cp,rename,lstat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
@@ -141,4 +141,32 @@ test('RG-06 independent offline-stage review rejects late source mutation while 
   'this review may not repair or alter staged bytes');
  assert.deepEqual(await readFile(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json')),markerBefore,
   'this read-only review does not rewrite the completion marker');
+}));
+
+test('RG-06 stage creation refuses a replacement root even when all staged bytes are unchanged',async()=>withSnapshot(async({root,source,backup,target})=>{
+ const moved=join(root,'original-claimed-stage');
+ const activeBefore=await readFile(join(source,'registry.sqlite'));
+ const backupBefore=await readFile(join(backup,'manifest.json'));
+ let replacements=0;
+ await assert.rejects(stageCoreRecoveryForOfflineReview({
+  snapshotDirectory:backup,activeDataRoot:source,destination:target,
+  beforeFinalMarker:async()=>{
+   const claimed=await lstat(target,{bigint:true});
+   await rename(target,moved);
+   await cp(moved,target,{recursive:true});
+   const foreign=await lstat(target,{bigint:true});
+   assert.ok(claimed.ino!==foreign.ino||claimed.birthtimeNs!==foreign.birthtimeNs,
+    'fixture must actually replace the claimed directory');
+   assert.deepEqual(await readFile(join(target,'registry.sqlite')),await readFile(join(moved,'registry.sqlite')));
+   assert.deepEqual(await readFile(join(target,'managed','synthetic','current.user.js')),
+    await readFile(join(moved,'managed','synthetic','current.user.js')));
+   replacements++;
+  },
+ }),/offline stage directory identity changed/i,
+ 'stage creation must bind its own exclusive directory claim, not just certify identical files at a new root');
+ assert.equal(replacements,1);
+ for(const directory of [target,moved])
+  await assert.rejects(access(join(directory,'USSHM-RECOVERY-NOT-ACTIVE.json')),{code:'ENOENT'});
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),activeBefore);
+ assert.deepEqual(await readFile(join(backup,'manifest.json')),backupBefore);
 }));
