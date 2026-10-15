@@ -25,7 +25,8 @@ import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/m
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
- buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
+ buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
+ enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -350,9 +351,11 @@ const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
 async function runPostBlockerExtensionReloadDiagnostic({
  browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited,
 }){
- let diagnosticOptionsCdp,diagnosticPageCdp,optionsTargetId,fixtureTargetId;
+ let diagnosticOptionsCdp,diagnosticPageCdp,diagnosticSettingsCdp;
+ let optionsTargetId,fixtureTargetId,settingsTargetId;
  let stage='reload-request';
- const result=fixture=>Object.freeze({stage,fixture:fixture??null});
+ let accessStatus=Object.freeze({matched:false,enabled:false,active:false});
+ const result=fixture=>Object.freeze({stage,fixture:fixture??null,accessStatus});
  try{
   if(hasExited())return result(null);
   const reloadExpression=`(()=>{try{
@@ -378,6 +381,49 @@ async function runPostBlockerExtensionReloadDiagnostic({
   diagnosticOptionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
   await diagnosticOptionsCdp.send('Runtime.enable');
   stage='options-ready';
+
+  // Passive Chrome settings snapshot only. It is deliberately isolated from
+  // the capability path so a late chrome://extensions context cannot alter
+  // the already-classified blocker or prevent the real options-page probe.
+  try{
+   const settingsUrl='chrome://extensions/';
+   const createdSettings=await browserCdp.send('Target.createTarget',{url:settingsUrl});
+   settingsTargetId=createdSettings?.targetId;
+   if(typeof settingsTargetId==='string'&&settingsTargetId){
+    const settingsPage=await waitForPage(settingsTargetId,settingsUrl,hasExited);
+    diagnosticSettingsCdp=await openCdp(settingsPage.webSocketDebuggerUrl);
+    await diagnosticSettingsCdp.send('Runtime.enable');
+    for(let attempt=0;attempt<12&&!hasExited();attempt++){
+     const answer=await diagnosticSettingsCdp.send('Runtime.evaluate',{
+      expression:buildViolentmonkeyUserScriptsAccessStatusExpression(),
+      awaitPromise:true,returnByValue:true,
+     });
+     const text=answer?.result?.value;
+     if(typeof text==='string'&&text.length<=96){
+      try{
+       const parsed=JSON.parse(text);
+       const valid=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
+        Object.keys(parsed).sort().join(',')==='active,enabled,matched'&&
+        typeof parsed.matched==='boolean'&&typeof parsed.enabled==='boolean'&&
+        typeof parsed.active==='boolean'&&(!parsed.active||parsed.enabled)&&
+        (!parsed.enabled||parsed.matched);
+       if(valid){
+        accessStatus=Object.freeze({
+         matched:parsed.matched,enabled:parsed.enabled,active:parsed.active,
+        });
+        if(parsed.matched)break;
+       }
+      }catch{}
+     }
+     if(attempt<11)await delay(100);
+    }
+    diagnosticSettingsCdp.close();diagnosticSettingsCdp=undefined;
+    try{await browserCdp.send('Target.closeTarget',{targetId:settingsTargetId});}catch{}
+    settingsTargetId=undefined;
+   }
+  }catch{
+   // Keep the fixed all-false snapshot. Never surface developerPrivate errors.
+  }
 
   const capability=await diagnosticOptionsCdp.send('Runtime.evaluate',{
    expression:buildViolentmonkeyUserScriptsProbeExpression(),
@@ -421,11 +467,15 @@ async function runPostBlockerExtensionReloadDiagnostic({
  }finally{
   diagnosticPageCdp?.close();
   diagnosticOptionsCdp?.close();
+  diagnosticSettingsCdp?.close();
   if(typeof fixtureTargetId==='string'){
    try{await browserCdp.send('Target.closeTarget',{targetId:fixtureTargetId});}catch{}
   }
   if(typeof optionsTargetId==='string'){
    try{await browserCdp.send('Target.closeTarget',{targetId:optionsTargetId});}catch{}
+  }
+  if(typeof settingsTargetId==='string'){
+   try{await browserCdp.send('Target.closeTarget',{targetId:settingsTargetId});}catch{}
   }
  }
 }
@@ -944,6 +994,7 @@ try{
   const reloadStage=reloadRecovered?'recovered':reloadDiagnostic.stage;
   assert.ok(POST_BLOCKER_RELOAD_STAGES.includes(reloadStage));
   console.log('RG-05 post-blocker extension reload diagnostic: checkpoint '+reloadStage+
+   ', userScripts access '+JSON.stringify(reloadDiagnostic.accessStatus)+
    (reloadRecovered?', recovered on one fresh loopback document':', did not recover')+
    '; NOT a release or product V4 pass.');
   assertOfficialViolentmonkeyReleaseGate(blocked.status);
