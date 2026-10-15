@@ -188,7 +188,7 @@ function bodyBinaryOperators(body:ts.Node|undefined):readonly string[]{
  return Object.freeze(result);
 }
 function variableInitializerKind(binding:LocalBinding|undefined):string{
- if(!ts.isVariableDeclaration(binding)||!binding.initializer)return 'unavailable';
+ if(!binding||!ts.isVariableDeclaration(binding)||!binding.initializer)return 'unavailable';
  const kind=ts.SyntaxKind[binding.initializer.kind]||'unknown';
  return typeof kind==='string'&&kind.length<64?kind:'unknown';
 }
