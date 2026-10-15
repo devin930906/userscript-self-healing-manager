@@ -9,8 +9,10 @@ const target={
 };
 
 class NestedIdentitySocket extends EventEmitter {
- constructor(private readonly childId:string) {
+ private readonly childId:string;
+ constructor(childId:string) {
   super();
+  this.childId=childId;
   queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(name:string,callback:(event:any)=>void){this.on(name,callback);}
