@@ -25,6 +25,32 @@ test('checks actual top-frame URL using read-only Page.getFrameTree, not stale /
  assert.deepEqual(socket.sent.map(x=>x.method),['Page.getFrameTree']);
 });
 
+test('RG-01 page identity rejects CDP errors even when the error payload is falsy',async()=>{
+ for(const error of [null,false,0,'']){
+  let socket:EventEmitter|undefined;
+  await assert.rejects(
+   confirmPageIdentity(page,{socketFactory:()=>{
+    socket=new (class extends EventEmitter{
+     constructor(){super();queueMicrotask(()=>this.emit('open'));}
+     addEventListener(name:string,listener:(event:any)=>void){this.on(name,listener);}
+     removeEventListener(name:string,listener:(event:any)=>void){this.off(name,listener);}
+     send(command:string){
+      const {id}=JSON.parse(command);
+      queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+       id,error,result:{frameTree:{frame:{url:page.url,id:'forged-frame',loaderId:'forged-loader'}}},
+      })}));
+     }
+     close(){this.emit('close');}
+    })();
+    return socket as any;
+   }}),
+   /CDP frame tree rejected/i,
+   'an error-bearing response must not certify a page document',
+  );
+  assert.equal(socket?.listenerCount('message'),0,'rejected CDP replies release listeners');
+ }
+});
+
 test('page navigation during DOM inspection is rejected rather than using a mismatched page',async()=>{
  await assert.rejects(confirmPageIdentity(page,{socketFactory:()=>new FakeSocket('https://other.example/account')}),/page.*(changed|mismatch)/i);
  await assert.rejects(confirmPageIdentity(page,{socketFactory:()=>new FakeSocket(null)}),/frame tree|frame URL/i);
