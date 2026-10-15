@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
 import {describe,it} from 'node:test';
 import {openAuditJournal} from '../src/index.ts';
 
@@ -62,4 +63,28 @@ describe('FR-041 durable append-only audit journal',()=>{
    journal.close();
   }finally{await rm(root,{recursive:true,force:true});}
  });
+
+ it('rejects a forged no-op trigger that only reuses the expected append-only trigger name',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'usshm-audit-'));
+  try{
+   const file=join(root,'audit.sqlite');
+   const journal=openAuditJournal(file);
+   journal.append(trace(),now);
+   journal.close();
+   const raw=new DatabaseSync(file);
+   try{
+    raw.exec(`
+DROP TRIGGER audit_jobs_no_update;
+CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT 1; END;
+`);
+   }finally{raw.close();}
+   let accepted:ReturnType<typeof openAuditJournal>|undefined;
+   let issue:unknown;
+   try{accepted=openAuditJournal(file);}catch(error){issue=error;}
+   accepted?.close();
+   assert.ok(issue instanceof Error,'a trigger name alone must not certify append-only history');
+   assert.match(issue.message,/trigger|append-only|schema|incompatible/i);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+
 });
