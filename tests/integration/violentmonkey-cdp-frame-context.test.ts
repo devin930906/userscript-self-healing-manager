@@ -7,13 +7,13 @@ test('RG-05 CDP context sampler distinguishes default vs isolated worlds only fo
  assert.equal(typeof mod?.createIsolatedFixtureFrameContextEvidence,'function',
   'missing real-CDP context boundary evidence for isolated official-manager fixture');
  const evidence=mod!.createIsolatedFixtureFrameContextEvidence('fixture-frame-1');
- evidence.observe('Runtime.executionContextCreated',{context:{auxData:{frameId:'other-frame',isDefault:false},
+ evidence.observe('Runtime.executionContextCreated',{context:{id:10,auxData:{frameId:'other-frame',isDefault:false},
   origin:'https://private.example.invalid/',name:'PRIVATE'}});
  assert.deepEqual(evidence.snapshot(),{defaultContextObserved:false,isolatedContextObserved:false});
- evidence.observe('Runtime.executionContextCreated',{context:{auxData:{frameId:'fixture-frame-1',isDefault:true}}});
- evidence.observe('Runtime.executionContextCreated',{context:{auxData:{frameId:'fixture-frame-1',isDefault:false},
+ evidence.observe('Runtime.executionContextCreated',{context:{id:11,auxData:{frameId:'fixture-frame-1',isDefault:true}}});
+ evidence.observe('Runtime.executionContextCreated',{context:{id:12,auxData:{frameId:'fixture-frame-1',isDefault:false},
   origin:'chrome-extension://PRIVATE',name:'PRIVATE_CODE'}});
- evidence.observe('Runtime.executionContextCreated',{context:{auxData:{frameId:'fixture-frame-1',isDefault:'false'}}});
+ evidence.observe('Runtime.executionContextCreated',{context:{id:13,auxData:{frameId:'fixture-frame-1',isDefault:'false'}}});
  assert.deepEqual(evidence.snapshot(),{defaultContextObserved:true,isolatedContextObserved:true});
  assert.doesNotMatch(JSON.stringify(evidence.snapshot()),/PRIVATE|https?:/);
 });
