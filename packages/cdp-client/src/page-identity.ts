@@ -82,7 +82,7 @@ export async function confirmPageIdentity(
     if(typeof event.data!=='string'||event.data.length>256_000)throw new Error('Invalid CDP frame tree response size');
     const response=JSON.parse(event.data);
     if(response.id!==1)return;
-    if(response.error)throw new Error('CDP frame tree rejected');
+    if(Object.hasOwn(response,'error'))throw new Error('CDP frame tree rejected');
     const url=response.result?.frameTree?.frame?.url;
     if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL');
     if(url!==expectedUrl)throw new Error('CDP page URL changed or frame identity mismatch');
