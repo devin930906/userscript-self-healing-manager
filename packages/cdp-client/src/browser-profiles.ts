@@ -7,7 +7,8 @@ import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-
 const SETTINGS_NAME='browser-profiles.json';
 const MAX_BYTES=32768;
 const ID=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
-const TITLE=/^[^\u0000-\u001f\u007f]{1,40}$/u;
+// Reject invisible direction/C1 controls that can spoof browser names in the UI.
+const TITLE=/^[^\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]{1,40}$/u;
 
 export interface BrowserProfile {
  readonly id:string;
