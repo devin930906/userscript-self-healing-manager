@@ -26,6 +26,27 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
    }
   }
  });
+ it('rejects accessor-owned audit stage snapshots without invoking the getter',()=>{
+  const input:any=good();
+  let calls=0;
+  Object.defineProperty(input,'job',{
+   enumerable:true,configurable:true,
+   get(){calls++;return good().job;},
+  });
+  assert.throws(()=>parseAuditTrace(input,now),/Invalid|accessor|data property/i);
+  assert.equal(calls,0,'audit-stage getters must never execute while validating hostile input');
+ });
+ it('rejects accessor-owned audit record fields without invoking the getter',()=>{
+  const input:any=good();
+  let calls=0;
+  Object.defineProperty(input.job,'sourceSha256',{
+   enumerable:true,configurable:true,
+   get(){calls++;return hash;},
+  });
+  assert.throws(()=>parseAuditTrace(input,now),/Invalid|accessor|data property/i);
+  assert.equal(calls,0,'audit-field getters must never execute while validating hostile input');
+ });
+
  it('continues accepting null-prototype input and nested records',()=>{
   const input:any=Object.assign(Object.create(null),good());
   for(const stage of ['job','finding','candidate','test','approval','revision'] as const)
