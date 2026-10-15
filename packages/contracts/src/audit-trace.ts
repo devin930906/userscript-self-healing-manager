@@ -45,6 +45,11 @@ export function parseAuditTrace(input:unknown,now:string):AuditTrace{
  const {job,finding,candidate,test,approval,revision}=out;
  const entityIds=names.map(stage=>out[stage].id.toLowerCase());
  if(new Set(entityIds).size!==entityIds.length)throw new TypeError('Audit trace entity IDs must be distinct');
+ for(const stage of names){
+  const row=out[stage] as Record<string,string>;
+  for(const key of fields[stage])if((key==='id'||key.endsWith('Id'))&&row[key]!==row[key]!.toLowerCase())
+   throw new TypeError('Audit UUID identities must use canonical lowercase');
+ }
  for(const stage of [finding,candidate,test,approval,revision])requireSame(stage.jobId,job.id);
  requireSame(finding.scriptId,job.scriptId);
  requireSame(finding.attemptId,job.attemptId);
