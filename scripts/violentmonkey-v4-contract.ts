@@ -248,6 +248,72 @@ export function buildViolentmonkeyUserScriptsAccessReasonExpression():string{
 }
 
 /**
+ * RG-05 TEST ONLY: take two passive, bounded Chrome settings receipts before
+ * any post-blocker extension reload. A missing or inconsistent receipt must
+ * remain "unavailable", never interpreted as a disabled or active manager.
+ * Only fixed state codes leave chrome://extensions; no extension metadata.
+ */
+export async function readViolentmonkeyPreReloadAccess(
+ send:(method:string,params:Record<string,unknown>)=>Promise<unknown>,
+):Promise<Readonly<{
+ observed:boolean;matched:boolean;enabled:boolean;active:boolean;reason:string
+}>>{
+ const unavailable=()=>Object.freeze({
+  observed:false,matched:false,enabled:false,active:false,reason:'unavailable',
+ });
+ if(typeof send!=='function')return unavailable();
+ const allowed=new Set([
+  'active','toggle-inactive','toggle-disabled','page-context','settings-api',
+  'settings-error','identity','version','installation',
+  'state-disabled-reloading','state-disabled-unsupported-developer',
+  'state-disabled-unsupported-manifest','state-disabled-corrupt',
+  'state-disabled-suspicious','state-disabled-update','state-disabled-store',
+  'state-disabled-policy','state-disabled-custodian','state-disabled-parent',
+  'state-disabled-other-extension','state-disabled-none',
+  'state-disabled-multiple','state-terminated','state-blocklisted','state-other',
+ ]);
+ const evaluate=async(expression:string):Promise<unknown>=>{
+  const response=await send('Runtime.evaluate',{
+   expression,awaitPromise:true,returnByValue:true,
+  });
+  if(!response||typeof response!=='object'||Array.isArray(response)||
+     'error' in response||'exceptionDetails' in response)
+   throw new Error('Invalid passive manager access envelope');
+  const result=Object.getOwnPropertyDescriptor(response,'result')?.value;
+  if(!result||typeof result!=='object'||Array.isArray(result)||
+     'error' in result||'exceptionDetails' in result)
+   throw new Error('Invalid passive manager access result');
+  const receipt=Object.getOwnPropertyDescriptor(result,'value')?.value;
+  if(typeof receipt!=='string'||receipt.length<2||receipt.length>160)
+   throw new Error('Invalid passive manager access receipt');
+  return JSON.parse(receipt);
+ };
+ try{
+  const status=await evaluate(buildViolentmonkeyUserScriptsAccessStatusExpression());
+  const reasonReceipt=await evaluate(buildViolentmonkeyUserScriptsAccessReasonExpression());
+  if(!status||typeof status!=='object'||Array.isArray(status)||
+     Object.keys(status).sort().join(',')!=='active,enabled,matched'||
+     !Object.values(status).every(v=>typeof v==='boolean')||
+     !reasonReceipt||typeof reasonReceipt!=='object'||Array.isArray(reasonReceipt)||
+     Object.keys(reasonReceipt).join(',')!=='reason')
+   return unavailable();
+  const {matched,enabled,active}=status as {matched:boolean;enabled:boolean;active:boolean};
+  const {reason}=reasonReceipt as {reason:unknown};
+  if(typeof reason!=='string'||!allowed.has(reason)||(!matched&&(enabled||active))||
+     (active&&!enabled)||
+     (reason==='active'&&!(matched&&enabled&&active))||
+     (reason==='toggle-inactive'&&!(matched&&enabled&&!active))||
+     (reason==='toggle-disabled'&&!(matched&&!enabled&&!active))||
+     (!['active','toggle-inactive','toggle-disabled'].includes(reason)&&matched))
+   return unavailable();
+  return Object.freeze({observed:true,matched,enabled,active,reason});
+ }catch{
+  // Never surface raw private CDP errors or extension metadata.
+  return unavailable();
+ }
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
