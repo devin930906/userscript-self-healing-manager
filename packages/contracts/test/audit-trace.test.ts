@@ -54,7 +54,10 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
 
  it('rejects case-variant aliases of the same UUID across audit entity stages',()=>{
   const value:any=good();
-  value.finding.id=value.job.id.toUpperCase();
+  const shared='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  value.job.id=shared;
+  for(const stage of ['finding','candidate','test','approval','revision'] as const)value[stage].jobId=shared;
+  value.finding.id=shared.toUpperCase();
   value.candidate.findingId=value.finding.id;
   assert.throws(()=>parseAuditTrace(value,now),/distinct|duplicate|unique/i,
    'UUID identity must not become distinct merely by changing hex letter case');
