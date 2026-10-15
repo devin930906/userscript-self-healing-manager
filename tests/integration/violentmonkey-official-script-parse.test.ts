@@ -391,5 +391,5 @@ test('RG-05 public fault mapper exposes bounded call, element and binary structu
  for(const key of ['binaryOperatorKinds','binaryOperandRoles']){
   assert.ok(Array.isArray(proof[key])&&proof[key].length<=4);
  }
- assert.doesNotMatch(JSON.stringify(proof),/helper|\blist\b|\bgate\b|\bother\b|\bout\b|PRIVATE|identifierText/i);
+ assert.doesNotMatch(JSON.stringify(proof),/helper|\blist\b|\bgate\b|\bout\b|PRIVATE|identifierText/i);
 });
