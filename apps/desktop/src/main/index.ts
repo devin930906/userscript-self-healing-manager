@@ -123,6 +123,15 @@ async function bootstrap():Promise<void>{
  app.on('before-quit',()=>{db.close();journal.close();auditJournal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:audit-trace',(event,input:unknown)=>{assertSender(event);
+  const q=input as {revisionId?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).sort().join(',')!=='revisionId'||
+     typeof q.revisionId!=='string'||
+     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(q.revisionId))
+   throw new Error('Invalid canonical audit revision id');
+  const revisionId=q.revisionId;
+  return auditJournal.getByRevision(revisionId);
+ });
  ipcMain.handle('usshm:cancel-batch-repair',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {proposalId?:unknown}|null;
@@ -1350,6 +1359,7 @@ async function bootstrap():Promise<void>{
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
   let auditApproval={checkedAt:-1,expiresAt:-1};
+  let auditReceipt:Readonly<{revisionId:string;jobId:string;revisionSha256:string}>|null=null;
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
   try{
    applied=await approveAndApplyManagedRevision({
@@ -1445,7 +1455,7 @@ async function bootstrap():Promise<void>{
    restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
   if(safety.status==='retained-v1'){
-   await persistRetainedRepairAudit({
+   auditReceipt=await persistRetainedRepairAudit({
     journal:auditJournal,jobId:proposalId,scriptId:item.scriptId,attemptId:scanSnapshot.scanId,
     sourceSha256:item.analysis.sourceSha256,revisionSha256:applied.hash,
     previousHash:trusted.previousHash,approval:auditApproval,
@@ -1459,7 +1469,8 @@ async function bootstrap():Promise<void>{
    });
   }
   return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath,
-   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
+   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js'),
+   auditRevisionId:auditReceipt?.revisionId??null};
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;proposalId:string;approved:true}|null;

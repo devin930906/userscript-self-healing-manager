@@ -25,6 +25,7 @@ window.addEventListener('drop',(event:DragEvent)=>{
 },true);
 const api={
  getAppInfo:()=>ipcRenderer.invoke('usshm:app-info'),
+ getAuditTrace:(input:{revisionId:string})=>ipcRenderer.invoke('usshm:audit-trace',input),
  getRepairQueueRecovery:()=>ipcRenderer.invoke('usshm:repair-queue-recovery'),
  getRepairQueueActivity:()=>ipcRenderer.invoke('usshm:repair-queue-activity'),
  cancelBatchRepair:(input:{proposalId:string})=>ipcRenderer.invoke('usshm:cancel-batch-repair',input),
