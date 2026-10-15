@@ -381,8 +381,8 @@ async function runPostBlockerExtensionReloadDiagnostic({
   const retained=await readManagerPreflight(diagnosticOptionsCdp,hasExited);
   if(retained.found!==true)return null;
 
-  const createdFixture=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
-  fixtureTargetId=createdFixture?.targetId;
+  const diagnosticFixtureTarget=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
+  fixtureTargetId=diagnosticFixtureTarget?.targetId;
   if(typeof fixtureTargetId!=='string'||!fixtureTargetId)return null;
   const fixturePage=await waitForPage(fixtureTargetId,fixtureUrl,hasExited);
   const identity=await waitForPinnedFixtureFrame({
