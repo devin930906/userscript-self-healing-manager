@@ -151,8 +151,31 @@ export async function enableViolentmonkeyUserScriptsAccess(
    });
   }catch{throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');}
   let receipt;
-  const text=answer?.result?.value;
-  if(!answer?.exceptionDetails&&typeof text==='string'&&text.length<=256){
+  let text:unknown;
+  try{
+   // A CDP protocol error must never count as a permission grant, even
+   // alongside a forged success value. Check own descriptors before any
+   // property access so hostile getters cannot execute or leak error text.
+   const descriptor=(value:unknown,key:string):PropertyDescriptor|undefined=>{
+    if(!value||typeof value!=='object'||Array.isArray(value))
+     throw new Error('Malformed CDP evaluation envelope');
+    return Object.getOwnPropertyDescriptor(value,key);
+   };
+   if(descriptor(answer,'error')!==undefined||
+      descriptor(answer,'exceptionDetails')!==undefined)
+    throw new Error('CDP evaluation error');
+   const result=descriptor(answer,'result');
+   if(!result||!Object.hasOwn(result,'value'))throw new Error('Invalid CDP result');
+   if(descriptor(result.value,'error')!==undefined||
+      descriptor(result.value,'exceptionDetails')!==undefined)
+    throw new Error('Nested CDP evaluation error');
+   const value=descriptor(result.value,'value');
+   if(!value||!Object.hasOwn(value,'value'))throw new Error('Invalid CDP value');
+   text=value.value;
+  }catch{
+   throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');
+  }
+  if(typeof text==='string'&&text.length<=256){
    try{receipt=JSON.parse(text);}catch{}
   }
   if(receipt?.available===true&&Object.keys(receipt).length===1)return;
