@@ -223,3 +223,28 @@ test('same-loader iframe SPA navigation invalidates evidence without exposing th
  assert.doesNotMatch(JSON.stringify([before,after]),/ALPHA_TOKEN|BETA_TOKEN|\/account|\/settings/);
  assert.throws(()=>assertStablePageDocument(before,after),/document|navigation|frame|identity/i);
 });
+
+test('RG-04 direct page identity confirmation rejects credential-bearing URLs before CDP transport',async()=>{
+ for(const unsafeUrl of [
+  'https://alice:SECRET_PASSWORD@example.test/path?session=private',
+  'https://alice@example.test/path',
+  'https://%61lice:%53ECRET@example.test/path',
+ ]){
+  let sockets=0;
+  const target={...page,url:unsafeUrl};
+  await assert.rejects(
+   confirmPageIdentity(target,{socketFactory:()=>{
+    sockets++;
+    return new FakeSocket(unsafeUrl);
+   }}),
+   error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/invalid|credential/i);
+    assert.doesNotMatch(error.message,/alice|SECRET|private|session/i);
+    return true;
+   },
+   'credentialed URLs must never become trusted frame identities',
+  );
+  assert.equal(sockets,0,'CDP transport must not open before credential rejection');
+ }
+});
