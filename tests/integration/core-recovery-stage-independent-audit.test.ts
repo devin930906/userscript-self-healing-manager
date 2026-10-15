@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
+import {cp,copyFile,lstat,mkdtemp,mkdir,writeFile,readFile,readdir,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {DatabaseSync} from 'node:sqlite';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
 import {createCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
@@ -95,4 +96,99 @@ test('RG-06 independent stage audit rejects a late unexpected file in its closed
  }),/stage|unexpected|inventory|unsafe|recovery|file/i);
  assert.equal(reached,1);
  assert.deepEqual(await readFile(live),original,'live database must remain byte-identical');
+}));
+
+
+test('RG-06 independent stage audit rejects a completion marker atomically replaced with identical bytes',async()=>fixture(async({root,backup,stage,source})=>{
+ const marker=join(stage,'USSHM-RECOVERY-NOT-ACTIVE.json');
+ const original=await readFile(marker);
+ const live=await readFile(join(source,'registry.sqlite'));
+ let injections=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  // Same contents, NEW inode. A file identity guard must reject this
+  // substitution even though the final bytes and SHA-256 still match.
+  beforeFinalStageAudit:async()=>{
+   injections++;
+   await rename(marker,join(root,'displaced-marker.json'));
+   await writeFile(marker,original,{flag:'wx'});
+  },
+ }),/marker|identity|replaced|changed|unsafe|stage/i,
+ 'a marker is atomically replaced during verification and cannot be certified');
+ assert.equal(injections,1);
+ assert.deepEqual(await readFile(marker),original,'fault fixture really preserved byte-identical marker content');
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),live,'audit cannot mutate active Data');
+}));
+
+test('RG-06 rejects a new staged directory inode even if every file and the ORIGINAL completion marker are unchanged',async()=>fixture(async({root,backup,stage,source})=>{
+ const markerName='USSHM-RECOVERY-NOT-ACTIVE.json';
+ const marker=join(stage,markerName);
+ const markerBefore=await lstat(marker,{bigint:true});
+ const dirBefore=await lstat(stage,{bigint:true});
+ const dataBefore=await readFile(join(source,'registry.sqlite'));
+ const markerBytes=await readFile(marker);
+ let swapped=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  beforeFinalStageAudit:async()=>{
+   swapped++;
+   // Complete byte-for-byte clone of every staged file. Unlike prior
+   // marker-swap tests, keep the ORIGINAL marker inode in the new root.
+   const displaced=join(root,'displaced-stage');
+   await rename(stage,displaced);
+   await cp(displaced,stage,{recursive:true});
+   await rm(join(stage,markerName));
+   await rename(join(displaced,markerName),marker);
+   const sameMarker=await lstat(marker,{bigint:true});
+   assert.equal(sameMarker.ino,markerBefore.ino,'original marker identity must survive');
+   assert.equal(sameMarker.dev,markerBefore.dev);
+   assert.deepEqual(await readFile(marker),markerBytes);
+   const different=await lstat(stage,{bigint:true});
+   assert.ok(different.ino!==dirBefore.ino||different.birthtimeNs!==dirBefore.birthtimeNs,
+    'fault must replace the actual directory, not just its contents');
+  },
+ }),/offline stage directory identity changed/i,
+ 'the stage DIRECTORY identity must be independently verified, not rejected only by a moved marker ctime');
+ assert.equal(swapped,1);
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),dataBefore,
+  'independent audit must not modify live source Data');
+ assert.deepEqual(await readFile(marker),markerBytes,
+  'test must keep the original marker bytes, not trigger the existing marker test');
+}));
+
+
+test('RG-06 independent audit rejects a valid SQLite replacement after final hash but before schema reopen',async()=>fixture(async({root,backup,stage,source})=>{
+ const liveBefore=await readFile(join(source,'registry.sqlite'));
+ const stagedRegistry=join(stage,'registry.sqlite');
+ const hashedBytes=await readFile(stagedRegistry);
+ const replacement=join(root,'valid-replacement-registry.sqlite');
+ await copyFile(stagedRegistry,replacement);
+ const replacementDb=new DatabaseSync(replacement);
+ try{
+  // Preserve the exact v1 tables while changing valid SQLite header state,
+  // so schema/integrity checks still pass although source-approved bytes do not.
+  replacementDb.exec('PRAGMA application_id = 20261015');
+ }finally{replacementDb.close();}
+ const replacementBytes=await readFile(replacement);
+ assert.notDeepEqual(replacementBytes,hashedBytes,
+  'fixture must create different but structurally valid SQLite bytes');
+ let injected=0;
+ const options={
+  snapshotDirectory:backup,stagedDirectory:stage,
+  beforeSqliteSchemaAudit:async()=>{
+   injected++;
+   await rename(stagedRegistry,join(root,'hashed-original-registry.sqlite'));
+   await copyFile(replacement,stagedRegistry);
+  },
+ } as Parameters<typeof verifyCoreOfflineRecoveryStage>[0]&{
+  beforeSqliteSchemaAudit:()=>Promise<void>;
+ };
+ await assert.rejects(verifyCoreOfflineRecoveryStage(options),
+  /stage|sqlite|hash|identity|changed|mismatch|recovery|unsafe/i,
+  'a valid SQLite pathname replacement after the last byte hash must not be certified');
+ assert.equal(injected,1,'fault must occur after final staged byte hashes and before SQLite reopen');
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),liveBefore,
+  'read-only audit cannot modify active Data');
+ assert.deepEqual(await readFile(stagedRegistry),replacementBytes,
+  'failed audit must not silently repair the replaced stage');
 }));

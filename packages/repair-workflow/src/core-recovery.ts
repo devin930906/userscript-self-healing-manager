@@ -118,9 +118,11 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
     (beforeFinalManifest!==undefined&&typeof beforeFinalManifest!=='function'))
   throw new Error('Invalid core recovery input');
  const source=resolve(dataRoot),target=resolve(destination);
- await directory(source);
+ // Preserve lexical components for the existing traversal/junction guards.
+ // resolve() must not erase a linked ancestor followed by '..' first.
+ await directory(dataRoot);
  await directory(dirname(target));
- await assertRecoveryDestinationOutsideSource(source,target);
+ await assertRecoveryDestinationOutsideSource(dataRoot,destination);
  // The new directory is claimed exclusively. If something fails, the folder
  // has no complete manifest, remains for forensic review, and is not deleted.
  await mkdir(target,{recursive:false,mode:0o700});
@@ -226,7 +228,7 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
  if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory))
   throw new Error('Absolute recovery directory required');
  const root=resolve(snapshotDirectory);
- await directory(root);
+ await directory(snapshotDirectory);
  const entries=(await readdir(root)).sort();
  const manifestFile=join(root,'manifest.json');
  const manifestInfo=await lstat(manifestFile);

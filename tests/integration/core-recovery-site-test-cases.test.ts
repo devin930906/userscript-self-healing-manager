@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,mkdir,readFile,writeFile,rm,readdir,access} from 'node:fs/promises';
-import {join} from 'node:path';
+import {mkdtemp,mkdir,readFile,writeFile,rm,readdir,access,cp,rename} from 'node:fs/promises';
+import {basename,join,sep} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
@@ -123,3 +123,53 @@ test('RG-06 refuses a corrupt live scene registry before publishing any complete
   }finally{journal.close();registry.close();}
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('RG-06 FR-014 v2 stage creation keeps scene coverage while rejecting a replaced root',async()=>scenario(async({dataRoot,backup,root})=>{
+ const target=join(root,'v2-stage'),moved=join(root,'v2-displaced');
+ const sourceBefore=await readFile(join(dataRoot,'site-test-cases.json'));
+ const manifest=JSON.parse(await readFile(join(backup,'manifest.json'),'utf8'));
+ assert.equal(manifest.kind,'usshm-core-recovery-v2','fixture must include actual scene configuration');
+ let injected=0;
+ await assert.rejects(stageCoreRecoveryForOfflineReview({
+  snapshotDirectory:backup,activeDataRoot:dataRoot,destination:target,
+  beforeFinalMarker:async()=>{
+   assert.deepEqual(await readFile(join(target,'site-test-cases.json')),sourceBefore);
+   await rename(target,moved);await cp(moved,target,{recursive:true});injected++;
+  },
+ }),/offline stage directory identity changed/i,
+ 'merging v2 scene inventory must not discard RG-06 creation root identity');
+ assert.equal(injected,1);
+ for(const path of [target,moved]){
+  await assert.rejects(access(join(path,'USSHM-RECOVERY-NOT-ACTIVE.json')),{code:'ENOENT'});
+  assert.deepEqual(await readFile(join(path,'site-test-cases.json')),sourceBefore);
+ }
+ assert.deepEqual(await readFile(join(dataRoot,'site-test-cases.json')),sourceBefore);
+}));
+
+test('RG-06 FR-014 v2 independent audit retains root identity as well as the original scene marker',async()=>scenario(async({dataRoot,backup,root})=>{
+ const stage=join(root,'v2-stage'),moved=join(root,'v2-original');
+ await stageCoreRecoveryForOfflineReview({snapshotDirectory:backup,activeDataRoot:dataRoot,destination:stage});
+ const markerName='USSHM-RECOVERY-NOT-ACTIVE.json';
+ const original=await readFile(join(stage,markerName));
+ const scenes=await readFile(join(dataRoot,'site-test-cases.json'));
+ let injected=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:stage,
+  beforeFinalStageAudit:async()=>{
+   await rename(stage,moved);await cp(moved,stage,{recursive:true});
+   await rm(join(stage,markerName));await rename(join(moved,markerName),join(stage,markerName));injected++;
+  },
+ }),/offline stage directory identity changed/i,
+ 'v2 count/scope merging cannot replace the independent directory fence with marker-only checks');
+ assert.equal(injected,1);
+ assert.deepEqual(await readFile(join(stage,markerName)),original);
+ assert.deepEqual(await readFile(join(stage,'site-test-cases.json')),scenes);
+ assert.deepEqual(await readFile(join(dataRoot,'site-test-cases.json')),scenes);
+}));
+
+test('RG-06 FR-014 v2 backup verification preserves the public raw path traversal guard',async()=>scenario(async({backup})=>{
+ const manifest=JSON.parse(await readFile(join(backup,'manifest.json'),'utf8'));
+ assert.equal(manifest.kind,'usshm-core-recovery-v2');
+ const disguised=backup+sep+'..'+sep+basename(backup);
+ await assert.rejects(verifyCoreRecoveryBundle({snapshotDirectory:disguised}),/unsafe|parent traversal/i);
+}));
