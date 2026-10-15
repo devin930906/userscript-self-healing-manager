@@ -259,3 +259,28 @@ test('FR-024 initial page identity verification consumes the consent time budget
  assert.equal(created,0,'an expired approval must not even open a CDP action socket');
  assert.deepEqual(socket.methods,[],'no CDP command may be sent after slow initial identity');
 });
+
+test('FR-024 a non-settling initial identity check must time out without opening a focus socket',async()=>{
+ const socket=new FocusSocket();
+ let sockets=0;
+ let fallback:ReturnType<typeof setTimeout>|undefined;
+ try{
+  const observed=await Promise.race([
+   runApprovedControlFocus({
+    approved:true,target,locator,timeoutMs:100,
+    confirm:async()=>new Promise<never>(()=>{}),
+    socketFactory:()=>{sockets++;return socket;},
+   }).then(()=> 'unexpected-success',(error:unknown)=>
+    error instanceof Error?error.message:'unexpected-error'),
+   new Promise<string>(resolve=>{
+    fallback=setTimeout(()=>resolve('identity-never-settled'),350);
+   }),
+  ]);
+  assert.equal(observed,'Approved focus timed out',
+   'the approval must expire even if the first CDP identity confirmation never settles');
+  assert.equal(sockets,0);
+  assert.deepEqual(socket.methods,[]);
+ }finally{
+  if(fallback!==undefined)clearTimeout(fallback);
+ }
+});
