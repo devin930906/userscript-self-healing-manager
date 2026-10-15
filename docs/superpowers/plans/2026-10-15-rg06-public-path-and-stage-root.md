@@ -32,10 +32,10 @@
 **Files:** `packages/repair-workflow/src/core-recovery.ts`, `managed-export.ts`, `core-recovery-stage.ts`; new `tests/integration/core-recovery-public-path-boundary.test.ts`.
 **Interfaces:** Retain all six public recovery APIs and existing central guards; change which original paths reach those guards.
 
-- [ ] Write real filesystem tests for every public source/destination/audit field and a linked-ancestor parent traversal; require rejection and no output claim.
-- [ ] Observe expected missing rejection RED on existing normalized-before-guard code.
-- [ ] Route original paths through existing guards; retain normal resolved paths only for validated operations.
-- [ ] Run focused tests, complete suite, lint/typecheck and build; commit verified change.
+- [x] Write real filesystem tests for every public source/destination/audit field and a linked-ancestor parent traversal; require rejection and no output claim.
+- [x] Observe expected missing rejection RED on existing normalized-before-guard code.
+- [x] Route original paths through existing guards; retain normal resolved paths only for validated operations.
+- [x] Run focused tests, complete suite, lint/typecheck and build; commit verified change.
 
 ### Task 2: Bind stage creation directory identity
 
@@ -57,3 +57,5 @@
 - Start: integration `b39be86`, latest RG-06 Draft PR #269 `633c33a0e9f954796ed22d83578207c4b280f71e`; prior SQLite reopen fix `9fa0012` already present and not repeated. Exact task continuation/contracts SUCCESS, overall Development FAIL due official manager cold restart.
 - Prior FR-014 `7f67061` is already published/validated and is not reimplemented. Official upstream latest release remains v2.49.0 (queried GitHub release API); no newer official fixed release can simply replace the pinned version.
 - Pre-flight: both tasks touch the stage module, but Task 1 only changes raw preflight arguments and Task 2 shares an existing directory identity fence. Keep interfaces and release boundaries unchanged.
+
+- Task 1 complete: 12 public-entrypoint regressions observed RED (missing rejection), including a genuine symlink/junction parent-resolution differential. Focused GREEN 26/26; complete suite {'tests': 1599, 'pass': 1597, 'fail': 0, 'skipped': 2}; strict lint/typecheck and build/compiled production boundary PASS. Existing central guards remain unchanged; original caller paths now reach them.

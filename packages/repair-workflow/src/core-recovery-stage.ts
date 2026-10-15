@@ -132,13 +132,14 @@ export async function stageCoreRecoveryForOfflineReview({
    typeof p!=='string'||!isAbsolute(p)))
   throw new Error('Absolute offline recovery paths required');
  const source=resolve(snapshotDirectory),active=resolve(activeDataRoot),target=resolve(destination);
- await assertUnlinkedRecoveryDirectory(source);
- await assertUnlinkedRecoveryDirectory(active);
+ // Feed original lexical paths to guards before using normalized lookups.
+ await assertUnlinkedRecoveryDirectory(snapshotDirectory);
+ await assertUnlinkedRecoveryDirectory(activeDataRoot);
  await assertUnlinkedRecoveryDirectory(dirname(target));
  // Protect both source snapshot and currently running Data from accidental
  // nesting, symlink/junction aliases, and recursive self-copy.
- await assertRecoveryDestinationOutsideSource(source,target);
- await assertRecoveryDestinationOutsideSource(active,target);
+ await assertRecoveryDestinationOutsideSource(snapshotDirectory,destination);
+ await assertRecoveryDestinationOutsideSource(activeDataRoot,destination);
  // Full integrity and schema validation happens BEFORE any destination write.
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
  const manifestBytes=await readBoundedManifest(join(source,'manifest.json'));
@@ -285,8 +286,8 @@ export async function verifyCoreOfflineRecoveryStage({
     typeof stagedDirectory!=='string'||!isAbsolute(stagedDirectory))
   throw new Error('Absolute offline recovery audit paths required');
  const source=resolve(snapshotDirectory),stage=resolve(stagedDirectory);
- await assertUnlinkedRecoveryDirectory(source);
- await assertUnlinkedRecoveryDirectory(stage);
+ await assertUnlinkedRecoveryDirectory(snapshotDirectory);
+ await assertUnlinkedRecoveryDirectory(stagedDirectory);
  // Bind the entire NON-ACTIVE directory object before any lengthy audits.
  // File and marker identity checks alone cannot attest the selected root.
  // This is a bounded native-stats defense, NOT a Win32 FileIdInfo guarantee
