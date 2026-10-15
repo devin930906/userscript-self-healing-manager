@@ -87,7 +87,11 @@ export async function observeReadOnlyPageExceptions(
    ended=true;
    if(observationTimer!==undefined)clearTimeout(observationTimer);
    clearTimeout(deadlineTimer);
-   for(const [name,handler] of handlers)socket.removeEventListener(name,handler);
+   for(const [name,handler] of handlers){
+    try{socket.removeEventListener(name,handler);}catch{
+     // Failed transport cleanup cannot hide the final result or strand a request.
+    }
+   }
    try{socket.close();}catch{}
    if(error){reject(error);return;}
    resolve(invalid?{status:'unknown',count:null}:
@@ -179,7 +183,8 @@ export async function observeReadOnlyPageExceptions(
   }
   function onError(){finish(new Error('Passive CDP exception socket error'));}
   function onClose(){finish(new Error('Passive CDP exception socket closed'));}
-  for(const [name,handler] of handlers)socket.addEventListener(name,handler);
+  try{for(const [name,handler] of handlers)socket.addEventListener(name,handler);}
+  catch{finish(new Error('CDP exception observation listener initialization failed'));}
  });
  // Even a matching URL is insufficient after a same-URL reload. Returning
  // counts from an old loader would be misleading.
