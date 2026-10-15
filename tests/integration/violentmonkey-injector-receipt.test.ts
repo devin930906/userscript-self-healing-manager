@@ -43,9 +43,11 @@ async function evaluateOfficialInjectorReply(fields:Record<string,unknown>){
 }
 
 test('RG-05 official injector readiness never accepts an id-only or error-only response as ready',async()=>{
- for(const fields of [{},{err:false},{err:null},{err:0},{err:''}]){
-  assert.equal(await evaluateOfficialInjectorReply(fields),JSON.stringify({ready:false}),
-   'matching request id without its own res is not an official readiness receipt');
+ assert.equal(await evaluateOfficialInjectorReply({}),JSON.stringify({ready:false}),
+  'matching request id without a response cannot certify readiness');
+ for(const err of [false,null,0,'']){
+  assert.equal(await evaluateOfficialInjectorReply({err}),JSON.stringify({failed:true}),
+   'non-undefined official worker error must fail closed even without a response');
  }
 });
 
@@ -68,8 +70,8 @@ test('RG-05 official readiness rejects explicitly faulty worker packets even wit
  // authenticated absence of an injector error.
  for(const err of [false,null,0,'',true,{message:'PRIVATE_SW_FAILURE'}]){
   const result=await evaluateOfficialInjectorReply({res:null,err});
-  assert.equal(result,JSON.stringify({ready:false}),
-   'a non-undefined worker error marker cannot certify official readiness');
+  assert.equal(result,JSON.stringify({failed:true}),
+   'a non-undefined worker error marker must return a bounded failure receipt');
   assert.doesNotMatch(result,/PRIVATE_SW_FAILURE/);
  }
  assert.equal(
