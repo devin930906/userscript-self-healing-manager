@@ -177,4 +177,32 @@ CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT 1; 
   }finally{await rm(root,{recursive:true,force:true});}
  });
 
+ it('rejects a persisted chain whose stage identities alias after storage tampering',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'usshm-audit-'));
+  try{
+   const file=join(root,'audit.sqlite');
+   let journal=openAuditJournal(file);
+   journal.append(trace(),now);
+   journal.close();
+   const raw=new DatabaseSync(file);
+   try{
+    raw.exec('PRAGMA foreign_keys=OFF');
+    for(const table of ['audit_candidates','audit_tests','audit_approvals','audit_revisions'])
+     raw.exec(`DROP TRIGGER ${table}_no_update`);
+    raw.prepare('UPDATE audit_candidates SET id=? WHERE id=?').run(id(1),id(5));
+    raw.prepare('UPDATE audit_tests SET candidate_id=? WHERE id=?').run(id(1),id(6));
+    raw.prepare('UPDATE audit_approvals SET candidate_id=? WHERE id=?').run(id(1),id(7));
+    raw.prepare('UPDATE audit_revisions SET candidate_id=? WHERE id=?').run(id(1),id(8));
+    for(const table of ['audit_candidates','audit_tests','audit_approvals','audit_revisions'])
+     raw.exec(`CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'audit journal is append-only'); END;`);
+   }finally{raw.close();}
+   journal=openAuditJournal(file);
+   let issue:unknown;
+   try{journal.getByRevision(id(8));}catch(error){issue=error;}
+   journal.close();
+   assert.ok(issue instanceof Error,'retrieval must reject one UUID aliasing multiple persisted audit stages');
+   assert.match(issue.message,/corrupt|duplicate|distinct|identity|audit/i);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+
 });
