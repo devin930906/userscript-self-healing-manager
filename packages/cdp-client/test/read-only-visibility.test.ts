@@ -203,3 +203,32 @@ test('duplicate CDP node IDs and over-budget match lists cannot be displayed as 
   assert.deepEqual(fake.sent.map(x=>x.method),['DOM.getDocument','DOM.querySelectorAll']);
  }
 });
+
+test('RG-01 falsy CDP error envelopes cannot fabricate visible boxes or enabled-control evidence',async()=>{
+ for(const invalidError of [null,false,0,'']){
+  for(const method of ['DOM.getBoxModel','DOM.getAttributes'] as const){
+   const s=socket();
+   const send=s.send.bind(s);
+   s.send=(raw:string)=>{
+    const req=JSON.parse(raw);
+    if(req.method===method){
+     s.sent.push(req);
+     queueMicrotask(()=>s.emit('message',{data:JSON.stringify({
+      id:req.id,error:invalidError,result:method==='DOM.getBoxModel'?
+       {model:{width:110,height:33}}:{attributes:[]},
+     })}));
+     return;
+    }
+    send(raw);
+   };
+   const result=await inspectReadOnlyElementVisibility(target,locator,{socketFactory:()=>s});
+   if(method==='DOM.getBoxModel')
+    assert.equal(result.status,'unknown',
+     'a forged box result cannot establish visibility when CDP returned an error');
+   else assert.equal(result.controlBlocker,'unknown',
+    'a forged empty-attributes result cannot establish that a control is enabled');
+   assert.equal(result.V2,'blocked');
+   assert.equal(s.listenerCount('message'),0);
+  }
+ }
+});
