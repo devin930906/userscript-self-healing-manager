@@ -203,11 +203,28 @@ export async function readViolentmonkeyFixtureObservation(input:{
   let answer;
   try{answer=await input.send('Page.getFrameTree');}
   catch{throw new Error('Isolated fixture frame inspection failed');}
-  const frame=answer?.frameTree?.frame;
-  if(frame?.id!==input.frameId||frame.url!==input.url||typeof frame.loaderId!=='string'||
-     !frame.loaderId||frame.loaderId.length>128)
+  let frameId:unknown,pageUrl:unknown,loaderId:unknown;
+  try{
+   // CDP protocol faults, inherited fields and getters can never authenticate
+   // the loopback frame or expose private transport error details.
+   const ownData=(candidate:unknown,key:string):unknown=>{
+    if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+       'error' in candidate||'exceptionDetails' in candidate)
+     throw new Error('Invalid isolated frame CDP envelope');
+    const field=Object.getOwnPropertyDescriptor(candidate,key);
+    if(!field||!Object.hasOwn(field,'value'))
+     throw new Error('Invalid isolated frame CDP data');
+    return field.value;
+   };
+   const frame=ownData(ownData(answer,'frameTree'),'frame');
+   frameId=ownData(frame,'id');
+   pageUrl=ownData(frame,'url');
+   loaderId=ownData(frame,'loaderId');
+  }catch{throw new Error('Isolated fixture frame inspection failed');}
+  if(frameId!==input.frameId||pageUrl!==input.url||typeof loaderId!=='string'||
+     !loaderId||loaderId.length>128)
    throw new Error('Isolated fixture document identity changed');
-  return frame.loaderId as string;
+  return loaderId;
  };
  let observedFreshDocument=false;
  for(let attempt=0;attempt<72;attempt++){
