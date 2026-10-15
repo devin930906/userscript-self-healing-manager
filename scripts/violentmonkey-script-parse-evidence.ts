@@ -56,7 +56,7 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
  const sources=new Map<string,{kind:'web'|'injected';contextId:number}>();
  let web=false,injected=false,unattributed=false;
  let injectedClass:'not-observed'|'unknown'|'mixed'|'TypeError'|'ReferenceError'|'SyntaxError'|'RangeError'|'Error'='not-observed';
- let injectedSignature:'not-observed'|'missing-injection-data-info'|'other-type-error'|'unknown'|'mixed'='not-observed';
+ let injectedSignature:'not-observed'|'missing-injection-data-info'|'missing-runtime-onmessage-addlistener'|'other-type-error'|'unknown'|'mixed'='not-observed';
  // Public official extension asset coordinates only: never CDP messages, user
  // source lines, script IDs, private stack frames or exception description.
  let injectedSite='not-observed';
@@ -144,16 +144,21 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
      // locally; neither the description nor any tail/stack is exported.
      const description=exception&&typeof exception==='object'&&!Array.isArray(exception)
       ?(exception as {description?:unknown}).description:undefined;
-     const signatures=[
+     const matchesFixedPrefix=(prefixes:readonly string[]):boolean=>
+      next==='TypeError'&&typeof description==='string'&&description.length<=4096&&
+      prefixes.some(prefix=>description===prefix||
+       description.startsWith(prefix+'\\n')||description.startsWith(prefix+'\n'));
+     const missingData=matchesFixedPrefix([
       "TypeError: Cannot read properties of undefined (reading 'info')",
       "TypeError: Cannot read properties of null (reading 'info')",
-     ];
-     const missingData=next==='TypeError'&&typeof description==='string'&&
-      description.length<=4096&&signatures.some(prefix=>
-       description===prefix||description.startsWith(prefix+'\\n')||
-       description.startsWith(prefix+'\n'));
+     ]);
+     const missingAddListener=matchesFixedPrefix([
+      "TypeError: Cannot read properties of undefined (reading 'addListener')",
+      "TypeError: Cannot read properties of null (reading 'addListener')",
+     ]);
      const nextSignature:typeof injectedSignature=next!=='TypeError'?'unknown':
-      missingData?'missing-injection-data-info':'other-type-error';
+      missingData?'missing-injection-data-info':
+      missingAddListener?'missing-runtime-onmessage-addlistener':'other-type-error';
      injectedSignature=injectedSignature==='not-observed'?nextSignature:
       injectedSignature===nextSignature?injectedSignature:'mixed';
     }
