@@ -44,7 +44,20 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
  // The approval budget starts BEFORE the first awaited identity check.
  // An unresponsive CDP frame must not extend consent by delaying setup.
  const deadline=performance.now()+timeoutMs;
- const identity=await confirm(target);
+ // Initial identity confirmation itself may never settle if the browser
+ // disconnects. Enforce expiry independently, before creating a focus socket.
+ let initialTimer:ReturnType<typeof setTimeout>|undefined;
+ let identity:ConfirmedPageIdentity;
+ try{
+  identity=await Promise.race([
+   confirm(target),
+   new Promise<never>((_,reject)=>{
+    initialTimer=setTimeout(()=>reject(new Error('Approved focus timed out')),timeoutMs);
+   }),
+  ]);
+ }finally{
+  if(initialTimer!==undefined)clearTimeout(initialTimer);
+ }
  if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
