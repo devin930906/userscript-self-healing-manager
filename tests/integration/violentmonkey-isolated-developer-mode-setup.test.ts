@@ -45,6 +45,9 @@ test('RG-05 isolated developer mode setup fails closed on wrong WebUI, unavailab
  const denied=await decode(expression,{mode:false,allowReadback:false});
  assert.equal(denied.value,JSON.stringify({ready:false,reason:'readback'}));
  assert.doesNotMatch(denied.value,/SENSITIVE_DATA/);
+ const invalid=await decode(expression,{mode:'enabled',allowReadback:true});
+ assert.equal(invalid.value,JSON.stringify({ready:false,reason:'invalid-state'}));
+ assert.equal(invalid.updates,0,'invalid profile state must never be mutated');
 });
 
 test('RG-05 isolated Chrome bootstrap enables developer mode before official manager GM fixture',async()=>{
