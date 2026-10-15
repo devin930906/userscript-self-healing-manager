@@ -210,3 +210,26 @@ test('FR-024 actual Chrome isolation smoke must exercise a hidden target denial,
  assert.match(smoke,/PASS real Chrome FR-024 hidden.*blocked/i,
   'the product flow must also refuse a genuinely hidden browser node');
 });
+
+test('FR-024 a same-URL reload after native approval cannot become a fresh focus baseline',async()=>{
+ const socket=new FocusSocket();
+ let opened=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,approvedDocument:frame,
+  confirm:async()=>({...frame,loaderId:'new-document-after-native-approval'}),
+  socketFactory:()=>{opened++;return socket;},timeoutMs:2000,
+ }),/document identity changed|navigation|reload/i);
+ assert.equal(opened,0,'reject stale native consent before opening the action socket');
+ assert.equal(socket.methods.includes('DOM.focus'),false);
+});
+
+test('FR-024 trusted Main passes the document confirmed by native consent into focus execution',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:approved-control-focus'");
+ const end=main.indexOf("ipcMain.handle('usshm:product-action-review'",start);
+ assert.ok(start>=0&&end>start);
+ const body=main.slice(start,end);
+ const call=body.slice(body.indexOf('runApprovedControlFocus('));
+ assert.match(call,/approvedDocument:afterPrompt/,
+  'a new independent baseline must not silently replace the native-approved document');
+});
