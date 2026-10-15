@@ -1,0 +1,173 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {test} from 'node:test';
+import * as module from '../../scripts/violentmonkey-bootstrap-marker-evidence.ts';
+
+const factory=(module as Record<string,unknown>).createPinnedBootstrapMarkerEvidence as
+ ((frameId:string)=>{observe:(method:string,params:unknown)=>void;
+ read:(send:(method:string,params:Record<string,unknown>)=>Promise<unknown>)=>Promise<unknown>});
+
+test('RG-05 fixed VM bootstrap marker probes only the exact disposable fixture isolated contexts',async()=>{
+ assert.equal(typeof factory,'function','missing bounded upstream bootstrap marker diagnostic');
+ const e=factory('pinned-frame');
+ e.observe('Runtime.executionContextCreated',{context:{id:17,auxData:{frameId:'other-frame',isDefault:false}}});
+ e.observe('Runtime.executionContextCreated',{context:{id:18,auxData:{frameId:'pinned-frame',isDefault:true}}});
+ e.observe('Runtime.executionContextCreated',{context:{id:21,auxData:{frameId:'pinned-frame',isDefault:false}}});
+ e.observe('Runtime.executionContextCreated',{context:{id:22,auxData:{frameId:'pinned-frame',isDefault:false}}});
+ const ids:number[]=[];
+ const receipt=await e.read(async(method,params)=>{
+  assert.equal(method,'Runtime.evaluate');
+  assert.equal(params.returnByValue,true);
+  assert.equal(params.awaitPromise,false);
+  assert.equal(typeof params.expression,'string');
+  assert.match(params.expression as string,/\*\*VMInitInjection\*\*/);
+  assert.doesNotMatch(params.expression as string,/\beval\(|Function\(|getScriptSource|\.innerHTML|\.cookie|localStorage/);
+  ids.push(params.contextId as number);
+  return {result:{value:params.contextId===21
+   ?JSON.stringify({readyMarker:true,webBootstrap:false,officialRuntimeId:true,runtimeOnMessageAvailable:true})
+   :JSON.stringify({readyMarker:false,webBootstrap:true,officialRuntimeId:false,runtimeOnMessageAvailable:false})}};
+ });
+ assert.deepEqual(ids,[21,22]);
+ assert.deepEqual(receipt,{
+  isolatedWorldsObserved:2,worldsChecked:2,
+  readyMarkerObserved:true,webBootstrapObserved:true,officialRuntimeIdObserved:true,
+  runtimeOnMessageAvailableObserved:true,observationIncomplete:false,
+ });
+ assert.doesNotMatch(JSON.stringify(receipt),/pinned-frame|VMInitInjection|21|22|private/i);
+});
+
+test('RG-05 marker probe excludes destroyed/cleared worlds and fails closed for corrupted CDP data',async()=>{
+ const e=factory('frame');
+ for(const [id,aux] of [[3,{frameId:'frame',isDefault:false}],[4,{frameId:'frame',isDefault:false}],
+    [5,{frameId:'wrong',isDefault:false}],[6,{frameId:'frame',isDefault:'false'}]] as const){
+  e.observe('Runtime.executionContextCreated',{context:{id,auxData:aux}});
+ }
+ e.observe('Runtime.executionContextDestroyed',{executionContextId:3});
+ const seen:number[]=[];
+ const result=await e.read(async(_method,params)=>{
+  seen.push(params.contextId as number);
+  return {error:{message:'private browser data must not escape'},result:{value:'{"readyMarker":true,"webBootstrap":true}'}};
+ });
+ assert.deepEqual(seen,[4]);
+ assert.deepEqual(result,{
+  isolatedWorldsObserved:1,worldsChecked:0,
+  readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
+  runtimeOnMessageAvailableObserved:false,observationIncomplete:true,
+ });
+ e.observe('Runtime.executionContextsCleared',{});
+ const empty=await e.read(async()=>{throw Error('must not inspect a cleared context');});
+ assert.deepEqual(empty,{
+  isolatedWorldsObserved:0,worldsChecked:0,
+  readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
+  runtimeOnMessageAvailableObserved:false,observationIncomplete:true,
+ });
+ for(const bad of ['', 'x'.repeat(257)])assert.throws(()=>factory(bad),/frame|identity/i);
+});
+
+test('RG-05 marker sampling is post-GM only and cannot prewarm the cold-start acceptance',async()=>{
+ const harness=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const controlStart=harness.indexOf('RG-05 official VM bootstrap marker control');
+ const controlReceipt=harness.indexOf('const secondReceipt=assertViolentmonkeyV4FixtureObservation');
+ const browserClose=harness.indexOf("browserCdp.send('Browser.close')");
+ const failedBoth=harness.indexOf('startupInjectionBlocked=true');
+ const post=harness.indexOf('RG-05 official VM bootstrap marker after missing GM receipts');
+ const gate=harness.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(controlStart>controlReceipt&&controlStart<browserClose,
+  'bootstrap control is read only after two genuine GM receipts');
+ assert.ok(post>failedBoth&&post<gate,'post-restart probe only after two already-failed GM pages');
+ assert.match(harness,/Runtime\.executionContextDestroyed/);
+ assert.match(harness,/Runtime\.executionContextsCleared/);
+ assert.match(harness,/assertOfficialViolentmonkeyReleaseGate\(blocked.status\)/);
+ assert.doesNotMatch(harness,/GetInjected\W*\(/,'never invoke upstream mutating GetInjected as diagnostic');
+});
+
+
+test('RG-05 marker never accepts nested CDP exception and error envelopes that also forge a positive boolean',async()=>{
+ const positives='{"readyMarker":true,"webBootstrap":true,"officialRuntimeId":true,"runtimeOnMessageAvailable":true}';
+ for(const payload of [
+  {result:{value:positives,exceptionDetails:{text:'PRIVATE_BROWSER_ERROR'}}},
+  {result:{value:positives,error:{message:'PRIVATE_BROWSER_ERROR'}}},
+  {result:{value:positives,exceptionDetails:null}},
+ ]){
+  const evidence=factory('pinned');
+  evidence.observe('Runtime.executionContextCreated',{
+   context:{id:23,auxData:{frameId:'pinned',isDefault:false}},
+  });
+  const result=await evidence.read(async()=>payload);
+  assert.deepEqual(result,{
+   isolatedWorldsObserved:1,worldsChecked:0,
+   readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
+  runtimeOnMessageAvailableObserved:false,observationIncomplete:true,
+  });
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BROWSER_ERROR|pinned|23/);
+ }
+});
+
+
+test('RG-05 official runtime identity diagnostic is only a pinned boolean with no extension ID disclosure',async()=>{
+ const src=await readFile('scripts/violentmonkey-bootstrap-marker-evidence.ts','utf8');
+ assert.match(src,/chrome\.runtime/);
+ assert.match(src,/runtime\.onMessage/);
+ assert.match(src,/addListener/);
+ assert.match(src,/jinjaccalgkegednnccohejagnlnfdag/);
+ assert.doesNotMatch(src,/GetInjected\s*\(|\.getScriptSource\s*\(/);
+ const e=factory('frame');
+ e.observe('Runtime.executionContextCreated',{context:{id:91,auxData:{frameId:'frame',isDefault:false}}});
+ const values=await e.read(async()=>({result:{value:JSON.stringify({
+  readyMarker:false,webBootstrap:true,officialRuntimeId:true,runtimeOnMessageAvailable:true,
+ })}}));
+ assert.deepEqual(values,{
+  isolatedWorldsObserved:1,worldsChecked:1,
+  readyMarkerObserved:false,webBootstrapObserved:true,
+  officialRuntimeIdObserved:true,runtimeOnMessageAvailableObserved:true,observationIncomplete:false,
+ });
+ assert.doesNotMatch(JSON.stringify(values),/jinjaccalgkegednnccohejagnlnfdag|91|frame/);
+});
+
+
+test('RG-05 observes bounded isolated-world runtime exceptions without retaining private error text',()=>{
+ const exceptionFactory=(module as Record<string,unknown>).createPinnedIsolatedRuntimeExceptionEvidence as
+  ((frameId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ assert.equal(typeof exceptionFactory,'function','missing RG-05 passive runtime exception observer');
+ const evidence=exceptionFactory('pinned');
+ evidence.observe('Runtime.executionContextCreated',{context:{id:101,auxData:{frameId:'other',isDefault:false}}});
+ evidence.observe('Runtime.executionContextCreated',{context:{id:102,auxData:{frameId:'pinned',isDefault:true}}});
+ evidence.observe('Runtime.executionContextCreated',{context:{id:103,auxData:{frameId:'pinned',isDefault:false}}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:101,text:'PRIVATE_OTHER_SITE'}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:102,text:'PRIVATE_MAIN_FRAME'}});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:103,text:'PRIVATE_VM_STACK',exception:{description:'PRIVATE_SCRIPT_SOURCE'}}});
+ assert.deepEqual(evidence.snapshot(),{
+  isolatedExceptionObserved:true,isolatedExceptionCount:1,observationIncomplete:false,
+ });
+ assert.doesNotMatch(JSON.stringify(evidence.snapshot()),/PRIVATE|pinned|101|102|103|chrome-extension/i);
+ evidence.observe('Runtime.executionContextDestroyed',{executionContextId:103});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:103,text:'PRIVATE_STALE'}});
+ assert.equal((evidence.snapshot() as {isolatedExceptionCount:number}).isolatedExceptionCount,1);
+});
+
+test('RG-05 exception evidence caps volume and is collected without changing GM cold restart gates',async()=>{
+ const exceptionFactory=(module as Record<string,unknown>).createPinnedIsolatedRuntimeExceptionEvidence as
+  ((frameId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ assert.equal(typeof exceptionFactory,'function');
+ const evidence=exceptionFactory('fixture');
+ evidence.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:'fixture',isDefault:false}}});
+ for(let i=0;i<20;i++){
+  evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,text:'PRIVATE_TOKEN_'+i}});
+ }
+ assert.deepEqual(evidence.snapshot(),{
+  isolatedExceptionObserved:true,isolatedExceptionCount:8,observationIncomplete:true,
+ });
+ evidence.observe('Runtime.executionContextsCleared',{});
+ evidence.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:9,text:'PRIVATE_EXPIRED'}});
+ assert.equal((evidence.snapshot() as {isolatedExceptionCount:number}).isolatedExceptionCount,8);
+ assert.throws(()=>exceptionFactory(''),/frame|identity/i);
+ const harness=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ assert.match(harness,/Runtime\.exceptionThrown/,'CDP transport must forward the actual Runtime event');
+ assert.match(harness,/createPinnedIsolatedRuntimeExceptionEvidence/);
+ const failed=harness.indexOf('startupInjectionBlocked=true');
+ const summary=harness.indexOf('RG-05 isolated runtime exceptions after missing GM receipts');
+ const gate=harness.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(failed>=0&&summary>failed&&summary<gate,
+  'exception classification must only report after BOTH already-failed documents');
+ assert.doesNotMatch(harness,/GetInjected\W*\(/,'diagnostic cannot invoke the official manager injection command');
+});

@@ -22,8 +22,12 @@ test('RG-05 real Chrome harness observes execution-context events on each pinned
  const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  assert.match(source,/createIsolatedFixtureFrameContextEvidence\(identity\.frameId\)/);
  assert.match(source,/createIsolatedFixtureFrameContextEvidence\(afterRestartIdentity\.frameId\)/);
- assert.match(source,/pageCdp=await openCdp\(fixturePage\.webSocketDebuggerUrl,.*observe\)/);
- assert.match(source,/pageCdp=await openCdp\(restartedFixturePage\.webSocketDebuggerUrl,.*observe\)/);
+ assert.match(source,/pageCdp=await openCdp\(fixturePage\.webSocketDebuggerUrl,\(method,params\)=>\{/);
+ assert.match(source,/initialContextEvidence\.observe\(method,params\)/);
+ assert.match(source,/initialMarkerEvidence\.observe\(method,params\)/);
+ assert.match(source,/pageCdp=await openCdp\(restartedFixturePage\.webSocketDebuggerUrl,\(method,params\)=>\{/);
+ assert.match(source,/restartedContextEvidence\.observe\(method,params\)/);
+ assert.match(source,/restartedMarkerEvidence\.observe\(method,params\)/);
  assert.match(source,/Runtime\.executionContextCreated/);
  assert.match(source,/RG-05 initial fixture CDP contexts/);
  assert.match(source,/RG-05 restarted fixture CDP contexts/);
