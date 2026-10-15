@@ -211,8 +211,29 @@ export function buildViolentmonkeyUserScriptsAccessReasonExpression():string{
    if(info.version!==${version})return fixed('version');
    if(info.state!=='ENABLED'){
     if(info.state==='DISABLED'){
-     return fixed(info.disableReasons?.reloading===true?
-      'state-disabled-reloading':'state-disabled-other');
+     // Inspect fixed public booleans only; never export extension metadata.
+     // Multiple true reasons must not be misreported as only 'reloading'.
+     const mappings=[
+      ['reloading','state-disabled-reloading'],
+      ['unsupportedDeveloperExtension','state-disabled-unsupported-developer'],
+      ['unsupportedManifestVersion','state-disabled-unsupported-manifest'],
+      ['corruptInstall','state-disabled-corrupt'],
+      ['suspiciousInstall','state-disabled-suspicious'],
+      ['updateRequired','state-disabled-update'],
+      ['publishedInStoreRequired','state-disabled-store'],
+      ['blockedByPolicy','state-disabled-policy'],
+      ['custodianApprovalRequired','state-disabled-custodian'],
+      ['parentDisabledPermissions','state-disabled-parent'],
+      ['disabledByAnotherExtension','state-disabled-other-extension'],
+     ];
+     const disabled=info.disableReasons;
+     const matches=mappings.filter(([flag])=>{
+      const field=disabled&&typeof disabled==='object'?
+       Object.getOwnPropertyDescriptor(disabled,flag):null;
+      return !!field&&Object.hasOwn(field,'value')&&field.value===true;
+     });
+     return fixed(matches.length===0?'state-disabled-none':
+      matches.length>1?'state-disabled-multiple':matches[0][1]);
     }
     if(info.state==='TERMINATED')return fixed('state-terminated');
     if(info.state==='BLOCKLISTED')return fixed('state-blocklisted');
