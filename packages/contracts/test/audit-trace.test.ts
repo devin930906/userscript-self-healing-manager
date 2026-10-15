@@ -38,6 +38,19 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
   assert.throws(()=>parseAuditTrace({...good(),extra:1},now),TypeError);
   const value:any=good();value.test.extra='forged';assert.throws(()=>parseAuditTrace(value,now),TypeError);
  });
+ it('rejects reused entity IDs even when every dependent reference is self-consistent',()=>{
+  const value:any=good();
+  const shared=id(1);
+  for(const stage of ['job','finding','candidate','test','approval','revision'] as const)value[stage].id=shared;
+  value.finding.jobId=shared;
+  value.candidate.findingId=shared;value.candidate.jobId=shared;
+  value.test.candidateId=shared;value.test.jobId=shared;
+  value.approval.testId=shared;value.approval.candidateId=shared;value.approval.jobId=shared;
+  value.revision.approvalId=shared;value.revision.candidateId=shared;value.revision.jobId=shared;
+  assert.throws(()=>parseAuditTrace(value,now),/distinct|duplicate|unique/i,
+   'audit entities must not alias one UUID across multiple stages');
+ });
+
  it('rejects foreign job, finding, candidate, test or approval references',()=>{
   for(const [stage,key] of [['finding','jobId'],['candidate','findingId'],['candidate','jobId'],['test','candidateId'],['test','jobId'],['approval','testId'],['approval','candidateId'],['revision','approvalId'],['revision','candidateId'],['revision','jobId']] as const){
    const value:any=good();value[stage][key]=id(90);assert.throws(()=>parseAuditTrace(value,now),TypeError,`${stage}.${key}`);
