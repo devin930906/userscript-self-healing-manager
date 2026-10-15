@@ -314,6 +314,28 @@ export async function readViolentmonkeyPreReloadAccess(
 }
 
 /**
+ * RG-05 TEST ONLY: read the disposable Chrome profile Developer Mode switch.
+ * Never enable the switch, enumerate profiles, or include private metadata.
+ * Used after an already failed GM cold start to avoid a diagnostic reload
+ * disabling an unpacked extension in a Developer-Mode-OFF profile.
+ */
+export function buildViolentmonkeyProfileDeveloperModeExpression():string{
+ return `(async()=>{
+  try{
+   if(location.href!=='chrome://extensions/')return 'unavailable';
+   const api=chrome.developerPrivate;
+   if(typeof api?.getProfileConfiguration!=='function')return 'unavailable';
+   const info=await api.getProfileConfiguration();
+   const flag=info&&typeof info==='object'?
+    Object.getOwnPropertyDescriptor(info,'inDeveloperMode'):null;
+   if(!flag||!Object.hasOwn(flag,'value')||typeof flag.value!=='boolean')
+    return 'unavailable';
+   return flag.value?'enabled':'disabled';
+  }catch{return 'unavailable';}
+ })()`;
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
