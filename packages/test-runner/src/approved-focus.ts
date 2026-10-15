@@ -173,6 +173,11 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
    });
   };
   const beforeRendered=await rendered();
+  // Confirm the document before the final DOM safety snapshot. This awaited
+  // identity check can itself give page code time to mutate the control, so
+  // every action-critical DOM check below must run AFTER it. No further await
+  // outside bounded CDP checks occurs between the final evidence and dispatch.
+  await guard();
   if(await unique(css)!==node)
    throw error('Approved button changed before focus');
   // A handler, live page update, or accessibility mutation can turn a
@@ -195,7 +200,6 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
    throw error('Invalid pre-action focus evidence');
   if(beforeFocus.includes(node))
    throw error('Approved button already focused; no verifiable new focus transition');
-  await guard();
   // A scan or directory approval may be revoked while the CDP preflight yields.
   // Production Main owns the check; it runs synchronously, just before focus.
   assertAuthorizedBeforeAction?.();
