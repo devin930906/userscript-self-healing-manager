@@ -297,7 +297,7 @@ test('RG-05 pinned official injected.js AST fingerprint identifies a fixed call 
  const source="(()=>{const receipt=chrome.runtime.sendMessage({cmd:'GetInjected'});return receipt;})();";
  const spot=source.indexOf('sendMessage')+2;
  const proof=mod!.mapPinnedOfficialFaultSite(source,0,spot);
- assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','callArgumentIndex','callKind','expressionRole','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
+ assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','boundMethodKind','callArgumentIndex','callKind','calleeBindingKind','expressionRole','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
  assert.equal(proof.locationVerified,true);
  assert.equal(proof.callKind,'member-call');
  assert.equal(proof.propertyKind,'sendMessage');
@@ -343,4 +343,25 @@ test('RG-05 pinned official fault mapping exposes only bounded syntax ancestry a
  assert.ok(proof.ancestorKinds.length>=2&&proof.ancestorKinds.length<=6);
  assert.ok(proof.ancestorKinds.every((kind:unknown)=>typeof kind==='string'&&kind.length>0&&kind.length<64));
  assert.doesNotMatch(JSON.stringify(proof),/payload|secretIndex|forward|result|PRIVATE|source/i);
+});
+
+
+test('RG-05 public AST mapper resolves safe-bind helper shape and only allowlisted bound method semantics',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts');
+ const source=[
+  "const apply={call:{bind(){}}};",
+  "const safeCall=apply.call.bind(apply.call);",
+  "const {forEach:each}=[];",
+  "const args=[];",
+  "args[0]&&safeCall(each,args[0],()=>{});",
+ ].join('');
+ const spot=source.lastIndexOf('args[0]')+2;
+ const proof=mod.mapPinnedOfficialFaultSite(source,0,spot) as any;
+ assert.equal(proof.locationVerified,true);
+ assert.equal(proof.callKind,'direct-call');
+ assert.equal(proof.expressionRole,'call-argument');
+ assert.equal(proof.callArgumentIndex,1);
+ assert.equal(proof.calleeBindingKind,'safe-call-shape');
+ assert.equal(proof.boundMethodKind,'forEach');
+ assert.doesNotMatch(JSON.stringify(proof),/safeCall|\beach\b|\bargs\b|PRIVATE|identifierText/i);
 });
