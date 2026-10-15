@@ -31,7 +31,7 @@ test('RG-05 fixed VM bootstrap marker probes only the exact disposable fixture i
  assert.deepEqual(receipt,{
   isolatedWorldsObserved:2,worldsChecked:2,
   readyMarkerObserved:true,webBootstrapObserved:true,officialRuntimeIdObserved:true,
-  runtimeOnMessageAvailableObserved:true,observationIncomplete:false,
+  runtimeOnMessageAvailableObserved:true,sameWorldRuntimeReadyObserved:true,observationIncomplete:false,
  });
  assert.doesNotMatch(JSON.stringify(receipt),/pinned-frame|VMInitInjection|21|22|private/i);
 });
@@ -52,14 +52,14 @@ test('RG-05 marker probe excludes destroyed/cleared worlds and fails closed for 
  assert.deepEqual(result,{
   isolatedWorldsObserved:1,worldsChecked:0,
   readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
-  runtimeOnMessageAvailableObserved:false,observationIncomplete:true,
+  runtimeOnMessageAvailableObserved:false,sameWorldRuntimeReadyObserved:false,observationIncomplete:true,
  });
  e.observe('Runtime.executionContextsCleared',{});
  const empty=await e.read(async()=>{throw Error('must not inspect a cleared context');});
  assert.deepEqual(empty,{
   isolatedWorldsObserved:0,worldsChecked:0,
   readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
-  runtimeOnMessageAvailableObserved:false,observationIncomplete:true,
+  runtimeOnMessageAvailableObserved:false,sameWorldRuntimeReadyObserved:false,observationIncomplete:true,
  });
  for(const bad of ['', 'x'.repeat(257)])assert.throws(()=>factory(bad),/frame|identity/i);
 });
@@ -97,7 +97,7 @@ test('RG-05 marker never accepts nested CDP exception and error envelopes that a
   assert.deepEqual(result,{
    isolatedWorldsObserved:1,worldsChecked:0,
    readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
-  runtimeOnMessageAvailableObserved:false,observationIncomplete:true,
+  runtimeOnMessageAvailableObserved:false,sameWorldRuntimeReadyObserved:false,observationIncomplete:true,
   });
   assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BROWSER_ERROR|pinned|23/);
  }
@@ -119,7 +119,7 @@ test('RG-05 official runtime identity diagnostic is only a pinned boolean with n
  assert.deepEqual(values,{
   isolatedWorldsObserved:1,worldsChecked:1,
   readyMarkerObserved:false,webBootstrapObserved:true,
-  officialRuntimeIdObserved:true,runtimeOnMessageAvailableObserved:true,observationIncomplete:false,
+  officialRuntimeIdObserved:true,runtimeOnMessageAvailableObserved:true,sameWorldRuntimeReadyObserved:false,observationIncomplete:false,
  });
  assert.doesNotMatch(JSON.stringify(values),/jinjaccalgkegednnccohejagnlnfdag|91|frame/);
 });
