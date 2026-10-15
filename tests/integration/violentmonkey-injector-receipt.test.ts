@@ -61,3 +61,20 @@ test('RG-05 official injector readiness accepts explicit null/undefined success 
   assert.doesNotMatch(result,/PRIVATE|manager injector not initialized/);
  }
 });
+
+test('RG-05 official readiness rejects explicitly faulty worker packets even with a success-shaped response',async()=>{
+ // Official VM v2.49.0 messaging-sw sends {id,res,err} on success,
+ // with err===undefined. Any other explicit err value is not an
+ // authenticated absence of an injector error.
+ for(const err of [false,null,0,'',true,{message:'PRIVATE_SW_FAILURE'}]){
+  const result=await evaluateOfficialInjectorReply({res:null,err});
+  assert.equal(result,JSON.stringify({ready:false}),
+   'a non-undefined worker error marker cannot certify official readiness');
+  assert.doesNotMatch(result,/PRIVATE_SW_FAILURE/);
+ }
+ assert.equal(
+  await evaluateOfficialInjectorReply({res:null,err:undefined}),
+  JSON.stringify({ready:true}),
+  'official SW healthy response explicitly includes err:undefined',
+ );
+});
