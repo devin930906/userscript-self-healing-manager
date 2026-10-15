@@ -273,11 +273,13 @@ export async function stageCoreRecoveryForOfflineReview({
  * and no path-only audit can prevent a future hostile filesystem mutation.
  */
 export async function verifyCoreOfflineRecoveryStage({
- snapshotDirectory,stagedDirectory,beforeFinalStageAudit,
+ snapshotDirectory,stagedDirectory,beforeFinalStageAudit,beforeSqliteSchemaAudit,
 }:{
  readonly snapshotDirectory:string;readonly stagedDirectory:string;
  /** Internal deterministic fault injection; never exposed through desktop IPC. */
  readonly beforeFinalStageAudit?:()=>Promise<void>;
+ /** Internal deterministic fault injection after staged hashes and before SQLite pathname reopen. */
+ readonly beforeSqliteSchemaAudit?:()=>Promise<void>;
 }):Promise<{valid:true;fileCount:number;sourceManifestSha256:string}>{
  if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory)||
     typeof stagedDirectory!=='string'||!isAbsolute(stagedDirectory))
@@ -409,6 +411,13 @@ export async function verifyCoreOfflineRecoveryStage({
   for(const item of files)
    await assertStagedCopy(join(stage,...item.path.split('/')),item);
  }
+ if(beforeSqliteSchemaAudit){
+  // Test-only boundary for the unavoidable pathname reopen below; never exposed
+  // to Electron IPC or a production caller.
+  if(typeof beforeSqliteSchemaAudit!=='function')
+   throw new Error('Invalid offline stage SQLite-audit dependency');
+  await beforeSqliteSchemaAudit();
+ }
  // Verify schema from the actual staged database copies, never from active Data.
  for(const name of ['registry.sqlite','diagnosis-journal.sqlite'] as const){
   const db=new DatabaseSync(join(stage,name),{readOnly:true});
@@ -425,6 +434,14 @@ export async function verifyCoreOfflineRecoveryStage({
    }
   }finally{db.close();}
  }
+ // DatabaseSync necessarily reopens these files by pathname. A distinct but
+ // structurally valid SQLite file could otherwise replace the bytes that were
+ // hashed immediately before this loop and still pass schema/integrity checks.
+ // Re-pin both SQLite paths and verify the source-approved bytes/identity after
+ // the schema reads. This narrows that reopen TOCTOU window; it is not a
+ // cross-process filesystem lock or native Win32 FileIdInfo attestation.
+ for(const item of core.files.slice(0,2))
+  await assertStagedCopy(join(stage,item.path),item);
  // The final marker must be the SAME pinned file object originally
  // approved, not merely newly substituted byte-identical JSON. In particular,
  // never follow a late symlink or trust a replacement with the same SHA-256.
