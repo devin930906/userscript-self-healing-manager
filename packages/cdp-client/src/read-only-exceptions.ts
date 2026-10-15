@@ -106,6 +106,7 @@ export async function observeReadOnlyPageExceptions(
    try{send('Runtime.disable');}catch{finish(new Error('Could not stop passive exception observation'));}
   }
   function onOpen(){
+   if(ended)return;
    try{send('Runtime.enable');}
    catch{finish(new Error('Could not enable passive exception observation'));}
   }
