@@ -123,3 +123,60 @@ test('RG-05 GM fixture evaluation rejects accessors without calling them or leak
  }
  assert.equal(invoked,0);
 });
+
+test('RG-05 pinned frame identity rejects CDP faults even with matching forged frame data',async()=>{
+ const privateToken='PRIVATE_CDP_FRAME_FAULT https://private.invalid/credential';
+ const matched=frame().frameTree;
+ const replies=[
+  {error:privateToken,frameTree:matched},
+  {exceptionDetails:null,frameTree:matched},
+  {frameTree:{error:privateToken,frame:matched.frame}},
+  {frameTree:{exceptionDetails:false,frame:matched.frame}},
+  Object.assign(Object.create({error:privateToken}),{frameTree:matched}),
+  {frameTree:Object.assign(Object.create({exceptionDetails:false}),{frame:matched.frame})},
+ ];
+ for(const reply of replies){
+  let frameReads=0,evals=0;
+  await assert.rejects(readViolentmonkeyFixtureObservation(input(async(method:string)=>{
+   if(method==='Page.getFrameTree'){frameReads++;return reply;}
+   evals++;return {result:{value:null}};
+  })),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Isolated fixture frame inspection failed');
+   assert.doesNotMatch(error.message,/PRIVATE_|private[.]invalid/);
+   assert.equal('cause' in error,false);
+   return true;
+  });
+  assert.equal(frameReads,1,'invalid frame protocol data must fail immediately');
+  assert.equal(evals,0,'never evaluate on an untrusted document identity');
+ }
+});
+
+test('RG-05 pinned frame identity rejects accessors without running getters or leaking errors',async()=>{
+ const privateToken='PRIVATE_CDP_FRAME_GETTER https://private.invalid/credential';
+ let getters=0;
+ const getter=()=>{getters++;throw new Error(privateToken);};
+ const matched=frame().frameTree;
+ const replies=[
+  Object.defineProperty({},'frameTree',{enumerable:true,get:getter}),
+  {frameTree:Object.defineProperty({},'frame',{enumerable:true,get:getter})},
+  {frameTree:{frame:Object.defineProperty({...matched.frame},'id',{enumerable:true,get:getter})}},
+  {frameTree:{frame:Object.defineProperty({...matched.frame},'loaderId',{enumerable:true,get:getter})}},
+  Object.defineProperty({frameTree:matched},'error',{enumerable:true,get:getter}),
+ ];
+ for(const reply of replies){
+  let evals=0;
+  await assert.rejects(readViolentmonkeyFixtureObservation(input(async(method:string)=>{
+   if(method==='Page.getFrameTree')return reply;
+   evals++;return {result:{value:null}};
+  })),(error:unknown)=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Isolated fixture frame inspection failed');
+   assert.doesNotMatch(error.message,/PRIVATE_|private[.]invalid/);
+   assert.equal('cause' in error,false);
+   return true;
+  });
+  assert.equal(evals,0);
+ }
+ assert.equal(getters,0);
+});
