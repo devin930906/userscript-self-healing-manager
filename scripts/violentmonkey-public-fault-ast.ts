@@ -21,6 +21,9 @@ const allowedBoundMethods=new Set([
  'tdDecode','getReadyState','getDetail','getRelatedTarget','append','remove',
  'setAttribute','attachShadow','stopImmediatePropagation',
 ]);
+const allowedFirstArgumentLiterals=new Set([
+ 'NotificationClicked','NotificationClosed',
+]);
 export interface PublicFaultAstEvidence {
  readonly locationVerified:boolean;
  readonly syntaxKind:string;
@@ -40,6 +43,11 @@ export interface PublicFaultAstEvidence {
  readonly calleeStatementCount:number;
  readonly binaryOperatorKinds:readonly string[];
  readonly binaryOperandRoles:readonly ('left'|'right'|'other')[];
+ readonly callArgumentKinds:readonly string[];
+ readonly firstArgumentLiteralKind:string;
+ readonly calleeBodyKind:string;
+ readonly calleeBodyBinaryOperatorKinds:readonly string[];
+ readonly elementBaseInitializerKind:string;
  readonly fingerprintSha256:string;
 }
 const unavailable=():PublicFaultAstEvidence=>Object.freeze({
@@ -50,7 +58,9 @@ const unavailable=():PublicFaultAstEvidence=>Object.freeze({
  elementBaseBindingKind:'unresolved',elementIndexKind:'other',
  calleeFunctionKind:'unresolved',calleeParameterCount:-1,calleeStatementCount:-1,
  binaryOperatorKinds:Object.freeze([]),binaryOperandRoles:Object.freeze([]),
- fingerprintSha256:'0'.repeat(64),
+ callArgumentKinds:Object.freeze([]),firstArgumentLiteralKind:'other',
+ calleeBodyKind:'unavailable',calleeBodyBinaryOperatorKinds:Object.freeze([]),
+ elementBaseInitializerKind:'unavailable',fingerprintSha256:'0'.repeat(64),
 });
 
 type LocalBinding=ts.VariableDeclaration|ts.BindingElement|ts.ParameterDeclaration|ts.FunctionDeclaration;
@@ -157,6 +167,31 @@ function calleeFunctionDetails(binding:LocalBinding|undefined):{
  return {kind:'arrow-expression',parameters,statements:0};
 }
 
+function calleeBodyNode(binding:LocalBinding|undefined):ts.ConciseBody|undefined{
+ if(ts.isFunctionDeclaration(binding)||ts.isFunctionExpression(binding))return binding.body;
+ if(ts.isVariableDeclaration(binding)){
+  const init=binding.initializer;
+  if(init&&(ts.isFunctionExpression(init)||ts.isArrowFunction(init)))return init.body;
+ }
+ return undefined;
+}
+function bodyBinaryOperators(body:ts.Node|undefined):readonly string[]{
+ if(!body)return Object.freeze([]);
+ const result:string[]=[];
+ const visit=(current:ts.Node):void=>{
+  if(result.length>=4)return;
+  if(ts.isBinaryExpression(current))result.push(stableBinaryOperatorKind(current.operatorToken.kind));
+  ts.forEachChild(current,visit);
+ };
+ visit(body);
+ return Object.freeze(result);
+}
+function variableInitializerKind(binding:LocalBinding|undefined):string{
+ if(!ts.isVariableDeclaration(binding)||!binding.initializer)return 'unavailable';
+ const kind=ts.SyntaxKind[binding.initializer.kind]||'unknown';
+ return typeof kind==='string'&&kind.length<64?kind:'unknown';
+}
+
 export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unknown):PublicFaultAstEvidence{
  if(typeof source!=='string'||source.length<1||source.length>524288||
     !Number.isSafeInteger(row)||!Number.isSafeInteger(column)||
@@ -232,6 +267,17 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
    ts.isNumericLiteral(index)?index.text==='0'?'number-0':index.text==='1'?'number-1':'number-other':
    ts.isIdentifier(index)?'identifier':ts.isStringLiteral(index)?'string':'other';
   const fn=calleeFunctionDetails(calleeBinding);
+  const body=calleeBodyNode(calleeBinding);
+  const calleeBodyKind=body?(ts.SyntaxKind[body.kind]||'unknown'):'unavailable';
+  const calleeBodyBinaryOperatorKinds=bodyBinaryOperators(body);
+  const callArgumentKinds=Object.freeze((call?.arguments||[]).slice(0,8).map(argument=>{
+   const kind=ts.SyntaxKind[argument.kind]||'unknown';
+   return typeof kind==='string'&&kind.length<64?kind:'unknown';
+  }));
+  const first=call?.arguments[0];
+  const firstArgumentLiteralKind=first&&ts.isStringLiteral(first)&&allowedFirstArgumentLiterals.has(first.text)
+   ?first.text:'other';
+  const elementBaseInitializerKind=variableInitializerKind(elementBaseBinding);
   const binaryOperatorKinds:string[]=[];
   const binaryOperandRoles:('left'|'right'|'other')[]=[];
   for(let current:ts.Node|undefined=node;current&&binaryOperatorKinds.length<4;current=current.parent){
@@ -249,6 +295,9 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
    calleeFunctionKind:fn.kind,calleeParameterCount:fn.parameters,calleeStatementCount:fn.statements,
    binaryOperatorKinds:Object.freeze(binaryOperatorKinds),
    binaryOperandRoles:Object.freeze(binaryOperandRoles),
+   callArgumentKinds,firstArgumentLiteralKind,
+   calleeBodyKind:typeof calleeBodyKind==='string'&&calleeBodyKind.length<64?calleeBodyKind:'unknown',
+   calleeBodyBinaryOperatorKinds,elementBaseInitializerKind,
    fingerprintSha256:createHash('sha256').update(source,'utf8').digest('hex'),
   });
  }catch{
