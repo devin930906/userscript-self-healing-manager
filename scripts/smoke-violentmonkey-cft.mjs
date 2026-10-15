@@ -431,7 +431,8 @@ async function runPostBlockerExtensionReloadDiagnostic({
        const parsed=JSON.parse(reasonText);
        const allowed=new Set([
         'page-context','settings-api','settings-error','identity','version',
-        'state-disabled','state-terminated','state-blocklisted','state-other',
+        'state-disabled-reloading','state-disabled-other',
+        'state-terminated','state-blocklisted','state-other',
         'installation','toggle-disabled','toggle-inactive','active',
        ]);
        if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
