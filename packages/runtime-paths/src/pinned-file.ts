@@ -35,6 +35,12 @@ export async function readPinnedRegularFile(path:string,{
    throw new Error('Unsafe pinned file: symlink or non-regular file');
   if(!Number.isSafeInteger(info.size)||info.size<0||info.size>maxBytes)
    throw new Error('Pinned file size exceeds allowed budget');
+  // Missing or invalid timestamps / link counts cannot establish a stable
+  // file identity, even if another (possibly rounded) identifier matches.
+  if(!Number.isSafeInteger(info.nlink)||info.nlink<1||
+     !Number.isFinite(info.birthtimeMs)||!Number.isFinite(info.mtimeMs)||
+     !Number.isFinite(info.ctimeMs))
+   throw new Error('Pinned file identity metadata unavailable');
   if(!Number.isFinite(info.ino)||!Number.isFinite(info.dev)||
      (process.platform!=='win32'&&
       (!Number.isSafeInteger(info.ino)||info.ino<=0||!Number.isSafeInteger(info.dev))))
