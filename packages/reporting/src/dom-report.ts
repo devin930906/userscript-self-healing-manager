@@ -21,8 +21,22 @@ export function serializeDomBatchReport(
  if(!report||report.validationLevel!=='dom-only'||!Number.isSafeInteger(report.totalItems)||
   report.totalItems<0||report.totalItems>1000||!Array.isArray(report.items)||
   report.items.length!==report.totalItems)throw new Error('Invalid DOM diagnosis batch');
- if(typeof createdAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(createdAt)||
+ if(typeof createdAt!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(createdAt)||
   Number.isNaN(Date.parse(createdAt)))throw new Error('Invalid diagnosis report timestamp');
+ // Date.parse normalizes impossible calendar dates (e.g. February 30);
+ // never write a trusted-looking diagnostic timestamp from one.
+ const year=Number(createdAt.slice(0,4));
+ const month=Number(createdAt.slice(5,7));
+ const day=Number(createdAt.slice(8,10));
+ // ISO 8601 permits 24:00 for the next day, but a forensic report must not
+ // retain yesterday's date alongside a normalized next-day instant.
+ if(createdAt.slice(11,13)==='24')throw new Error('Invalid diagnosis report timestamp');
+ const calendarDate=new Date(0);
+ calendarDate.setUTCFullYear(year,month-1,day);
+ if(calendarDate.getUTCFullYear()!==year||
+    calendarDate.getUTCMonth()!==month-1||
+    calendarDate.getUTCDate()!==day)
+  throw new Error('Invalid diagnosis report timestamp');
  let url:URL;
  try{url=new URL(report.pageUrl);}catch{throw new Error('Invalid page URL');}
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)
