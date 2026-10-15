@@ -59,3 +59,17 @@ test('FR-014 P0 create rechecks Main scan consent before final registry commit',
  assert.match(precommit,/withinAuthorized\(item\.path\)/,
   'a changed approved script directory must block file publication');
 });
+
+test('FR-014 P0 native removal binds the confirmed record and rechecks scan/source during persistence',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:site-test-case-remove'");
+ const end=main.indexOf("ipcMain.handle('usshm:site-test-case-verify'",start);
+ assert.ok(start>=0&&end>start);
+ const body=main.slice(start,end);
+ const remove=body.slice(body.indexOf('await removeSiteTestCase('));
+ assert.match(remove,/expected:selected/,'persistence must consume the record approved in the native dialog');
+ assert.match(remove,/beforeFinalWrite:async\(\)=>/,'removal needs its own Main-owned final authorization callback');
+ const fence=remove.slice(remove.indexOf('beforeFinalWrite:'));
+ assert.match(fence,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(fence,/withinAuthorized\(item\.path\)/);
+});
