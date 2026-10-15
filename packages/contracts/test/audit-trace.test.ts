@@ -63,6 +63,15 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
    'UUID identity must not become distinct merely by changing hex letter case');
  });
 
+ it('rejects noncanonical uppercase UUID spellings in persisted audit identities',()=>{
+  const value:any=good();
+  const upper='AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
+  value.job.id=upper;
+  for(const stage of ['finding','candidate','test','approval','revision'] as const)value[stage].jobId=upper;
+  assert.throws(()=>parseAuditTrace(value,now),/invalid|uuid|id/i,
+   'audit UUID text must have one canonical lowercase representation');
+ });
+
  it('rejects foreign job, finding, candidate, test or approval references',()=>{
   for(const [stage,key] of [['finding','jobId'],['candidate','findingId'],['candidate','jobId'],['test','candidateId'],['test','jobId'],['approval','testId'],['approval','candidateId'],['revision','approvalId'],['revision','candidateId'],['revision','jobId']] as const){
    const value:any=good();value[stage][key]=id(90);assert.throws(()=>parseAuditTrace(value,now),TypeError,`${stage}.${key}`);
