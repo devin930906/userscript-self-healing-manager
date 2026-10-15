@@ -32,20 +32,22 @@ export interface PinnedBootstrapMarkerEvidence {
  readonly webBootstrapObserved:boolean;
  readonly officialRuntimeIdObserved:boolean;
  readonly runtimeOnMessageAvailableObserved:boolean;
+ /** A coherent runtime has all three flags in the SAME isolated world. */
+ readonly sameWorldRuntimeReadyObserved:boolean;
  readonly observationIncomplete:boolean;
 }
 export function createPinnedBootstrapMarkerEvidence(frameId:string){
  if(typeof frameId!=='string'||!frameId||frameId.length>256)
   throw new Error('Invalid pinned fixture frame identity');
  const contexts=new Set<number>();
- let truncated=false;
+ let truncated=false,epoch=0;
  return {
   observe(method:string,params:unknown):void{
    if(method==='Runtime.executionContextsCleared'){
-    contexts.clear();truncated=false;
+    contexts.clear();truncated=false;epoch++;
    }else if(method==='Runtime.executionContextDestroyed'){
     const id=(params as {executionContextId?:unknown}|null)?.executionContextId;
-    if(Number.isSafeInteger(id))contexts.delete(id as number);
+    if(Number.isSafeInteger(id)&&contexts.delete(id as number))epoch++;
    }else if(method==='Runtime.executionContextCreated'){
     const context=(params as {context?:unknown}|null)?.context;
     if(!context||typeof context!=='object'||Array.isArray(context))return;
@@ -56,12 +58,14 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
     if(meta.frameId!==frameId||meta.isDefault!==false||
        !Number.isSafeInteger(obj.id)||(obj.id as number)<=0)return;
     if(contexts.size>=8&&!contexts.has(obj.id as number)){truncated=true;return;}
-    contexts.add(obj.id as number);
+    contexts.add(obj.id as number);epoch++;
    }
   },
   async read(send:CdpSend):Promise<PinnedBootstrapMarkerEvidence>{
    let worldsChecked=0,readyMarkerObserved=false,webBootstrapObserved=false,
-    officialRuntimeIdObserved=false,runtimeOnMessageAvailableObserved=false;
+    officialRuntimeIdObserved=false,runtimeOnMessageAvailableObserved=false,
+    sameWorldRuntimeReadyObserved=false;
+   const pinnedEpoch=epoch;
    let incomplete=truncated||contexts.size===0;
    for(const contextId of contexts){
     try{
@@ -78,6 +82,8 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
         Object.hasOwn(packet.result,'error')||
         typeof packet.result.value!=='string'||
         packet.result.value.length>160){incomplete=true;continue;}
+     // Never credit a response for a destroyed/replaced page world.
+     if(epoch!==pinnedEpoch||!contexts.has(contextId)){incomplete=true;continue;}
      const parsed:unknown=JSON.parse(packet.result.value);
      if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
         Object.keys(parsed).sort().join(',')!=='officialRuntimeId,readyMarker,runtimeOnMessageAvailable,webBootstrap'||
@@ -88,6 +94,9 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
       incomplete=true;continue;
      }
      worldsChecked++;
+     const flags=parsed as {readyMarker:boolean;officialRuntimeId:boolean;runtimeOnMessageAvailable:boolean};
+     if(flags.readyMarker&&flags.officialRuntimeId&&flags.runtimeOnMessageAvailable)
+      sameWorldRuntimeReadyObserved=true;
      if((parsed as {readyMarker:boolean}).readyMarker)readyMarkerObserved=true;
      if((parsed as {webBootstrap:boolean}).webBootstrap)webBootstrapObserved=true;
      if((parsed as {officialRuntimeId:boolean}).officialRuntimeId)officialRuntimeIdObserved=true;
@@ -99,10 +108,17 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
      incomplete=true;
     }
    }
+   // A lifecycle event during reading invalidates the composite snapshot.
+   if(epoch!==pinnedEpoch)return {
+    isolatedWorldsObserved:contexts.size,worldsChecked:0,
+    readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
+    runtimeOnMessageAvailableObserved:false,sameWorldRuntimeReadyObserved:false,
+    observationIncomplete:true,
+   };
    return {
     isolatedWorldsObserved:contexts.size,worldsChecked,
     readyMarkerObserved,webBootstrapObserved,officialRuntimeIdObserved,
-    runtimeOnMessageAvailableObserved,observationIncomplete:incomplete,
+    runtimeOnMessageAvailableObserved,sameWorldRuntimeReadyObserved,observationIncomplete:incomplete,
    };
   },
  };
