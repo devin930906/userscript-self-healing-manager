@@ -70,3 +70,39 @@ test('RG-05 four official manager diagnostics validate protocol envelopes before
    name+' must not read nested CDP result fields outside the shared validator');
  }
 });
+
+
+test('RG-05 post-restart persisted official manager configuration uses an exact bounded CDP receipt',()=>{
+ assert.equal(typeof method,'function');
+ const read=method as (reply:unknown,maxBytes:number)=>string;
+ const exact=JSON.stringify({present:true,enabled:true,scope:true,gmGrants:true});
+ assert.equal(read({result:{type:'string',value:exact}},256),exact);
+ assert.throws(()=>read({result:{value:'x'.repeat(257)}},256),
+  /Isolated manager diagnostic CDP envelope invalid/);
+ for(const invalid of [
+  {error:false,result:{value:exact}},
+  {result:{exceptionDetails:null,value:exact}},
+  Object.create({result:{value:exact}}),
+ ]){
+  assert.throws(()=>read(invalid,256),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Isolated manager diagnostic CDP envelope invalid');
+   return true;
+  });
+ }
+});
+
+test('RG-05 real Chrome restart configuration audit refuses unchecked CDP success fields',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const begin=source.indexOf('const auditResponse=await optionsCdp.send(');
+ const end=source.indexOf('const resumedManagers=await inspectKnownUserscriptManagerTargets(',begin);
+ assert.ok(begin>=0&&end>begin,'find authentic post-restart persisted manager configuration gate');
+ const check=source.slice(begin,end);
+ assert.match(check,/readViolentmonkeyManagerDiagnosticCdpValue\(auditResponse,256\)/);
+ assert.doesNotMatch(check,/auditResponse\.result\?\.value/,
+  'post-restart inventory may not be credited from unchecked CDP success value');
+ assert.match(check,/persistedConfig\.present===true/);
+ assert.match(check,/persistedConfig\.enabled===true/);
+ assert.match(check,/persistedConfig\.scope===true/);
+ assert.match(check,/persistedConfig\.gmGrants===true/);
+});
