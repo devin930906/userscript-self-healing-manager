@@ -16,7 +16,8 @@ import {assertUnlinkedRecoveryDirectory} from './recovery-directory.ts';
 export async function readPinnedRegularFile(path:string,{
  maxBytes,expected,expectedNative,expectedSha256,
 }:{maxBytes:number;expected?:Stats|BigIntStats|undefined;expectedNative?:BigIntStats|undefined;expectedSha256?:string|undefined}):Promise<Buffer>{
- if(typeof path!=='string'||!path||!Number.isSafeInteger(maxBytes)||
+ if(typeof path!=='string'||!path||path.includes(String.fromCharCode(0))||
+    !Number.isSafeInteger(maxBytes)||
     maxBytes<1||maxBytes>1024*1024)
   throw new Error('Invalid pinned read size limit or path');
  // An ordinary leaf beneath a symlink/Junction ancestor still redirects
