@@ -62,7 +62,23 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
  if(performance.now()>=deadline)throw new Error('Approved focus timed out');
- const guard=async()=>assertStablePageDocument(identity,await confirm(target));
+ const guard=async()=>{
+  const remaining=deadline-performance.now();
+  if(remaining<=0)throw new Error('Approved focus timed out');
+  let checkTimer:ReturnType<typeof setTimeout>|undefined;
+  try{
+   const current=await Promise.race([
+    confirm(target),
+    new Promise<never>((_,reject)=>{
+     checkTimer=setTimeout(()=>reject(new Error('Approved focus timed out')),remaining);
+    }),
+   ]);
+   if(performance.now()>=deadline)throw new Error('Approved focus timed out');
+   assertStablePageDocument(identity,current);
+  }finally{
+   if(checkTimer!==undefined)clearTimeout(checkTimer);
+  }
+ };
  const result=(observed:boolean):ApprovedControlFocusResult=>Object.freeze({
   status:observed?'focus-observed':'needs-review',
   validationLevel:'consented-control-focus',
