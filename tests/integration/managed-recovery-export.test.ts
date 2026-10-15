@@ -179,3 +179,35 @@ test('QA-060 managed archive export rejects parent junctions in source and desti
   await rm(root,{recursive:true,force:true});
  }
 });
+
+
+test('RG-06 empty managed script directories do not poison a zero-file recovery',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-managed-empty-script-'));
+ try{
+  const dataRoot=join(root,'Data');
+  await mkdir(join(dataRoot,'managed','interrupted-script'),{recursive:true});
+  const destination=join(root,'recovery');
+  const receipt=await (await exporter())({managedRoot:dataRoot,destination});
+  assert.deepEqual(receipt.files,[]);
+  assert.deepEqual(await readdir(destination),['manifest.json']);
+  assert.deepEqual(await verifyManagedRecovery({snapshotDirectory:destination}),{
+   files:0,bytes:0,
+  });
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('RG-06 empty managed script siblings are not certified as unlisted recovery content',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'usshm-managed-mixed-empty-'));
+ try{
+  const dataRoot=join(root,'Data');await mkdir(dataRoot);
+  const fixtureResult=await fixture(dataRoot);
+  await mkdir(join(dataRoot,'managed','interrupted-script'));
+  const destination=join(root,'recovery');
+  const receipt=await (await exporter())({managedRoot:dataRoot,destination});
+  assert.equal(receipt.files.length,3);
+  assert.deepEqual(await readdir(join(destination,'managed')),[fixtureResult.scriptId]);
+  assert.deepEqual(await verifyManagedRecovery({snapshotDirectory:destination}),{
+   files:3,bytes:fixtureResult.original.length+fixtureResult.patched.length*2,
+  });
+ }finally{await rm(root,{recursive:true,force:true});}
+});
