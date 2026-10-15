@@ -27,7 +27,8 @@ import {
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
  buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
- readViolentmonkeyPreReloadAccess,enableViolentmonkeyUserScriptsAccess,
+ readViolentmonkeyPreReloadAccess,buildViolentmonkeyProfileDeveloperModeExpression,
+ enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -346,6 +347,7 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
  * enabling Debugger before cold navigation could perturb startup timing. */
 const UNAVAILABLE_PRE_RELOAD_ACCESS=Object.freeze({
  observed:false,matched:false,enabled:false,active:false,reason:'unavailable',
+ profileDeveloperMode:'unavailable',
 });
 
 /**
@@ -367,7 +369,23 @@ async function collectPreReloadViolentmonkeyAccess({browserCdp,hasExited}){
    const receipt=await readViolentmonkeyPreReloadAccess(
     (method,params)=>settingsCdp.send(method,params));
    if(receipt.observed&&receipt.reason!=='page-context'&&
-      receipt.reason!=='settings-api')return receipt;
+      receipt.reason!=='settings-api'){
+     let profileDeveloperMode='unavailable';
+     try{
+      const answer=await settingsCdp.send('Runtime.evaluate',{
+       expression:buildViolentmonkeyProfileDeveloperModeExpression(),
+       awaitPromise:true,returnByValue:true,
+      });
+      if(answer&&typeof answer==='object'&&
+         !Object.hasOwn(answer,'error')&&!Object.hasOwn(answer,'exceptionDetails')&&
+         answer.result&&typeof answer.result==='object'&&
+         !Object.hasOwn(answer.result,'error')&&
+         !Object.hasOwn(answer.result,'exceptionDetails')&&
+         ['enabled','disabled'].includes(answer.result.value))
+       profileDeveloperMode=answer.result.value;
+     }catch{/* Fixed unavailable status; never surface raw Chrome errors. */}
+     return Object.freeze({...receipt,profileDeveloperMode});
+    }
    if(attempt<7)await delay(125);
   }
   return UNAVAILABLE_PRE_RELOAD_ACCESS;
@@ -385,10 +403,11 @@ async function collectPreReloadViolentmonkeyAccess({browserCdp,hasExited}){
 const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
  'reload-request','reload-issued','options-ready','capability-ready',
  'injector-ready','script-retained','fixture-ready','gm-observed','recovered',
+ 'reload-skipped-unsafe-profile',
 ]);
 
 async function runPostBlockerExtensionReloadDiagnostic({
- browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited,
+ browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited,allowReload=false,
 }){
  let diagnosticOptionsCdp,diagnosticPageCdp,diagnosticSettingsCdp;
  let optionsTargetId,fixtureTargetId,settingsTargetId;
@@ -400,6 +419,7 @@ async function runPostBlockerExtensionReloadDiagnostic({
   stage,fixture:fixture??null,accessStatus,accessReason,capabilityStatus,
  });
  try{
+  if(!allowReload){stage='reload-skipped-unsafe-profile';return result(null);}
   if(hasExited())return result(null);
   const reloadExpression=`(()=>{try{
    if(location.href!==${JSON.stringify(optionsUrl)}||
@@ -1068,6 +1088,7 @@ try{
    JSON.stringify(preReloadAccess)+'; passive post-blocker evidence only, not GM or V4 proof.');
   const reloadDiagnostic=await runPostBlockerExtensionReloadDiagnostic({
    browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited:()=>exited,
+   allowReload:preReloadAccess.profileDeveloperMode==='enabled',
   });
   let reloadRecovered=false;
   if(reloadDiagnostic.fixture){
