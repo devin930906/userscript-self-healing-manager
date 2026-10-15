@@ -81,7 +81,7 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
    const reply=message as CdpResult;
    if(reply.id!==pending.id)return;
    const waiting=pending;pending=null;
-   if(reply.error||!reply.result||typeof reply.result!=='object'||Array.isArray(reply.result))
+   if(Object.hasOwn(reply,'error')||!reply.result||typeof reply.result!=='object'||Array.isArray(reply.result))
     waiting.reject(error('CDP focus command did not return a valid result'));
    else waiting.resolve(reply.result);
   }catch{abort('Invalid CDP focus response');}
