@@ -59,3 +59,13 @@ test('RG-05 reload diagnostic records an allowlisted Chrome userScripts access r
  assert.doesNotMatch(source,/reloadDiagnostic\.accessReason[^\n]*(?:error\.message|stack|PRIVATE)/i,
   'access reason output must not contain private browser payloads');
 });
+
+
+test('RG-05 reload diagnostic accepts only the bounded current Chrome extension-state reasons',async()=>{
+ const source=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
+ for(const reason of ['state-disabled','state-terminated','state-blocklisted','state-other']){
+  assert.match(source,new RegExp("'" + reason + "'"),'reload diagnostic must accept '+reason);
+ }
+ assert.doesNotMatch(source,/'state'[\s,\]]/,
+  'generic state must not hide the concrete Chrome extension lifecycle state');
+});
