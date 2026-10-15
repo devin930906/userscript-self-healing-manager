@@ -24,6 +24,20 @@ const SAFE_FRAME_DIAGNOSTICS=new Set([
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
+ // Do not accept two matching forged/incomplete child receipts as proof of
+ // stability. Only confirmPageIdentity's single-child, digest-bound shape
+ // may authorize a child scope; unsupported children remain count-only.
+ const validChild=(item:ConfirmedPageIdentity):boolean=>{
+  const count=item.subframeCount;
+  if(count!==undefined&&(!Number.isSafeInteger(count)||count<1||count>64))return false;
+  const child=item.soleSameOriginSubframe;
+  if(child===undefined)return true;
+  return count===1&&child!==null&&
+   typeof child.frameId==='string'&&child.frameId.length>0&&child.frameId.length<=256&&
+   child.frameId!==item.frameId&&
+   typeof child.loaderId==='string'&&child.loaderId.length>0&&child.loaderId.length<=256&&
+   typeof child.urlFingerprint==='string'&&/^[a-f0-9]{64}$/.test(child.urlFingerprint);
+ };
  // Two absent (or invalid) tokens comparing equal is not proof that a
  // same-URL navigation did not happen. Require the actual live document
  // identity on both sides before any equality comparison can pass.
@@ -31,7 +45,8 @@ export function assertStablePageDocument(before:ConfirmedPageIdentity,after:Conf
   typeof item.targetId==='string'&&item.targetId.length>0&&
   typeof item.confirmedUrl==='string'&&item.confirmedUrl.length>0&&
   typeof item.frameId==='string'&&item.frameId.length>0&&item.frameId.length<=256&&
-  typeof item.loaderId==='string'&&item.loaderId.length>0&&item.loaderId.length<=256;
+  typeof item.loaderId==='string'&&item.loaderId.length>0&&item.loaderId.length<=256&&
+  validChild(item);
  if(!pinned(before)||!pinned(after))
   throw new Error('CDP main-frame document identity unavailable during inspection');
  if(before.targetId!==after.targetId||before.confirmedUrl!==after.confirmedUrl||
