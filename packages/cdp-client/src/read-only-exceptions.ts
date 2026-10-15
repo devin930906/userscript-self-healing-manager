@@ -117,12 +117,7 @@ export async function observeReadOnlyPageExceptions(
     }
     const message=raw as {id?:unknown;method?:unknown;params?:unknown;error?:unknown;result?:unknown};
     if(message.id===requestId){
-     // Runtime.enable and Runtime.disable return an empty CDP result object.
-     // An error/exception field (even null/false) or a nonempty result is
-     // not a successful acknowledgement and cannot certify a quiet window.
-     if(Object.hasOwn(message,'error')||Object.hasOwn(message,'exceptionDetails')||
-        !message.result||typeof message.result!=='object'||Array.isArray(message.result)||
-        Object.keys(message.result).length!==0){
+     if(message.error!==undefined||!message.result||typeof message.result!=='object'||Array.isArray(message.result)){
       // No error message from Chrome may escape.
       if(method==='Runtime.enable')finish(new Error('CDP Runtime exception observer rejected'));
       else{invalid=true;finish();}
