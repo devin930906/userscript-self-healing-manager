@@ -23,6 +23,16 @@ export function serializeDomBatchReport(
   report.items.length!==report.totalItems)throw new Error('Invalid DOM diagnosis batch');
  if(typeof createdAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(createdAt)||
   Number.isNaN(Date.parse(createdAt)))throw new Error('Invalid diagnosis report timestamp');
+ // Date.parse normalizes impossible calendar dates (e.g. February 30);
+ // never write a trusted-looking diagnostic timestamp from one.
+ const year=Number(createdAt.slice(0,4));
+ const month=Number(createdAt.slice(5,7));
+ const day=Number(createdAt.slice(8,10));
+ const calendarDate=new Date(Date.UTC(year,month-1,day));
+ if(calendarDate.getUTCFullYear()!==year||
+    calendarDate.getUTCMonth()!==month-1||
+    calendarDate.getUTCDate()!==day)
+  throw new Error('Invalid diagnosis report timestamp');
  let url:URL;
  try{url=new URL(report.pageUrl);}catch{throw new Error('Invalid page URL');}
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)
