@@ -41,3 +41,15 @@ test('cannot configure zero, overlong or invalid approval TTL and cannot bypass 
  now+=61_000;
  assert.throws(()=>gate.require('proposal','scan-a'),/expired|stale|approval/i);
 });
+
+test('FR-023 approval expires at the exact TTL boundary',()=>{
+ let now=1_000_000;
+ const ttl=60_000;
+ const gate=new ProposalApprovalGate({now:()=>now,ttlMs:ttl});
+ gate.register('exact-boundary','scan-A');
+ now+=ttl-1;
+ assert.doesNotThrow(()=>gate.require('exact-boundary','scan-A'));
+ now+=1;
+ assert.throws(()=>gate.require('exact-boundary','scan-A'),/expired|stale|approval/i,
+  'an approval must not remain usable at the first instant outside its TTL window');
+});
