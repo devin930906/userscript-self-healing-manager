@@ -56,6 +56,16 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
    const value:any=good();value[stage][key]=id(90);assert.throws(()=>parseAuditTrace(value,now),TypeError,`${stage}.${key}`);
   }
  });
+ it('binds the revision entity to its resulting content hash as well as the pinned source',()=>{
+  const value:any=good();const revisionHash='b'.repeat(64);
+  value.revision.revisionSha256=revisionHash;
+  const parsed=parseAuditTrace(value,now);
+  assert.equal(parsed.revision.revisionSha256,revisionHash);
+  assert.equal(parsed.revision.sourceSha256,hash);
+  const malformed:any=good();malformed.revision.revisionSha256='not-a-sha256';
+  assert.throws(()=>parseAuditTrace(malformed,now),/revision|hash|sha/i);
+ });
+
  it('rejects cross-script, cross-attempt and stale source rebinding',()=>{
   for(const [stage,key,value] of [['finding','scriptId',id(90)],['finding','attemptId',id(90)],['revision','scriptId',id(90)],['approval','sourceSha256','b'.repeat(64)],['revision','sourceSha256','b'.repeat(64)]] as const){
    const input:any=good();input[stage][key]=value;assert.throws(()=>parseAuditTrace(input,now),TypeError);
