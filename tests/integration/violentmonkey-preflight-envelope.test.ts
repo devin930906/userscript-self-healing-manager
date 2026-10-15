@@ -59,8 +59,13 @@ test('RG-07 preflight cannot invoke hostile protocol accessors or reflect their 
 
 test('RG-05 official preflight uses strict validator both before and after Chrome restart',async()=>{
  const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
- assert.match(source,/assertViolentmonkeyPreflightReceipt\(answer\)/);
- assert.doesNotMatch(source,/value=answer\.result\?\.value/);
+ const start=source.indexOf('async function readManagerPreflight(');
+ const end=source.indexOf('async function readManagerInjectionOptions(',start);
+ assert.ok(start>=0&&end>start,'manager preflight must have a distinct bounded code path');
+ const preflight=source.slice(start,end);
+ assert.match(preflight,/assertViolentmonkeyPreflightReceipt\(answer\)/);
+ assert.doesNotMatch(preflight,/value=answer\.result\?\.value/,
+  'this preflight must not credit an unchecked CDP value');
  assert.match(source,/const preflightReceipt=await readManagerPreflight/);
  assert.match(source,/const retainedScript=await readManagerPreflight/);
 });
