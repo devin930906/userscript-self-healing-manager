@@ -185,6 +185,31 @@ export async function enableViolentmonkeyUserScriptsAccess(
  throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
 }
 
+/**
+ * RG-05 diagnostic-only Chrome CDP envelope fence. A manager setting, URL
+ * match, registration or USER_SCRIPT world state must not be inferred from
+ * a forged positive result nested inside a protocol error. Bounds are fixed
+ * per the official synthetic fixture. No raw manager error leaves this API.
+ */
+export function readViolentmonkeyManagerDiagnosticCdpValue(
+ response:unknown,maxBytes:number,
+):string{
+ const fail=():never=>{throw new Error('Isolated manager diagnostic CDP envelope invalid');};
+ if(maxBytes!==80&&maxBytes!==160)fail();
+ const ownData=(object:unknown,key:string):unknown=>{
+  if(!object||typeof object!=='object'||Array.isArray(object)||
+     'error' in object||'exceptionDetails' in object)fail();
+  const descriptor=Object.getOwnPropertyDescriptor(object,key);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))fail();
+  return descriptor.value;
+ };
+ let value:unknown;
+ try{value=ownData(ownData(response,'result'),'value');}
+ catch{fail();}
+ if(typeof value!=='string'||value.length>maxBytes)fail();
+ return value;
+}
+
 /** TEST ONLY: read a bounded receipt from one fixed loopback fixture document. */
 export async function readViolentmonkeyFixtureObservation(input:{
  send:(method:string,params?:Record<string,unknown>)=>Promise<any>;
