@@ -25,8 +25,10 @@ export function summarizeSafeDesktopError(error:unknown):string{
  // An Error subclass or Proxy can throw when its prototype or message is
  // accessed. Even the formatter must fail closed and never surface the throw.
  try{
-  if(!(error instanceof Error)||typeof error.message!=='string')return UNKNOWN;
-  let message=error.message;
+  if(!(error instanceof Error))return UNKNOWN;
+  const rawMessage=error.message;
+  if(typeof rawMessage!=='string')return UNKNOWN;
+  let message=rawMessage;
   // Electron's *known, namespaced* IPC envelope may be unwrapped, but the
   // payload must still be an exact allowlisted code. Reject appended text.
   const envelope=/^Error invoking remote method 'usshm:[a-z-]{1,64}': Error: (.+)$/s.exec(message);
