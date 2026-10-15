@@ -9,6 +9,7 @@ import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.t
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import {summarizeSafeDesktopError} from './safe-error.ts';
+import type {SiteTestCase,SiteTestSelection,DeclaredPageState} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
 import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
@@ -84,6 +85,10 @@ declare global {interface Window{ussm:{
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
+ listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
+ createSiteTestCase:(input:{scanId:string;itemIndex:number;url:string;label:string;stateId:DeclaredPageState;approved:true})=>Promise<SiteTestCase>;
+ removeSiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;approved:true})=>Promise<{deleted:boolean}>;
+ verifySiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;targetId:string;approved:true})=>Promise<SiteTestSelection>;
  listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
@@ -151,6 +156,14 @@ function App(){
  const [exceptionBusy,setExceptionBusy]=useState(false);
  const exceptionGeneration=useRef(new LatestRequestGate());
  const [targetId,setTargetId]=useState('');
+ const [siteTestCases,setSiteTestCases]=useState<SiteTestCase[]>([]);
+ const [siteTestUrl,setSiteTestUrl]=useState('');
+ const [siteTestLabel,setSiteTestLabel]=useState('');
+ const [siteTestState,setSiteTestState]=useState<DeclaredPageState>('logged-out');
+ const [siteTestSelectedId,setSiteTestSelectedId]=useState('');
+ const [siteTestResult,setSiteTestResult]=useState<SiteTestSelection|null>(null);
+ const [siteTestBusy,setSiteTestBusy]=useState(false);
+ const siteTestGeneration=useRef(new LatestRequestGate());
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
  const [batchPaused,setBatchPaused]=useState(false);
@@ -207,6 +220,18 @@ function App(){
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{managerTargetGeneration.current.invalidate();setManagerTargetReport(null);},[cdp,chromePath]);
  useEffect(()=>{exceptionGeneration.current.invalidate();setExceptionEvidence(null);setExceptionBusy(false);},[targetId,cdp,chromePath]);
+ useEffect(()=>{
+  siteTestGeneration.current.invalidate();
+  setSiteTestCases([]);setSiteTestSelectedId('');setSiteTestResult(null);
+  setSiteTestBusy(false);
+  if(!result||focused===null||!result.items[focused]?.scriptId)return;
+  const ticket=siteTestGeneration.current.begin();
+  void window.ussm.listSiteTestCases({scanId:result.scanId,itemIndex:focused})
+   .then(rows=>siteTestGeneration.current.commit(ticket,()=>setSiteTestCases(rows)))
+   .catch(error=>siteTestGeneration.current.commit(ticket,()=>setError('无法读取测试场景：'+summarizeSafeDesktopError(error))));
+  return ()=>siteTestGeneration.current.invalidate();
+ },[result,focused]);
+ useEffect(()=>{siteTestGeneration.current.invalidate();setSiteTestResult(null);setSiteTestBusy(false);},[targetId]);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
  useEffect(()=>{
@@ -1000,6 +1025,35 @@ function App(){
   try{const restored=await window.ussm.rollbackManaged({scanId:result.scanId,itemIndex:focused,hash,approved:true});setManagedActive(restored);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
   catch(e){setError('恢复受管副本失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
+ async function manageSiteTestCase(action:'create'|'remove'|'verify'){
+  if(!result||focused===null||siteTestBusy)return;
+  if(action!=='create'&&!siteTestSelectedId)return;
+  if(action==='verify'&&!targetId)return;
+  const scanId=result.scanId,itemIndex=focused,caseId=siteTestSelectedId;
+  const token=siteTestGeneration.current.begin();
+  setSiteTestBusy(true);setError('');setSiteTestResult(null);
+  try{
+   if(action==='verify'){
+    const evidence=await window.ussm.verifySiteTestCase({scanId,itemIndex,caseId,targetId,approved:true});
+    siteTestGeneration.current.commit(token,()=>setSiteTestResult(evidence));
+   }else{
+    const created=action==='create'?
+     await window.ussm.createSiteTestCase({scanId,itemIndex,url:siteTestUrl.trim(),label:siteTestLabel.trim(),stateId:siteTestState,approved:true}):null;
+    if(action==='remove'){
+     const removal=await window.ussm.removeSiteTestCase({scanId,itemIndex,caseId,approved:true});
+     if(!removal.deleted)return;
+    }
+    const items=await window.ussm.listSiteTestCases({scanId,itemIndex});
+    siteTestGeneration.current.commit(token,()=>{
+     setSiteTestCases(items);
+     setSiteTestSelectedId(created?.id??items[0]?.id??'');
+     if(created){setSiteTestUrl('');setSiteTestLabel('');}
+     setMessage(action==='create'?'已保存测试页面场景；不执行页面操作或脚本。':'仅删除本地测试场景记录。');
+    });
+   }
+  }catch(error){siteTestGeneration.current.commit(token,()=>setError('测试页面场景操作失败：'+summarizeSafeDesktopError(error)));}
+  finally{siteTestGeneration.current.commit(token,()=>setSiteTestBusy(false));}
+ }
  const details=focused===null?null:result?.items[focused];
  return <div className="shell">
   <aside className="sidebar"><div className="logo"><span className="logo-icon">✦</span><span>USSHM <small>SELF-HEALING MANAGER</small></span></div>
@@ -1204,6 +1258,44 @@ function App(){
    <section className="panel"><div className="panel-head"><div><h2>静态诊断结果</h2><p>每个脚本独立显示解析状态与需要运行时确认的定位器。</p></div><div className="actions small"><button disabled={!result} className="secondary" onClick={()=>void exportReport('json')}>导出 JSON</button><button disabled={!result} className="secondary" onClick={()=>void exportReport('markdown')}>导出 Markdown</button></div></div>
    {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
    </section>
+   {details?.scriptId&&result&&focused!==null&&<section className="panel">
+    <div className="panel-head"><div><h2>FR-014 · 明确测试页面场景</h2>
+     <p>保存多个测试 URL 和声明页面状态，仅作为本机配置。不会自动打开网站、注入脚本或执行点击。</p>
+    </div><span className="pill">配置级 · 不执行</span></div>
+    <div className="toolbar" style={{flexWrap:'wrap'}}>
+     <input aria-label="测试页面 URL" type="url" value={siteTestUrl} maxLength={2048}
+      onChange={e=>setSiteTestUrl(e.target.value)}
+      placeholder="https://example.invalid/app/dashboard" style={{minWidth:260}}/>
+     <input aria-label="场景名称" value={siteTestLabel} maxLength={60}
+      onChange={e=>setSiteTestLabel(e.target.value)} placeholder="名称（不含账号或凭证）"/>
+     <select aria-label="声明页面状态" value={siteTestState}
+      onChange={e=>setSiteTestState(e.target.value as DeclaredPageState)}>
+      <option value="logged-out">用户声明：未登录</option>
+      <option value="logged-in">用户声明：已登录</option>
+      <option value="custom">用户声明：自定义</option>
+     </select>
+     <button disabled={siteTestBusy||busy||!siteTestUrl.trim()||!siteTestLabel.trim()}
+      onClick={()=>void manageSiteTestCase('create')}>保存测试页面场景</button>
+    </div>
+    <p className="dim">仅允许脚本 @match/@include 范围内的 HTTP(S) URL；不保存 URL 用户名、密码、查询参数或片段。最多每脚本 16 个场景。状态由用户声明，未经运行时验证。</p>
+    <div className="toolbar" style={{flexWrap:'wrap'}}>
+     <select aria-label="已保存测试场景" value={siteTestSelectedId}
+      onChange={e=>{setSiteTestSelectedId(e.target.value);setSiteTestResult(null);}}>
+      <option value="">— 选择已保存场景（{siteTestCases.length}）—</option>
+      {siteTestCases.map(entry=><option value={entry.id} key={entry.id}>{entry.label} · {entry.stateId} · {entry.url}</option>)}
+     </select>
+     <button disabled={!targetId||!cdp||!siteTestSelectedId||siteTestBusy||busy}
+      onClick={()=>void manageSiteTestCase('verify')}>检查已选 Chrome 页面与场景</button>
+     <button className="secondary" disabled={!siteTestSelectedId||siteTestBusy||busy}
+      onClick={()=>void manageSiteTestCase('remove')}>删除场景记录（再次确认）</button>
+    </div>
+    {siteTestResult&&<div className="notice"><b>页面匹配：</b>
+     {siteTestResult.status==='matched'?'已选网页与配置的 URL 精确匹配':
+      siteTestResult.status==='scope-blocked'?'脚本作用域不再许可此配置':'选定网页与配置不一致或包含私密参数'}
+     <p className="dim">只读比较当前已选 CDP 页面与测试配置；声明的登录状态未经证明。
+      V2 未验证 · V3/V4 未配置；没有运行油猴脚本或 GM API，不代表功能通过。</p>
+    </div>}
+   </section>}
    {details&&<section className="panel"><div className="panel-head"><div><h2>{nameOf(details.path)} · Selector 清单</h2><p>先选目标网页，再点击授权核验；不代表油猴脚本功能通过。</p></div><button className="secondary" onClick={()=>{setFocused(null);setPageProbe(null);}}>关闭</button></div>
    {details.analysis?.managerApiCalls?.length ? <div className="notice">
      <b>GM 权限静态清单 · {details.analysis.managerApiCalls.length} 次 API 调用（V4 未验证）</b>

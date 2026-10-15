@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {constants,type BigIntStats} from 'node:fs';
 import {lstat,mkdir,open,readdir,writeFile} from 'node:fs/promises';
+import {assertSiteTestCaseRegistryBytes} from '../../candidate-engine/src/site-test-cases.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
@@ -12,6 +13,8 @@ import {exportManagedRecovery,verifyManagedRecovery} from './managed-export.ts';
 
 type ManifestFile={readonly path:string;readonly sha256:string;readonly bytes:number};
 const paths=['registry.sqlite','diagnosis-journal.sqlite','managed-recovery/manifest.json'] as const;
+const SCENE_FILE='site-test-cases.json';
+const sceneScope='registry+journal+managed-revisions+site-test-cases-only';
 const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
 /** RG-06 exact Node BigIntStats identity for the *read-only* recovery
  * SQLite/manifest hashing path. This supplements SHA-256 and nlink checks,
@@ -115,9 +118,11 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
     (beforeFinalManifest!==undefined&&typeof beforeFinalManifest!=='function'))
   throw new Error('Invalid core recovery input');
  const source=resolve(dataRoot),target=resolve(destination);
- await directory(source);
+ // Preserve lexical components for the existing traversal/junction guards.
+ // resolve() must not erase a linked ancestor followed by '..' first.
+ await directory(dataRoot);
  await directory(dirname(target));
- await assertRecoveryDestinationOutsideSource(source,target);
+ await assertRecoveryDestinationOutsideSource(dataRoot,destination);
  // The new directory is claimed exclusively. If something fails, the folder
  // has no complete manifest, remains for forensic review, and is not deleted.
  await mkdir(target,{recursive:false,mode:0o700});
@@ -128,6 +133,30 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  });
  await verifyManagedRecovery({snapshotDirectory:managed.path});
  const archive=await shaFile(join(managed.path,'manifest.json'),1024*1024);
+ // A v1 Data root has no scenario registry. Every existing registry, however,
+ // must be included or cause recovery creation to fail without a final marker.
+ let sceneFile:ManifestFile|null=null;
+ const sceneSource=join(source,SCENE_FILE);
+ let observedSceneSource=false;
+ try{
+  const info=await lstat(sceneSource);
+  observedSceneSource=true;
+  if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
+     info.size<1||info.size>131072)
+   throw new Error('Unsafe site test case registry in core recovery');
+  const bytes=await readPinnedRegularFile(sceneSource,{
+   maxBytes:131072,expected:info,expectedNative:await lstat(sceneSource,{bigint:true}),
+  });
+  assertSiteTestCaseRegistryBytes(bytes);
+  await writeFile(join(target,SCENE_FILE),bytes,{flag:'wx',mode:0o600});
+  const copied=await shaFile(join(target,SCENE_FILE),131072);
+  if(copied.sha256!==sha(bytes)||copied.bytes!==bytes.byteLength)
+   throw new Error('Core recovery site test cases copy differs from approved bytes');
+  sceneFile={path:SCENE_FILE,sha256:copied.sha256,bytes:copied.bytes};
+ }catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT'||observedSceneSource)
+   throw new Error('Site test case registry disappeared or changed during core recovery');
+ }
  // A backup callback's SHA-256 and byte count are claims, not independent
  // evidence of what is now on disk. Reopen each staged SQLite file through
  // the bounded descriptor verifier before publishing complete:true.
@@ -139,7 +168,8 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  const files:ManifestFile[]=[
   {path:paths[0],sha256:reg.sha256,bytes:reg.bytes},
   {path:paths[1],sha256:log.sha256,bytes:log.bytes},
-  {path:paths[2],sha256:archive.sha256,bytes:archive.bytes}
+  {path:paths[2],sha256:archive.sha256,bytes:archive.bytes},
+  ...(sceneFile?[sceneFile]:[])
  ];
  // Do not certify an invalid journal (even with a valid SHA-256) as complete.
  // A failed preflight leaves this new directory incomplete and review-only.
@@ -150,7 +180,7 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
  // Repeat the closed-inventory and byte checks immediately before the only
  // complete:true marker; an adversarial edit must leave the bundle incomplete.
  await directory(target);
- const expectedEntries=['registry.sqlite','diagnosis-journal.sqlite','managed-recovery'].sort();
+ const expectedEntries=['registry.sqlite','diagnosis-journal.sqlite','managed-recovery',...(sceneFile?[SCENE_FILE]:[])].sort();
  if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedEntries))
   throw new Error('Unexpected core recovery entries before manifest publication');
  await verifyManagedRecovery({snapshotDirectory:managed.path});
@@ -163,9 +193,29 @@ export async function createCoreRecoveryBundle({dataRoot,destination,registry,jo
    throw new Error('Core recovery SQLite bytes changed before publication');
  }
  await assertCoreSqliteSnapshots(target);
+ if(sceneFile){
+  const archived=await shaFile(join(target,SCENE_FILE),131072);
+  const currentSource=await shaFile(sceneSource,131072);
+  if(archived.sha256!==sceneFile.sha256||archived.bytes!==sceneFile.bytes||
+     currentSource.sha256!==sceneFile.sha256||currentSource.bytes!==sceneFile.bytes)
+   throw new Error('Core recovery site test case registry changed before publication');
+  const info=await lstat(join(target,SCENE_FILE));
+  assertSiteTestCaseRegistryBytes(await readPinnedRegularFile(join(target,SCENE_FILE),{
+   maxBytes:131072,expected:info,expectedNative:await lstat(join(target,SCENE_FILE),{bigint:true}),
+  }));
+ }else{
+  // A brand-new setting can be saved while a legacy core backup is running.
+  // Never certify an apparently complete v1 archive that silently omits it.
+  try{
+   await lstat(sceneSource);
+   throw new Error('Site test case registry appeared during core recovery; retry snapshot');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
+ }
  const content=Buffer.from(JSON.stringify({
-  kind:'usshm-core-recovery-v1',complete:true,atomicAcrossStores:false,
-  scope:'registry+journal+managed-revisions-only',
+  kind:sceneFile?'usshm-core-recovery-v2':'usshm-core-recovery-v1',complete:true,atomicAcrossStores:false,
+  scope:sceneFile?sceneScope:'registry+journal+managed-revisions-only',
   files
  },null,2)+'\n','utf8');
  await writeFile(join(target,'manifest.json'),content,{flag:'wx',mode:0o600});
@@ -178,10 +228,8 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
  if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory))
   throw new Error('Absolute recovery directory required');
  const root=resolve(snapshotDirectory);
- await directory(root);
+ await directory(snapshotDirectory);
  const entries=(await readdir(root)).sort();
- if(JSON.stringify(entries)!==JSON.stringify([...paths.slice(0,2),'managed-recovery','manifest.json'].sort()))
-  throw new Error('Unexpected core recovery content');
  const manifestFile=join(root,'manifest.json');
  const manifestInfo=await lstat(manifestFile);
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
@@ -197,26 +245,37 @@ export async function verifyCoreRecoveryBundle({snapshotDirectory}:{
   kind?:unknown;complete?:unknown;atomicAcrossStores?:unknown;
   scope?:unknown;files?:unknown;
  }|null;
+ const withScenes=obj?.kind==='usshm-core-recovery-v2';
  if(!hasOnlyKeys(obj,['kind','complete','atomicAcrossStores','scope','files'])||
-   !obj||obj.kind!=='usshm-core-recovery-v1'||obj.complete!==true||
+   !obj||(obj.kind!=='usshm-core-recovery-v1'&&!withScenes)||obj.complete!==true||
    obj.atomicAcrossStores!==false||
-   obj.scope!=='registry+journal+managed-revisions-only'||
-   !Array.isArray(obj.files)||obj.files.length!==3)
+   obj.scope!==(withScenes?sceneScope:'registry+journal+managed-revisions-only')||
+   !Array.isArray(obj.files)||obj.files.length!==(withScenes?4:3))
   throw new Error('Invalid or incomplete core recovery manifest');
- for(let i=0;i<paths.length;i++){
+ const verifiedPaths=[...paths,...(withScenes?[SCENE_FILE]:[])];
+ const expectedRoot=[...paths.slice(0,2),'managed-recovery','manifest.json',...(withScenes?[SCENE_FILE]:[])].sort();
+ if(JSON.stringify(entries)!==JSON.stringify(expectedRoot))
+  throw new Error('Unexpected core recovery content');
+ for(let i=0;i<verifiedPaths.length;i++){
   const file=obj.files[i] as Partial<ManifestFile>|undefined;
   if(!hasOnlyKeys(file,['path','sha256','bytes'])||
-     !file||file.path!==paths[i]||typeof file.sha256!=='string'||
+     !file||file.path!==verifiedPaths[i]||typeof file.sha256!=='string'||
      !/^[a-f0-9]{64}$/.test(file.sha256)||!Number.isSafeInteger(file.bytes)||
      typeof file.bytes!=='number'||file.bytes<0)
    throw new Error('Invalid core recovery file manifest');
-  const snapshot=await shaFile(join(root,...paths[i]!.split('/')),
-   i===2?1024*1024:512*1024*1024);
+  const snapshot=await shaFile(join(root,...verifiedPaths[i]!.split('/')),
+   i===2?1024*1024:i===3?131072:512*1024*1024);
   if(snapshot.sha256!==file.sha256||snapshot.bytes!==file.bytes)
    throw new Error('Core recovery file hash mismatch');
  }
  // Validate SQLite content, not merely its hash; this is deliberately read-only.
  await assertCoreSqliteSnapshots(root);
  await verifyManagedRecovery({snapshotDirectory:join(root,'managed-recovery')});
- return {files:3,valid:true};
+ if(withScenes){
+  const source=join(root,SCENE_FILE),info=await lstat(source);
+  assertSiteTestCaseRegistryBytes(await readPinnedRegularFile(source,{
+   maxBytes:131072,expected:info,expectedNative:await lstat(source,{bigint:true}),
+  }));
+ }
+ return {files:verifiedPaths.length,valid:true};
 }

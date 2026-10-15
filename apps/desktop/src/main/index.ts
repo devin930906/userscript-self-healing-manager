@@ -53,6 +53,7 @@ import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candida
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../../../../packages/candidate-engine/src/bulk.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
+import {createSiteTestCase,listSiteTestCases,removeSiteTestCase,verifySiteTestCaseSelection} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
@@ -836,6 +837,127 @@ async function bootstrap():Promise<void>{
   });
   scanSessions.assertCurrent(scanSnapshot);
   return reviewProductAction({approved:true,action:q.action,target:selected,readiness});
+ });
+ // FR-014: scenarios are user declarations, never navigation or login proof.
+ const siteTestScript=(scanId:unknown,itemIndex:unknown)=>{
+  if(typeof scanId!=='string'||!Number.isSafeInteger(itemIndex)||Number(itemIndex)<0)
+   throw new Error('Explicit scanned script identity required for site test cases');
+  const scanSnapshot=scanSessions.require(scanId);
+  const item=scanSnapshot.items[itemIndex as number];
+  if(!item?.scriptId||!item.analysis||!withinAuthorized(item.path))
+   throw new Error('Site test case requires an authorized scanned userscript');
+  return {scanSnapshot,item};
+ };
+ ipcMain.handle('usshm:site-test-case-list',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q))
+   throw new Error('Invalid site test case listing');
+  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+  const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+  scanSessions.assertCurrent(scanSnapshot);
+  return cases;
+ });
+ ipcMain.handle('usshm:site-test-case-create',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;url?:unknown;label?:unknown;stateId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.url!=='string'||typeof q.label!=='string'||
+     !['logged-out','logged-in','custom'].includes(q.stateId as string))
+   throw new Error('Explicit test page URL, state, scan and consent required');
+  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+  scanSessions.assertCurrent(scanSnapshot);
+  return createSiteTestCase({
+   dataRoot,scriptId:item.scriptId!,url:q.url,label:q.label,
+   stateId:q.stateId as 'logged-out'|'logged-in'|'custom',metadata:item.analysis!.metadata,
+   // The initial IPC consent may be revoked while filesystem I/O yields.
+   // Check the trusted scan and authorized source path at the last save gate.
+   // No renderer callback, browser action or userscript execution is involved.
+   beforeFinalWrite:async()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))
+     throw new Error('Site test case source authorization changed before commit');
+   },
+   assertAuthorized:()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))
+     throw new Error('Site test case source authorization changed at publication');
+   },
+  });
+ });
+ // Renderer approved:true is not authorization to delete persisted data.
+ // Serialize modal prompts in Main, independently of renderer UI state.
+ let siteTestRemoveBusy=false;
+ ipcMain.handle('usshm:site-test-case-remove',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;caseId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.caseId!=='string')
+   throw new Error('Explicit site test case removal approval required');
+  if(siteTestRemoveBusy)throw new Error('Another site test case removal is awaiting confirmation');
+  siteTestRemoveBusy=true;
+  try{
+   const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+   const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+   const selected=cases.find(c=>c.id===q.caseId);
+   if(!selected)throw new Error('Site test case no longer exists');
+   scanSessions.assertCurrent(scanSnapshot);
+   const decision=await dialog.showMessageBox(mainWindow,{
+    type:'warning',title:'删除本地测试场景',
+    message:'确定仅删除此测试场景：'+selected.label+'？',
+    detail:'只删除当前脚本的一条本地页面测试配置，不会删除或执行脚本、修改网页、浏览器资料或其他场景。',
+    buttons:['取消','仅删除此场景'],defaultId:0,cancelId:0,noLink:true,
+   });
+   if(decision.response!==1)return {deleted:false};
+   // A modal is an asynchronous authorization boundary. A later scan,
+   // changed selected record, or revoked source-path access voids consent.
+   scanSessions.assertCurrent(scanSnapshot);
+   if(!withinAuthorized(item.path))throw new Error('Scenario source authorization changed');
+   const latest=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+   const still=latest.find(c=>c.id===q.caseId);
+   if(!still||still.label!==selected.label||still.url!==selected.url||
+      still.stateId!==selected.stateId)
+    throw new Error('Selected site test case changed while awaiting native approval');
+   scanSessions.assertCurrent(scanSnapshot);
+   await removeSiteTestCase({dataRoot,scriptId:item.scriptId!,caseId:q.caseId,approved:true,
+    expected:selected,
+    beforeFinalWrite:async()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Scenario source authorization changed before removal commit');
+    },
+    assertAuthorized:()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Scenario source authorization changed at removal publication');
+    },
+   });
+   return {deleted:true};
+  }finally{siteTestRemoveBusy=false;}
+ });
+ ipcMain.handle('usshm:site-test-case-verify',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;caseId?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.caseId!=='string'||typeof q.targetId!=='string'||
+     !q.targetId||q.targetId.length>128)
+   throw new Error('Explicit test case and selected browser target required');
+  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+  const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+  const entry=cases.find(c=>c.id===q.caseId);
+  if(!entry)throw new Error('Selected test case does not belong to scanned script');
+  const cdp=await getVerifiedChromeStatus({port:9223});
+  const selected=cdp.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome page is unavailable for test case review');
+  const before=await confirmPageIdentity(selected);
+  const verdict=verifySiteTestCaseSelection({
+   entry,selectedUrl:selected.url,metadata:item.analysis!.metadata,
+  });
+  const after=await confirmPageIdentity(selected);
+  assertStablePageDocument(before,after);
+  scanSessions.assertCurrent(scanSnapshot);
+  return verdict;
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
