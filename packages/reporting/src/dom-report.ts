@@ -27,7 +27,7 @@ export function serializeDomBatchReport(
  // and percent-encodes other controls. Never launder a malformed target URL
  // into a seemingly trusted origin in either the JSON or Markdown report.
  if(typeof report.pageUrl!=='string'||report.pageUrl.length<1||
-    report.pageUrl.length>4096||/[\u0000-\u001f\u007f]/.test(report.pageUrl)||
+    report.pageUrl.length>4096||/[\u0000-\u001f\u007f-\u009f]/.test(report.pageUrl)||
     report.pageUrl.trim()!==report.pageUrl)
   throw new Error('Invalid DOM diagnosis origin');
  let url:URL;
