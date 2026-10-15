@@ -218,3 +218,24 @@ test('stale captured socket open callback after timeout cannot send CDP',async()
  staleOpen(undefined);
  assert.deepEqual(socket.sent,[]);
 });
+
+test('manager observation rejects falsy CDP error envelopes before accepting manager evidence',async()=>{
+ for(const phase of ['Browser.getVersion','Target.getTargets']){
+  for(const errorValue of [null,false,0,'']){
+   const socket=new BrowserSocket();
+   socket.send=(text:string)=>{
+    const request=JSON.parse(text);
+    socket.sent.push(request.method);
+    const result=request.method==='Browser.getVersion'?{product}:
+     {targetInfos:[target('jinjaccalgkegednnccohejagnlnfdag')]};
+    const reply={id:request.id,result,...(request.method===phase?{error:errorValue}:{})};
+    queueMicrotask(()=>socket.emit('message',{data:JSON.stringify(reply)}));
+   };
+   await assert.rejects(run(socket),/CDP manager target discovery failed or returned inconsistent evidence/);
+   assert.deepEqual(socket.sent,phase==='Browser.getVersion'?
+    ['Browser.getVersion']:['Browser.getVersion','Target.getTargets']);
+   assert.equal(socket.closed,true);
+   assert.equal(socket.listenerCount('message'),0);
+  }
+ }
+});
