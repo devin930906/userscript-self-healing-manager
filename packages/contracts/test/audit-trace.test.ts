@@ -52,6 +52,14 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
    'audit entities must not alias one UUID across multiple stages');
  });
 
+ it('rejects case-variant aliases of the same UUID across audit entity stages',()=>{
+  const value:any=good();
+  value.finding.id=value.job.id.toUpperCase();
+  value.candidate.findingId=value.finding.id;
+  assert.throws(()=>parseAuditTrace(value,now),/distinct|duplicate|unique/i,
+   'UUID identity must not become distinct merely by changing hex letter case');
+ });
+
  it('rejects foreign job, finding, candidate, test or approval references',()=>{
   for(const [stage,key] of [['finding','jobId'],['candidate','findingId'],['candidate','jobId'],['test','candidateId'],['test','jobId'],['approval','testId'],['approval','candidateId'],['revision','approvalId'],['revision','candidateId'],['revision','jobId']] as const){
    const value:any=good();value[stage][key]=id(90);assert.throws(()=>parseAuditTrace(value,now),TypeError,`${stage}.${key}`);
