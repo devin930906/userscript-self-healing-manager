@@ -284,3 +284,33 @@ test('FR-024 a non-settling initial identity check must time out without opening
   if(fallback!==undefined)clearTimeout(fallback);
  }
 });
+
+test('FR-024 a stalled pre-action identity recheck expires without dispatching focus',async()=>{
+ const socket=new FocusSocket();
+ let confirmations=0;
+ let watchdog:ReturnType<typeof setTimeout>|undefined;
+ try{
+  const result=await Promise.race([
+   runApprovedControlFocus({
+    approved:true,target,locator,timeoutMs:100,
+    confirm:async()=>{
+     confirmations++;
+     if(confirmations===1)return frame;
+     return new Promise<never>(()=>{});
+    },
+    socketFactory:()=>socket,
+   }).then(()=> 'unexpected-success',(error:unknown)=>
+    error instanceof Error?error.message:'unexpected-error'),
+   new Promise<string>(resolve=>{
+    watchdog=setTimeout(()=>resolve('pre-action-identity-never-settled'),350);
+   }),
+  ]);
+  assert.equal(result,'Approved focus timed out');
+  assert.ok(confirmations>=2,'initial identity passes; stalled pre-action check is actually reached');
+  assert.ok(socket.methods.includes('DOM.getDocument'),'the CDP verification path was exercised');
+  assert.equal(socket.methods.includes('DOM.focus'),false,
+   'an indefinitely pending frame recheck must never authorize an action');
+ }finally{
+  if(watchdog!==undefined)clearTimeout(watchdog);
+ }
+});
