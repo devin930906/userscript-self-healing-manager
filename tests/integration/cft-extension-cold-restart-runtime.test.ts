@@ -33,9 +33,9 @@ test('RG-05 synthetic CFT control requires a genuine extension message roundtrip
  // from a cold-start chrome.runtime.onMessage object that never delivers.
  assert.match(source,/data-usshm-extension-roundtrip/,
   'a successful bounded background/content response must be visible in the fixture');
- assert.match(source,/chrome\\.runtime\\.sendMessage/,
+ assert.match(source,/chrome\.runtime\.sendMessage/,
   'content must initiate an actual runtime message, not merely check typeof');
- assert.match(source,/chrome\\.runtime\\.onMessage\\.addListener/,
+ assert.match(source,/chrome\.runtime\.onMessage\.addListener/,
   'extension background must register an actual synthetic reply listener');
  assert.match(source,/runtime-roundtrip.*survived process restart/i,
   'the result must report the observed roundtrip, not API presence alone');
