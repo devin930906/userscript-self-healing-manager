@@ -26,7 +26,7 @@ import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
- enableViolentmonkeyUserScriptsAccess,
+ buildViolentmonkeyUserScriptsCapabilityStatusExpression,enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -355,7 +355,8 @@ async function runPostBlockerExtensionReloadDiagnostic({
  let optionsTargetId,fixtureTargetId,settingsTargetId;
  let stage='reload-request';
  let accessStatus=Object.freeze({matched:false,enabled:false,active:false});
- const result=fixture=>Object.freeze({stage,fixture:fixture??null,accessStatus});
+ let capabilityStatus=Object.freeze({apiPresent:false,querySucceeded:false});
+ const result=fixture=>Object.freeze({stage,fixture:fixture??null,accessStatus,capabilityStatus});
  try{
   if(hasExited())return result(null);
   const reloadExpression=`(()=>{try{
@@ -426,10 +427,23 @@ async function runPostBlockerExtensionReloadDiagnostic({
   }
 
   const capability=await diagnosticOptionsCdp.send('Runtime.evaluate',{
-   expression:buildViolentmonkeyUserScriptsProbeExpression(),
+   expression:buildViolentmonkeyUserScriptsCapabilityStatusExpression(),
    awaitPromise:true,returnByValue:true,
   });
-  if(capability?.result?.value!==JSON.stringify({available:true}))return result(null);
+  const capabilityText=capability?.result?.value;
+  if(typeof capabilityText==='string'&&capabilityText.length<=96){
+   try{
+    const parsed=JSON.parse(capabilityText);
+    const valid=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
+     Object.keys(parsed).sort().join(',')==='apiPresent,querySucceeded'&&
+     typeof parsed.apiPresent==='boolean'&&typeof parsed.querySucceeded==='boolean'&&
+     (!parsed.querySucceeded||parsed.apiPresent);
+    if(valid)capabilityStatus=Object.freeze({
+     apiPresent:parsed.apiPresent,querySucceeded:parsed.querySucceeded,
+    });
+   }catch{}
+  }
+  if(capabilityStatus.querySucceeded!==true)return result(null);
   stage='capability-ready';
 
   await waitForVerifiedViolentmonkeyInjector({
@@ -995,6 +1009,7 @@ try{
   assert.ok(POST_BLOCKER_RELOAD_STAGES.includes(reloadStage));
   console.log('RG-05 post-blocker extension reload diagnostic: checkpoint '+reloadStage+
    ', userScripts access '+JSON.stringify(reloadDiagnostic.accessStatus)+
+   ', userScripts capability '+JSON.stringify(reloadDiagnostic.capabilityStatus)+
    (reloadRecovered?', recovered on one fresh loopback document':', did not recover')+
    '; NOT a release or product V4 pass.');
   assertOfficialViolentmonkeyReleaseGate(blocked.status);
