@@ -43,10 +43,10 @@
 
 **Interfaces:** `removeSiteTestCase` additionally consumes the exact `expected` record and internal `beforeFinalWrite` callback. Main supplies the displayed native-confirmed record and a trusted scan/source recheck; renderer cannot supply callbacks.
 
-- [ ] Add behavior tests for stale record rejection, absent expected-record rejection and precommit authorization revocation; include a successful unchanged-record removal.
-- [ ] Observe RED, then enforce the expected record and forward the final authorization callback through `persist`.
-- [ ] Wire Main and verify source/scan recheck after the native dialog and inside the final persistence gate.
-- [ ] Run focused tests, full tests, lint/typecheck, build and production boundary check, then commit.
+- [x] Add behavior tests for stale record rejection, absent expected-record rejection and precommit authorization revocation; include a successful unchanged-record removal.
+- [x] Observe RED, then enforce the expected record and forward the final authorization callback through `persist`.
+- [x] Wire Main and verify source/scan recheck after the native dialog and inside the final persistence gate.
+- [x] Run focused tests, full tests, lint/typecheck, build and production boundary check, then commit.
 
 ### Finish
 
@@ -60,3 +60,7 @@
 - Pre-flight: Task 2 uses the same persistence gate as Task 1; preserve the final callback before the new staging integrity check. Deletion tests must not mistake synthetic cleanup for native consent.
 
 - Task 1 complete: three new behavior tests observed RED (missing rejection); focused GREEN 11/11, full `npm test` {'tests': 1600, 'pass': 1598, 'fail': 0, 'skipped': 2}, strict typecheck/build and compiled production boundary PASS. Exact pinned descriptor identity + operation SHA-256 required before publication; foreign replacement staging file preserved.
+
+- Task 2 complete: stale label/URL/state, absent consent record and early revocation regressions observed RED; focused GREEN 24/24. Independent Superpowers review found one important remaining authorization timing bug during final awaited reads. Two additional deterministic microtask regressions observed RED and passed after the shared final synchronous guard, with a real ScanSessionCoordinator + setImmediate regression also GREEN. Main supplies guards to both create and remove. Full suite 1610 tests / 1608 pass / 2 environment skips / 0 fail; lint (strict typecheck), build and compiled production boundary PASS.
+- Review: independent reviewer fr014_review; exact-record and staging ownership checks accepted within documented optimistic guarantees. Important timing finding fixed in this pass. Test limitations retained: native dialog wiring is source-contract coverage; same-size tampering does not isolate the SHA check from native metadata checks; partial OS write failure not fault-injected. No claim of complete release security review.
+- Local tooling observation: npm 11 SBOM uses checkout directory basename for root component name. Initial checkout named repo caused strict root-name rejection; rename the checkout to userscript-self-healing-manager and rerun unmodified generation/validator rather than weakening the validator. npm audit --audit-level=high exits 0 but reports 8 moderate development-tool transitive findings (sprintf-js chain); no unreviewed forced downgrade performed.

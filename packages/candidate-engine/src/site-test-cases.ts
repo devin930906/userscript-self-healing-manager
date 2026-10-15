@@ -160,7 +160,7 @@ async function writeLocked<T>(dataRoot:string,operation:()=>Promise<T>):Promise<
 }
 async function persist(dataRoot:string,state:Saved,previous:{
  state:Saved;identity:SceneIdentity;
-},beforeFinalWrite?:()=>Promise<void>,beforePublish?:()=>Promise<void>):Promise<void>{
+},beforeFinalWrite?:()=>Promise<void>,beforePublish?:()=>Promise<void>,assertAuthorized?:()=>void):Promise<void>{
  const target=filename(dataRoot);
  const content=JSON.stringify(state)+'\n';
  if(Buffer.byteLength(content,'utf8')>MAX_BYTES)
@@ -193,6 +193,9 @@ async function persist(dataRoot:string,state:Saved,previous:{
    maxBytes:MAX_BYTES,expectedNative:stagedIdentity,
    expectedSha256:createHash('sha256').update(content,'utf8').digest('hex'),
   });
+  // Main's trusted synchronous guard runs AFTER the last preparatory I/O.
+  // Do not insert an await between this guard and publication dispatch.
+  assertAuthorized?.();
   if(previous.identity===null){
    // First save: rename() overwrites an independently created registry after
    // the final lstat. Atomic same-directory link() publishes only if absent.
@@ -230,13 +233,15 @@ export async function listSiteTestCases({dataRoot,scriptId}:{
  scriptIdentity(scriptId);
  return (await readState(dataRoot)).cases.filter(c=>c.scriptId===scriptId);
 }
-export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,metadata,beforeFinalWrite,beforePublish}:{
+export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,metadata,beforeFinalWrite,beforePublish,assertAuthorized}:{
  dataRoot:string;scriptId:string;url:string;label:string;
  stateId:DeclaredPageState;metadata:UserscriptPageMetadata;
  /** Internal deterministic fault injection only; never forwarded from IPC. */
  beforeFinalWrite?:()=>Promise<void>;
  /** Only test code can inject after the last optimistic identity comparison. */
  beforePublish?:()=>Promise<void>;
+ /** Synchronous Main-owned authorization at the final publication boundary. */
+ assertAuthorized?:()=>void;
 }):Promise<SiteTestCase>{
  scriptIdentity(scriptId);
  const safeUrl=exactPageUrl(url),safeLabel=labelOf(label),safeState=stateOf(stateId);
@@ -251,21 +256,36 @@ export async function createSiteTestCase({dataRoot,scriptId,url,label,stateId,me
   if(state.cases.some(c=>c.scriptId===scriptId&&c.url===safeUrl&&c.stateId===safeState))
    throw new Error('Site test case already exists');
   const entry:SiteTestCase={id:randomUUID(),scriptId,label:safeLabel,url:safeUrl,stateId:safeState};
-  await persist(dataRoot,{schemaVersion:1,cases:[...state.cases,entry]},previous,beforeFinalWrite,beforePublish);
+  await persist(dataRoot,{schemaVersion:1,cases:[...state.cases,entry]},previous,beforeFinalWrite,beforePublish,assertAuthorized);
   return entry;
  });
 }
-export async function removeSiteTestCase({dataRoot,scriptId,caseId,approved}:{
- dataRoot:string;scriptId:string;caseId:string;approved:boolean;
+export async function removeSiteTestCase({dataRoot,scriptId,caseId,approved,expected,beforeFinalWrite,assertAuthorized}:{
+ dataRoot:string;scriptId:string;caseId:string;approved:boolean;expected:SiteTestCase;
+ /** Main-owned scan/source authorization; never forwarded from the renderer. */
+ beforeFinalWrite?:()=>Promise<void>;
+ /** Synchronous Main-owned authorization after the last persistence read. */
+ assertAuthorized?:()=>void;
 }):Promise<void>{
  if(approved!==true)throw new Error('Explicit site test case removal approval required');
  scriptIdentity(scriptId);caseIdentity(caseId);
+ // Copy the exact native-confirmed record before the first asynchronous I/O.
+ // A boolean cannot stand in for consent to whichever record exists later.
+ let consent:SiteTestCase;
+ try{
+  consent=validateState({schemaVersion:1,cases:[expected]}).cases[0]!;
+ }catch{throw new Error('Exact native-confirmed expected site test case record required');}
+ if(consent.id!==caseId||consent.scriptId!==scriptId)
+  throw new Error('Expected site test case does not match removal consent');
  return writeLocked(dataRoot,async()=>{
   const previous=await readForWrite(dataRoot);
   const {state}=previous;
+  const current=state.cases.find(c=>c.scriptId===scriptId&&c.id===caseId);
+  if(!current)throw new Error('Site test case not found');
+  if(current.label!==consent.label||current.url!==consent.url||current.stateId!==consent.stateId)
+   throw new Error('Site test case changed after native removal consent');
   const remaining=state.cases.filter(c=>!(c.scriptId===scriptId&&c.id===caseId));
-  if(remaining.length===state.cases.length)throw new Error('Site test case not found');
-  await persist(dataRoot,{schemaVersion:1,cases:remaining},previous);
+  await persist(dataRoot,{schemaVersion:1,cases:remaining},previous,beforeFinalWrite,undefined,assertAuthorized);
  });
 }
 export type SiteTestSelection={

@@ -58,6 +58,10 @@ test('FR-014 P0 create rechecks Main scan consent before final registry commit',
   'revoked scan session must block file publication');
  assert.match(precommit,/withinAuthorized\(item\.path\)/,
   'a changed approved script directory must block file publication');
+ const final=handler.slice(handler.indexOf('assertAuthorized:'));
+ assert.match(final,/assertAuthorized:\(\)=>/,'final publication guard must be synchronous');
+ assert.match(final,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(final,/withinAuthorized\(item\.path\)/);
 });
 
 test('FR-014 P0 native removal binds the confirmed record and rechecks scan/source during persistence',async()=>{
@@ -72,4 +76,8 @@ test('FR-014 P0 native removal binds the confirmed record and rechecks scan/sour
  const fence=remove.slice(remove.indexOf('beforeFinalWrite:'));
  assert.match(fence,/scanSessions\.assertCurrent\(scanSnapshot\)/);
  assert.match(fence,/withinAuthorized\(item\.path\)/);
+ const final=remove.slice(remove.indexOf('assertAuthorized:'));
+ assert.match(final,/assertAuthorized:\(\)=>/,'no awaited I/O may follow trusted authorization before publication dispatch');
+ assert.match(final,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(final,/withinAuthorized\(item\.path\)/);
 });

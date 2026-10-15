@@ -139,3 +139,15 @@ test('FR-014 rejects a byte-identical staging replacement and preserves the fore
  assert.deepEqual(await readFile(join(root,'owned-stage-moved')),bytes);
  await assert.rejects(access(target+'.write-lock'),{code:'ENOENT'});
 }));
+
+test('FR-014 final synchronous create authorization follows all staging I/O',async()=>withRoot(async root=>{
+ let authorized=true,finalChecks=0;
+ await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/new',label:'Must remain absent',stateId:'custom',metadata,
+  beforeFinalWrite:async()=>{queueMicrotask(()=>{authorized=false;});},
+  assertAuthorized:()=>{finalChecks++;if(!authorized)throw new Error('Final create consent revoked');},
+ } as Parameters<typeof createSiteTestCase>[0]),/revoked/);
+ assert.equal(finalChecks,1);
+ await assert.rejects(access(join(root,'site-test-cases.json')),{code:'ENOENT'});
+ assert.deepEqual(await readdir(root),[]);
+}));

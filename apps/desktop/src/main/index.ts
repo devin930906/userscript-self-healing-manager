@@ -821,6 +821,11 @@ async function bootstrap():Promise<void>{
     if(!withinAuthorized(item.path))
      throw new Error('Site test case source authorization changed before commit');
    },
+   assertAuthorized:()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))
+     throw new Error('Site test case source authorization changed at publication');
+   },
   });
  });
  // Renderer approved:true is not authorization to delete persisted data.
@@ -857,7 +862,19 @@ async function bootstrap():Promise<void>{
       still.stateId!==selected.stateId)
     throw new Error('Selected site test case changed while awaiting native approval');
    scanSessions.assertCurrent(scanSnapshot);
-   await removeSiteTestCase({dataRoot,scriptId:item.scriptId!,caseId:q.caseId,approved:true});
+   await removeSiteTestCase({dataRoot,scriptId:item.scriptId!,caseId:q.caseId,approved:true,
+    expected:selected,
+    beforeFinalWrite:async()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Scenario source authorization changed before removal commit');
+    },
+    assertAuthorized:()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Scenario source authorization changed at removal publication');
+    },
+   });
    return {deleted:true};
   }finally{siteTestRemoveBusy=false;}
  });

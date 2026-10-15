@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {test} from 'node:test';
 import {createSiteTestCase,listSiteTestCases,removeSiteTestCase} from '../src/site-test-cases.ts';
+import {ScanSessionCoordinator} from '../../scan-service/src/scan-session.ts';
 
 const metadata={match:['https://example.invalid/app/*'],include:[],raw:{match:['https://example.invalid/app/*']}};
 const scriptId='consented-removal';
@@ -61,4 +62,42 @@ test('FR-014 unchanged native-confirmed removal commits after its final authoriz
   approved:true,expected:entry,beforeFinalWrite:async()=>{rechecks++;}} as Parameters<typeof removeSiteTestCase>[0]);
  assert.equal(rechecks,1);
  assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[]);
+}));
+
+test('FR-014 final synchronous removal authorization runs after all awaited persistence reads',async()=>fixture(async(root,entry)=>{
+ const path=join(root,'site-test-cases.json');const before=await readFile(path);
+ let authorized=true,finalChecks=0;
+ await assert.rejects(removeSiteTestCase({dataRoot:root,scriptId,caseId:entry.id,
+  approved:true,expected:entry,
+  beforeFinalWrite:async()=>{
+   assert.equal(authorized,true,'early authorization was still valid');
+   // Deterministic event-loop revocation as the operation yields for its
+   // final registry/staging reads; no timers or scheduler-sensitive sleeps.
+   queueMicrotask(()=>{authorized=false;});
+  },
+  assertAuthorized:()=>{finalChecks++;if(!authorized)throw new Error('Final removal consent revoked');},
+ } as Parameters<typeof removeSiteTestCase>[0]),/revoked/);
+ assert.equal(finalChecks,1);
+ assert.deepEqual(await readFile(path),before);
+}));
+
+test('FR-014 real scan replacement during final removal I/O preserves the consented registry',async()=>fixture(async(root,entry)=>{
+ const path=join(root,'site-test-cases.json'),before=await readFile(path);
+ const scans=new ScanSessionCoordinator<{revision:number}>();
+ const confirmed=await scans.replace(async()=>({revision:1}));
+ let replaced:Promise<unknown>=Promise.resolve();
+ await assert.rejects(removeSiteTestCase({dataRoot:root,scriptId,caseId:entry.id,
+  approved:true,expected:entry,
+  beforeFinalWrite:async()=>{
+   scans.assertCurrent(confirmed);
+   replaced=new Promise((resolve,reject)=>setImmediate(()=>{
+    scans.replace(async()=>({revision:2})).then(resolve,reject);
+   }));
+  },
+  assertAuthorized:()=>scans.assertCurrent(confirmed),
+ }),/stale|scan|in progress/i);
+ await replaced;
+ assert.throws(()=>scans.assertCurrent(confirmed),/stale|scan/i);
+ assert.deepEqual(await readFile(path),before);
+ assert.deepEqual(await readdir(root),['site-test-cases.json']);
 }));

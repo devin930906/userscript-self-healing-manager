@@ -34,9 +34,10 @@ test('FR-014 saves two declared page states with explicit URLs and reloads them 
  assert.equal(saved.every(v=>Object.keys(v).sort().join(',')==='id,label,scriptId,stateId,url'),true);
  await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,url:first.url,
   label:'Duplicate',stateId:first.stateId,metadata:meta}),/already|duplicate/i);
- await assert.rejects(removeSiteTestCase({dataRoot:root,scriptId,caseId:first.id,approved:false}),/approval/i);
- await assert.rejects(removeSiteTestCase({dataRoot:root,scriptId:'another-script',caseId:first.id,approved:true}),/not found/i);
- await removeSiteTestCase({dataRoot:root,scriptId,caseId:first.id,approved:true});
+ await assert.rejects(removeSiteTestCase({dataRoot:root,scriptId,caseId:first.id,approved:false,expected:first}),/approval/i);
+ await assert.rejects(removeSiteTestCase({dataRoot:root,scriptId:'another-script',caseId:first.id,
+  approved:true,expected:{...first,scriptId:'another-script'}}),/not found/i);
+ await removeSiteTestCase({dataRoot:root,scriptId,caseId:first.id,approved:true,expected:first});
  assert.deepEqual((await listSiteTestCases({dataRoot:root,scriptId})).map(v=>v.id),[second.id]);
 }));
 test('FR-014 fail-closed scope and exact selected Chrome page matching never become V2/V3/V4 claims',async()=>temp(async root=>{
