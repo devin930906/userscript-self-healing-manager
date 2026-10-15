@@ -34,3 +34,11 @@ test('RG-07 rejects timestamps with invalid suffixes or incomplete timezone',()=
    assert.throws(()=>serializeDomBatchReport(fixture,format,stamp),/Invalid diagnosis report timestamp/);
  }
 });
+
+test('RG-07 rejects rollover midnight that Date.parse normalizes to the following date',()=>{
+ for(const stamp of ['2026-10-15T24:00:00.000Z','2026-10-15T24:00:00+08:00']){
+  assert.ok(Number.isFinite(Date.parse(stamp)), 'regression fixture must reach Date.parse');
+  for(const format of ['json','markdown'] as const)
+   assert.throws(()=>serializeDomBatchReport(fixture,format,stamp),/Invalid diagnosis report timestamp/);
+ }
+});
