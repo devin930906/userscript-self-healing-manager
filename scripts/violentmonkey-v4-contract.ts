@@ -222,13 +222,27 @@ export async function readViolentmonkeyFixtureObservation(input:{
      returnByValue:true,
     });
    }catch{throw new Error('Isolated GM fixture evaluation failed');}
-   if(answer?.exceptionDetails)throw new Error('Isolated GM fixture evaluation failed');
+   // Accept only CDP own-data response fields. An inherited protocol error
+   // or an accessor must not turn a forged fixture result into GM evidence,
+   // execute a hostile getter, or leak exception text.
+   let value:unknown;
+   try{
+    const ownData=(candidate:unknown,key:string):unknown=>{
+     if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+        'error' in candidate||'exceptionDetails' in candidate)
+      throw new Error('Invalid CDP evaluation envelope');
+     const field=Object.getOwnPropertyDescriptor(candidate,key);
+     if(!field||!Object.hasOwn(field,'value'))
+      throw new Error('Invalid CDP evaluation field');
+     return field.value;
+    };
+    value=ownData(ownData(answer,'result'),'value');
+   }catch{throw new Error('Isolated GM fixture evaluation failed');}
    const after=await currentFrame();
    if(after!==before)throw new Error('Isolated fixture document identity changed');
    // A valid-looking CDP reply is not evidence from a live manager if CFT
    // exited during the evaluation or its final pinned-document check.
    if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
-   const value=answer?.result?.value;
    if(value!==undefined&&value!==null){
     if(typeof value!=='string'||value.length>1024)throw new Error('Invalid bounded GM fixture receipt');
     let receipt;
