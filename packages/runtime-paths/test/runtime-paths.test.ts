@@ -44,3 +44,37 @@ test('FR-046 rejects unrecognized runtime distribution mode rather than silently
  assert.equal(resolveDataRoot({...input,distributionMode:'installed'}),input.osUserDataDirectory);
  assert.equal(resolveDataRoot({...input,distributionMode:'portable-zip'}),win32.join(input.exeDirectory,'Data'));
 });
+
+test('RG-07 data-root inputs reject NUL before deriving any installed or portable Data directory',()=>{
+ const secret='SYNTHETIC_PRIVATE_DATA_ROOT';
+ const nul=String.fromCharCode(0);
+ const cases=[
+  {distributionMode:'installed',exeDirectory:'D:\\Apps\\USSHM',
+   osUserDataDirectory:'D:\\Data\\'+secret+nul+'shadow'},
+  {distributionMode:'portable-zip',exeDirectory:'D:\\Apps\\'+secret+nul+'shadow',
+   osUserDataDirectory:'D:\\Data\\USSHM'},
+  {distributionMode:'portable-exe',exeDirectory:'D:\\Apps\\Unpacked',
+   portableExternalDirectory:'E:\\Apps\\'+secret+nul+'shadow',
+   osUserDataDirectory:'D:\\Data\\USSHM'},
+ ] as const;
+ for(const sample of cases){
+  assert.throws(()=>resolveDataRoot(sample),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Invalid data root path');
+   assert.doesNotMatch(error.message,/SYNTHETIC_PRIVATE_DATA_ROOT|shadow/);
+   assert.equal('cause' in error,false);
+   return true;
+  },'Never derive a Data directory containing a NUL character');
+ }
+});
+
+test('RG-07 writable Data root rejects embedded NUL without surfacing native OS paths',async()=>{
+ const secret='SYNTHETIC_PRIVATE_DATA_ROOT';
+ const malicious=join(tmpdir(),secret)+String.fromCharCode(0)+'shadow';
+ let result:unknown;
+ try{await ensureWritableDataRoot(malicious);}catch(error){result=error;}
+ assert.ok(result instanceof Error);
+ assert.equal(result.message,'Invalid data root path');
+ assert.doesNotMatch(result.message,/SYNTHETIC_PRIVATE_DATA_ROOT|shadow/);
+ assert.equal('cause' in result,false);
+});
