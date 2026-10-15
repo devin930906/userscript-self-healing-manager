@@ -23,10 +23,15 @@ function assertSchema(db:DatabaseSync):void{
   const actual=(db.prepare(`PRAGMA table_info(${table})`).all() as Array<{name:string}>).map(x=>x.name);
   if(actual.length!==expected.length||actual.some((name,index)=>name!==expected[index]))
    throw new Error('Incompatible audit journal schema columns');
-  for(const suffix of ['no_update','no_delete']){
-   const trigger=db.prepare("SELECT type FROM sqlite_master WHERE type='trigger' AND name=? LIMIT 1")
-    .get(table+'_'+suffix) as {type?:string}|undefined;
-   if(trigger?.type!=='trigger')throw new Error('Missing append-only audit journal trigger');
+  for(const suffix of ['no_update','no_delete'] as const){
+   const operation=suffix==='no_update'?'UPDATE':'DELETE';
+   const expectedSql=`CREATE TRIGGER ${table}_${suffix} BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT,'audit journal is append-only'); END`;
+   const trigger=db.prepare("SELECT type,sql FROM sqlite_master WHERE type='trigger' AND name=? LIMIT 1")
+    .get(table+'_'+suffix) as {type?:string;sql?:string}|undefined;
+   const normalize=(sql:string):string=>sql.replace(/\\s+/g,' ').trim().replace(/;$/,'');
+   if(trigger?.type!=='trigger'||typeof trigger.sql!=='string'||
+      normalize(trigger.sql)!==normalize(expectedSql))
+    throw new Error('Missing or incompatible append-only audit journal trigger');
   }
  }
  const check=db.prepare('PRAGMA quick_check').get() as Record<string,unknown>|undefined;
