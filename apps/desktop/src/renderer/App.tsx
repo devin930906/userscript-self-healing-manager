@@ -82,6 +82,7 @@ declare global {interface Window{ussm:{
  applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string;activePath:string;auditRevisionId:string|null}>;
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
+ getManagedAuditTrace:(input:{scanId:string;itemIndex:number;revisionHash:string})=>Promise<AuditTrace|null>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
@@ -962,6 +963,16 @@ function App(){
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
+ async function showManagedAudit(hash:string){
+  if(focused===null||!result||busy)return;
+  setBusy(true);setError('');setRepairAudit(null);
+  try{
+   const audit=await window.ussm.getManagedAuditTrace({scanId:result.scanId,itemIndex:focused,revisionHash:hash});
+   if(audit){setRepairAudit(audit);setMessage('已从本机审计库回查此受管修订的 FR-041 关联链。');}
+   else setMessage('此受管修订没有可关联的 FR-041 审计链；可能是旧修订、原始备份或非受保护写入路径。');
+  }catch(error){setError('读取受管修订审计链失败：'+summarizeSafeDesktopError(error));}
+  finally{setBusy(false);}
+ }
  async function exportManaged(){if(focused===null||!result)return;
   setBusy(true);setError('');
   try{const exported=await window.ussm.exportManaged({scanId:result.scanId,itemIndex:focused});
@@ -1346,7 +1357,7 @@ function App(){
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
      {managedActive&&<p className="dim">当前受管副本：<code>{managedActive.activePath}</code> · SHA256 {managedActive.hash.slice(0,12)}…</p>}
-     {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
+     {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void showManagedAudit(item.hash)}>查看审计链</button><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
     </section>
    </div>
    {details.analysis?.selectorRecords.map((s,i)=><div className="selector" key={i}><div className="selector-top"><span>{s.method} · 源码第 {s.sourceRange.start.line} 行</span><span className={s.runtimeRequired?'warn':''}>{s.runtimeRequired?'需要运行时确认':'静态字面量'}</span></div><code>{s.expression}</code><small>函数：{s.functionName||'顶层'} {s.alternateSelectors.length?`｜备用选择器：${s.alternateSelectors.join('、')}`:''}</small></div>)}

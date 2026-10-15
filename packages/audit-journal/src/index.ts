@@ -106,6 +106,7 @@ COMMIT;`);
  const approvalInsert=db.prepare('INSERT INTO audit_approvals(id,test_id,candidate_id,job_id,source_sha256,expires_at) VALUES(?,?,?,?,?,?)');
  const revisionInsert=db.prepare('INSERT INTO audit_revisions(id,approval_id,candidate_id,job_id,script_id,source_sha256,revision_sha256) VALUES(?,?,?,?,?,?,?)');
  const revisionPresent=db.prepare('SELECT 1 AS present FROM audit_revisions WHERE id=?');
+ const managedRevisionIds=db.prepare('SELECT id FROM audit_revisions WHERE script_id=? AND revision_sha256=? ORDER BY id LIMIT 2');
  const byRevision=db.prepare(`
 SELECT r.id AS revision_id,r.revision_sha256,r.source_sha256,r.script_id,r.job_id,
  j.attempt_id,f.id AS finding_id,c.id AS candidate_id,t.id AS test_id,
@@ -178,7 +179,7 @@ WHERE r.id=?
    }
    return Object.freeze({revisionId:trace.revision.id,jobId:trace.job.id,revisionSha256:trace.revision.revisionSha256});
   },
-  getByRevision(revisionId:string):AuditTrace|null{
+ const getByRevision=(revisionId:string):AuditTrace|null=>{
    if(typeof revisionId!=='string'||!uuid.test(revisionId))
     throw new Error('Invalid canonical audit revision id');
    if(!revisionPresent.get(revisionId))return null;
@@ -198,6 +199,17 @@ WHERE r.id=?
       new Date(parsedExpiry).toISOString()!==expiry)
     throw new Error('Corrupt audit journal approval expiry');
    return freezeTrace(row);
+
+ };
+  getByRevision,
+  getByManagedRevision(input:{scriptId:string;revisionSha256:string}):AuditTrace|null{
+   if(!input||typeof input!=='object'||!uuid.test(input.scriptId)||!sha256.test(input.revisionSha256))
+    throw new Error('Invalid managed audit revision identity');
+   const rows=managedRevisionIds.all(input.scriptId,input.revisionSha256) as Array<{id?:string}>;
+   if(rows.length>1)throw new Error('Ambiguous managed audit revision history');
+   const revisionId=rows[0]?.id;
+   if(!revisionId)return null;
+   return getByRevision(revisionId);
   },
   close():void{db.close();},
  });

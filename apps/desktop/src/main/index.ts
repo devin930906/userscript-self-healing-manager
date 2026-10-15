@@ -1588,6 +1588,21 @@ async function bootstrap():Promise<void>{
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
  });
+ ipcMain.handle('usshm:managed-audit-trace',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;revisionHash?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).sort().join(',')!=='itemIndex,revisionHash,scanId'||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     typeof q.revisionHash!=='string'||!/^[a-f0-9]{64}$/.test(q.revisionHash))
+   throw new Error('Invalid managed audit history request');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  const revisions=await listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+  if(!revisions.some(revision=>revision.hash===q.revisionHash))
+   throw new Error('Managed revision not found in verified history');
+  scanSessions.assertCurrent(scanSnapshot);
+  return auditJournal.getByManagedRevision({scriptId:item.scriptId,revisionSha256:q.revisionHash});
+ });
  ipcMain.handle('usshm:export-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number}|null;
   if(!q||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0)throw new Error('Invalid managed export script index');
