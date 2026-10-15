@@ -18,6 +18,18 @@ test('pinned reader returns unmodified bytes for an ordinary bounded userscript'
  assert.deepEqual(result,bytes);
 }));
 
+test('RG-06 reads unmodified files without an external identity snapshot',async()=>fixture(async dir=>{
+ // The Windows reader must now pin precise identity during every read, even
+ // when a user imports a file before any approved snapshot exists.
+ const path=join(dir,'fresh-import.user.js');
+ const original=Buffer.from('SYNTHETIC_UNMODIFIED_SCRIPT');
+ await writeFile(path,original);
+ for(let iteration=0;iteration<3;iteration++){
+  assert.deepEqual(await readPinnedRegularFile(path,{maxBytes:512*1024}),original);
+ }
+ assert.deepEqual(await readFile(path),original,'source files remain untouched');
+}));
+
 test('pinned reader rejects a symlink and leaves the outside file untouched',async()=>fixture(async dir=>{
  const outside=join(dir,'protected.txt'),path=join(dir,'import.user.js');
  await writeFile(outside,'OUTSIDE DO NOT READ');
