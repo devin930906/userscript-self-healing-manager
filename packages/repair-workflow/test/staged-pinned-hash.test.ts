@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {link,mkdtemp,readFile,rename,rm,symlink,unlink,writeFile} from 'node:fs/promises';
+import {link,mkdir,mkdtemp,readFile,rename,rm,symlink,unlink,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {shaFile} from '../src/core-recovery.ts';
@@ -53,4 +53,41 @@ test('RG-06 staged recovery hashing refuses mutable hardlink aliases',async()=>f
  await link(source,join(root,'external.sqlite'));
  await assert.rejects(shaFile(source,bytes.length),/hardlink|alias|unsafe/i);
  assert.deepEqual(await readFile(source),bytes);
+}));
+
+test('RG-06 pinned recovery hash rejects a preexisting linked ancestor with identical inode and bytes',async t=>fixture(async({root,bytes})=>{
+ const linked=join(root,'linked-parent');
+ try{await symlink(root,linked,process.platform==='win32'?'junction':'dir');}
+ catch(e){
+  if(['EPERM','EACCES','ENOTSUP','ENOSYS'].includes((e as NodeJS.ErrnoException).code??'')){
+   t.skip('Runner cannot create a directory symlink or Windows junction');return;
+  }
+  throw e;
+ }
+ const aliased=join(linked,'staged.sqlite');
+ assert.deepEqual(await readFile(aliased),bytes,'the alias must resolve to the same approved file');
+ await assert.rejects(shaFile(aliased,bytes.length),/symlink|junction|linked|unsafe/i,
+  'matching descriptor identity and hash do not authorize a linked parent');
+}));
+test('RG-06 pinned recovery hash rejects a linked ancestor substituted after initial lstat',async t=>fixture(async({root,bytes})=>{
+ const chosen=join(root,'chosen');
+ const relocated=join(root,'relocated');
+ const probe=join(root,'symlink-probe');
+ await mkdir(chosen);
+ const file=join(chosen,'source.sqlite');
+ await writeFile(file,bytes);
+ try{await symlink(chosen,probe,process.platform==='win32'?'junction':'dir');}
+ catch(e){
+  if(['EPERM','EACCES','ENOTSUP','ENOSYS'].includes((e as NodeJS.ErrnoException).code??'')){
+   t.skip('Runner cannot create a directory symlink or Windows junction');return;
+  }
+  throw e;
+ }
+ await unlink(probe);
+ await assert.rejects(shaFile(file,bytes.length,async()=>{
+  await rename(chosen,relocated);
+  await symlink(relocated,chosen,process.platform==='win32'?'junction':'dir');
+ }),/symlink|junction|linked|unsafe/i,
+  'the same open inode must not mask a parent that became a junction during the hash');
+ assert.deepEqual(await readFile(file),bytes);
 }));
