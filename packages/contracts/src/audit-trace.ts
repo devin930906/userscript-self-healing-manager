@@ -43,7 +43,7 @@ export function parseAuditTrace(input:unknown,now:string):AuditTrace{
  const out={} as {-readonly [K in keyof typeof fields]:Record<(typeof fields)[K][number],string>};
  for(const stage of names){(out as Record<string,unknown>)[stage]=record(value[stage],fields[stage],stage);}
  const {job,finding,candidate,test,approval,revision}=out;
- const entityIds=names.map(stage=>out[stage].id);
+ const entityIds=names.map(stage=>out[stage].id.toLowerCase());
  if(new Set(entityIds).size!==entityIds.length)throw new TypeError('Audit trace entity IDs must be distinct');
  for(const stage of [finding,candidate,test,approval,revision])requireSame(stage.jobId,job.id);
  requireSame(finding.scriptId,job.scriptId);
