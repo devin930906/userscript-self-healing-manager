@@ -153,21 +153,19 @@ export async function enableViolentmonkeyUserScriptsAccess(
   let receipt;
   let text:unknown;
   try{
-   // A CDP protocol error must never count as a permission grant, even
-   // alongside a forged success value. Check own descriptors before any
-   // property access so hostile getters cannot execute or leak error text.
+   // A CDP error anywhere in the envelope must fail closed, including
+   // inherited fault indicators beside a forged success value. The `in`
+   // checks never read getters; payload members use own data descriptors.
    const descriptor=(value:unknown,key:string):PropertyDescriptor|undefined=>{
     if(!value||typeof value!=='object'||Array.isArray(value))
      throw new Error('Malformed CDP evaluation envelope');
     return Object.getOwnPropertyDescriptor(value,key);
    };
-   if(descriptor(answer,'error')!==undefined||
-      descriptor(answer,'exceptionDetails')!==undefined)
+   if('error' in answer||'exceptionDetails' in answer)
     throw new Error('CDP evaluation error');
    const result=descriptor(answer,'result');
    if(!result||!Object.hasOwn(result,'value'))throw new Error('Invalid CDP result');
-   if(descriptor(result.value,'error')!==undefined||
-      descriptor(result.value,'exceptionDetails')!==undefined)
+   if('error' in result.value||'exceptionDetails' in result.value)
     throw new Error('Nested CDP evaluation error');
    const value=descriptor(result.value,'value');
    if(!value||!Object.hasOwn(value,'value'))throw new Error('Invalid CDP value');
