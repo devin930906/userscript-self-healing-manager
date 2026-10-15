@@ -47,7 +47,7 @@ export async function prepareVerifiedRepairPreview({approved,target,locator,sour
  deps:VerifiedPreviewDeps;
 }):Promise<VerifiedPreviewResult>{
  if(approved!==true)throw new Error('Explicit candidate preview consent is required');
- if(!target||typeof target.id!=='string'||!target.id||target.id.length>128||
+ if(!target||typeof target.id!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(target.id)||
     typeof target.url!=='string')
   throw new Error('Invalid selected CDP target');
  // Never contact an untrusted page even for read-only inspection before the
