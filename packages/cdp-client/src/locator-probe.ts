@@ -192,7 +192,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
     if(message.id===1){
      if(documentReceived)throw new Error('Duplicate CDP document root reply');
      documentReceived=true;
-     if(message.error)throw new Error('CDP document root request rejected');
+     if(Object.hasOwn(message,'error'))throw new Error('CDP document root request rejected');
      const documentRoot=message.result?.root;
      if(!Number.isSafeInteger(documentRoot?.nodeId)||documentRoot.nodeId<1)
       throw new Error('Invalid CDP document root');
@@ -218,7 +218,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      finishIfReady();
     }else if(pending.has(message.id)){
      const index=pending.get(message.id)!;pending.delete(message.id);const check=checks[index]!;
-     if(message.error){check.status='blocked';check.reason='CSS 选择器无效或目标浏览器拒绝定位';}
+     if(Object.hasOwn(message,'error')){check.status='blocked';check.reason='CSS 选择器无效或目标浏览器拒绝定位';}
      else{
       const nodeIds=message.result?.nodeIds;
       const count=validatedNodeCount(nodeIds);check.matchCount=count;
@@ -250,7 +250,7 @@ export async function probePageLocators(target:ChromeTarget,locators:readonly Li
      const check=checks[index]!;
      const backendId=message.result?.node?.backendNodeId;
      const nodeType=message.result?.node?.nodeType;
-     if(!message.error&&Number.isSafeInteger(backendId)&&backendId>0&&nodeType===1){
+     if(!Object.hasOwn(message,'error')&&Number.isSafeInteger(backendId)&&backendId>0&&nodeType===1){
       const hashed=createHmac('sha256',NODE_ID_HMAC_KEY)
        .update('usshm-cdp-backend-node-v1:').update(String(backendId)).digest('hex');
       if(group.hashes.has(hashed))group.valid=false;
