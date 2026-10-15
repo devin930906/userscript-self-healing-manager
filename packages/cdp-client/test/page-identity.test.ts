@@ -72,6 +72,17 @@ test('rejects a same-URL navigation when the main-frame document loader changes'
  assert.throws(()=>assertStablePageDocument(previous,{...previous,frameId:'different-root'}),/document|frame|identity/i);
  assert.doesNotThrow(()=>assertStablePageDocument(previous,{...previous}));
 });
+test('same-URL document fence rejects absent frame or loader tokens on both snapshots',()=>{
+ const pinned={targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'loader-one'};
+ for(const field of ['frameId','loaderId'] as const){
+  const missing={...pinned};
+  delete (missing as Partial<typeof pinned>)[field];
+  assert.throws(()=>assertStablePageDocument(missing,missing),/document|frame|loader|identity/i,
+   'identically missing '+field+' cannot prove the document was stable');
+  assert.throws(()=>assertStablePageDocument(pinned,missing),/document|frame|loader|identity/i);
+ }
+});
+
 test('reads stable loader identity from Page.getFrameTree without collecting frame contents',async()=>{
  const socket=new (class extends EventEmitter{
   constructor(){super();queueMicrotask(()=>this.emit('open'));}
