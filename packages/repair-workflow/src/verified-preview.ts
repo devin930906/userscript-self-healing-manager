@@ -1,5 +1,6 @@
 import {isAbsolute} from 'node:path';
 import {assertStablePageDocument,type ConfirmedPageIdentity} from '../../cdp-client/src/page-identity.ts';
+import {assertCredentialFreePageUrl} from '../../cdp-client/src/page-url-safety.ts';
 import type {VerifiedCandidate,MissingLocator} from '../../candidate-engine/src/workflow.ts';
 import type {ProposalReceipt} from './index.ts';
 import type {SelectorLocation} from '../../patch-engine/src/index.ts';
@@ -47,8 +48,12 @@ export async function prepareVerifiedRepairPreview({approved,target,locator,sour
 }):Promise<VerifiedPreviewResult>{
  if(approved!==true)throw new Error('Explicit candidate preview consent is required');
  if(!target||typeof target.id!=='string'||!target.id||target.id.length>128||
-    typeof target.url!=='string'||!/^https?:\/\//.test(target.url))
+    typeof target.url!=='string')
   throw new Error('Invalid selected CDP target');
+ // Never contact an untrusted page even for read-only inspection before the
+ // selected URL has passed the same credential-free boundary as CDP identity.
+ try{assertCredentialFreePageUrl(target.url);}
+ catch{throw new Error('Invalid selected CDP target');}
  if(!locator||locator.runtimeRequired||!['querySelector','getElementById',
     'getElementsByName','getElementsByClassName'].includes(locator.method)||
     typeof locator.expression!=='string'||!locator.expression||
