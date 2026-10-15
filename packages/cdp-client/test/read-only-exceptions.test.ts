@@ -329,3 +329,25 @@ test('FR-018 passive observer settles and closes even when removing a CDP listen
   if(watchdog!==undefined)clearTimeout(watchdog);
  }
 });
+
+
+test('FR-018 stale CDP open callback cannot restart exception observation after close',async()=>{
+ const socket=new FakeSocket();
+ let capturedOpen:((event:any)=>void)|undefined;
+ const originalAdd=socket.addEventListener.bind(socket);
+ socket.addEventListener=(name,listener)=>{
+  if(name==='open')capturedOpen=listener;
+  originalAdd(name,listener);
+ };
+ const result=await observeReadOnlyPageExceptions(target,{
+  approved:true,durationMs:100,confirm:async()=>confirmed(),
+  socketFactory:()=>{queueMicrotask(()=>socket.emit('open'));return socket;},
+ });
+ assert.equal(result.status,'none-observed');
+ assert.equal(socket.closed,1);
+ assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable']);
+ assert.ok(capturedOpen);
+ capturedOpen(undefined);
+ assert.deepEqual(socket.sent.map(x=>x.method),['Runtime.enable','Runtime.disable'],
+  'expired consent must not allow a stale listener to issue a new Runtime.enable');
+});
