@@ -63,7 +63,10 @@ test('RG-05 reload diagnostic records an allowlisted Chrome userScripts access r
 
 test('RG-05 reload diagnostic accepts only the bounded current Chrome extension-state reasons',async()=>{
  const source=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
- for(const reason of ['state-disabled','state-terminated','state-blocklisted','state-other']){
+ for(const reason of [
+  'state-disabled-reloading','state-disabled-other',
+  'state-terminated','state-blocklisted','state-other',
+ ]){
   assert.match(source,new RegExp("'" + reason + "'"),'reload diagnostic must accept '+reason);
  }
  assert.doesNotMatch(source,/'state'[\s,\]]/,
