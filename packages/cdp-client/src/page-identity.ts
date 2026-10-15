@@ -106,7 +106,7 @@ export async function confirmPageIdentity(
     const topFrame=frameTree.frame as {id:string;loaderId?:unknown};
     const frameId=topFrame.id;
     const loaderId=topFrame.loaderId;
-    if(frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
+    if(!frameId||frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
      throw new Error('Invalid main-frame document identity token');
     // A single same-origin child is the only nested scope that can be
     // identified unambiguously without a user-supplied frame selector.
