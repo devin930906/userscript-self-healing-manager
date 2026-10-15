@@ -23,9 +23,17 @@ export function serializeDomBatchReport(
   report.items.length!==report.totalItems)throw new Error('Invalid DOM diagnosis batch');
  if(typeof createdAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(createdAt)||
   Number.isNaN(Date.parse(createdAt)))throw new Error('Invalid diagnosis report timestamp');
+ // WHATWG URL parsing strips raw tabs/newlines and surrounding whitespace,
+ // and percent-encodes other controls. Never launder a malformed target URL
+ // into a seemingly trusted origin in either the JSON or Markdown report.
+ if(typeof report.pageUrl!=='string'||report.pageUrl.length<1||
+    report.pageUrl.length>4096||/[\\u0000-\\u001f\\u007f]/.test(report.pageUrl)||
+    report.pageUrl.trim()!==report.pageUrl)
+  throw new Error('Invalid DOM diagnosis origin');
  let url:URL;
  try{url=new URL(report.pageUrl);}catch{throw new Error('Invalid page URL');}
- if(!['http:','https:'].includes(url.protocol)||url.username||url.password)
+ if(!['http:','https:'].includes(url.protocol)||!url.hostname||
+    url.username||url.password)
   throw new Error('Invalid DOM diagnosis origin');
  const entries=report.items.map((row,index)=>{
   if(!row||!Number.isSafeInteger(row.index)||row.index!==index||
