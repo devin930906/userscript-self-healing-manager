@@ -20,11 +20,15 @@ export interface PublicFaultAstEvidence {
  readonly syntaxKind:string;
  readonly callKind:'none'|'member-call'|'direct-call'|'other-call';
  readonly propertyKind:string;
+ readonly expressionRole:'call-target'|'call-argument'|'other';
+ readonly callArgumentIndex:number;
+ readonly ancestorKinds:readonly string[];
  readonly fingerprintSha256:string;
 }
 const unavailable=():PublicFaultAstEvidence=>Object.freeze({
  locationVerified:false,syntaxKind:'unavailable',callKind:'none',
- propertyKind:'other',fingerprintSha256:'0'.repeat(64),
+ propertyKind:'other',expressionRole:'other',callArgumentIndex:-1,
+ ancestorKinds:Object.freeze([]),fingerprintSha256:'0'.repeat(64),
 });
 
 export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unknown):PublicFaultAstEvidence{
@@ -62,10 +66,30 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
   const method=call&&ts.isPropertyAccessExpression(call.expression)
    ?call.expression.name.text:'';
   const propertyKind=allowedProperties.has(method)?method:'other';
+  let expressionRole:PublicFaultAstEvidence['expressionRole']='other';
+  let callArgumentIndex=-1;
+  if(call){
+   if(call.expression.getStart(file)<=position&&position<call.expression.getEnd()){
+    expressionRole='call-target';
+   }else{
+    const index=call.arguments.findIndex(argument=>
+     argument.getStart(file)<=position&&position<argument.getEnd());
+    if(index>=0&&index<=32){
+     expressionRole='call-argument';
+     callArgumentIndex=index;
+    }
+   }
+  }
+  const ancestorKinds:string[]=[];
+  for(let current:ts.Node|undefined=node;current&&ancestorKinds.length<6;current=current.parent){
+   const kind=ts.SyntaxKind[current.kind]||'unknown';
+   if(typeof kind==='string'&&kind.length>0&&kind.length<64)ancestorKinds.push(kind);
+  }
   return Object.freeze({
    locationVerified:true,
    syntaxKind:ts.SyntaxKind[node.kind]||'unknown',
-   callKind,propertyKind,
+   callKind,propertyKind,expressionRole,callArgumentIndex,
+   ancestorKinds:Object.freeze(ancestorKinds),
    fingerprintSha256:createHash('sha256').update(source,'utf8').digest('hex'),
   });
  }catch{
