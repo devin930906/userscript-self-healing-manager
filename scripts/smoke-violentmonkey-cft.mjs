@@ -342,12 +342,19 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
  * already pinned disposable page, never a GM/V4 or successful run receipt.
  * Run only AFTER genuine GM control receipts or AFTER both failed documents;
  * enabling Debugger before cold navigation could perturb startup timing. */
+const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
+ 'reload-request','reload-issued','options-ready','capability-ready',
+ 'injector-ready','script-retained','fixture-ready','gm-observed','recovered',
+]);
+
 async function runPostBlockerExtensionReloadDiagnostic({
  browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited,
 }){
  let diagnosticOptionsCdp,diagnosticPageCdp,optionsTargetId,fixtureTargetId;
+ let stage='reload-request';
+ const result=fixture=>Object.freeze({stage,fixture:fixture??null});
  try{
-  if(hasExited())return null;
+  if(hasExited())return result(null);
   const reloadExpression=`(()=>{try{
    if(location.href!==${JSON.stringify(optionsUrl)}||
       chrome.runtime?.id!==${JSON.stringify(extensionId)})return false;
@@ -357,33 +364,41 @@ async function runPostBlockerExtensionReloadDiagnostic({
   const issued=await optionsCdp.send('Runtime.evaluate',{
    expression:reloadExpression,returnByValue:true,
   });
-  if(issued?.result?.value!==true)return null;
+  if(issued?.result?.value!==true)return result(null);
+  stage='reload-issued';
   // The scheduled reload must have time to invalidate the old extension
   // contexts before a fresh pinned options target is created.
   await delay(750);
-  if(hasExited())return null;
+  if(hasExited())return result(null);
 
   const createdOptions=await browserCdp.send('Target.createTarget',{url:optionsUrl});
   optionsTargetId=createdOptions?.targetId;
-  if(typeof optionsTargetId!=='string'||!optionsTargetId)return null;
+  if(typeof optionsTargetId!=='string'||!optionsTargetId)return result(null);
   const optionsPage=await waitForPage(optionsTargetId,optionsUrl,hasExited);
   diagnosticOptionsCdp=await openCdp(optionsPage.webSocketDebuggerUrl);
   await diagnosticOptionsCdp.send('Runtime.enable');
+  stage='options-ready';
+
   const capability=await diagnosticOptionsCdp.send('Runtime.evaluate',{
    expression:buildViolentmonkeyUserScriptsProbeExpression(),
    awaitPromise:true,returnByValue:true,
   });
-  if(capability?.result?.value!==JSON.stringify({available:true}))return null;
+  if(capability?.result?.value!==JSON.stringify({available:true}))return result(null);
+  stage='capability-ready';
+
   await waitForVerifiedViolentmonkeyInjector({
    send:(method,params)=>diagnosticOptionsCdp.send(method,params),
    hasExited,
   });
+  stage='injector-ready';
+
   const retained=await readManagerPreflight(diagnosticOptionsCdp,hasExited);
-  if(retained.found!==true)return null;
+  if(retained.found!==true)return result(null);
+  stage='script-retained';
 
   const diagnosticFixtureTarget=await browserCdp.send('Target.createTarget',{url:fixtureUrl});
   fixtureTargetId=diagnosticFixtureTarget?.targetId;
-  if(typeof fixtureTargetId!=='string'||!fixtureTargetId)return null;
+  if(typeof fixtureTargetId!=='string'||!fixtureTargetId)return result(null);
   const fixturePage=await waitForPage(fixtureTargetId,fixtureUrl,hasExited);
   const identity=await waitForPinnedFixtureFrame({
    expectedUrl:fixtureUrl,inspect:()=>confirmPageIdentity(fixturePage),
@@ -392,13 +407,17 @@ async function runPostBlockerExtensionReloadDiagnostic({
   diagnosticPageCdp=await openCdp(fixturePage.webSocketDebuggerUrl);
   await diagnosticPageCdp.send('Runtime.enable');
   await diagnosticPageCdp.send('Page.enable');
-  return await readViolentmonkeyFixtureObservation({
+  stage='fixture-ready';
+
+  const fixture=await readViolentmonkeyFixtureObservation({
    send:diagnosticPageCdp.send,frameId:identity.frameId,url:fixtureUrl,hasExited,
   });
+  stage='gm-observed';
+  return result(fixture);
  }catch{
   // Diagnostic failure must never hide or replace the already-classified
   // cold-start release blocker, and raw CDP/extension errors stay private.
-  return null;
+  return result(null);
  }finally{
   diagnosticPageCdp?.close();
   diagnosticOptionsCdp?.close();
@@ -907,23 +926,25 @@ try{
   // one NEW loopback document. Recovery would implicate extension lifecycle
   // initialization; failure would keep that hypothesis unproven. Either way
   // the immediate cold-start acceptance gate below remains blocked.
-  const reloadFixture=await runPostBlockerExtensionReloadDiagnostic({
+  const reloadDiagnostic=await runPostBlockerExtensionReloadDiagnostic({
    browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited:()=>exited,
   });
   let reloadRecovered=false;
-  if(reloadFixture){
+  if(reloadDiagnostic.fixture){
    try{
     assertViolentmonkeyV4FixtureObservation({
      chromeProduct:status.browser,managerVersion:manifest.version,
      managerExtensionId:extensionId,observedManagers:resumedManagers.observed,
      appV4:resumedManagers.V4,appManagerVerified:resumedManagers.managerVerified,
-     fixture:reloadFixture,
+     fixture:reloadDiagnostic.fixture,
     },2);
     reloadRecovered=requests.length===3;
    }catch{}
   }
-  console.log('RG-05 post-blocker extension reload diagnostic: '+
-   (reloadRecovered?'recovered on one fresh loopback document':'did not recover')+
+  const reloadStage=reloadRecovered?'recovered':reloadDiagnostic.stage;
+  assert.ok(POST_BLOCKER_RELOAD_STAGES.includes(reloadStage));
+  console.log('RG-05 post-blocker extension reload diagnostic: checkpoint '+reloadStage+
+   (reloadRecovered?', recovered on one fresh loopback document':', did not recover')+
    '; NOT a release or product V4 pass.');
   assertOfficialViolentmonkeyReleaseGate(blocked.status);
  }else{
