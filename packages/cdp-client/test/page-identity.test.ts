@@ -125,6 +125,26 @@ test('reads stable loader identity from Page.getFrameTree without collecting fra
  assert.equal(result.confirmedUrl,page.url);
 });
 
+test('RG-01 empty main-frame ID cannot become trusted page identity',async()=>{
+ const socket=new (class extends EventEmitter{
+  constructor(){super();queueMicrotask(()=>this.emit('open'));}
+  addEventListener(name:string,callback:(event:any)=>void){this.on(name,callback);}
+  removeEventListener(name:string,callback:(event:any)=>void){this.off(name,callback);}
+  send(command:string){
+   const {id}=JSON.parse(command);
+   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+    id,result:{frameTree:{frame:{id:'',loaderId:'loader-current',url:page.url}}},
+   })}));
+  }
+  close(){this.emit('close');}
+ })();
+ await assert.rejects(
+  confirmPageIdentity(page,{socketFactory:()=>socket}),
+  /main-frame document identity token/i,
+ );
+ assert.equal(socket.listenerCount('message'),0);
+});
+
 test('a frame with no loader ID is not trustworthy enough for DOM evidence',async()=>{
  await assert.rejects(
   confirmPageIdentity(page,{socketFactory:()=>new FakeSocket(page.url,false)}),
