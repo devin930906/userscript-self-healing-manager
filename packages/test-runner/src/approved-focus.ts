@@ -46,14 +46,26 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
  if(!approvedDocument||approvedDocument.targetId!==target.id||
     approvedDocument.confirmedUrl!==target.url||!approvedDocument.frameId||!approvedDocument.loaderId)
   throw new Error('Native-approved focus document identity required');
+ // One monotonic budget covers identity lookup as well as the action socket.
+ // Timer callbacks alone cannot guard a busy event loop's microtask boundary.
+ const deadline=performance.now()+timeoutMs;
+ const assertWithinBudget=()=>{
+  if(performance.now()>=deadline)throw new Error('Approved focus timed out');
+ };
  const identity=await confirm(target);
+ assertWithinBudget();
  if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
  // Native approval belongs to a particular document, even when a reload
  // keeps its URL and target ID. Do not establish a replacement baseline.
  assertStablePageDocument(approvedDocument,identity);
- const guard=async()=>assertStablePageDocument(identity,await confirm(target));
+ const guard=async()=>{
+  assertWithinBudget();
+  const current=await confirm(target);
+  assertWithinBudget();
+  assertStablePageDocument(identity,current);
+ };
  const result=(observed:boolean):ApprovedControlFocusResult=>Object.freeze({
   status:observed?'focus-observed':'needs-review',
   validationLevel:'consented-control-focus',
@@ -99,11 +111,12 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
  const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[
   ['open',onOpen],['message',onMessage],['error',onError],['close',onClose]];
  for(const [name,handler] of handlers)socket.addEventListener(name,handler);
- const timer=setTimeout(()=>abort('Approved focus timed out'),timeoutMs);
+ const timer=setTimeout(()=>abort('Approved focus timed out'),Math.max(1,deadline-performance.now()));
  const send=async(method:string,params:Record<string,unknown>={}):Promise<Record<string,any>>=>{
   // Deadline can expire while Page.getFrameTree is awaiting a slow response
   // with no CDP command pending. Never send DOM.focus (or any other command)
   // after the one-time approval budget is exhausted.
+  assertWithinBudget();
   if(aborted!==null)throw aborted;
   if(pending||finished)throw error('Concurrent CDP focus command rejected');
   const id=++sequence;
