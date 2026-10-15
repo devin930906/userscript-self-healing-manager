@@ -185,6 +185,31 @@ export async function enableViolentmonkeyUserScriptsAccess(
  throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
 }
 
+/**
+ * TEST ONLY / RG-05: after a real Chrome process restart, a service-worker
+ * permission probe must have a clean CDP envelope and an exact bounded
+ * positive result. Never allow a forged value beside an error field to
+ * certify retained manager access or contaminate blocker diagnostics.
+ * Returns a literal true only for the exact fixed official test receipt.
+ */
+export function assertViolentmonkeyRestartPermissionReceipt(response:unknown):true{
+ const fail=():never=>{
+  throw new Error('Pinned manager userScripts permission not retained across process restart');
+ };
+ const data=(candidate:unknown,key:string):unknown=>{
+  if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+     'error' in candidate||'exceptionDetails' in candidate)fail();
+  const field=Object.getOwnPropertyDescriptor(candidate,key);
+  if(!field||!Object.hasOwn(field,'value'))fail();
+  return field.value;
+ };
+ let value:unknown;
+ try{value=data(data(response,'result'),'value');}
+ catch{fail();}
+ if(value!==JSON.stringify({available:true}))fail();
+ return true;
+}
+
 /** TEST ONLY: read a bounded receipt from one fixed loopback fixture document. */
 export async function readViolentmonkeyFixtureObservation(input:{
  send:(method:string,params?:Record<string,unknown>)=>Promise<any>;
