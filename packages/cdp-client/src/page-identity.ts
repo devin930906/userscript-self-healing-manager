@@ -92,11 +92,17 @@ export async function confirmPageIdentity(
     const frameTree=response.result?.frameTree;
     const queue:unknown[]=[frameTree];
     let nestedFrames=0;
+    const observedFrameIds=new Set<string>();
     for(let index=0;index<queue.length;index++){
      const node=queue[index] as {frame?:{id?:unknown};childFrames?:unknown}|null;
      if(!node||!node.frame||typeof node.frame.id!=='string'||
         (index>0&&(!node.frame.id||node.frame.id.length>256)))
       throw new Error('Invalid nested CDP frame tree');
+     // A forged frame tree cannot grant a child scope using the main-frame ID
+     // or another child's ID. Keep the check bounded by the frame-count cap.
+     if(observedFrameIds.has(node.frame.id))
+      throw new Error('Invalid nested CDP frame tree');
+     observedFrameIds.add(node.frame.id);
      if(node.childFrames!==undefined){
       if(!Array.isArray(node.childFrames))throw new Error('Invalid nested CDP frame list');
       nestedFrames+=node.childFrames.length;
