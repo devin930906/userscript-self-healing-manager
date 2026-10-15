@@ -59,11 +59,12 @@ test('FR-024 actual approved focus uses only DOM CDP and proves the same button 
  assert.deepEqual(socket.methods,[
   'DOM.getDocument','CSS.enable','DOM.querySelectorAll','DOM.describeNode','DOM.getAttributes',
   'CSS.getComputedStyleForNode','DOM.getBoxModel',
-  'DOM.querySelectorAll','DOM.getAttributes','CSS.getComputedStyleForNode','DOM.getBoxModel',
-  'DOM.querySelectorAll','DOM.focus','DOM.querySelectorAll',
+  'DOM.querySelectorAll','CSS.getComputedStyleForNode','DOM.getBoxModel',
+  'DOM.querySelectorAll','DOM.getAttributes','DOM.focus','DOM.querySelectorAll',
  ]);
  assert.equal(socket.inputs[7].selector,'#safe-focus');
- assert.equal(socket.inputs[11].selector,':focus');
+ assert.equal(socket.inputs[10].selector,':focus');
+ assert.equal(socket.inputs[11].nodeId,42);
  assert.equal(socket.inputs[12].nodeId,42);
  assert.equal(socket.inputs[13].selector,':focus');
  assert.equal(socket.methods.some(x=>x.startsWith('Runtime.')||x.startsWith('Input.')),false);
