@@ -21,7 +21,7 @@ export function serializeDomBatchReport(
  if(!report||report.validationLevel!=='dom-only'||!Number.isSafeInteger(report.totalItems)||
   report.totalItems<0||report.totalItems>1000||!Array.isArray(report.items)||
   report.items.length!==report.totalItems)throw new Error('Invalid DOM diagnosis batch');
- if(typeof createdAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(createdAt)||
+ if(typeof createdAt!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(createdAt)||
   Number.isNaN(Date.parse(createdAt)))throw new Error('Invalid diagnosis report timestamp');
  // Date.parse normalizes impossible calendar dates (e.g. February 30);
  // never write a trusted-looking diagnostic timestamp from one.
