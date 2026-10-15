@@ -9,8 +9,12 @@ const target={
 };
 
 class FrameTokenSocket extends EventEmitter{
- constructor(private readonly mainId:string,private readonly childId:string){
+ private readonly mainId:string;
+ private readonly childId:string;
+ constructor(mainId:string,childId:string){
   super();
+  this.mainId=mainId;
+  this.childId=childId;
   queueMicrotask(()=>this.emit('open'));
  }
  addEventListener(name:string,callback:(event:any)=>void){this.on(name,callback);}
