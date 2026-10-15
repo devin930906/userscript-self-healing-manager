@@ -158,4 +158,23 @@ CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT 1; 
   }finally{await rm(root,{recursive:true,force:true});}
  });
 
+ it('rejects a later trace whose entity ID aliases a different historical audit stage',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'usshm-audit-'));
+  try{
+   const journal=openAuditJournal(join(root,'audit.sqlite'));
+   journal.append(trace(),now);
+   const second:any=trace();
+   second.job={id:id(11),scriptId:id(12),attemptId:id(13),sourceSha256:'c'.repeat(64)};
+   second.finding={id:id(1),jobId:id(11),scriptId:id(12),attemptId:id(13)};
+   second.candidate={id:id(15),findingId:id(1),jobId:id(11)};
+   second.test={id:id(16),candidateId:id(15),jobId:id(11),status:'passed'};
+   second.approval={id:id(17),testId:id(16),candidateId:id(15),jobId:id(11),sourceSha256:'c'.repeat(64),expiresAt:'2026-10-12T00:00:00.000Z'};
+   second.revision={id:id(18),approvalId:id(17),candidateId:id(15),jobId:id(11),scriptId:id(12),sourceSha256:'c'.repeat(64),revisionSha256:'d'.repeat(64)};
+   assert.throws(()=>journal.append(second,now),/duplicate|entity|identity|stage|unique/i,
+    'one UUID must not identify a job in one trace and a finding in another');
+   assert.equal(journal.getByRevision(id(18)),null);
+   journal.close();
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+
 });
