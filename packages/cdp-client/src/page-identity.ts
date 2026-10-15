@@ -122,7 +122,9 @@ export async function confirmPageIdentity(
         typeof childUrl==='string'&&childUrl.length<=8192){
       try{
        const parsedChild=new URL(childUrl);
-       if(['http:','https:'].includes(parsedChild.protocol)&&parsedChild.origin===expected.origin)
+       if(['http:','https:'].includes(parsedChild.protocol)&&
+          parsedChild.username===''&&parsedChild.password===''&&
+          parsedChild.origin===expected.origin)
         soleSameOriginSubframe={frameId:childId,loaderId:childLoader,
          urlFingerprint:createHmac('sha256',CHILD_URL_KEY)
           .update('usshm-iframe-url-v1:').update(childUrl).digest('hex')};
