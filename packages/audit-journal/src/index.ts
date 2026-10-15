@@ -142,6 +142,29 @@ WHERE r.id=?
   insert();
  };
 
+ const getByRevision=(revisionId:string):AuditTrace|null=>{
+   if(typeof revisionId!=='string'||!uuid.test(revisionId))
+    throw new Error('Invalid canonical audit revision id');
+   if(!revisionPresent.get(revisionId))return null;
+   const row=byRevision.get(revisionId) as SqlRow|undefined;
+   if(!row)throw new Error('Corrupt audit journal chain');
+   for(const key of ['revision_id','job_id','finding_id','candidate_id','test_id','approval_id','script_id','attempt_id'] as const)
+    if(!uuid.test(row[key]??''))throw new Error('Corrupt audit journal identity');
+   const persistedEntityIds=['revision_id','job_id','finding_id','candidate_id','test_id','approval_id']
+    .map(key=>row[key]??'');
+   if(new Set(persistedEntityIds).size!==persistedEntityIds.length)
+    throw new Error('Corrupt audit journal duplicate entity identity');
+   for(const key of ['source_sha256','revision_sha256'] as const)
+    if(!sha256.test(row[key]??''))throw new Error('Corrupt audit journal hash');
+   const expiry=row.expires_at??'';
+   const parsedExpiry=Date.parse(expiry);
+   if(!canonicalTimestamp.test(expiry)||!Number.isFinite(parsedExpiry)||
+      new Date(parsedExpiry).toISOString()!==expiry)
+    throw new Error('Corrupt audit journal approval expiry');
+   return freezeTrace(row);
+
+ };
+
  return Object.freeze({
   append(input:unknown,now:string):Readonly<{revisionId:string;jobId:string;revisionSha256:string}>{
    const trace=parseAuditTrace(input,now);
@@ -179,28 +202,6 @@ WHERE r.id=?
    }
    return Object.freeze({revisionId:trace.revision.id,jobId:trace.job.id,revisionSha256:trace.revision.revisionSha256});
   },
- const getByRevision=(revisionId:string):AuditTrace|null=>{
-   if(typeof revisionId!=='string'||!uuid.test(revisionId))
-    throw new Error('Invalid canonical audit revision id');
-   if(!revisionPresent.get(revisionId))return null;
-   const row=byRevision.get(revisionId) as SqlRow|undefined;
-   if(!row)throw new Error('Corrupt audit journal chain');
-   for(const key of ['revision_id','job_id','finding_id','candidate_id','test_id','approval_id','script_id','attempt_id'] as const)
-    if(!uuid.test(row[key]??''))throw new Error('Corrupt audit journal identity');
-   const persistedEntityIds=['revision_id','job_id','finding_id','candidate_id','test_id','approval_id']
-    .map(key=>row[key]??'');
-   if(new Set(persistedEntityIds).size!==persistedEntityIds.length)
-    throw new Error('Corrupt audit journal duplicate entity identity');
-   for(const key of ['source_sha256','revision_sha256'] as const)
-    if(!sha256.test(row[key]??''))throw new Error('Corrupt audit journal hash');
-   const expiry=row.expires_at??'';
-   const parsedExpiry=Date.parse(expiry);
-   if(!canonicalTimestamp.test(expiry)||!Number.isFinite(parsedExpiry)||
-      new Date(parsedExpiry).toISOString()!==expiry)
-    throw new Error('Corrupt audit journal approval expiry');
-   return freezeTrace(row);
-
- };
   getByRevision,
   getByManagedRevision(input:{scriptId:string;revisionSha256:string}):AuditTrace|null{
    if(!input||typeof input!=='object'||!uuid.test(input.scriptId)||!sha256.test(input.revisionSha256))
