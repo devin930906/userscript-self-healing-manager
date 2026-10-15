@@ -32,3 +32,22 @@ test('RG-05 real Chrome harness observes execution-context events on each pinned
  assert.match(source,/RG-05 initial fixture CDP contexts/);
  assert.match(source,/RG-05 restarted fixture CDP contexts/);
 });
+
+test('RG-05 a destroyed or cleared fixture execution context cannot certify a later document',async()=>{
+ const mod=await import('../../scripts/violentmonkey-frame-context-evidence.ts');
+ const e=mod.createIsolatedFixtureFrameContextEvidence('bounded-fixture');
+ e.observe('Runtime.executionContextCreated',{context:{id:41,auxData:{frameId:'bounded-fixture',isDefault:true}}});
+ e.observe('Runtime.executionContextCreated',{context:{id:42,auxData:{frameId:'bounded-fixture',isDefault:false}}});
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:true,isolatedContextObserved:true});
+ e.observe('Runtime.executionContextDestroyed',{executionContextId:42});
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:true,isolatedContextObserved:false},
+  'a destroyed isolated world is not evidence of a currently live bootstrap');
+ e.observe('Runtime.executionContextsCleared',{});
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:false,isolatedContextObserved:false},
+  'a page reload cannot reuse the previous document context evidence');
+ e.observe('Runtime.executionContextCreated',{context:{id:43,auxData:{frameId:'bounded-fixture',isDefault:true}}});
+ e.observe('Runtime.executionContextCreated',{context:{auxData:{frameId:'bounded-fixture',isDefault:false}}});
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:true,isolatedContextObserved:false},
+  'missing context identity cannot certify a new isolated execution world');
+ assert.doesNotMatch(JSON.stringify(e.snapshot()),/bounded-fixture|41|42|43|PRIVATE/);
+});
