@@ -119,6 +119,14 @@ JOIN audit_approvals a ON a.id=r.approval_id AND a.test_id=t.id AND a.candidate_
  AND a.source_sha256=r.source_sha256
 WHERE r.id=?
 `);
+ const stageIdLookups=new Map(Object.keys(tableColumns).map(table=>
+  [table,db.prepare(`SELECT 1 AS present FROM ${table} WHERE id=?`)] as const));
+ const assertEntityStage=(expectedTable:string,id:string):void=>{
+  for(const [table,query] of stageIdLookups){
+   if(table!==expectedTable&&query.get(id))
+    throw new Error('Audit entity ID already belongs to a different stage');
+  }
+ };
 
  const exact=(table:string,id:string,fields:readonly string[],values:readonly string[]):boolean=>{
   const columns=['id',...fields];
@@ -140,6 +148,10 @@ WHERE r.id=?
     throw new Error('Duplicate immutable audit revision');
    try{
     db.exec('BEGIN IMMEDIATE');
+    for(const [table,id] of [
+     ['audit_jobs',trace.job.id],['audit_findings',trace.finding.id],['audit_candidates',trace.candidate.id],
+     ['audit_tests',trace.test.id],['audit_approvals',trace.approval.id],['audit_revisions',trace.revision.id],
+    ] as const)assertEntityStage(table,id);
     insertOrVerify('audit_jobs',trace.job.id,['script_id','attempt_id','source_sha256'],
      [trace.job.scriptId,trace.job.attemptId,trace.job.sourceSha256],
      ()=>{jobInsert.run(trace.job.id,trace.job.scriptId,trace.job.attemptId,trace.job.sourceSha256);});
