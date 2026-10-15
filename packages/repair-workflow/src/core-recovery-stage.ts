@@ -15,6 +15,25 @@ const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:origin
 type HashedFile={path:string;sha256:string;bytes:number};
 const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
 
+/** Bind the selected/claimed directory, independently of file hashes or a
+ * completion marker. Directory mtime/size/nlink may change as files are copied;
+ * creation identity and mode may not. This remains an optimistic native-stats
+ * fence, not an OS directory lock or Win32 FileIdInfo attestation. */
+async function pinOfflineStageDirectory(path:string):Promise<()=>Promise<void>>{
+ await assertUnlinkedRecoveryDirectory(path);
+ const before=await lstat(path,{bigint:true});
+ if(!before.isDirectory()||before.isSymbolicLink())
+  throw new Error('Unsafe offline stage directory');
+ return async()=>{
+  await assertUnlinkedRecoveryDirectory(path);
+  const current=await lstat(path,{bigint:true});
+  if(!current.isDirectory()||current.isSymbolicLink()||
+     current.dev!==before.dev||current.ino!==before.ino||
+     current.birthtimeNs!==before.birthtimeNs||current.mode!==before.mode)
+   throw new Error('Offline stage directory identity changed during audit');
+ };
+}
+
 /**
  * Revalidate the actual staged pathname and bounded bytes, not merely the
  * initial copy. The stage is a NON-ACTIVE recovery review output, but a
@@ -131,7 +150,7 @@ export async function stageCoreRecoveryForOfflineReview({
  if([snapshotDirectory,activeDataRoot,destination].some(p=>
    typeof p!=='string'||!isAbsolute(p)))
   throw new Error('Absolute offline recovery paths required');
- const source=resolve(snapshotDirectory),active=resolve(activeDataRoot),target=resolve(destination);
+ const source=resolve(snapshotDirectory),target=resolve(destination);
  // Feed original lexical paths to guards before using normalized lookups.
  await assertUnlinkedRecoveryDirectory(snapshotDirectory);
  await assertUnlinkedRecoveryDirectory(activeDataRoot);
@@ -172,6 +191,7 @@ export async function stageCoreRecoveryForOfflineReview({
    throw new Error('Managed offline recovery data exceeds size budget');
  }
  await mkdir(target,{recursive:false,mode:0o700});
+ const assertTargetDirectoryIdentity=await pinOfflineStageDirectory(target);
  for(const item of core.files.slice(0,2)){
   await copyChecked(join(source,item.path),join(target,item.path),item);
  }
@@ -212,7 +232,7 @@ export async function stageCoreRecoveryForOfflineReview({
  }
  // A trusted source snapshot is not proof that its newly copied staging
  // output stayed intact while SQLite and source audits were awaited.
- await assertUnlinkedRecoveryDirectory(target);
+ await assertTargetDirectoryIdentity();
  const expectedRoot=['registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
  if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedRoot))
   throw new Error('Unexpected staged offline recovery root entries');
@@ -257,6 +277,9 @@ export async function stageCoreRecoveryForOfflineReview({
   fileCount:2+files.length,
   note:'NON-ACTIVE. Review offline before any separate, explicit migration; never overwrite a running Data directory.',
  };
+ // Source verification may be lengthy; the exclusive directory claim must
+ // still name this operation's original directory at marker publication.
+ await assertTargetDirectoryIdentity();
  await writeFile(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json'),
   JSON.stringify(record,null,2)+'\n',{flag:'wx',mode:0o600});
  return {path:target,fileCount:record.fileCount,sourceManifestSha256};
@@ -292,19 +315,7 @@ export async function verifyCoreOfflineRecoveryStage({
  // File and marker identity checks alone cannot attest the selected root.
  // This is a bounded native-stats defense, NOT a Win32 FileIdInfo guarantee
  // or an atomic lock against all hostile concurrent filesystem mutations.
- const stageDirectoryBefore=await lstat(stage,{bigint:true});
- if(!stageDirectoryBefore.isDirectory()||stageDirectoryBefore.isSymbolicLink())
-  throw new Error('Unsafe offline stage directory');
- const assertStageDirectoryIdentity=async()=>{
-  await assertUnlinkedRecoveryDirectory(stage);
-  const current=await lstat(stage,{bigint:true});
-  if(!current.isDirectory()||current.isSymbolicLink()||
-     current.dev!==stageDirectoryBefore.dev||
-     current.ino!==stageDirectoryBefore.ino||
-     current.birthtimeNs!==stageDirectoryBefore.birthtimeNs||
-     current.mode!==stageDirectoryBefore.mode)
-   throw new Error('Offline stage directory identity changed during audit');
- };
+ const assertStageDirectoryIdentity=await pinOfflineStageDirectory(stage);
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
  const sourceManifest=await readBoundedManifest(join(source,'manifest.json'));
  const sourceManifestSha256=digest(sourceManifest);

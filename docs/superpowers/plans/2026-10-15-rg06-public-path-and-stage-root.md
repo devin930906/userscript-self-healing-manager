@@ -42,9 +42,9 @@
 **Files:** `packages/repair-workflow/src/core-recovery-stage.ts`, `tests/integration/core-recovery-stage-last-fence.test.ts`.
 **Interfaces:** Preserve stage receipt and test hook; share the existing directory identity semantics between creation and independent audit.
 
-- [ ] Fault-inject a replacement directory containing byte-identical staged files at `beforeFinalMarker`; require explicit directory-identity rejection and absent completion markers in both roots.
-- [ ] Observe RED; pin the claimed directory before copying and recheck before final file audit and completion marker.
-- [ ] Verify all unchanged-stage/independent-audit scenarios and full suite; commit.
+- [x] Fault-inject a replacement directory containing byte-identical staged files at `beforeFinalMarker`; require explicit directory-identity rejection and absent completion markers in both roots.
+- [x] Observe RED; pin the claimed directory before copying and recheck before final file audit and completion marker.
+- [x] Verify all unchanged-stage/independent-audit scenarios and full suite; commit.
 
 ### Finish
 
@@ -59,3 +59,5 @@
 - Pre-flight: both tasks touch the stage module, but Task 1 only changes raw preflight arguments and Task 2 shares an existing directory identity fence. Keep interfaces and release boundaries unchanged.
 
 - Task 1 complete: 12 public-entrypoint regressions observed RED (missing rejection), including a genuine symlink/junction parent-resolution differential. Focused GREEN 26/26; complete suite {'tests': 1599, 'pass': 1597, 'fail': 0, 'skipped': 2}; strict lint/typecheck and build/compiled production boundary PASS. Existing central guards remain unchanged; original caller paths now reach them.
+
+- Task 2 complete: byte-identical replacement of newly claimed stage root observed RED (missing rejection). Shared directory pin now checks original dev/ino/birthtime/mode before final staged inventory and again before marker publication; independent audit uses the same existing semantics. Focused GREEN 36/36; complete suite 1600 tests / 1598 pass / 2 environment skips / 0 fail; lint/typecheck, build and compiled production boundary PASS. SBOM validates 290 components/445 edges. Active/source bytes preserved; no stage activation.
