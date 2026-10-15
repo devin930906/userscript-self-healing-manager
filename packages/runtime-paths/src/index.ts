@@ -63,8 +63,8 @@ export async function ensureWritableDataRoot(dataRoot: string): Promise<void> {
     current = join(current, segment);
     try {
       const item = await lstat(current);
-      if (item.isSymbolicLink()) throw new Error(`Data root cannot contain symlinks: ${current}`);
-      if (!item.isDirectory()) throw new Error(`Data path is not a directory: ${current}`);
+      if (item.isSymbolicLink()) throw new Error('Data root cannot contain symlinks');
+      if (!item.isDirectory()) throw new Error('Data path is not a directory');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       await mkdir(current);
