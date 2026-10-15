@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {cp,lstat,mkdtemp,mkdir,writeFile,readFile,readdir,rename,rm} from 'node:fs/promises';
+import {cp,copyFile,lstat,mkdtemp,mkdir,writeFile,readFile,readdir,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {DatabaseSync} from 'node:sqlite';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
 import {createCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
@@ -153,4 +154,41 @@ test('RG-06 rejects a new staged directory inode even if every file and the ORIG
   'independent audit must not modify live source Data');
  assert.deepEqual(await readFile(marker),markerBytes,
   'test must keep the original marker bytes, not trigger the existing marker test');
+}));
+
+
+test('RG-06 independent audit rejects a valid SQLite replacement after final hash but before schema reopen',async()=>fixture(async({root,backup,stage,source})=>{
+ const liveBefore=await readFile(join(source,'registry.sqlite'));
+ const stagedRegistry=join(stage,'registry.sqlite');
+ const hashedBytes=await readFile(stagedRegistry);
+ const replacement=join(root,'valid-replacement-registry.sqlite');
+ await copyFile(stagedRegistry,replacement);
+ const replacementDb=new DatabaseSync(replacement);
+ try{
+  // Preserve the exact v1 tables while changing valid SQLite header state,
+  // so schema/integrity checks still pass although source-approved bytes do not.
+  replacementDb.exec('PRAGMA application_id = 20261015');
+ }finally{replacementDb.close();}
+ const replacementBytes=await readFile(replacement);
+ assert.notDeepEqual(replacementBytes,hashedBytes,
+  'fixture must create different but structurally valid SQLite bytes');
+ let injected=0;
+ const options={
+  snapshotDirectory:backup,stagedDirectory:stage,
+  beforeSqliteSchemaAudit:async()=>{
+   injected++;
+   await rename(stagedRegistry,join(root,'hashed-original-registry.sqlite'));
+   await copyFile(replacement,stagedRegistry);
+  },
+ } as Parameters<typeof verifyCoreOfflineRecoveryStage>[0]&{
+  beforeSqliteSchemaAudit:()=>Promise<void>;
+ };
+ await assert.rejects(verifyCoreOfflineRecoveryStage(options),
+  /stage|sqlite|hash|identity|changed|mismatch|recovery|unsafe/i,
+  'a valid SQLite pathname replacement after the last byte hash must not be certified');
+ assert.equal(injected,1,'fault must occur after final staged byte hashes and before SQLite reopen');
+ assert.deepEqual(await readFile(join(source,'registry.sqlite')),liveBefore,
+  'read-only audit cannot modify active Data');
+ assert.deepEqual(await readFile(stagedRegistry),replacementBytes,
+  'failed audit must not silently repair the replaced stage');
 }));
