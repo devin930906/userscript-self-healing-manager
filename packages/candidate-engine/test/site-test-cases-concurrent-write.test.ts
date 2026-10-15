@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,writeFile,rm,access} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,access,readdir,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createSiteTestCase,listSiteTestCases} from '../src/site-test-cases.ts';
@@ -87,4 +87,55 @@ test('FR-014 P0 never clobbers an independently created first registry when a ne
  assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[]);
  await assert.rejects(access(target+'.write-lock'),{code:'ENOENT'},
   'the failed write must release the cooperating app lease');
+}));
+
+for(const initial of [false,true]){
+ test(`FR-014 rejects same-size staging corruption before ${initial?'existing':'first'} registry publication`,async()=>withRoot(async root=>{
+  const target=join(root,'site-test-cases.json');
+  if(initial)await createSiteTestCase({dataRoot:root,scriptId,
+   url:'https://example.invalid/app/original',label:'Original',stateId:'custom',metadata});
+  const before=initial?await readFile(target):null;
+  let mutated=0;
+  await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,
+   url:'https://example.invalid/app/new',label:'Trusted',stateId:'custom',metadata,
+   beforePublish:async()=>{
+    const names=(await readdir(root)).filter(name=>/^\.site-test-cases-.*\.tmp$/.test(name));
+    assert.equal(names.length,1);
+    const path=join(root,names[0]!);
+    const bytes=await readFile(path,'utf8');
+    const changed=bytes.replace('Trusted','Altered');
+    assert.notEqual(bytes,changed);assert.equal(Buffer.byteLength(bytes),Buffer.byteLength(changed));
+    await writeFile(path,changed);mutated++;
+   },
+  }),/staging|pinned|changed|hash|digest|integrity/i,
+  'staging bytes must match the operation before replacing or publishing a registry');
+  assert.equal(mutated,1);
+  if(before)assert.deepEqual(await readFile(target),before);
+  else await assert.rejects(access(target),{code:'ENOENT'});
+  assert.equal((await readdir(root)).some(name=>name.endsWith('.tmp')),false);
+  await assert.rejects(access(target+'.write-lock'),{code:'ENOENT'});
+ }));
+}
+
+test('FR-014 rejects a byte-identical staging replacement and preserves the foreign file',async()=>withRoot(async root=>{
+ const target=join(root,'site-test-cases.json');
+ await createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/original',label:'Original',stateId:'custom',metadata});
+ const before=await readFile(target);
+ let replacement='',bytes:Buffer|undefined;
+ await assert.rejects(createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/new',label:'Trusted',stateId:'custom',metadata,
+  beforePublish:async()=>{
+   const names=(await readdir(root)).filter(name=>/^\.site-test-cases-.*\.tmp$/.test(name));
+   assert.equal(names.length,1);replacement=join(root,names[0]!);
+   bytes=await readFile(replacement);
+   await rename(replacement,join(root,'owned-stage-moved'));
+   await writeFile(replacement,bytes,{flag:'wx'});
+  },
+ }),/staging|pinned|changed|identity/i,
+ 'matching bytes cannot confer ownership of a different staging file');
+ assert.deepEqual(await readFile(target),before);
+ assert.deepEqual(await readFile(replacement),bytes,'cleanup cannot unlink another writer\'s replacement');
+ assert.deepEqual(await readFile(join(root,'owned-stage-moved')),bytes);
+ await assert.rejects(access(target+'.write-lock'),{code:'ENOENT'});
 }));
