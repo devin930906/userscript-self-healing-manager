@@ -28,7 +28,7 @@ import {
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
  buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
  readViolentmonkeyPreReloadAccess,buildViolentmonkeyProfileDeveloperModeExpression,
- enableViolentmonkeyUserScriptsAccess,
+ enableIsolatedViolentmonkeyDeveloperMode,enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -664,6 +664,21 @@ try{
  // Chrome 138+ gates chrome.userScripts behind the extension-specific Allow
  // User Scripts setting. Installing a script does not grant that permission.
  // This changes only the pinned unpacked extension in THIS disposable profile.
+ // One scoped compatibility experiment: only THIS Chrome for Testing 155
+ // process uses the disposable profile created by mkdtemp above. Enabling
+ // Developer Mode is required for an unpacked official manager on Chrome.
+ // The exact readback must succeed before any synthetic GM observation.
+ const isolatedSettingsUrl='chrome://extensions/';
+ const disposableSettings=await browserCdp.send('Target.createTarget',{url:isolatedSettingsUrl});
+ if(typeof disposableSettings.targetId!=='string'||!disposableSettings.targetId)
+  throw new Error('Disposable Chrome developer mode WebUI unavailable');
+ const disposableSettingsPage=await waitForPage(disposableSettings.targetId,isolatedSettingsUrl,()=>exited);
+ extensionsCdp=await openCdp(disposableSettingsPage.webSocketDebuggerUrl);
+ await extensionsCdp.send('Runtime.enable');
+ await enableIsolatedViolentmonkeyDeveloperMode((method,params)=>extensionsCdp.send(method,params));
+ console.log('PASS isolated CFT155 disposable Developer Mode readback; no personal Chrome settings changed.');
+ extensionsCdp.close();extensionsCdp=undefined;
+ await browserCdp.send('Target.closeTarget',{targetId:disposableSettings.targetId});
  const probeAccess=async()=>{
   const answer=await optionsCdp.send('Runtime.evaluate',{
    expression:buildViolentmonkeyUserScriptsProbeExpression(),awaitPromise:true,returnByValue:true,
