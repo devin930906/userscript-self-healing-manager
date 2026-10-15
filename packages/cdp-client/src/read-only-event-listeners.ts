@@ -87,7 +87,9 @@ export async function inspectReadOnlyEventListeners(target:ChromeTarget,locator:
     }
     const m=raw as {id?:unknown;error?:unknown;result?:any};
     if(finished||m.id!==expected)return;
-    // A CDP error property invalidates its accompanying success payload, even\n    // when the error value is null, false, zero or an empty string.\n    if(Object.hasOwn(m,'error')){
+    // A CDP error property invalidates its accompanying success payload, even
+    // when the error value is null, false, zero or an empty string.
+    if(Object.hasOwn(m,'error')){
      if(objectId&&method!=='Runtime.releaseObject'){
       release(result('unknown'));return;
      }
