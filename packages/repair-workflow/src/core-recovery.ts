@@ -35,7 +35,9 @@ function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
 async function directory(path:string){
  await assertUnlinkedRecoveryDirectory(path);
 }
-async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;bytes:number}>{
+/** Hash only a verified open descriptor; test-only callback models a path
+ * replacement exactly between the pre-open lstat and descriptor open. */
+export async function shaFile(file:string,limit=512*1024*1024,beforeOpen?:()=>Promise<void>):Promise<{sha256:string;bytes:number}>{
  const original=await lstat(file);
  const nativeBefore=await lstat(file,{bigint:true});
  if(!original.isFile()||original.isSymbolicLink()||original.size>limit||
@@ -45,7 +47,20 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
  // Hash matching is not sufficient if an independent filename can mutate
  // these supposedly isolated SQLite / manifest recovery files.
  if(original.nlink!==1)throw new Error('Unsafe recovery snapshot hardlink alias');
- const handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
+ if(beforeOpen){
+  if(typeof beforeOpen!=='function')
+   throw new Error('Invalid pinned recovery hash injection dependency');
+  await beforeOpen();
+ }
+ // O_NOFOLLOW fails with ELOOP when a late source symlink replaces the
+ // approved file. Never leak the raw absolute pathname through this error.
+ let handle;
+ try{handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='ELOOP')
+   throw new Error('Unsafe recovery snapshot symlink at descriptor open');
+  throw error;
+ }
  try{
   const opened=await handle.stat();
   const nativeOpened=await handle.stat({bigint:true});
