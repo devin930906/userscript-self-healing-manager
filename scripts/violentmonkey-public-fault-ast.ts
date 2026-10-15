@@ -114,6 +114,20 @@ function fixedBoundMethod(file:ts.SourceFile,call:ts.CallExpression|undefined):s
  return 'other';
 }
 
+function stableBinaryOperatorKind(kind:ts.SyntaxKind):string{
+ if(kind===ts.SyntaxKind.EqualsToken)return 'EqualsToken';
+ if(kind===ts.SyntaxKind.AmpersandAmpersandToken)return 'AmpersandAmpersandToken';
+ if(kind===ts.SyntaxKind.BarBarToken)return 'BarBarToken';
+ if(kind===ts.SyntaxKind.QuestionQuestionToken)return 'QuestionQuestionToken';
+ if(kind===ts.SyntaxKind.PlusToken)return 'PlusToken';
+ if(kind===ts.SyntaxKind.MinusToken)return 'MinusToken';
+ if(kind===ts.SyntaxKind.AsteriskToken)return 'AsteriskToken';
+ if(kind===ts.SyntaxKind.SlashToken)return 'SlashToken';
+ if(kind===ts.SyntaxKind.EqualsEqualsEqualsToken)return 'EqualsEqualsEqualsToken';
+ if(kind===ts.SyntaxKind.ExclamationEqualsEqualsToken)return 'ExclamationEqualsEqualsToken';
+ const name=ts.SyntaxKind[kind]||'unknown';
+ return typeof name==='string'&&name.length<64?name:'unknown';
+}
 function localBindingKind(binding:LocalBinding|undefined):PublicFaultAstEvidence['elementBaseBindingKind']{
  if(!binding)return 'unresolved';
  if(ts.isParameter(binding))return 'parameter';
@@ -222,8 +236,7 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
   const binaryOperandRoles:('left'|'right'|'other')[]=[];
   for(let current:ts.Node|undefined=node;current&&binaryOperatorKinds.length<4;current=current.parent){
    if(!ts.isBinaryExpression(current))continue;
-   const kind=ts.SyntaxKind[current.operatorToken.kind]||'unknown';
-   binaryOperatorKinds.push(typeof kind==='string'&&kind.length<64?kind:'unknown');
+   binaryOperatorKinds.push(stableBinaryOperatorKind(current.operatorToken.kind));
    binaryOperandRoles.push(current.left.getStart(file)<=position&&position<current.left.getEnd()
     ?'left':current.right.getStart(file)<=position&&position<current.right.getEnd()?'right':'other');
   }
