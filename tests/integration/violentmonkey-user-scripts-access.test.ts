@@ -99,3 +99,45 @@ test('settings context retries are bounded and identity or permission failures n
   JSON.stringify({available:false,reason:'private browser sentinel'})}}),async()=>{}).catch((e:any)=>e);
  assert.match(error.message,/invalid-receipt/);assert.doesNotMatch(error.message,/private browser sentinel/);
 });
+
+
+test('read-only userScripts access status distinguishes enabled from active without mutating Chrome settings',async()=>{
+ assert.equal(typeof api.buildViolentmonkeyUserScriptsAccessStatusExpression,'function');
+ const expression=api.buildViolentmonkeyUserScriptsAccessStatusExpression();
+ const id=contract.VIOLENTMONKEY_CFT_RELEASE.extensionId;
+ let writes=0;
+ const run=async(active:boolean,enabled=true)=>vm.runInNewContext(expression,{
+  location:{href:'chrome://extensions/'},JSON,
+  chrome:{developerPrivate:{
+   async getExtensionInfo(requested:string){
+    assert.equal(requested,id);
+    return {id,version:'2.49.0',state:'ENABLED',location:'UNPACKED',
+     userScriptsAccess:{isEnabled:enabled,isActive:active},
+     name:'PRIVATE_NAME',path:'PRIVATE_PATH'};
+   },
+   async updateExtensionConfiguration(){writes++;throw Error('must remain read-only');},
+  }},
+ });
+ assert.equal(await run(true),JSON.stringify({matched:true,enabled:true,active:true}));
+ assert.equal(await run(false),JSON.stringify({matched:true,enabled:true,active:false}));
+ assert.equal(await run(false,false),JSON.stringify({matched:true,enabled:false,active:false}));
+ assert.equal(writes,0);
+});
+
+test('read-only userScripts access status fails closed for wrong context or pinned identity without leaking metadata',async()=>{
+ const expression=api.buildViolentmonkeyUserScriptsAccessStatusExpression();
+ const id=contract.VIOLENTMONKEY_CFT_RELEASE.extensionId;
+ const empty=JSON.stringify({matched:false,enabled:false,active:false});
+ assert.equal(await vm.runInNewContext(expression,{location:{href:'https://private.example/'},chrome:{},JSON}),empty);
+ for(const patch of [
+  {id:'other'},{version:'2.48.0'},{state:'DISABLED'},{location:'FROM_STORE'},
+ ]){
+  const value=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
+   chrome:{developerPrivate:{async getExtensionInfo(){
+    return {id,version:'2.49.0',state:'ENABLED',location:'UNPACKED',
+     userScriptsAccess:{isEnabled:true,isActive:true},name:'PRIVATE_NAME',path:'PRIVATE_PATH',...patch};
+   }}}});
+  assert.equal(value,empty);
+  assert.doesNotMatch(value,/PRIVATE|path|name|other|2\.48/);
+ }
+});
