@@ -209,7 +209,12 @@ export function buildViolentmonkeyUserScriptsAccessReasonExpression():string{
    const info=await api.getExtensionInfo(${id});
    if(info?.id!==${id})return fixed('identity');
    if(info.version!==${version})return fixed('version');
-   if(info.state!=='ENABLED')return fixed('state');
+   if(info.state!=='ENABLED'){
+    if(info.state==='DISABLED')return fixed('state-disabled');
+    if(info.state==='TERMINATED')return fixed('state-terminated');
+    if(info.state==='BLOCKLISTED')return fixed('state-blocklisted');
+    return fixed('state-other');
+   }
    if(info.location!=='UNPACKED')return fixed('installation');
    if(info.userScriptsAccess?.isEnabled!==true)return fixed('toggle-disabled');
    if(info.userScriptsAccess?.isActive!==true)return fixed('toggle-inactive');
