@@ -539,7 +539,7 @@ try{
    fixtureMeta.name,fixtureMeta.namespace,fixtureUrl),
   awaitPromise:true,returnByValue:true,
  });
- const auditText=auditResponse.result?.value;
+ const auditText=readViolentmonkeyManagerDiagnosticCdpValue(auditResponse,256);
  if(typeof auditText!=='string'||auditText.length>256)
   throw new Error('RG-05 persisted manager configuration receipt invalid');
  let persistedConfig;
