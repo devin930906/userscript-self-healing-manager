@@ -31,13 +31,26 @@ export interface PublicFaultAstEvidence {
  readonly ancestorKinds:readonly string[];
  readonly calleeBindingKind:'safe-call-shape'|'function'|'alias'|'other'|'unresolved';
  readonly boundMethodKind:string;
+ readonly callArgumentCount:number;
+ readonly elementBaseKind:string;
+ readonly elementBaseBindingKind:'parameter'|'variable'|'binding-element'|'function'|'unresolved'|'other';
+ readonly elementIndexKind:'number-0'|'number-1'|'number-other'|'identifier'|'string'|'other';
+ readonly calleeFunctionKind:'function-declaration'|'function-expression'|'arrow-block'|'arrow-expression'|'other'|'unresolved';
+ readonly calleeParameterCount:number;
+ readonly calleeStatementCount:number;
+ readonly binaryOperatorKinds:readonly string[];
+ readonly binaryOperandRoles:readonly ('left'|'right'|'other')[];
  readonly fingerprintSha256:string;
 }
 const unavailable=():PublicFaultAstEvidence=>Object.freeze({
  locationVerified:false,syntaxKind:'unavailable',callKind:'none',
  propertyKind:'other',expressionRole:'other',callArgumentIndex:-1,
  ancestorKinds:Object.freeze([]),calleeBindingKind:'unresolved',
- boundMethodKind:'other',fingerprintSha256:'0'.repeat(64),
+ boundMethodKind:'other',callArgumentCount:-1,elementBaseKind:'unavailable',
+ elementBaseBindingKind:'unresolved',elementIndexKind:'other',
+ calleeFunctionKind:'unresolved',calleeParameterCount:-1,calleeStatementCount:-1,
+ binaryOperatorKinds:Object.freeze([]),binaryOperandRoles:Object.freeze([]),
+ fingerprintSha256:'0'.repeat(64),
 });
 
 type LocalBinding=ts.VariableDeclaration|ts.BindingElement|ts.ParameterDeclaration|ts.FunctionDeclaration;
@@ -101,6 +114,35 @@ function fixedBoundMethod(file:ts.SourceFile,call:ts.CallExpression|undefined):s
  return 'other';
 }
 
+function localBindingKind(binding:LocalBinding|undefined):PublicFaultAstEvidence['elementBaseBindingKind']{
+ if(!binding)return 'unresolved';
+ if(ts.isParameter(binding))return 'parameter';
+ if(ts.isVariableDeclaration(binding))return 'variable';
+ if(ts.isBindingElement(binding))return 'binding-element';
+ if(ts.isFunctionDeclaration(binding))return 'function';
+ return 'other';
+}
+function calleeFunctionDetails(binding:LocalBinding|undefined):{
+ kind:PublicFaultAstEvidence['calleeFunctionKind'];parameters:number;statements:number;
+}{
+ if(!binding)return {kind:'unresolved',parameters:-1,statements:-1};
+ let fn:ts.FunctionDeclaration|ts.FunctionExpression|ts.ArrowFunction|undefined;
+ if(ts.isFunctionDeclaration(binding))fn=binding;
+ else if(ts.isVariableDeclaration(binding)){
+  const init=binding.initializer;
+  if(init&&(ts.isFunctionExpression(init)||ts.isArrowFunction(init)))fn=init;
+ }
+ if(!fn)return {kind:'other',parameters:-1,statements:-1};
+ const parameters=fn.parameters.length<=32?fn.parameters.length:-1;
+ if(ts.isFunctionDeclaration(fn))
+  return {kind:'function-declaration',parameters,statements:fn.body&&fn.body.statements.length<=128?fn.body.statements.length:-1};
+ if(ts.isFunctionExpression(fn))
+  return {kind:'function-expression',parameters,statements:fn.body.statements.length<=128?fn.body.statements.length:-1};
+ if(ts.isBlock(fn.body))
+  return {kind:'arrow-block',parameters,statements:fn.body.statements.length<=128?fn.body.statements.length:-1};
+ return {kind:'arrow-expression',parameters,statements:0};
+}
+
 export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unknown):PublicFaultAstEvidence{
  if(typeof source!=='string'||source.length<1||source.length>524288||
     !Number.isSafeInteger(row)||!Number.isSafeInteger(column)||
@@ -160,11 +202,40 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
   const calleeBindingKind=safeCallBindingShape(calleeBinding);
   const boundMethodKind=calleeBindingKind==='safe-call-shape'
    ?fixedBoundMethod(file,call):'other';
+  const callArgumentCount=call&&call.arguments.length<=32?call.arguments.length:-1;
+  let element:ts.ElementAccessExpression|undefined;
+  for(let current:ts.Node|undefined=node;current;current=current.parent){
+   if(ts.isElementAccessExpression(current)){element=current;break;}
+   if(call&&current===call)break;
+  }
+  const elementBaseKind=element?(ts.SyntaxKind[element.expression.kind]||'unknown'):'unavailable';
+  const elementBaseBinding=element&&ts.isIdentifier(element.expression)
+   ?findLocalBinding(file,element.expression.text,element.getStart(file)):undefined;
+  const elementBaseBindingKind=element&&ts.isIdentifier(element.expression)
+   ?localBindingKind(elementBaseBinding):'other';
+  const index=element?.argumentExpression;
+  const elementIndexKind:PublicFaultAstEvidence['elementIndexKind']=!index?'other':
+   ts.isNumericLiteral(index)?index.text==='0'?'number-0':index.text==='1'?'number-1':'number-other':
+   ts.isIdentifier(index)?'identifier':ts.isStringLiteral(index)?'string':'other';
+  const fn=calleeFunctionDetails(calleeBinding);
+  const binaryOperatorKinds:string[]=[];
+  const binaryOperandRoles:('left'|'right'|'other')[]=[];
+  for(let current:ts.Node|undefined=node;current&&binaryOperatorKinds.length<4;current=current.parent){
+   if(!ts.isBinaryExpression(current))continue;
+   const kind=ts.SyntaxKind[current.operatorToken.kind]||'unknown';
+   binaryOperatorKinds.push(typeof kind==='string'&&kind.length<64?kind:'unknown');
+   binaryOperandRoles.push(current.left.getStart(file)<=position&&position<current.left.getEnd()
+    ?'left':current.right.getStart(file)<=position&&position<current.right.getEnd()?'right':'other');
+  }
   return Object.freeze({
    locationVerified:true,
    syntaxKind:ts.SyntaxKind[node.kind]||'unknown',
    callKind,propertyKind,expressionRole,callArgumentIndex,
    ancestorKinds:Object.freeze(ancestorKinds),calleeBindingKind,boundMethodKind,
+   callArgumentCount,elementBaseKind,elementBaseBindingKind,elementIndexKind,
+   calleeFunctionKind:fn.kind,calleeParameterCount:fn.parameters,calleeStatementCount:fn.statements,
+   binaryOperatorKinds:Object.freeze(binaryOperatorKinds),
+   binaryOperandRoles:Object.freeze(binaryOperandRoles),
    fingerprintSha256:createHash('sha256').update(source,'utf8').digest('hex'),
   });
  }catch{
