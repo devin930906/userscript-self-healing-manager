@@ -48,6 +48,7 @@ export interface PublicFaultAstEvidence {
  readonly calleeBodyKind:string;
  readonly calleeBodyBinaryOperatorKinds:readonly string[];
  readonly elementBaseInitializerKind:string;
+ readonly fixedUpstreamShape:'mv3-runtime-onmessage-listener-wrapper'|'other'|'unavailable';
  readonly fingerprintSha256:string;
 }
 const unavailable=():PublicFaultAstEvidence=>Object.freeze({
@@ -60,7 +61,8 @@ const unavailable=():PublicFaultAstEvidence=>Object.freeze({
  binaryOperatorKinds:Object.freeze([]),binaryOperandRoles:Object.freeze([]),
  callArgumentKinds:Object.freeze([]),firstArgumentLiteralKind:'other',
  calleeBodyKind:'unavailable',calleeBodyBinaryOperatorKinds:Object.freeze([]),
- elementBaseInitializerKind:'unavailable',fingerprintSha256:'0'.repeat(64),
+ elementBaseInitializerKind:'unavailable',fixedUpstreamShape:'unavailable',
+ fingerprintSha256:'0'.repeat(64),
 });
 
 type LocalBinding=ts.VariableDeclaration|ts.BindingElement|ts.ParameterDeclaration|ts.FunctionDeclaration;
@@ -193,6 +195,53 @@ function variableInitializerKind(binding:LocalBinding|undefined):string{
  return typeof kind==='string'&&kind.length<64?kind:'unknown';
 }
 
+function sameIdentifier(node:ts.Node|undefined,name:string):boolean{
+ return !!node&&ts.isIdentifier(node)&&node.text===name;
+}
+function classifyFixedUpstreamShape(
+ file:ts.SourceFile,call:ts.CallExpression|undefined,
+ calleeBinding:LocalBinding|undefined,elementBaseBinding:LocalBinding|undefined,
+):PublicFaultAstEvidence['fixedUpstreamShape']{
+ if(!call||!ts.isIdentifier(call.expression)||call.arguments.length!==2||
+    !ts.isVariableDeclaration(calleeBinding)||!ts.isArrowFunction(calleeBinding.initializer)||
+    calleeBinding.initializer.parameters.length!==2||
+    !ts.isArrowFunction(calleeBinding.initializer.body)||
+    !ts.isVariableDeclaration(elementBaseBinding)||elementBaseBinding.initializer)
+  return 'other';
+ const first=call.arguments[0];
+ const second=call.arguments[1];
+ if(!ts.isIdentifier(first)||!ts.isElementAccessExpression(second)||
+    !ts.isIdentifier(second.expression)||second.expression.text!==first.text||
+    !ts.isIdentifier(second.argumentExpression))
+  return 'other';
+ const base=first.text;
+ const index=second.argumentExpression.text;
+ let assignment:ts.BinaryExpression|undefined;
+ for(let current:ts.Node|undefined=call;current;current=current.parent){
+  if(ts.isBinaryExpression(current)&&current.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+     current.right===call){assignment=current;break;}
+ }
+ if(!assignment||!ts.isElementAccessExpression(assignment.left)||
+    !sameIdentifier(assignment.left.expression,base)||
+    !sameIdentifier(assignment.left.argumentExpression,index))
+  return 'other';
+ let prior=false;
+ let latest=-1;
+ const before=assignment.getStart(file);
+ const visit=(current:ts.Node):void=>{
+  const start=current.getStart(file);
+  if(start>=before)return;
+  if(ts.isBinaryExpression(current)&&current.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+     sameIdentifier(current.left,base)&&ts.isPropertyAccessExpression(current.right)&&
+     current.right.name.text==='onMessage'&&start>latest){
+    prior=true;latest=start;
+  }
+  ts.forEachChild(current,visit);
+ };
+ visit(file);
+ return prior?'mv3-runtime-onmessage-listener-wrapper':'other';
+}
+
 export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unknown):PublicFaultAstEvidence{
  if(typeof source!=='string'||source.length<1||source.length>524288||
     !Number.isSafeInteger(row)||!Number.isSafeInteger(column)||
@@ -279,6 +328,8 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
   const firstArgumentLiteralKind=first&&ts.isStringLiteral(first)&&allowedFirstArgumentLiterals.has(first.text)
    ?first.text:'other';
   const elementBaseInitializerKind=variableInitializerKind(elementBaseBinding);
+  const fixedUpstreamShape=classifyFixedUpstreamShape(
+   file,call,calleeBinding,elementBaseBinding);
   const binaryOperatorKinds:string[]=[];
   const binaryOperandRoles:('left'|'right'|'other')[]=[];
   for(let current:ts.Node|undefined=node;current&&binaryOperatorKinds.length<4;current=current.parent){
@@ -298,7 +349,7 @@ export function mapPinnedOfficialFaultSite(source:unknown,row:unknown,column:unk
    binaryOperandRoles:Object.freeze(binaryOperandRoles),
    callArgumentKinds,firstArgumentLiteralKind,
    calleeBodyKind:typeof calleeBodyKind==='string'&&calleeBodyKind.length<64?calleeBodyKind:'unknown',
-   calleeBodyBinaryOperatorKinds,elementBaseInitializerKind,
+   calleeBodyBinaryOperatorKinds,elementBaseInitializerKind,fixedUpstreamShape,
    fingerprintSha256:createHash('sha256').update(source,'utf8').digest('hex'),
   });
  }catch{
