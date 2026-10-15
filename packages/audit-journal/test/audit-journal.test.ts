@@ -136,4 +136,26 @@ CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT 1; 
   }finally{await rm(root,{recursive:true,force:true});}
  });
 
+ it('rejects malformed persisted approval expiry without treating historical expiry as authorization',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'usshm-audit-'));
+  try{
+   const file=join(root,'audit.sqlite');
+   let journal=openAuditJournal(file);
+   journal.append(trace(),now);
+   journal.close();
+   const raw=new DatabaseSync(file);
+   try{
+    raw.exec('DROP TRIGGER audit_approvals_no_update');
+    raw.prepare('UPDATE audit_approvals SET expires_at=? WHERE id=?').run('not-a-time',id(7));
+    raw.exec("CREATE TRIGGER audit_approvals_no_update BEFORE UPDATE ON audit_approvals BEGIN SELECT RAISE(ABORT,'audit journal is append-only'); END;");
+   }finally{raw.close();}
+   journal=openAuditJournal(file);
+   let issue:unknown;
+   try{journal.getByRevision(id(8));}catch(error){issue=error;}
+   journal.close();
+   assert.ok(issue instanceof Error,'historical retrieval must reject malformed persisted approval timestamps');
+   assert.match(issue.message,/corrupt|approval|expiry|timestamp|audit/i);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+
 });
