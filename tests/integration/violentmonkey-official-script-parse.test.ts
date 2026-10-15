@@ -297,7 +297,7 @@ test('RG-05 pinned official injected.js AST fingerprint identifies a fixed call 
  const source="(()=>{const receipt=chrome.runtime.sendMessage({cmd:'GetInjected'});return receipt;})();";
  const spot=source.indexOf('sendMessage')+2;
  const proof=mod!.mapPinnedOfficialFaultSite(source,0,spot);
- assert.deepEqual(Object.keys(proof).sort(),['callKind','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
+ assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','callArgumentIndex','callKind','expressionRole','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
  assert.equal(proof.locationVerified,true);
  assert.equal(proof.callKind,'member-call');
  assert.equal(proof.propertyKind,'sendMessage');
@@ -328,4 +328,19 @@ test('RG-05 production CFT diagnostic reads only the pinned public asset after t
  assert.match(source,/mapPinnedOfficialFaultSite/);
  assert.match(source,/readPinnedRegularFile/);
  assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame|\\.exception\\.description/);
+});
+
+
+test('RG-05 pinned official fault mapping exposes only bounded syntax ancestry and expression role, never source identifiers',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts');
+ const source="(()=>{const result=forward(payload[secretIndex]);return result;})();";
+ const spot=source.indexOf('payload[')+2;
+ const proof=mod.mapPinnedOfficialFaultSite(source,0,spot) as typeof mod extends never ? never : any;
+ assert.equal(proof.locationVerified,true);
+ assert.equal(proof.expressionRole,'call-argument');
+ assert.equal(proof.callArgumentIndex,0);
+ assert.ok(Array.isArray(proof.ancestorKinds));
+ assert.ok(proof.ancestorKinds.length>=2&&proof.ancestorKinds.length<=6);
+ assert.ok(proof.ancestorKinds.every((kind:unknown)=>typeof kind==='string'&&kind.length>0&&kind.length<64));
+ assert.doesNotMatch(JSON.stringify(proof),/payload|secretIndex|forward|result|PRIVATE|source/i);
 });
