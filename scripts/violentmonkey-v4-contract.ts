@@ -284,7 +284,17 @@ export async function readViolentmonkeyFixtureObservation(input:{
   const answer=await input.send('Runtime.evaluate',{
    expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-stage') ?? null",returnByValue:true,
   });
-  if(stages.includes(answer?.result?.value))stage=answer.result.value;
+  // Diagnostic-only fallback: never invoke an accessor or trust inherited
+  // fields, CDP fault envelopes or non-string stage values. Inconclusive
+  // responses stay "not-observed"; they can never certify GM execution.
+  const ownData=(candidate:unknown,key:string):unknown=>{
+   if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+      'error' in candidate||'exceptionDetails' in candidate)return undefined;
+   const field=Object.getOwnPropertyDescriptor(candidate,key);
+   return field&&Object.hasOwn(field,'value')?field.value:undefined;
+  };
+  const observed=ownData(ownData(answer,'result'),'value');
+  if(typeof observed==='string'&&stages.includes(observed))stage=observed;
  }catch{}
  // A late navigation or CFT exit must not allow a stage read from a
  // different document to be reported as the approved loopback fixture.
