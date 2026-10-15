@@ -38,6 +38,8 @@ async function directory(path:string){
 /** Hash only a verified open descriptor; test-only callback models a path
  * replacement exactly between the pre-open lstat and descriptor open. */
 export async function shaFile(file:string,limit=512*1024*1024,beforeOpen?:()=>Promise<void>):Promise<{sha256:string;bytes:number}>{
+ if(!Number.isSafeInteger(limit)||limit<0||limit>512*1024*1024)
+  throw new Error('Invalid recovery snapshot size budget');
  // Reject linked or reparse-point parents before taking the approved file snapshot.
  // Recheck after the injectable race window and again before releasing the hash.
  await assertUnlinkedRecoveryDirectory(dirname(file));
