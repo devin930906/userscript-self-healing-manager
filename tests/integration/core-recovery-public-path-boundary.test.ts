@@ -81,8 +81,11 @@ test('RG-06 public core verifier cannot erase a linked ancestor followed by pare
   throw error;
  }
  const raw=alias+sep+'..'+sep+'Backup';
- assert.equal(await realpath(raw),await realpath(join(external,'Backup')),
-  'filesystem resolves the link before parent traversal, unlike lexical resolve');
+ // POSIX realpath follows the link before '..'; Node/Win32 realpath first
+ // normalizes that component. Neither behavior authorizes this raw input.
+ const expected=process.platform==='win32'?v.backup:join(external,'Backup');
+ assert.equal(await realpath(raw),await realpath(expected),
+  'fixture must distinguish the platform-specific realpath behavior');
  await assert.rejects(verifyCoreRecoveryBundle({snapshotDirectory:raw}),unsafe,
   'a different normalized valid backup cannot stand in for the selected unsafe path');
 }));
