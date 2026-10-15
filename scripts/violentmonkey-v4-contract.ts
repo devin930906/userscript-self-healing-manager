@@ -151,8 +151,29 @@ export async function enableViolentmonkeyUserScriptsAccess(
    });
   }catch{throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');}
   let receipt;
-  const text=answer?.result?.value;
-  if(!answer?.exceptionDetails&&typeof text==='string'&&text.length<=256){
+  let text:unknown;
+  try{
+   // A CDP error anywhere in the envelope must fail closed, including
+   // inherited fault indicators beside a forged success value. The `in`
+   // checks never read getters; payload members use own data descriptors.
+   const descriptor=(value:unknown,key:string):PropertyDescriptor|undefined=>{
+    if(!value||typeof value!=='object'||Array.isArray(value))
+     throw new Error('Malformed CDP evaluation envelope');
+    return Object.getOwnPropertyDescriptor(value,key);
+   };
+   if('error' in answer||'exceptionDetails' in answer)
+    throw new Error('CDP evaluation error');
+   const result=descriptor(answer,'result');
+   if(!result||!Object.hasOwn(result,'value'))throw new Error('Invalid CDP result');
+   if('error' in result.value||'exceptionDetails' in result.value)
+    throw new Error('Nested CDP evaluation error');
+   const value=descriptor(result.value,'value');
+   if(!value||!Object.hasOwn(value,'value'))throw new Error('Invalid CDP value');
+   text=value.value;
+  }catch{
+   throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');
+  }
+  if(typeof text==='string'&&text.length<=256){
    try{receipt=JSON.parse(text);}catch{}
   }
   if(receipt?.available===true&&Object.keys(receipt).length===1)return;
