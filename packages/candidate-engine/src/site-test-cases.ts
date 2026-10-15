@@ -1,6 +1,6 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import type {BigIntStats} from 'node:fs';
-import {link,lstat,mkdir,readFile,rename,rmdir,unlink,writeFile} from 'node:fs/promises';
+import {link,lstat,mkdir,open,readFile,rename,rmdir,unlink} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
 import {assertUnlinkedRecoveryDirectory} from '../../runtime-paths/src/recovery-directory.ts';
@@ -166,8 +166,16 @@ async function persist(dataRoot:string,state:Saved,previous:{
  if(Buffer.byteLength(content,'utf8')>MAX_BYTES)
   throw new Error('Site test case registry exceeds byte budget');
  const temp=join(dataRoot,'.site-test-cases-'+randomUUID()+'.tmp');
+ let stagedIdentity:BigIntStats|undefined;
  try{
-  await writeFile(temp,content,{flag:'wx',mode:0o600});
+  // Capture ownership from the exclusively opened descriptor, never from a
+  // fresh pathname that another writer could already have replaced.
+  const file=await open(temp,'wx',0o600);
+  try{
+   stagedIdentity=await file.stat({bigint:true});
+   await file.writeFile(content,'utf8');
+   stagedIdentity=await file.stat({bigint:true});
+  }finally{await file.close();}
   // A deterministic fault-injection hook, not reachable through desktop IPC.
   if(beforeFinalWrite)await beforeFinalWrite();
   // Re-read the actual on-disk state, not merely verify its JSON is valid:
@@ -178,6 +186,13 @@ async function persist(dataRoot:string,state:Saved,previous:{
    throw new Error('Site test case registry changed concurrently; preserve other writer');
   // Test-only deterministic boundary; not accessible from desktop IPC.
   if(beforePublish)await beforePublish();
+  // Rechecking the destination does not authenticate the staged source.
+  // Both its original descriptor identity and this operation's exact bytes
+  // must survive all preceding asynchronous work before link/rename.
+  await readPinnedRegularFile(temp,{
+   maxBytes:MAX_BYTES,expectedNative:stagedIdentity,
+   expectedSha256:createHash('sha256').update(content,'utf8').digest('hex'),
+  });
   if(previous.identity===null){
    // First save: rename() overwrites an independently created registry after
    // the final lstat. Atomic same-directory link() publishes only if absent.
@@ -196,9 +211,17 @@ async function persist(dataRoot:string,state:Saved,previous:{
    await rename(temp,target);
   }
  }finally{
-  await unlink(temp).catch(error=>{
+  // A replacement at our random pathname is not ours to delete. This is an
+  // optimistic identity fence, not an atomic cross-process unlink primitive.
+  try{
+   const current=await lstat(temp,{bigint:true});
+   if(stagedIdentity&&current.isFile()&&!current.isSymbolicLink()&&
+      current.dev===stagedIdentity.dev&&current.ino===stagedIdentity.ino&&
+      current.birthtimeNs===stagedIdentity.birthtimeNs)
+    await unlink(temp);
+  }catch(error){
    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
-  });
+  }
  }
 }
 export async function listSiteTestCases({dataRoot,scriptId}:{

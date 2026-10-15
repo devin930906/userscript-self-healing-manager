@@ -32,10 +32,10 @@
 
 **Interfaces:** Retain `createSiteTestCase`; internal staging uses open-descriptor BigIntStats and SHA-256 with existing `readPinnedRegularFile`.
 
-- [ ] Write behavior regressions injecting same-size edits and byte-identical pathname replacements at the existing `beforePublish` boundary; assert rejection and unchanged target bytes.
-- [ ] Run the focused test and observe expected missing rejection (RED).
-- [ ] Capture staging descriptor identity after writing; before publication require the same pinned file and exact expected digest. Cleanup must avoid unlinking an unrelated replacement.
-- [ ] Run focused tests, repository tests, typecheck and build (GREEN), then commit.
+- [x] Write behavior regressions injecting same-size edits and byte-identical pathname replacements at the existing `beforePublish` boundary; assert rejection and unchanged target bytes.
+- [x] Run the focused test and observe expected missing rejection (RED).
+- [x] Capture staging descriptor identity after writing; before publication require the same pinned file and exact expected digest. Cleanup must avoid unlinking an unrelated replacement.
+- [x] Run focused tests, repository tests, typecheck and build (GREEN), then commit.
 
 ### Task 2: Bind removal to native consent through final I/O
 
@@ -58,3 +58,5 @@
 
 - Baseline: integration `b39be8619be486d48389ae306129e02f5acd17ae`; FR-014 task `7dab2aebc2fb978c07c04a82e0249dbbdf8239f4`. Exact integration Development FAIL, continuation/contracts SUCCESS. Latest RG-05 task `7f3f856a0fdaac46fb4ce2f6457b91bd3dc988ed` Windows verify SUCCESS, official GM restart FAIL; runtime ID present but onMessage/addListener absent after restart, fixed TypeError signature matches official wrapper. Do not repeat previous headful/data.info/download experiments.
 - Pre-flight: Task 2 uses the same persistence gate as Task 1; preserve the final callback before the new staging integrity check. Deletion tests must not mistake synthetic cleanup for native consent.
+
+- Task 1 complete: three new behavior tests observed RED (missing rejection); focused GREEN 11/11, full `npm test` {'tests': 1600, 'pass': 1598, 'fail': 0, 'skipped': 2}, strict typecheck/build and compiled production boundary PASS. Exact pinned descriptor identity + operation SHA-256 required before publication; foreign replacement staging file preserved.
