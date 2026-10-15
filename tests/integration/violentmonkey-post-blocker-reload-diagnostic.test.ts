@@ -11,7 +11,7 @@ import {test} from 'node:test';
 test('RG-05 post-blocker extension reload diagnostic cannot weaken the cold-start gate',async()=>{
  const source=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
  const blocked=source.indexOf('classifyOfficialViolentmonkeyRestartBlocker({');
- const reload=source.indexOf('runPostBlockerExtensionReloadDiagnostic({');
+ const reload=source.indexOf('const reloadFixture=await runPostBlockerExtensionReloadDiagnostic({');
  const gate=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
  assert.ok(blocked>=0,'missing real cold-start blocker classification');
  assert.ok(reload>blocked,'diagnostic extension reload must run only after blocker classification');
