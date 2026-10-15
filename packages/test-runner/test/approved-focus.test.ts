@@ -242,3 +242,20 @@ test('FR-024 mutation during pre-action focus evidence cannot dispatch DOM.focus
  assert.equal(socket.methods.includes('DOM.focus'),false,
   'never dispatch the observable focus after a control changes during pre-action evidence');
 });
+
+test('FR-024 initial page identity verification consumes the consent time budget',async()=>{
+ const socket=new FocusSocket();
+ let created=0,checks=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,timeoutMs:100,
+  confirm:async()=>{
+   checks++;
+   await new Promise(resolve=>setTimeout(resolve,200));
+   return frame;
+  },
+  socketFactory:()=>{created++;return socket;},
+ }),/timed out|expired|deadline|timeout/i);
+ assert.equal(checks,1,'the original document identity was verified once');
+ assert.equal(created,0,'an expired approval must not even open a CDP action socket');
+ assert.deepEqual(socket.methods,[],'no CDP command may be sent after slow initial identity');
+});

@@ -41,10 +41,14 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
  if(!css||css.length>2048)throw new Error('Unsupported focus selector');
  if(typeof confirm!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
   throw new Error('Invalid focus identity or time budget');
+ // The approval budget starts BEFORE the first awaited identity check.
+ // An unresponsive CDP frame must not extend consent by delaying setup.
+ const deadline=performance.now()+timeoutMs;
  const identity=await confirm(target);
  if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
+ if(performance.now()>=deadline)throw new Error('Approved focus timed out');
  const guard=async()=>assertStablePageDocument(identity,await confirm(target));
  const result=(observed:boolean):ApprovedControlFocusResult=>Object.freeze({
   status:observed?'focus-observed':'needs-review',
@@ -91,12 +95,15 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
  const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[
   ['open',onOpen],['message',onMessage],['error',onError],['close',onClose]];
  for(const [name,handler] of handlers)socket.addEventListener(name,handler);
- const timer=setTimeout(()=>abort('Approved focus timed out'),timeoutMs);
+ if(performance.now()>=deadline)abort('Approved focus timed out');
+ const timer=setTimeout(()=>abort('Approved focus timed out'),
+  Math.max(0,deadline-performance.now()));
  const send=async(method:string,params:Record<string,unknown>={}):Promise<Record<string,any>>=>{
   // Deadline can expire while Page.getFrameTree is awaiting a slow response
   // with no CDP command pending. Never send DOM.focus (or any other command)
   // after the one-time approval budget is exhausted.
   if(aborted!==null)throw aborted;
+  if(performance.now()>=deadline){abort('Approved focus timed out');throw aborted;}
   if(pending||finished)throw error('Concurrent CDP focus command rejected');
   const id=++sequence;
   return new Promise<Record<string,any>>((resolve,reject)=>{
