@@ -11,7 +11,9 @@ const MAX_BYTES=131072;
 const MAX_ITEMS=256;
 const MAX_PER_SCRIPT=16;
 const SCRIPT_ID=/^[A-Za-z0-9_-]{1,128}$/;
-const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+// UUIDs produced by randomUUID() are canonical lowercase. Reject noncanonical
+// case aliases in recovered records rather than accepting two spellings of one ID.
+const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 export type DeclaredPageState='logged-out'|'logged-in'|'custom';
 export interface SiteTestCase{
  readonly id:string;readonly scriptId:string;readonly label:string;
@@ -193,6 +195,16 @@ async function persist(dataRoot:string,state:Saved,previous:{
    maxBytes:MAX_BYTES,expectedNative:stagedIdentity,
    expectedSha256:createHash('sha256').update(content,'utf8').digest('hex'),
   });
+  // An uncoordinated editor may modify the existing registry after the
+  // earlier optimistic check (including through the test-only hook).
+  // Recheck after staging validation, as close to publication as async I/O
+  // permits. This reduces lost updates; rename is still NOT an atomic CAS.
+  if(previous.identity!==null){
+   const latest=await readForWrite(dataRoot);
+   if(!sameSceneIdentity(previous.identity,latest.identity)||
+      JSON.stringify(previous.state)!==JSON.stringify(latest.state))
+    throw new Error('Site test case registry changed concurrently before publish');
+  }
   // Main's trusted synchronous guard runs AFTER the last preparatory I/O.
   // Do not insert an await between this guard and publication dispatch.
   assertAuthorized?.();
