@@ -25,6 +25,7 @@ import type {PassivePageExceptionEvidence} from '../../../../packages/cdp-client
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {ManualDomTransitionResult} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import type {ProductAction,ProductActionReview} from '../../../../packages/test-runner/src/product-action-review.ts';
+import type {ApprovedControlFocusResult} from '../../../../packages/test-runner/src/approved-focus.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {VerifiedPreviewResult} from '../../../../packages/repair-workflow/src/verified-preview.ts';
@@ -66,6 +67,7 @@ declare global {interface Window{ussm:{
  waitUntilElementVisible:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityWaitResult>;
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
   reviewProductAction:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;action:ProductAction;approved:true})=>Promise<ProductActionReview>;
+  approvedControlFocus:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ApprovedControlFocusResult>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>Promise<ReadOnlyDomContractResult>;
  observeManualDomTransition:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;phase:'start'|'finish';approved:true})=>Promise<ManualDomTransitionResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
@@ -204,6 +206,9 @@ function App(){
  const [productActionEvidence,setProductActionEvidence]=useState<{selectorIndex:number;action:ProductAction;result:ProductActionReview}|null>(null);
  const productActionGeneration=useRef(new LatestRequestGate());
  const productActionActive=useRef(false);
+ const [focusEvidence,setFocusEvidence]=useState<{selectorIndex:number;result:ApprovedControlFocusResult}|null>(null);
+ const focusGeneration=useRef(new LatestRequestGate());
+ const focusActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -275,6 +280,7 @@ function App(){
  useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{readinessGeneration.current.invalidate();if(readinessActive.current){readinessActive.current=false;setBusy(false);}setReadinessEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{productActionGeneration.current.invalidate();if(productActionActive.current){productActionActive.current=false;setBusy(false);}setProductActionEvidence(null);},[focused,targetId,result,repairIndex,productAction]);
+ useEffect(()=>{focusGeneration.current.invalidate();if(focusActive.current){focusActive.current=false;setBusy(false);}setFocusEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -715,6 +721,30 @@ function App(){
     setError('动作风险审查失败：授权、页面或只读证据可能变化；没有执行网页操作。');
   }finally{
    if(productActionGeneration.current.isCurrent(token)){productActionActive.current=false;setBusy(false);}
+  }
+ }
+ async function approvedFocusCurrentControl(){
+  if(focused===null||!result||!targetId||busy)return;
+  const record=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!record||record.runtimeRequired||record.receiver!=='document')return;
+  const token=focusGeneration.current.begin();
+  const scanId=result.scanId,itemIndex=focused,selectorIndex=repairIndex,target=targetId;
+  focusActive.current=true;setBusy(true);setError('');setFocusEvidence(null);
+  try{
+   const receipt=await window.ussm.approvedControlFocus({
+    scanId,itemIndex,selectorIndex,targetId:target,approved:true,
+   });
+   if(focusGeneration.current.isCurrent(token)){
+    setFocusEvidence({selectorIndex,result:receipt});
+    setMessage(receipt.status==='focus-observed'?
+     '同一个已授权按钮确实获得焦点：只记为单次 V2 聚焦行为，不能证明脚本或业务功能。':
+     '聚焦后的独立焦点证据不足：V2 阻断，未确认业务功能。');
+   }
+  }catch{
+   if(focusGeneration.current.isCurrent(token))
+    setError('受控控件聚焦未获确认：控件、权限或页面身份可能改变。焦点事件可能已发生，不会自动重试。');
+  }finally{
+   if(focusGeneration.current.isCurrent(token)){focusActive.current=false;setBusy(false);}
   }
  }
  async function runDomContract(){
@@ -1398,6 +1428,17 @@ function App(){
       · 准备度 {productActionEvidence.result.readinessStatus}
       · 拒绝执行 · V2 未验证，V3/V4 未配置。
       <small>{productActionEvidence.result.reason}。不会自动执行网页操作，也不发放动作执行令牌。</small>
+     </div>}
+     <div className="toolbar">
+      <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||
+       details.analysis.selectorRecords[repairIndex]?.runtimeRequired||details.analysis.selectorRecords[repairIndex]?.receiver!=='document'}
+       onClick={()=>void approvedFocusCurrentControl()}>确认聚焦此网页控件（单次 V2 行为）</button>
+      <span className="dim">可能触发网页的 focus 事件与用户脚本监听器；每次需要额外明确确认。只允许普通非提交按钮，不执行 click、type、submit、send、delete 或 payment。没有可保证的焦点回滚。</span>
+     </div>
+     {focusEvidence&&focusEvidence.selectorIndex===repairIndex&&<div className="notice">
+      <b>已批准聚焦：</b>{focusEvidence.result.status==='focus-observed'?'CDP 后置状态确认同一按钮获得焦点':'CDP 后置焦点证据不足'}
+      · V2 {focusEvidence.result.V2==='focus-observed-only'?'仅观察到聚焦':'阻断'} · V3/V4 未配置 · 不能证明任何油猴或业务功能
+      <small>{focusEvidence.result.reason}</small>
      </div>}
 <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
