@@ -210,7 +210,10 @@ export function buildViolentmonkeyUserScriptsAccessReasonExpression():string{
    if(info?.id!==${id})return fixed('identity');
    if(info.version!==${version})return fixed('version');
    if(info.state!=='ENABLED'){
-    if(info.state==='DISABLED')return fixed('state-disabled');
+    if(info.state==='DISABLED'){
+     return fixed(info.disableReasons?.reloading===true?
+      'state-disabled-reloading':'state-disabled-other');
+    }
     if(info.state==='TERMINATED')return fixed('state-terminated');
     if(info.state==='BLOCKLISTED')return fixed('state-blocklisted');
     return fixed('state-other');
