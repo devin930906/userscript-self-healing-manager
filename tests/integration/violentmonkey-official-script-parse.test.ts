@@ -297,7 +297,7 @@ test('RG-05 pinned official injected.js AST fingerprint identifies a fixed call 
  const source="(()=>{const receipt=chrome.runtime.sendMessage({cmd:'GetInjected'});return receipt;})();";
  const spot=source.indexOf('sendMessage')+2;
  const proof=mod!.mapPinnedOfficialFaultSite(source,0,spot);
- assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','boundMethodKind','callArgumentIndex','callKind','calleeBindingKind','expressionRole','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
+ assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','binaryOperandRoles','binaryOperatorKinds','boundMethodKind','callArgumentCount','callArgumentIndex','callKind','calleeBindingKind','calleeFunctionKind','calleeParameterCount','calleeStatementCount','elementBaseBindingKind','elementBaseKind','elementIndexKind','expressionRole','fingerprintSha256','locationVerified','propertyKind','syntaxKind'].sort());
  assert.equal(proof.locationVerified,true);
  assert.equal(proof.callKind,'member-call');
  assert.equal(proof.propertyKind,'sendMessage');
@@ -364,4 +364,32 @@ test('RG-05 public AST mapper resolves safe-bind helper shape and only allowlist
  assert.equal(proof.calleeBindingKind,'safe-call-shape');
  assert.equal(proof.boundMethodKind,'forEach');
  assert.doesNotMatch(JSON.stringify(proof),/safeCall|\beach\b|\bargs\b|PRIVATE|identifierText/i);
+});
+
+
+test('RG-05 public fault mapper exposes bounded call, element and binary structure for source-semantic matching',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts');
+ const source=[
+  "const helper=(left,right)=>right;",
+  "const list=[];",
+  "let gate=true,other=false,out=false;",
+  "{gate&&(out=other||helper('x',list[1]));}",
+ ].join('');
+ const spot=source.lastIndexOf('list[1]')+2;
+ const proof=mod.mapPinnedOfficialFaultSite(source,0,spot) as any;
+ assert.equal(proof.locationVerified,true);
+ assert.equal(proof.callArgumentCount,2);
+ assert.equal(proof.callArgumentIndex,1);
+ assert.equal(proof.elementBaseKind,'Identifier');
+ assert.equal(proof.elementBaseBindingKind,'variable');
+ assert.equal(proof.elementIndexKind,'number-1');
+ assert.equal(proof.calleeFunctionKind,'arrow-expression');
+ assert.equal(proof.calleeParameterCount,2);
+ assert.equal(proof.calleeStatementCount,0);
+ assert.deepEqual(proof.binaryOperatorKinds.slice(0,2),['BarBarToken','EqualsToken']);
+ assert.deepEqual(proof.binaryOperandRoles.slice(0,2),['right','right']);
+ for(const key of ['binaryOperatorKinds','binaryOperandRoles']){
+  assert.ok(Array.isArray(proof[key])&&proof[key].length<=4);
+ }
+ assert.doesNotMatch(JSON.stringify(proof),/helper|\blist\b|\bgate\b|\bother\b|\bout\b|PRIVATE|identifierText/i);
 });
