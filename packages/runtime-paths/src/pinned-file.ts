@@ -82,7 +82,12 @@ export async function readPinnedRegularFile(path:string,{
  if(process.platform==='win32'&&expected&&!expectedNative)
   throw new Error('Precise native snapshot required for Windows pinned file identity');
  validateFile(before);
- const nativeBefore=expectedNative?await lstat(path,{bigint:true}):undefined;
+ // Windows numeric inode metadata can alias distinct file IDs. Pin precise
+ // descriptor/path metadata for EVERY read, not only callers that supplied
+ // an earlier approved snapshot. This closes an in-flight path-swap gap;
+ // it does not authenticate a pre-existing snapshot without expectedNative.
+ const trackNative=process.platform==='win32'||expectedNative!==undefined;
+ const nativeBefore=trackNative?await lstat(path,{bigint:true}):undefined;
  if(expectedNative){
   if(typeof expectedNative.isFile!=='function'||
      typeof expectedNative.isSymbolicLink!=='function'||
@@ -108,8 +113,8 @@ export async function readPinnedRegularFile(path:string,{
   const opened=await handle.stat();
   validateFile(opened);
   if(!same(before,opened))throw new Error('Pinned file identity changed before open');
-  const nativeOpened=expectedNative?await handle.stat({bigint:true}):undefined;
-  if(expectedNative&&(!nativeBefore||!nativeOpened||
+  const nativeOpened=trackNative?await handle.stat({bigint:true}):undefined;
+  if(trackNative&&(!nativeBefore||!nativeOpened||
       !sameNative(nativeBefore,nativeOpened)))
    throw new Error('Precise pinned-file native identity changed before open');
   // The file may grow AFTER lstat/open. Never use an unbounded whole-file read here:
@@ -131,13 +136,13 @@ export async function readPinnedRegularFile(path:string,{
   const reread=await handle.stat();
   validateFile(reread);
   if(!same(opened,reread))throw new Error('Pinned file changed during read');
-  if(expectedNative&&(!nativeOpened||
+  if(trackNative&&(!nativeOpened||
       !sameNative(nativeOpened,await handle.stat({bigint:true}))))
    throw new Error('Precise pinned-file native identity changed during read');
   const after=await lstat(path);
   validateFile(after);
   if(!same(before,after))throw new Error('Pinned file identity changed during read');
-  if(expectedNative&&(!nativeBefore||
+  if(trackNative&&(!nativeBefore||
       !sameNative(nativeBefore,await lstat(path,{bigint:true}))))
    throw new Error('Precise pinned-file native path changed during read');
   // Recheck the entire selected parent chain after reading: a concurrent
