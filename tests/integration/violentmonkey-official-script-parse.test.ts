@@ -440,3 +440,34 @@ test('RG-05 static mapper recognizes only the fixed MV3 runtime.onMessage listen
   assert.notEqual(result.fixedUpstreamShape,'mv3-runtime-onmessage-listener-wrapper');
  }
 });
+
+
+test('RG-05 recognizes only the fixed runtime.onMessage addListener nullish TypeError signature',async()=>{
+ const mod=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const make=()=>{
+  const e=mod.createPinnedOfficialInjectorExceptionAttribution(frame,extension) as
+   ReturnType<typeof mod.createPinnedOfficialInjectorExceptionAttribution> & {injectedFailureSignature:()=>string};
+  e.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:frame,isDefault:false}}});
+  e.observe('Debugger.scriptParsed',parsed('chrome-extension://'+extension+'/injected.js'));
+  return e;
+ };
+ for(const description of [
+  "TypeError: Cannot read properties of undefined (reading 'addListener')",
+  "TypeError: Cannot read properties of null (reading 'addListener')\n  at PUBLIC_FIXED_BUNDLE",
+ ]){
+  const e=make();
+  e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+   scriptId:'101',executionContextId:9,exception:{className:'TypeError',description},
+  }});
+  assert.equal(e.injectedFailureSignature(),'missing-runtime-onmessage-addlistener');
+  assert.doesNotMatch(e.injectedFailureSignature()+JSON.stringify(e.snapshot()),/PUBLIC_FIXED_BUNDLE|chrome-extension|101|frame/);
+ }
+ const other=make();
+ other.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,exception:{
+   className:'TypeError',
+   description:"TypeError: Cannot read properties of undefined (reading 'removeListener')",
+  },
+ }});
+ assert.equal(other.injectedFailureSignature(),'other-type-error');
+});
