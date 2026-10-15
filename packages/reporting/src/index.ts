@@ -35,11 +35,27 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
  const validItems=():boolean=>{
+  // Runtime input must not execute an accessor while a supposedly static
+  // report is being inspected. Validate own enumerable data descriptors
+  // before downstream status/count projections read any row property.
   for(const item of report.items){
-   if(!item||typeof item!=='object'||typeof item.path!=='string'||
-      !Array.isArray(item.diagnostics))return false;
-   for(const message of item.diagnostics)
-    if(typeof message!=='string')return false;
+   if(!item||typeof item!=='object'||Array.isArray(item))return false;
+   const values:Record<string,unknown>=Object.create(null);
+   for(const key of ['path','status','selectorCount','runtimeRequiredCount','diagnostics']){
+    const descriptor=Object.getOwnPropertyDescriptor(item,key);
+    if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+     return false;
+    values[key]=descriptor.value;
+   }
+   if(typeof values.path!=='string'||!Array.isArray(values.diagnostics))
+    return false;
+   // for..of invokes accessor-backed array elements, including malicious
+   // getters containing private error text. Inspect only owned data slots.
+   for(let index=0;index<values.diagnostics.length;index++){
+    const descriptor=Object.getOwnPropertyDescriptor(values.diagnostics,String(index));
+    if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value')||
+       typeof descriptor.value!=='string')return false;
+   }
   }
   return true;
  };
