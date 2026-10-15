@@ -59,3 +59,25 @@ test('RG-05 permission gate still accepts one clean official permission receipt'
   async()=>{throw Error('clean positive receipt must not retry');});
  assert.equal(calls,1);
 });
+
+test('RG-05 permission gate rejects inherited protocol faults despite own success data',async()=>{
+ const inheritedFaults=[
+  Object.assign(Object.create({error:privateDetails}),{result:{value:ready}}),
+  Object.assign(Object.create({exceptionDetails:null}),{result:{value:ready}}),
+  {result:Object.assign(Object.create({error:privateDetails}),{value:ready})},
+  {result:Object.assign(Object.create({exceptionDetails:false}),{value:ready})},
+ ];
+ for(const reply of inheritedFaults){
+  let calls=0,sleeps=0;
+  await assert.rejects(enableViolentmonkeyUserScriptsAccess(async()=>{calls++;return reply;},
+   async()=>{sleeps++;}),
+   (error:unknown)=>{
+    assert.ok(error instanceof Error);
+    assert.equal(error.message,'Pinned unpacked manager Allow User Scripts CDP evaluation failed');
+    assert.doesNotMatch(error.message,/PRIVATE_|private[.]invalid/);
+    return true;
+   });
+  assert.equal(calls,1);
+  assert.equal(sleeps,0);
+ }
+});
