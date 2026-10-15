@@ -21,8 +21,10 @@ type CdpResult={id:number;result?:Record<string,any>;error?:unknown};
  * userscript provenance, business effect or V3/V4 from focus.
  * Only a uniquely pinned <button type="button"> is allowed.
  */
-export async function runApprovedControlFocus({approved,target,locator,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
+export async function runApprovedControlFocus({approved,target,locator,approvedDocument,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
  approved:boolean;target:ChromeTarget;locator:LiteralLocator;
+ /** Trusted Main's document identity checked across the native consent prompt. */
+ approvedDocument:ConfirmedPageIdentity;
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  /** Trusted Main-owned synchronous revocation check at the last action boundary. */
  assertAuthorizedBeforeAction?:()=>void;
@@ -41,10 +43,16 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
  if(!css||css.length>2048)throw new Error('Unsupported focus selector');
  if(typeof confirm!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
   throw new Error('Invalid focus identity or time budget');
+ if(!approvedDocument||approvedDocument.targetId!==target.id||
+    approvedDocument.confirmedUrl!==target.url||!approvedDocument.frameId||!approvedDocument.loaderId)
+  throw new Error('Native-approved focus document identity required');
  const identity=await confirm(target);
  if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
+ // Native approval belongs to a particular document, even when a reload
+ // keeps its URL and target ID. Do not establish a replacement baseline.
+ assertStablePageDocument(approvedDocument,identity);
  const guard=async()=>assertStablePageDocument(identity,await confirm(target));
  const result=(observed:boolean):ApprovedControlFocusResult=>Object.freeze({
   status:observed?'focus-observed':'needs-review',

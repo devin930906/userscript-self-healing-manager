@@ -41,7 +41,7 @@ class FocusSocket extends EventEmitter{
  close(){this.emit('close');}
 }
 const run=async(socket:FocusSocket,confirm=async()=>frame,approved=true)=>runApprovedControlFocus({
- approved,target,locator,
+ approved,target,locator,approvedDocument:frame,
  confirm,socketFactory:()=>socket,timeoutMs:2000,
 });
 test('FR-024 actual approved focus uses only DOM CDP and proves the same button became :focus',async()=>{
@@ -84,9 +84,9 @@ test('FR-024 refuses unauthenticated request, untrusted page sockets and navigat
  const s=new FocusSocket();
  await assert.rejects(run(s,async()=>frame,false),/approval/i);
  assert.deepEqual(s.methods,[]);
- await assert.rejects(runApprovedControlFocus({approved:true,target:{...target,url:'https://bank.invalid/pay'},
+ await assert.rejects(runApprovedControlFocus({approved:true,approvedDocument:frame,target:{...target,url:'https://bank.invalid/pay'},
   locator,confirm:async()=>frame,socketFactory:()=>s}),/identity|page|target|URL/i);
- await assert.rejects(runApprovedControlFocus({approved:true,target:{...target,webSocketDebuggerUrl:'ws://evil.invalid/devtools/page/approvedFocusFixture'},
+ await assert.rejects(runApprovedControlFocus({approved:true,approvedDocument:frame,target:{...target,webSocketDebuggerUrl:'ws://evil.invalid/devtools/page/approvedFocusFixture'},
   locator,confirm:async()=>frame,socketFactory:()=>s}),/CDP|loopback|socket/i);
  let calls=0;const moved=new FocusSocket();
  await assert.rejects(run(moved,async()=>++calls===1?frame:{...frame,loaderId:'navigated'}),/document|identity|navigation|changed/i);
@@ -112,7 +112,7 @@ test('FR-024 expired consent budget during slow document recheck can never dispa
  const socket=new FocusSocket();
  let calls=0;
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,timeoutMs:100,
+  approved:true,target,locator,approvedDocument:frame,timeoutMs:100,
   confirm:async()=>{
    calls++;
    if(calls===2)await new Promise(resolve=>setTimeout(resolve,180));
@@ -164,7 +164,7 @@ test('FR-024 revoked scan during CDP preparation cannot dispatch an observable f
  const socket=new FocusSocket();
  let checks=0;
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,confirm:async()=>frame,timeoutMs:2000,
+  approved:true,target,locator,approvedDocument:frame,confirm:async()=>frame,timeoutMs:2000,
   socketFactory:()=>socket,
   assertAuthorizedBeforeAction:()=>{
    checks++;

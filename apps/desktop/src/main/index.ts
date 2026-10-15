@@ -785,6 +785,7 @@ async function bootstrap():Promise<void>{
     scanSessions.assertCurrent(scanSnapshot);
     const receipt=await runApprovedControlFocus({
      approved:true,target:selected,
+     approvedDocument:afterPrompt,
      locator:{method:record.method,expression:record.expression,runtimeRequired:false},
      confirm:confirmPageIdentity,
      assertAuthorizedBeforeAction:()=>{
