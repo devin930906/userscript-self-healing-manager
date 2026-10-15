@@ -27,6 +27,7 @@ import {
  buildViolentmonkeyFixtureMatchExpression,
  buildViolentmonkeyFixtureRegistrationExpression,
  buildViolentmonkeyWorldConfigurationExpression,
+ readViolentmonkeyManagerDiagnosticCdpValue,
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
@@ -199,9 +200,7 @@ async function readManagerInjectionOptions(cdp,hasExited){
    expression:buildViolentmonkeyManagerInjectionOptionsExpression(),
    awaitPromise:true,returnByValue:true,
   });
-  if(result.exceptionDetails||result.result?.exceptionDetails)
-   throw new Error('unexpected evaluation');
-  value=result.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(result,160);
  }catch{throw new Error('RG-05 official manager injection options inspection failed');}
  if(typeof value!=='string'||value.length>160)
   throw new Error('RG-05 official manager injection options receipt invalid');
@@ -225,9 +224,7 @@ async function readManagerFixtureMatch(cdp,fixtureUrl,scriptId,hasExited){
    expression:buildViolentmonkeyFixtureMatchExpression(fixtureUrl,scriptId),
    awaitPromise:true,returnByValue:true,
   });
-  if(response.exceptionDetails||response.result?.exceptionDetails)
-   throw new Error('evaluation failed');
-  text=response.result?.value;
+  text=readViolentmonkeyManagerDiagnosticCdpValue(response,80);
  }catch{throw new Error('RG-05 official manager fixture matcher inspection failed');}
  if(typeof text!=='string'||text.length>80)
   throw new Error('RG-05 official manager fixture matcher receipt invalid');
@@ -250,9 +247,7 @@ async function readManagerFixtureRegistration(cdp,fixtureUrl,hasExited){
    expression:buildViolentmonkeyFixtureRegistrationExpression(fixtureUrl),
    awaitPromise:true,returnByValue:true,
   });
-  if(answer.exceptionDetails||answer.result?.exceptionDetails)
-   throw new Error('unexpected diagnostic exception');
-  value=answer.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(answer,160);
  }catch{throw new Error('RG-05 official registration diagnostic failed');}
  if(typeof value!=='string'||value.length>160)
   throw new Error('RG-05 official registration receipt invalid');
@@ -277,9 +272,7 @@ async function readManagerWorldConfiguration(cdp,hasExited){
    expression:buildViolentmonkeyWorldConfigurationExpression(),
    awaitPromise:true,returnByValue:true,
   });
-  if(response.exceptionDetails||response.result?.exceptionDetails)
-   throw new Error('invalid world diagnostic');
-  value=response.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(response,160);
  }catch{throw new Error('RG-05 official world configuration diagnostic failed');}
  if(typeof value!=='string'||value.length>160)
   throw new Error('RG-05 official world configuration receipt invalid');
