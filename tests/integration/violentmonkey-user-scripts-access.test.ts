@@ -183,12 +183,29 @@ test('read-only userScripts access reason is allowlisted and never exposes exten
   JSON.stringify({reason:'toggle-inactive'}));
  assert.equal(await run({userScriptsAccess:{isEnabled:false,isActive:false}}),
   JSON.stringify({reason:'toggle-disabled'}));
- assert.equal(await run({state:'DISABLED',disableReasons:{reloading:true}}),
-  JSON.stringify({reason:'state-disabled-reloading'}));
- assert.equal(await run({state:'DISABLED',disableReasons:{reloading:false}}),
-  JSON.stringify({reason:'state-disabled-other'}));
- assert.equal(await run({state:'DISABLED',disableReasons:{reloading:'PRIVATE_VALUE'}}),
-  JSON.stringify({reason:'state-disabled-other'}));
+ const disabled=async(flag:string,value:any=true)=>run({
+  state:'DISABLED',disableReasons:{[flag]:value},
+ });
+ assert.equal(await disabled('reloading'),JSON.stringify({reason:'state-disabled-reloading'}));
+ assert.equal(await disabled('unsupportedDeveloperExtension'),
+  JSON.stringify({reason:'state-disabled-unsupported-developer'}));
+ assert.equal(await disabled('unsupportedManifestVersion'),
+  JSON.stringify({reason:'state-disabled-unsupported-manifest'}));
+ assert.equal(await disabled('corruptInstall'),JSON.stringify({reason:'state-disabled-corrupt'}));
+ assert.equal(await disabled('suspiciousInstall'),JSON.stringify({reason:'state-disabled-suspicious'}));
+ assert.equal(await disabled('updateRequired'),JSON.stringify({reason:'state-disabled-update'}));
+ assert.equal(await disabled('publishedInStoreRequired'),JSON.stringify({reason:'state-disabled-store'}));
+ assert.equal(await disabled('blockedByPolicy'),JSON.stringify({reason:'state-disabled-policy'}));
+ assert.equal(await disabled('custodianApprovalRequired'),JSON.stringify({reason:'state-disabled-custodian'}));
+ assert.equal(await disabled('parentDisabledPermissions'),JSON.stringify({reason:'state-disabled-parent'}));
+ assert.equal(await disabled('disabledByAnotherExtension'),
+  JSON.stringify({reason:'state-disabled-other-extension'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{}}),
+  JSON.stringify({reason:'state-disabled-none'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{reloading:true,corruptInstall:true}}),
+  JSON.stringify({reason:'state-disabled-multiple'}));
+ assert.equal(await disabled('reloading','PRIVATE_VALUE'),
+  JSON.stringify({reason:'state-disabled-none'}));
  assert.equal(await run({state:'TERMINATED'}),JSON.stringify({reason:'state-terminated'}));
  assert.equal(await run({state:'BLOCKLISTED'}),JSON.stringify({reason:'state-blocklisted'}));
  assert.equal(await run({state:'PRIVATE_STATE'}),JSON.stringify({reason:'state-other'}));
