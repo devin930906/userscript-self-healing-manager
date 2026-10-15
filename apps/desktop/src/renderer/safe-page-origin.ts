@@ -7,7 +7,8 @@
  */
 export function safeDomReportPageOrigin(value:unknown):string{
  const unknown='站点来源未确认';
- if(typeof value!=='string'||value.length<1||value.length>4096||\n    /[\\u0000-\\u001f\\u007f]/.test(value)||value.trim()!==value)return unknown;
+ if(typeof value!=='string'||value.length<1||value.length>4096||
+    /[\u0000-\u001f\u007f]/.test(value)||value.trim()!==value)return unknown;
  try{
   const url=new URL(value);
   if((url.protocol!=='http:'&&url.protocol!=='https:')||
