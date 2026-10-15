@@ -37,9 +37,17 @@ export function serializeDomBatchReport(
     calendarDate.getUTCMonth()!==month-1||
     calendarDate.getUTCDate()!==day)
   throw new Error('Invalid diagnosis report timestamp');
+ // Fail closed BEFORE WHATWG URL parsing: it strips tabs/newlines and
+ // percent-encodes raw controls, laundering malformed page identities.
+ // The report contains only the validated origin, never a full page URL.
+ if(typeof report.pageUrl!=='string'||report.pageUrl.length<1||
+    report.pageUrl.length>4096||report.pageUrl!==report.pageUrl.trim()||
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(report.pageUrl))
+  throw new Error('Invalid DOM diagnosis origin');
  let url:URL;
  try{url=new URL(report.pageUrl);}catch{throw new Error('Invalid page URL');}
- if(!['http:','https:'].includes(url.protocol)||url.username||url.password)
+ if(!['http:','https:'].includes(url.protocol)||!url.hostname||
+    url.username||url.password)
   throw new Error('Invalid DOM diagnosis origin');
  const entries=report.items.map((row,index)=>{
   if(!row||!Number.isSafeInteger(row.index)||row.index!==index||
