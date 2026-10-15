@@ -132,7 +132,13 @@ export async function verifyBrowserCdpHandshake({
      throw new Error('Invalid CDP browser handshake response size');
     const response=JSON.parse(event.data);
     if(response.id!==1)return;
-    if(response.error)throw new Error('CDP browser handshake command rejected');
+    // Error-bearing CDP envelopes are never browser identity evidence,
+    // including falsy protocol fields alongside a forged Chrome product.
+    if(Object.hasOwn(response,'error')||Object.hasOwn(response,'exceptionDetails')||
+       (response.result&&typeof response.result==='object'&&
+        (Object.hasOwn(response.result,'error')||
+         Object.hasOwn(response.result,'exceptionDetails'))))
+     throw new Error('CDP browser handshake command rejected');
     const product=response.result?.product;
     if(typeof product!=='string'||product.length>128||
        !/^(?:Chrome|Chromium|HeadlessChrome)\/[0-9]+(?:\.[0-9]+)*$/.test(product))
