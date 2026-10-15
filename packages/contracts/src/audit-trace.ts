@@ -8,7 +8,7 @@ const fields = Object.freeze({
  candidate:['id','findingId','jobId'],
  test:['id','candidateId','jobId','status'],
  approval:['id','testId','candidateId','jobId','sourceSha256','expiresAt'],
- revision:['id','approvalId','candidateId','jobId','scriptId','sourceSha256'],
+ revision:['id','approvalId','candidateId','jobId','scriptId','sourceSha256','revisionSha256'],
 } as const);
 export type AuditTrace = Readonly<{[K in keyof typeof fields]:Readonly<Record<(typeof fields)[K][number],string>>}> & {readonly test:Readonly<{id:string;candidateId:string;jobId:string;status:'passed'}>};
 function record<K extends string>(input:unknown,keys:readonly K[],label:string):Record<K,string>{
@@ -58,6 +58,7 @@ export function parseAuditTrace(input:unknown,now:string):AuditTrace{
  if(!sha256.test(job.sourceSha256))throw new TypeError('Invalid pinned source hash');
  requireSame(approval.sourceSha256,job.sourceSha256);
  requireSame(revision.sourceSha256,job.sourceSha256);
+ if(!sha256.test(revision.revisionSha256))throw new TypeError('Invalid revision SHA-256 hash');
  if(test.status!=='passed')throw new TypeError('Test did not pass');
  const canonical=/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
  const parsedNow=Date.parse(now),expiry=Date.parse(approval.expiresAt);
