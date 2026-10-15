@@ -48,3 +48,11 @@ test('FR-023 approval receipts reject unbounded or control-character identities 
  assert.throws(()=>gate.register('capacity-exceeded','scan-A'),/limit/i,
   'Only successfully validated receipts should occupy the 100-item approval budget');
 });
+
+test('approval requirement exposes the trusted freshness window for durable audit linkage',()=>{
+ let current=1_000;
+ const gate=new ProposalApprovalGate({now:()=>current,ttlMs:60_000});
+ gate.register('proposal-one','scan-A');
+ current=5_000;
+ assert.deepEqual(gate.require('proposal-one','scan-A'),{checkedAt:5_000,expiresAt:61_000});
+});
