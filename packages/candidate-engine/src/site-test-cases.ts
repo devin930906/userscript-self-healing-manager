@@ -11,7 +11,9 @@ const MAX_BYTES=131072;
 const MAX_ITEMS=256;
 const MAX_PER_SCRIPT=16;
 const SCRIPT_ID=/^[A-Za-z0-9_-]{1,128}$/;
-const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+// UUIDs produced by randomUUID() are canonical lowercase. Reject noncanonical
+// case aliases in recovered records rather than accepting two spellings of one ID.
+const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 export type DeclaredPageState='logged-out'|'logged-in'|'custom';
 export interface SiteTestCase{
  readonly id:string;readonly scriptId:string;readonly label:string;
