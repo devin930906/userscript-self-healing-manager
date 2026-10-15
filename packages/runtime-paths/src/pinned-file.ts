@@ -140,7 +140,11 @@ export async function readPinnedRegularFile(path:string,{
   if(expectedNative&&(!nativeBefore||
       !sameNative(nativeBefore,await lstat(path,{bigint:true}))))
    throw new Error('Precise pinned-file native path changed during read');
-  // Recheck the entire selected parent chain after reading: a concurrent\n  // directory relink must not pass on leaf descriptor/path identity alone.\n  // This is a fail-closed second fence, not an atomic directory handle lock.\n  await assertUnlinkedRecoveryDirectory(dirname(resolve(path)));\n  // Hash the verified descriptor bytes, not a later path reopen. This
+  // Recheck the entire selected parent chain after reading: a concurrent
+  // directory relink must not pass on leaf descriptor/path identity alone.
+  // This is a fail-closed second fence, not an atomic directory handle lock.
+  await assertUnlinkedRecoveryDirectory(dirname(resolve(path)));
+  // Hash the verified descriptor bytes, not a later path reopen. This
   // supplements metadata identity where Windows file IDs can alias.
   if(expectedSha256!==undefined){
    const actual=createHash('sha256').update(bytes).digest();
