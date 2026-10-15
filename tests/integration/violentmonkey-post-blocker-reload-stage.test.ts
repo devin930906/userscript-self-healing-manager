@@ -17,3 +17,17 @@ test('RG-05 extension-reload diagnostic reports only a bounded failure stage',as
  assert.doesNotMatch(source,/post-blocker extension reload diagnostic:[^\n]*\+\s*(?:error|String\(error\)|error\.message)/,
   'diagnostic must never print raw CDP or extension errors');
 });
+
+
+test('RG-05 reload diagnostic snapshots pinned userScripts access when API disappears after extension reload',async()=>{
+ const source=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
+ const optionsReady=source.indexOf("stage='options-ready'");
+ const accessProbe=source.indexOf('buildViolentmonkeyUserScriptsAccessStatusExpression()',optionsReady);
+ const capabilityReady=source.indexOf("stage='capability-ready'",optionsReady);
+ assert.ok(optionsReady>=0&&accessProbe>optionsReady&&accessProbe<capabilityReady,
+  'read-only Chrome setting must be captured before unavailable userScripts returns from options-ready');
+ assert.match(source,/reloadDiagnostic\.accessStatus/,
+  'final diagnostic must expose only the bounded pinned access-status booleans');
+ assert.doesNotMatch(source,/reloadDiagnostic\.accessStatus[^\n]*PRIVATE|developerPrivate\.getExtensionsInfo[^\n]*console\./,
+  'diagnostic must not print extension metadata or arbitrary settings payloads');
+});
