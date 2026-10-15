@@ -171,3 +171,43 @@ test('RG-05 exception evidence caps volume and is collected without changing GM 
   'exception classification must only report after BOTH already-failed documents');
  assert.doesNotMatch(harness,/GetInjected\W*\(/,'diagnostic cannot invoke the official manager injection command');
 });
+
+test('RG-05 bootstrap readiness cannot be assembled from unrelated isolated execution worlds',async()=>{
+ const probe=factory('synthetic-frame');
+ probe.observe('Runtime.executionContextCreated',{context:{id:31,auxData:{frameId:'synthetic-frame',isDefault:false}}});
+ probe.observe('Runtime.executionContextCreated',{context:{id:32,auxData:{frameId:'synthetic-frame',isDefault:false}}});
+ const payload=(readyMarker:boolean,officialRuntimeId:boolean,runtimeOnMessageAvailable:boolean)=>({
+  result:{value:JSON.stringify({readyMarker,webBootstrap:false,officialRuntimeId,runtimeOnMessageAvailable})},
+ });
+ const result=await probe.read(async(_method,params)=>
+  params.contextId===31?payload(true,false,false):payload(false,true,true));
+ assert.equal((result as {readyMarkerObserved:boolean}).readyMarkerObserved,true);
+ assert.equal((result as {officialRuntimeIdObserved:boolean}).officialRuntimeIdObserved,true);
+ assert.equal((result as {runtimeOnMessageAvailableObserved:boolean}).runtimeOnMessageAvailableObserved,true);
+ assert.equal((result as {sameWorldRuntimeReadyObserved?:boolean}).sameWorldRuntimeReadyObserved,false,
+  'flags collected in different worlds cannot certify one coherent bootstrap runtime');
+ assert.doesNotMatch(JSON.stringify(result),/synthetic-frame|31|32/);
+ const valid=await probe.read(async()=>payload(true,true,true));
+ assert.equal((valid as {sameWorldRuntimeReadyObserved?:boolean}).sameWorldRuntimeReadyObserved,true);
+});
+
+test('RG-05 bootstrap read must discard credentials from a CDP context destroyed during its own read',async()=>{
+ for(const change of ['Runtime.executionContextDestroyed','Runtime.executionContextsCleared']){
+  const probe=factory('fixture');
+  probe.observe('Runtime.executionContextCreated',{context:{id:44,auxData:{frameId:'fixture',isDefault:false}}});
+  const result=await probe.read(async(_method,params)=>{
+   if(change==='Runtime.executionContextDestroyed')
+    probe.observe(change,{executionContextId:params.contextId});
+   else probe.observe(change,{});
+   return {result:{value:JSON.stringify({
+    readyMarker:true,webBootstrap:true,officialRuntimeId:true,runtimeOnMessageAvailable:true,
+   })}};
+  });
+  assert.deepEqual(result,{
+   isolatedWorldsObserved:0,worldsChecked:0,
+   readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
+   runtimeOnMessageAvailableObserved:false,sameWorldRuntimeReadyObserved:false,
+   observationIncomplete:true,
+  },'stale response from a removed document must never be counted');
+ }
+});
