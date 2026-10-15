@@ -47,6 +47,10 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
  const validItems=():boolean=>{
+  // Later serialization uses these native Array methods. Reject own
+  // overrides without accessing them, before any untrusted method call.
+  if(['every','filter','map'].some(method=>Object.hasOwn(report.items,method)))
+   return false;
   // Runtime input must not execute an accessor while a supposedly static
   // report is being inspected. Validate own enumerable data descriptors
   // before downstream status/count projections read any row property.
@@ -62,7 +66,8 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
      return false;
     values[key]=descriptor.value;
    }
-   if(typeof values.path!=='string'||!Array.isArray(values.diagnostics))
+   if(typeof values.path!=='string'||!Array.isArray(values.diagnostics)||
+      Object.hasOwn(values.diagnostics,'map'))
     return false;
    // for..of invokes accessor-backed array elements, including malicious
    // getters containing private error text. Inspect only owned data slots.
