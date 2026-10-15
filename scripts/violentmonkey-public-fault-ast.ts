@@ -168,6 +168,7 @@ function calleeFunctionDetails(binding:LocalBinding|undefined):{
 }
 
 function calleeBodyNode(binding:LocalBinding|undefined):ts.ConciseBody|undefined{
+ if(!binding)return undefined;
  if(ts.isFunctionDeclaration(binding)||ts.isFunctionExpression(binding))return binding.body;
  if(ts.isVariableDeclaration(binding)){
   const init=binding.initializer;
