@@ -195,7 +195,7 @@ export function readViolentmonkeyManagerDiagnosticCdpValue(
  response:unknown,maxBytes:number,
 ):string{
  const fail=():never=>{throw new Error('Isolated manager diagnostic CDP envelope invalid');};
- if(maxBytes!==80&&maxBytes!==160)fail();
+ if(maxBytes!==80&&maxBytes!==160&&maxBytes!==256)fail();
  const ownData=(object:unknown,key:string):unknown=>{
   if(!object||typeof object!=='object'||Array.isArray(object)||
      'error' in object||'exceptionDetails' in object)fail();
