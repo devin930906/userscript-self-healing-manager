@@ -191,6 +191,33 @@ export function buildViolentmonkeyUserScriptsAccessStatusExpression():string{
  })()`;
 }
 
+
+/**
+ * RG-05 TEST ONLY: classify the pinned manager's Chrome 138+ Allow User
+ * Scripts state without changing it. Only a fixed allowlisted reason leaves
+ * chrome://extensions; extension metadata and browser error strings do not.
+ */
+export function buildViolentmonkeyUserScriptsAccessReasonExpression():string{
+ const id=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.extensionId);
+ const version=JSON.stringify(VIOLENTMONKEY_CFT_RELEASE.version);
+ return `(async()=>{
+  const fixed=reason=>JSON.stringify({reason});
+  try{
+   if(location.href!=='chrome://extensions/')return fixed('page-context');
+   const api=chrome.developerPrivate;
+   if(typeof api?.getExtensionInfo!=='function')return fixed('settings-api');
+   const info=await api.getExtensionInfo(${id});
+   if(info?.id!==${id})return fixed('identity');
+   if(info.version!==${version})return fixed('version');
+   if(info.state!=='ENABLED')return fixed('state');
+   if(info.location!=='UNPACKED')return fixed('installation');
+   if(info.userScriptsAccess?.isEnabled!==true)return fixed('toggle-disabled');
+   if(info.userScriptsAccess?.isActive!==true)return fixed('toggle-inactive');
+   return fixed('active');
+  }catch{return fixed('settings-error');}
+ })()`;
+}
+
 /**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
