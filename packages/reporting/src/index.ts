@@ -23,8 +23,20 @@ const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
 export function serializeStaticReport(report:ScanBatchResult,format:'json'|'markdown'):string{
  if(format!=='json'&&format!=='markdown')
   throw new Error('Invalid static report format');
- if(!report||typeof report!=='object'||!Array.isArray(report.items))
+ if(!report||typeof report!=='object'||Array.isArray(report))
   throw new Error('Invalid static report input');
+ // Validate all incoming root descriptors before accessing any value.
+ // In particular, Array.isArray(report.items) and numeric count checks
+ // must not invoke an untrusted accessor or export its thrown message.
+ for(const key of ['items','scanMode','createdAt','requestedCount',
+                    'enumeratedCount','processedCount','passedCount','errorCount']){
+  const descriptor=Object.getOwnPropertyDescriptor(report,key);
+  if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+   throw new Error(key==='items'?'Invalid static report input':
+    key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
+    'Invalid static report count');
+ }
+ if(!Array.isArray(report.items))throw new Error('Invalid static report input');
  // Never relabel runtime/manager evidence as a static scan; reject malformed
  // timestamps before Markdown escaping or JSON serialization can inspect them.
  if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
@@ -38,7 +50,10 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
   // Runtime input must not execute an accessor while a supposedly static
   // report is being inspected. Validate own enumerable data descriptors
   // before downstream status/count projections read any row property.
-  for(const item of report.items){
+  for(let index=0;index<report.items.length;index++){
+   const slot=Object.getOwnPropertyDescriptor(report.items,String(index));
+   if(!slot||!slot.enumerable||!Object.hasOwn(slot,'value'))return false;
+   const item=slot.value;
    if(!item||typeof item!=='object'||Array.isArray(item))return false;
    const values:Record<string,unknown>=Object.create(null);
    for(const key of ['path','status','selectorCount','runtimeRequiredCount','diagnostics']){
