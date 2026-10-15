@@ -27,7 +27,7 @@ import {
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
  buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
- enableViolentmonkeyUserScriptsAccess,
+ readViolentmonkeyPreReloadAccess,enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -344,6 +344,44 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
  * already pinned disposable page, never a GM/V4 or successful run receipt.
  * Run only AFTER genuine GM control receipts or AFTER both failed documents;
  * enabling Debugger before cold navigation could perturb startup timing. */
+const UNAVAILABLE_PRE_RELOAD_ACCESS=Object.freeze({
+ observed:false,matched:false,enabled:false,active:false,reason:'unavailable',
+});
+
+/**
+ * Examine only the disposable CFT profile after confirmed cold-start GM
+ * failures. No extension settings are changed; the new WebUI tab is closed.
+ */
+async function collectPreReloadViolentmonkeyAccess({browserCdp,hasExited}){
+ let settingsCdp,targetId;
+ try{
+  if(hasExited())return UNAVAILABLE_PRE_RELOAD_ACCESS;
+  const url='chrome://extensions/';
+  const created=await browserCdp.send('Target.createTarget',{url});
+  targetId=created?.targetId;
+  if(typeof targetId!=='string'||!targetId)return UNAVAILABLE_PRE_RELOAD_ACCESS;
+  const page=await waitForPage(targetId,url,hasExited);
+  settingsCdp=await openCdp(page.webSocketDebuggerUrl);
+  await settingsCdp.send('Runtime.enable');
+  for(let attempt=0;attempt<8&&!hasExited();attempt++){
+   const receipt=await readViolentmonkeyPreReloadAccess(
+    (method,params)=>settingsCdp.send(method,params));
+   if(receipt.observed&&receipt.reason!=='page-context'&&
+      receipt.reason!=='settings-api')return receipt;
+   if(attempt<7)await delay(125);
+  }
+  return UNAVAILABLE_PRE_RELOAD_ACCESS;
+ }catch{
+  // No raw Chrome/CDP exception contents or extension metadata can escape.
+  return UNAVAILABLE_PRE_RELOAD_ACCESS;
+ }finally{
+  settingsCdp?.close();
+  if(targetId){
+   try{await browserCdp.send('Target.closeTarget',{targetId});}catch{}
+  }
+ }
+}
+
 const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
  'reload-request','reload-issued','options-ready','capability-ready',
  'injector-ready','script-retained','fixture-ready','gm-observed','recovered',
@@ -1021,6 +1059,13 @@ try{
   // one NEW loopback document. Recovery would implicate extension lifecycle
   // initialization; failure would keep that hypothesis unproven. Either way
   // the immediate cold-start acceptance gate below remains blocked.
+  // Probe only after both real cold-start documents missed GM and the blocker
+  // was classified. Passive Chrome WebUI data cannot satisfy the GM gate.
+  const preReloadAccess=await collectPreReloadViolentmonkeyAccess({
+   browserCdp,hasExited:()=>exited,
+  });
+  console.log('RG-05 access before extension reload: '+
+   JSON.stringify(preReloadAccess)+'; passive post-blocker evidence only, not GM or V4 proof.');
   const reloadDiagnostic=await runPostBlockerExtensionReloadDiagnostic({
    browserCdp,optionsCdp,fixtureUrl,optionsUrl,hasExited:()=>exited,
   });
