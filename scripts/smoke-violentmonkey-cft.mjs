@@ -26,7 +26,8 @@ import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
- buildViolentmonkeyUserScriptsCapabilityStatusExpression,enableViolentmonkeyUserScriptsAccess,
+ buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
+ enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -355,8 +356,11 @@ async function runPostBlockerExtensionReloadDiagnostic({
  let optionsTargetId,fixtureTargetId,settingsTargetId;
  let stage='reload-request';
  let accessStatus=Object.freeze({matched:false,enabled:false,active:false});
+ let accessReason='not-sampled';
  let capabilityStatus=Object.freeze({apiPresent:false,querySucceeded:false});
- const result=fixture=>Object.freeze({stage,fixture:fixture??null,accessStatus,capabilityStatus});
+ const result=fixture=>Object.freeze({
+  stage,fixture:fixture??null,accessStatus,accessReason,capabilityStatus,
+ });
  try{
   if(hasExited())return result(null);
   const reloadExpression=`(()=>{try{
@@ -400,6 +404,7 @@ async function runPostBlockerExtensionReloadDiagnostic({
       awaitPromise:true,returnByValue:true,
      });
      const text=answer?.result?.value;
+     let matched=false;
      if(typeof text==='string'&&text.length<=96){
       try{
        const parsed=JSON.parse(text);
@@ -412,10 +417,29 @@ async function runPostBlockerExtensionReloadDiagnostic({
         accessStatus=Object.freeze({
          matched:parsed.matched,enabled:parsed.enabled,active:parsed.active,
         });
-        if(parsed.matched)break;
+        matched=parsed.matched;
        }
       }catch{}
      }
+     try{
+      const reasonAnswer=await diagnosticSettingsCdp.send('Runtime.evaluate',{
+       expression:buildViolentmonkeyUserScriptsAccessReasonExpression(),
+       awaitPromise:true,returnByValue:true,
+      });
+      const reasonText=reasonAnswer?.result?.value;
+      if(typeof reasonText==='string'&&reasonText.length<=64){
+       const parsed=JSON.parse(reasonText);
+       const allowed=new Set([
+        'page-context','settings-api','settings-error','identity','version',
+        'state','installation','toggle-disabled','toggle-inactive','active',
+       ]);
+       if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
+          Object.keys(parsed).join(',')==='reason'&&allowed.has(parsed.reason)){
+        accessReason=parsed.reason;
+       }
+      }
+     }catch{}
+     if(matched)break;
      if(attempt<11)await delay(100);
     }
     diagnosticSettingsCdp.close();diagnosticSettingsCdp=undefined;
@@ -1009,6 +1033,7 @@ try{
   assert.ok(POST_BLOCKER_RELOAD_STAGES.includes(reloadStage));
   console.log('RG-05 post-blocker extension reload diagnostic: checkpoint '+reloadStage+
    ', userScripts access '+JSON.stringify(reloadDiagnostic.accessStatus)+
+   ', userScripts access reason '+reloadDiagnostic.accessReason+
    ', userScripts capability '+JSON.stringify(reloadDiagnostic.capabilityStatus)+
    (reloadRecovered?', recovered on one fresh loopback document':', did not recover')+
    '; NOT a release or product V4 pass.');
