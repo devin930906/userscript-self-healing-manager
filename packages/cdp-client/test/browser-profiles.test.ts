@@ -108,3 +108,28 @@ test('preexisting registry writer lock blocks mutation without removing the othe
  await renameBrowserProfile({dataRoot:root,profileId:created.id,name:'NewName'});
  assert.deepEqual((await listBrowserProfiles({dataRoot:root})).map(x=>x.name),['NewName']);
 }));
+
+
+test('FR-002 browser profile labels reject bidirectional and hidden controls in create, rename and persisted state',async()=>fixture(async(root,first)=>{
+ const original=await createBrowserProfile({dataRoot:root,name:'Trusted Chrome',executablePath:first});
+ for(const unsafe of [
+  'Safe\u202eexe',   // right-to-left override can spoof browser identity in the UI
+  'Chrome\u2066A',   // isolate direction control
+  'Chrome\u200fA',   // invisible right-to-left mark
+  'Chrome\u061cA',   // invisible Arabic letter mark
+  'Chrome\u0085A',   // C1 control, not covered by ASCII control filters
+ ]){
+  await assert.rejects(createBrowserProfile({dataRoot:root,name:unsafe,executablePath:first}),
+   /invalid.*name|name.*invalid/i);
+  await assert.rejects(renameBrowserProfile({dataRoot:root,profileId:original.id,name:unsafe}),
+   /invalid.*name|name.*invalid/i);
+ }
+ assert.deepEqual((await listBrowserProfiles({dataRoot:root})).map(x=>x.name),['Trusted Chrome']);
+ const path=join(root,'browser-profiles.json');
+ const raw=JSON.parse(await readFile(path,'utf8'));
+ raw.profiles[0].name='Trusted\u202eexe';
+ await writeFile(path,JSON.stringify(raw));
+ assert.deepEqual(await listBrowserProfiles({dataRoot:root}),[]);
+ await assert.rejects(resolveBrowserProfileForLaunch({dataRoot:root,profileId:original.id}),
+  /corrupt|invalid|registry|profile/i);
+}));
