@@ -21,6 +21,7 @@ import {inspectKnownUserscriptManagerTargets} from '../packages/cdp-client/src/m
 import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
+ assertViolentmonkeyPreflightReceipt,
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
@@ -172,19 +173,15 @@ async function waitForPage(targetId,expectedUrl,hasExited){
 async function readManagerPreflight(cdp,hasExited){
  if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
  const expression=buildViolentmonkeyFixturePreflightExpression(fixtureMeta.name,fixtureMeta.namespace);
- let value;
+ let answer;
  try{
-  const answer=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});
-  value=answer.result?.value;
+  answer=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});
  }catch{throw new Error('Violentmonkey bounded read-only preflight request failed');}
- if(typeof value!=='string'||value.length>512)
-  throw new Error('Violentmonkey did not return a bounded read-only fixture preflight');
- let receipt;
- try{receipt=JSON.parse(value);}catch{throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');}
- if(receipt?.failed===true)throw new Error('Violentmonkey read-only preflight returned a fixed failure marker');
- if(typeof receipt?.found!=='boolean')
-  throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');
- return {found:receipt.found};
+ // Validate the protocol envelope AND the exact bounded manager response.
+ // A nested or inherited fault cannot be mistaken for persisted script state.
+ const verified=assertViolentmonkeyPreflightReceipt(answer);
+ if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
+ return verified;
 }
 
 /**
