@@ -314,6 +314,83 @@ export async function readViolentmonkeyPreReloadAccess(
 }
 
 /**
+ * TEST ONLY: configure Developer Mode in the disposable CFT 155 profile.
+ * The caller must already have verified Runner.Temp and the exact isolated
+ * browser executable. A denied/partial readback NEVER counts as success.
+ * No real Chrome profile, browser-wide setting or production app uses this.
+ */
+export function buildViolentmonkeyIsolatedDeveloperModeSetupExpression():string{
+ return `(async()=>{
+  const fixed=(ready,changed,reason)=>JSON.stringify(
+   ready?{ready:true,changed}:{ready:false,reason});
+  try{
+   if(location.href!=='chrome://extensions/')
+    return fixed(false,false,'page-context');
+   const api=chrome.developerPrivate;
+   if(typeof api?.getProfileConfiguration!=='function'||
+      typeof api?.updateProfileConfiguration!=='function')
+    return fixed(false,false,'settings-api');
+   const prior=await api.getProfileConfiguration();
+   const value=prior&&typeof prior==='object'?
+    Object.getOwnPropertyDescriptor(prior,'inDeveloperMode'):null;
+   if(!value||!Object.hasOwn(value,'value')||
+      typeof value.value!=='boolean')
+    return fixed(false,false,'invalid-state');
+   if(value.value===true)return fixed(true,false);
+   await api.updateProfileConfiguration({inDeveloperMode:true});
+   const after=await api.getProfileConfiguration();
+   const next=after&&typeof after==='object'?
+    Object.getOwnPropertyDescriptor(after,'inDeveloperMode'):null;
+   return next&&Object.hasOwn(next,'value')&&next.value===true?
+    fixed(true,true):fixed(false,false,'readback');
+  }catch{return fixed(false,false,'settings-error');}
+ })()`;
+}
+
+/** Parse only one fixed WebUI receipt; fail closed on transient startup. */
+export async function enableIsolatedViolentmonkeyDeveloperMode(
+ send:(method:string,params:Record<string,unknown>)=>Promise<any>,
+ delay:(milliseconds:number)=>Promise<unknown>=wait,
+):Promise<void>{
+ if(typeof send!=='function'||typeof delay!=='function')
+  throw new Error('Invalid isolated developer mode setup request');
+ let reason='invalid-receipt';
+ for(let i=0;i<12;i++){
+  let result:unknown;
+  try{
+   const response=await send('Runtime.evaluate',{
+    expression:buildViolentmonkeyIsolatedDeveloperModeSetupExpression(),
+    awaitPromise:true,returnByValue:true,
+   });
+   if(!response||typeof response!=='object'||Array.isArray(response)||
+      'error' in response||'exceptionDetails' in response||
+      !response.result||typeof response.result!=='object'||
+      'error' in response.result||'exceptionDetails' in response.result)
+    throw new Error('Invalid isolated response');
+   const receipt=response.result.value;
+   if(typeof receipt!=='string'||receipt.length>96)
+    throw new Error('Invalid isolated receipt');
+   result=JSON.parse(receipt);
+  }catch{
+   throw new Error('Isolated developer mode setup CDP response invalid');
+  }
+  if(!result||typeof result!=='object'||Array.isArray(result))
+   throw new Error('Isolated developer mode setup response invalid');
+  const fields=Object.keys(result).sort().join(',');
+  if(fields==='changed,ready'&&
+     (result as {ready?:unknown}).ready===true&&
+     typeof (result as {changed?:unknown}).changed==='boolean')return;
+  if(fields!=='ready,reason'||(result as {ready?:unknown}).ready!==false||
+     typeof (result as {reason?:unknown}).reason!=='string')
+   throw new Error('Isolated developer mode setup receipt rejected');
+  reason=(result as {reason:string}).reason;
+  if(!['page-context','settings-api'].includes(reason)||i===11)break;
+  await delay(150);
+ }
+ throw new Error('Pinned isolated Chrome developer mode setup failed: '+reason);
+}
+
+/**
  * RG-05 TEST ONLY: read the disposable Chrome profile Developer Mode switch.
  * Never enable the switch, enumerate profiles, or include private metadata.
  * Used after an already failed GM cold start to avoid a diagnostic reload
