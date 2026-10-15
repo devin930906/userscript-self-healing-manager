@@ -297,7 +297,7 @@ test('RG-05 pinned official injected.js AST fingerprint identifies a fixed call 
  const source="(()=>{const receipt=chrome.runtime.sendMessage({cmd:'GetInjected'});return receipt;})();";
  const spot=source.indexOf('sendMessage')+2;
  const proof=mod!.mapPinnedOfficialFaultSite(source,0,spot);
- assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','binaryOperandRoles','binaryOperatorKinds','boundMethodKind','callArgumentCount','callArgumentIndex','callArgumentKinds','callKind','calleeBindingKind','calleeBodyBinaryOperatorKinds','calleeBodyKind','calleeFunctionKind','calleeParameterCount','calleeStatementCount','elementBaseBindingKind','elementBaseInitializerKind','elementBaseKind','elementIndexKind','expressionRole','fingerprintSha256','firstArgumentLiteralKind','locationVerified','propertyKind','syntaxKind'].sort());
+ assert.deepEqual(Object.keys(proof).sort(),['ancestorKinds','binaryOperandRoles','binaryOperatorKinds','boundMethodKind','callArgumentCount','callArgumentIndex','callArgumentKinds','callKind','calleeBindingKind','calleeBodyBinaryOperatorKinds','calleeBodyKind','calleeFunctionKind','calleeParameterCount','calleeStatementCount','elementBaseBindingKind','elementBaseInitializerKind','elementBaseKind','elementIndexKind','expressionRole','fingerprintSha256','firstArgumentLiteralKind','fixedUpstreamShape','locationVerified','propertyKind','syntaxKind'].sort());
  assert.equal(proof.locationVerified,true);
  assert.equal(proof.callKind,'member-call');
  assert.equal(proof.propertyKind,'sendMessage');
@@ -412,4 +412,31 @@ test('RG-05 public fault mapper can prove or falsify the fixed notification rela
  assert.deepEqual(proof.calleeBodyBinaryOperatorKinds.slice(0,2),['AmpersandAmpersandToken','AmpersandAmpersandToken']);
  assert.equal(proof.elementBaseInitializerKind,'CallExpression');
  assert.doesNotMatch(JSON.stringify(proof),/\brelay\b|notifications|\bnid\b|\bsink\b|PRIVATE|identifierText/i);
+});
+
+
+test('RG-05 static mapper recognizes only the fixed MV3 runtime.onMessage listener-wrapper source shape',async()=>{
+ const mod=await import('../../scripts/violentmonkey-public-fault-ast.ts');
+ const positive=[
+  "const wrap=(onMessage,addListener)=>(listener=>onMessage[addListener](listener));",
+  "const runtime={onMessage:{}};",
+  "let obj;",
+  "const key='addListener';",
+  "obj=runtime.onMessage;",
+  "obj[key]=wrap(obj,obj[key]);",
+ ].join('');
+ const spot=positive.lastIndexOf('obj[key]')+2;
+ const proof=mod.mapPinnedOfficialFaultSite(positive,0,spot) as any;
+ assert.equal(proof.locationVerified,true);
+ assert.equal(proof.fixedUpstreamShape,'mv3-runtime-onmessage-listener-wrapper');
+ assert.doesNotMatch(JSON.stringify(proof),/\bwrap\b|\bobj\b|\bkey\b|PRIVATE|identifierText/i);
+ for(const source of [
+  positive.replace('runtime.onMessage','runtime.onConnect'),
+  positive.replace('wrap(obj,obj[key])','wrap(obj,other[key])'),
+  positive.replace('obj[key]=wrap(obj,obj[key])','obj.other=wrap(obj,obj[key])'),
+ ]){
+  const at=source.lastIndexOf('obj[key]')+2;
+  const result=mod.mapPinnedOfficialFaultSite(source,0,at) as any;
+  assert.notEqual(result.fixedUpstreamShape,'mv3-runtime-onmessage-listener-wrapper');
+ }
 });
