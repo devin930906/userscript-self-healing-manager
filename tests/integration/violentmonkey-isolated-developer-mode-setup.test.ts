@@ -54,7 +54,9 @@ test('RG-05 isolated Chrome bootstrap enables developer mode before official man
  const src=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
  const tempGuard=src.indexOf('const absoluteRunnerTemp=resolve(runnerTemp)');
  const setup=src.indexOf('await enableIsolatedViolentmonkeyDeveloperMode(');
- const firstReady=src.indexOf('await waitForVerifiedViolentmonkeyInjector({');
+ // The file also contains a post-blocker diagnostic helper; only compare
+ // the first manager readiness call AFTER this initial isolated setup.
+ const firstReady=src.indexOf('await waitForVerifiedViolentmonkeyInjector({',setup);
  const fixtureInstall=src.indexOf('const installExpression=buildViolentmonkeyFixtureInstallExpression(');
  assert.ok(tempGuard>=0&&setup>tempGuard&&firstReady>setup&&fixtureInstall>firstReady);
  assert.match(src,/USSHM-ChromeForTesting-155/);
