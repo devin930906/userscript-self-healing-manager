@@ -22,6 +22,7 @@ import {
  assertViolentmonkeyInstallReceipt,assertViolentmonkeyV4FixtureObservation,extensionIdFromChromePublicKey,
  buildViolentmonkeyFixtureInstallExpression,buildViolentmonkeyFixturePreflightExpression,
  buildViolentmonkeyUserScriptsProbeExpression,enableViolentmonkeyUserScriptsAccess,
+ assertViolentmonkeyRestartPermissionReceipt,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
  buildViolentmonkeyFixtureMatchExpression,
@@ -530,8 +531,9 @@ try{
  const permission=await optionsCdp.send('Runtime.evaluate',{
   expression:buildViolentmonkeyUserScriptsProbeExpression(),awaitPromise:true,returnByValue:true,
  });
- if(permission.result?.value!==JSON.stringify({available:true}))
-  throw new Error('Pinned manager userScripts permission not retained across process restart');
+ // Do not trust a positive permission body inside a CDP error envelope,
+ // inherited result or accessor. Read only the exact bounded official receipt.
+ const permissionRetained=assertViolentmonkeyRestartPermissionReceipt(permission);
  await waitForVerifiedViolentmonkeyInjector({
   send:(method,params)=>optionsCdp.send(method,params),
   hasExited:()=>exited,
@@ -652,7 +654,7 @@ try{
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({
    ...attestationContext,fixture:undefined,missedColdStart:true,
    scriptStillInstalled:retainedScript.found===true,
-   permissionStillActive:permission.result?.value===JSON.stringify({available:true}),
+   permissionStillActive:permissionRetained,
    loopbackRequestsObserved:requests.length,
   });
   assert.equal(blocked.status,'fixture-restart-blocked');
