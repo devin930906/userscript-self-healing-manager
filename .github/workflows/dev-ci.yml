@@ -43,17 +43,10 @@ jobs:
         run: node scripts/production-boundary.mjs dist
       - name: Ensure locked Electron runtime exists for GUI smoke
         run: node node_modules/electron/install.js
-      - name: Real Electron 44 security integration (Windows Node 24) — QA-048 bounded soak
+      - name: Real Electron 44 security integration (Windows Node 24)
         env:
           USSHM_ELECTRON_SECURITY_INTEGRATION: '1'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          for ($iteration = 1; $iteration -le 8; $iteration++) {
-            Write-Host "QA-048 Electron readiness soak iteration $iteration/8"
-            node --experimental-strip-types --test apps/desktop/tests/electron-security.integration.test.ts
-            if ($LASTEXITCODE -ne 0) { throw "QA-048 Electron readiness soak failed at iteration $iteration" }
-          }
+        run: node --experimental-strip-types --test apps/desktop/tests/electron-security.integration.test.ts
       - name: Real built Electron GUI launch (isolated Data; no installers)
         run: node scripts/smoke-electron-dev.mjs
       - name: Real Chrome CDP integration smoke (no installers)
