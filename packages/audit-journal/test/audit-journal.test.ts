@@ -87,4 +87,27 @@ CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT 1; 
   }finally{await rm(root,{recursive:true,force:true});}
  });
 
+
+ it('refuses to reconstruct a trace when historical job bytes no longer match its revision chain',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'usshm-audit-'));
+  try{
+   const file=join(root,'audit.sqlite');
+   let journal=openAuditJournal(file);
+   journal.append(trace(),now);
+   journal.close();
+   const raw=new DatabaseSync(file);
+   try{
+    raw.exec('DROP TRIGGER audit_jobs_no_update');
+    raw.prepare('UPDATE audit_jobs SET source_sha256=? WHERE id=?').run('c'.repeat(64),id(1));
+    raw.exec("CREATE TRIGGER audit_jobs_no_update BEFORE UPDATE ON audit_jobs BEGIN SELECT RAISE(ABORT,'audit journal is append-only'); END;");
+   }finally{raw.close();}
+   journal=openAuditJournal(file);
+   let issue:unknown;
+   try{journal.getByRevision(id(8));}catch(error){issue=error;}
+   journal.close();
+   assert.ok(issue instanceof Error,'retrieval must verify the actual stored entities, not reconstruct them from revision aliases');
+   assert.match(issue.message,/corrupt|mismatch|audit|immutable|source/i);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+
 });
