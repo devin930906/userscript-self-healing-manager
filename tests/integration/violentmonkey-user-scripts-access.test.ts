@@ -141,3 +141,21 @@ test('read-only userScripts access status fails closed for wrong context or pinn
   assert.doesNotMatch(value,/PRIVATE|path|name|other|2\.48/);
  }
 });
+
+
+test('read-only userScripts capability status distinguishes missing API from rejected query without leaking details',async()=>{
+ assert.equal(typeof api.buildViolentmonkeyUserScriptsCapabilityStatusExpression,'function');
+ const expression=api.buildViolentmonkeyUserScriptsCapabilityStatusExpression();
+ const missing=await vm.runInNewContext(expression,{chrome:{},JSON});
+ assert.equal(missing,JSON.stringify({apiPresent:false,querySucceeded:false}));
+ const rejected=await vm.runInNewContext(expression,{JSON,chrome:{userScripts:{
+  async getScripts(){throw Error('PRIVATE_SENTINEL');},
+ }}});
+ assert.equal(rejected,JSON.stringify({apiPresent:true,querySucceeded:false}));
+ assert.doesNotMatch(rejected,/PRIVATE_SENTINEL/);
+ const success=await vm.runInNewContext(expression,{JSON,chrome:{userScripts:{
+  async getScripts(){return [{id:'PRIVATE_ID',js:[{code:'PRIVATE_SOURCE'}]}];},
+ }}});
+ assert.equal(success,JSON.stringify({apiPresent:true,querySucceeded:true}));
+ assert.doesNotMatch(success,/PRIVATE_ID|PRIVATE_SOURCE/);
+});
