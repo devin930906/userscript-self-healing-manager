@@ -24,7 +24,7 @@ class FocusSocket extends EventEmitter{
   const ids=msg.params?.selector===':focus'?
    (this.opts.focusMissing?[]:this.focused?[42]:[]):(this.opts.ambiguous?[42,43]:[42]);
   const result=msg.method==='DOM.getDocument'?{root:{nodeId:1}}:
-   msg.method==='DOM.querySelectorAll'?{nodeIds:this.opts.changed&&this.methods.filter(x=>x==='DOM.querySelectorAll').length===2?[57]:ids}:
+   msg.method==='DOM.querySelectorAll'?{nodeIds:this.opts.changed&&msg.params?.selector==='#safe-focus'&&this.inputs.filter(x=>x?.selector==='#safe-focus').length>=2?[57]:ids}:
    msg.method==='DOM.describeNode'?{node:{nodeName:'BUTTON',nodeId:42}}:
    msg.method==='DOM.getAttributes'?{attributes:['id','safe-focus','type',this.opts.submit||this.opts.lateSubmit&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?'submit':'button',...(this.opts.disabled||this.opts.lateDisabled&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?['disabled','']:[]),...(this.opts.htmlHidden?['hidden','']:[])]}:
    msg.method==='CSS.getComputedStyleForNode'?{computedStyle:[
@@ -57,11 +57,11 @@ test('FR-024 actual approved focus uses only DOM CDP and proves the same button 
  assert.deepEqual(socket.methods,[
   'DOM.getDocument','CSS.enable','DOM.querySelectorAll','DOM.describeNode','DOM.getAttributes',
   'CSS.getComputedStyleForNode','DOM.getBoxModel',
-  'DOM.querySelectorAll','DOM.getAttributes','CSS.getComputedStyleForNode','DOM.getBoxModel',
-  'DOM.querySelectorAll','DOM.focus','DOM.querySelectorAll',
+  'DOM.querySelectorAll','DOM.querySelectorAll','DOM.getAttributes',
+  'CSS.getComputedStyleForNode','DOM.getBoxModel','DOM.focus','DOM.querySelectorAll',
  ]);
- assert.equal(socket.inputs[7].selector,'#safe-focus');
- assert.equal(socket.inputs[11].selector,':focus');
+ assert.equal(socket.inputs[8].selector,'#safe-focus');
+ assert.equal(socket.inputs[7].selector,':focus');
  assert.equal(socket.inputs[12].nodeId,42);
  assert.equal(socket.inputs[13].selector,':focus');
  assert.equal(socket.methods.some(x=>x.startsWith('Runtime.')||x.startsWith('Input.')),false);

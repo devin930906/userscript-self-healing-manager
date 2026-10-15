@@ -194,6 +194,18 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
    });
   };
   const beforeRendered=await rendered();
+  // A post-focus :focus match is not evidence of a new interaction if this
+  // button was already focused before the consented command. Preserve that
+  // distinction even in a page that changes focus without our action.
+  const beforeFocus=(await send('DOM.querySelectorAll',{nodeId:root,selector:':focus'})).nodeIds;
+  if(!Array.isArray(beforeFocus)||beforeFocus.length>1||
+     beforeFocus.some((id:unknown)=>!Number.isSafeInteger(id)||Number(id)<1))
+   throw error('Invalid pre-action focus evidence');
+  if(beforeFocus.includes(node))
+   throw error('Approved button already focused; no verifiable new focus transition');
+  await guard();
+  // Identity lookup yields to the page. Recheck the pinned control AFTER
+  // that lookup, so mutation during it cannot reuse an earlier safe snapshot.
   if(await unique(css)!==node)
    throw error('Approved button changed before focus');
   // A handler, live page update, or accessibility mutation can turn a
@@ -207,16 +219,6 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
    throw error('Approved button attributes changed before focus');
   if(await rendered()!==beforeRendered)
    throw error('Approved focus visibility changed before action');
-  // A post-focus :focus match is not evidence of a new interaction if this
-  // button was already focused before the consented command. Preserve that
-  // distinction even in a page that changes focus without our action.
-  const beforeFocus=(await send('DOM.querySelectorAll',{nodeId:root,selector:':focus'})).nodeIds;
-  if(!Array.isArray(beforeFocus)||beforeFocus.length>1||
-     beforeFocus.some((id:unknown)=>!Number.isSafeInteger(id)||Number(id)<1))
-   throw error('Invalid pre-action focus evidence');
-  if(beforeFocus.includes(node))
-   throw error('Approved button already focused; no verifiable new focus transition');
-  await guard();
   // A scan or directory approval may be revoked while the CDP preflight yields.
   // Production Main owns the check; it runs synchronously, just before focus.
   assertAuthorizedBeforeAction?.();
