@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,writeFile,rm,mkdir,symlink,readdir} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,mkdir,symlink,readdir,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createRepairWorkflow} from '../src/index.ts';
@@ -180,5 +180,32 @@ test('export holds the managed current lease through atomic destination publish'
   assert.equal(output.hash,q.receipt.hash);
   assert.deepEqual(await readFile(q.destination),await readFile(current));
   assert.ok(!(await readdir(join(q.managedRoot,'managed','demo'))).includes('current.user.js.write-lock'));
+ }finally{await rm(q.root,{recursive:true,force:true});}
+});
+
+
+test('RG-06 export never publishes substituted staging bytes after a verified original',async()=>{
+ const q=await setup();
+ try{
+  const approved=Buffer.from('// approved managed export bytes');
+  const attacker=Buffer.from('// unapproved foreign source');
+  let movedStage:string|undefined;
+  const displaced=join(q.root,'displaced-original.user.js');
+  await assert.rejects(publishExclusiveExport({
+   destinationPath:q.destination,bytes:approved,
+   beforePublish:async()=>{
+    const entries=(await readdir(q.root)).filter(name=>name.includes('.staging-'));
+    assert.equal(entries.length,1,'one unpublished temporary export must exist');
+    movedStage=join(q.root,entries[0]!);
+    await rename(movedStage,displaced);
+    await writeFile(movedStage,attacker);
+   },
+  }),/stage|identity|changed|hash|unsafe|verification/i);
+  assert.deepEqual(await readFile(displaced),approved,
+   'approved original bytes must survive this synthetic swap');
+  await assert.rejects(readFile(q.destination),{code:'ENOENT'},
+   'a failed export must never leave the attacker-controlled new installable .user.js');
+  assert.deepEqual(await readFile(movedStage! ),attacker,
+   'a failed export must never silently delete the other writer\'s replacement');
  }finally{await rm(q.root,{recursive:true,force:true});}
 });
