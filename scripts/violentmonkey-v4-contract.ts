@@ -318,7 +318,7 @@ function buildViolentmonkeyManagerCommandExpression(
   const onMessage=event=>{
    const packet=event.data;
    if(packet?.id!==${requestId})return;
-   if(packet.err)return finish(JSON.stringify({failed:true}));
+   if(Object.hasOwn(packet,'err')&&packet.err!==undefined)return finish(JSON.stringify({failed:true}));
    const value=packet.res;
    ${responseCode}
   };
