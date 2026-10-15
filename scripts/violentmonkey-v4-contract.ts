@@ -30,6 +30,25 @@ export function buildViolentmonkeyUserScriptsProbeExpression():string{
  })()`;
 }
 
+
+/**
+ * RG-05 TEST ONLY: distinguish a missing userScripts API from a present API
+ * whose read is rejected. Return only two booleans; never serialize browser
+ * errors, registered script metadata, code, IDs, or other extension state.
+ */
+export function buildViolentmonkeyUserScriptsCapabilityStatusExpression():string{
+ return `(async()=>{
+  const fixed=(apiPresent,querySucceeded)=>JSON.stringify({apiPresent,querySucceeded});
+  try{
+   if(typeof chrome.userScripts?.getScripts!=='function')return fixed(false,false);
+   try{
+    await chrome.userScripts.getScripts();
+    return fixed(true,true);
+   }catch{return fixed(true,false);}
+  }catch{return fixed(false,false);}
+ })()`;
+}
+
 /** Pin the fixed test script to the exact port bound by this fixture server. */
 export function scopeViolentmonkeyFixtureToUrl(template:string,fixtureUrl:string):string{
  let url:URL;
