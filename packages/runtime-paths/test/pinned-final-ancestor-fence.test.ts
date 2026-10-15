@@ -4,6 +4,8 @@ import {readFile} from 'node:fs/promises';
 
 test('RG-06 pinned reads revalidate unlinked parent after descriptor and path checks',async()=>{
  const source=await readFile(new URL('../src/pinned-file.ts',import.meta.url),'utf8');
+ assert.ok(!source.includes('\\n  await assertUnlinkedRecoveryDirectory'),
+  'the final ancestor safety check must be executable TypeScript, not escaped comment text');
  const preflight=source.indexOf('await assertUnlinkedRecoveryDirectory(dirname(resolve(path)));');
  const pathFence=source.indexOf('if(!same(before,after))');
  const finalFence=source.lastIndexOf('await assertUnlinkedRecoveryDirectory(dirname(resolve(path)));');
