@@ -11,6 +11,14 @@ const fields = Object.freeze({
  revision:['id','approvalId','candidateId','jobId','scriptId','sourceSha256','revisionSha256'],
 } as const);
 export type AuditTrace = Readonly<{[K in keyof typeof fields]:Readonly<Record<(typeof fields)[K][number],string>>}> & {readonly test:Readonly<{id:string;candidateId:string;jobId:string;status:'passed'}>};
+/** Read only an own, enumerable data property. Never invoke untrusted
+ * accessor getters while validating a caller-supplied audit snapshot. */
+function ownDataProperty(value:Record<string,unknown>,key:string,label:string):unknown{
+ const descriptor=Object.getOwnPropertyDescriptor(value,key);
+ if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+  throw new TypeError('Invalid '+label+' data property');
+ return descriptor.value;
+}
 function record<K extends string>(input:unknown,keys:readonly K[],label:string):Record<K,string>{
  if(!input||typeof input!=='object'||Array.isArray(input)||
   (Object.getPrototypeOf(input)!==Object.prototype&&Object.getPrototypeOf(input)!==null))
@@ -20,8 +28,9 @@ function record<K extends string>(input:unknown,keys:readonly K[],label:string):
   throw new TypeError('Invalid '+label+' fields');
  const out:Record<string,string>=Object.create(null);
  for(const key of keys){
-  if(typeof value[key]!=='string')throw new TypeError('Invalid '+label+'.'+key);
-  out[key]=value[key] as string;
+  const field=ownDataProperty(value,key,label+'.'+key);
+  if(typeof field!=='string')throw new TypeError('Invalid '+label+'.'+key);
+  out[key]=field;
   if(key==='id'||key.endsWith('Id')){
    if(!uuid.test(out[key]))throw new TypeError('Invalid '+label+'.'+key);
   }
@@ -41,7 +50,7 @@ export function parseAuditTrace(input:unknown,now:string):AuditTrace{
  if(Reflect.ownKeys(value).length!==names.length||!names.every(k=>Object.hasOwn(value,k)))
   throw new TypeError('Incomplete audit trace');
  const out={} as {-readonly [K in keyof typeof fields]:Record<(typeof fields)[K][number],string>};
- for(const stage of names){(out as Record<string,unknown>)[stage]=record(value[stage],fields[stage],stage);}
+ for(const stage of names){(out as Record<string,unknown>)[stage]=record(ownDataProperty(value,stage,'audit trace.'+stage),fields[stage],stage);}
  const {job,finding,candidate,test,approval,revision}=out;
  const entityIds=names.map(stage=>out[stage].id.toLowerCase());
  if(new Set(entityIds).size!==entityIds.length)throw new TypeError('Audit trace entity IDs must be distinct');
