@@ -233,3 +233,30 @@ test('FR-024 trusted Main passes the document confirmed by native consent into f
  assert.match(call,/approvedDocument:afterPrompt/,
   'a new independent baseline must not silently replace the native-approved document');
 });
+
+
+test('FR-024 the initial document confirmation consumes the same one-time approval budget',async()=>{
+ let socket:FocusSocket|null=null;let opened=0;let confirmations=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,approvedDocument:frame,timeoutMs:100,
+  confirm:async()=>{if(++confirmations===1)await new Promise(resolve=>setTimeout(resolve,180));return frame;},
+  socketFactory:()=>{opened++;socket=new FocusSocket();return socket;},
+ }),/timed out|expired|deadline|timeout/i);
+ assert.equal(opened,0,'expired native consent must not open an action socket');
+ assert.equal(socket,null,'no expired action connection may be constructed');
+});
+
+test('FR-024 a delayed event loop cannot dispatch focus before the expired timer callback runs',async()=>{
+ const socket=new FocusSocket();let confirmations=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,approvedDocument:frame,timeoutMs:100,
+  confirm:async()=>{
+   if(++confirmations===2)Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,180);
+   return frame;
+  },
+  socketFactory:()=>socket,
+ }),/timed out|expired|deadline|timeout/i);
+ assert.ok(confirmations>=2,'the final pre-action document confirmation must be delayed');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'elapsed monotonic deadline must block action even when timer delivery is delayed');
+});
