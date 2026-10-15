@@ -13,13 +13,17 @@
 const MARKER_EXPRESSION=`(()=>{try{
  const descriptor=Object.getOwnPropertyDescriptor(window,"**VMInitInjection**");
  const value=descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
- const officialRuntimeId=typeof chrome==='object'&&chrome!==null&&
-  chrome.runtime?.id==='jinjaccalgkegednnccohejagnlnfdag';
+ const runtime=typeof chrome==='object'&&chrome!==null?chrome.runtime:null;
+ const officialRuntimeId=runtime?.id==='jinjaccalgkegednnccohejagnlnfdag';
+ const runtimeOnMessageAvailable=!!runtime&&runtime.onMessage!=null&&
+  typeof runtime.onMessage.addListener==='function';
  return JSON.stringify({
   readyMarker:value===1,webBootstrap:typeof value==='function',
   officialRuntimeId:!!officialRuntimeId,
+  runtimeOnMessageAvailable:!!runtimeOnMessageAvailable,
  });
- }catch{return JSON.stringify({readyMarker:false,webBootstrap:false,officialRuntimeId:false});}})()`;
+ }catch{return JSON.stringify({readyMarker:false,webBootstrap:false,
+  officialRuntimeId:false,runtimeOnMessageAvailable:false});}})()`;
 type CdpSend=(method:string,params:Record<string,unknown>)=>Promise<unknown>;
 export interface PinnedBootstrapMarkerEvidence {
  readonly isolatedWorldsObserved:number;
@@ -27,6 +31,7 @@ export interface PinnedBootstrapMarkerEvidence {
  readonly readyMarkerObserved:boolean;
  readonly webBootstrapObserved:boolean;
  readonly officialRuntimeIdObserved:boolean;
+ readonly runtimeOnMessageAvailableObserved:boolean;
  readonly observationIncomplete:boolean;
 }
 export function createPinnedBootstrapMarkerEvidence(frameId:string){
@@ -55,7 +60,8 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
    }
   },
   async read(send:CdpSend):Promise<PinnedBootstrapMarkerEvidence>{
-   let worldsChecked=0,readyMarkerObserved=false,webBootstrapObserved=false,officialRuntimeIdObserved=false;
+   let worldsChecked=0,readyMarkerObserved=false,webBootstrapObserved=false,
+    officialRuntimeIdObserved=false,runtimeOnMessageAvailableObserved=false;
    let incomplete=truncated||contexts.size===0;
    for(const contextId of contexts){
     try{
@@ -71,19 +77,22 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
         Object.hasOwn(packet.result,'exceptionDetails')||
         Object.hasOwn(packet.result,'error')||
         typeof packet.result.value!=='string'||
-        packet.result.value.length>100){incomplete=true;continue;}
+        packet.result.value.length>160){incomplete=true;continue;}
      const parsed:unknown=JSON.parse(packet.result.value);
      if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
-        Object.keys(parsed).sort().join(',')!=='officialRuntimeId,readyMarker,webBootstrap'||
+        Object.keys(parsed).sort().join(',')!=='officialRuntimeId,readyMarker,runtimeOnMessageAvailable,webBootstrap'||
         typeof (parsed as {readyMarker?:unknown}).readyMarker!=='boolean'||
         typeof (parsed as {webBootstrap?:unknown}).webBootstrap!=='boolean'||
-        typeof (parsed as {officialRuntimeId?:unknown}).officialRuntimeId!=='boolean'){
+        typeof (parsed as {officialRuntimeId?:unknown}).officialRuntimeId!=='boolean'||
+        typeof (parsed as {runtimeOnMessageAvailable?:unknown}).runtimeOnMessageAvailable!=='boolean'){
       incomplete=true;continue;
      }
      worldsChecked++;
      if((parsed as {readyMarker:boolean}).readyMarker)readyMarkerObserved=true;
      if((parsed as {webBootstrap:boolean}).webBootstrap)webBootstrapObserved=true;
      if((parsed as {officialRuntimeId:boolean}).officialRuntimeId)officialRuntimeIdObserved=true;
+     if((parsed as {runtimeOnMessageAvailable:boolean}).runtimeOnMessageAvailable)
+      runtimeOnMessageAvailableObserved=true;
     }catch{
      // CDP may destroy a context between observation and query.
      // Raw private CDP error text is NEVER returned or logged.
@@ -93,7 +102,7 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
    return {
     isolatedWorldsObserved:contexts.size,worldsChecked,
     readyMarkerObserved,webBootstrapObserved,officialRuntimeIdObserved,
-    observationIncomplete:incomplete,
+    runtimeOnMessageAvailableObserved,observationIncomplete:incomplete,
    };
   },
  };
