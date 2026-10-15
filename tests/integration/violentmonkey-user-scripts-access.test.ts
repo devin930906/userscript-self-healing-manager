@@ -183,7 +183,12 @@ test('read-only userScripts access reason is allowlisted and never exposes exten
   JSON.stringify({reason:'toggle-inactive'}));
  assert.equal(await run({userScriptsAccess:{isEnabled:false,isActive:false}}),
   JSON.stringify({reason:'toggle-disabled'}));
- assert.equal(await run({state:'DISABLED'}),JSON.stringify({reason:'state-disabled'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{reloading:true}}),
+  JSON.stringify({reason:'state-disabled-reloading'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{reloading:false}}),
+  JSON.stringify({reason:'state-disabled-other'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{reloading:'PRIVATE_VALUE'}}),
+  JSON.stringify({reason:'state-disabled-other'}));
  assert.equal(await run({state:'TERMINATED'}),JSON.stringify({reason:'state-terminated'}));
  assert.equal(await run({state:'BLOCKLISTED'}),JSON.stringify({reason:'state-blocklisted'}));
  assert.equal(await run({state:'PRIVATE_STATE'}),JSON.stringify({reason:'state-other'}));
