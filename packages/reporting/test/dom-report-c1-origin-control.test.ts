@@ -31,3 +31,15 @@ test('RG-07 permits percent-encoded C1 but never exports private URL paths or qu
   assert.doesNotMatch(output,/PRIVATE_VALUE|path%C2%80/);
  }
 });
+
+test('RG-07 rejects raw Unicode line/paragraph separators without laundering the URL',()=>{
+ for(const code of [0x2028,0x2029]){
+  const pageUrl='https://example.invalid/path'+String.fromCharCode(code)+'?token=PRIVATE_VALUE';
+  for(const format of ['json','markdown'] as const){
+   assert.throws(
+    ()=>serializeDomBatchReport(fixture(pageUrl),format,timestamp),
+    error=>error instanceof Error&&error.message==='Invalid DOM diagnosis origin',
+   );
+  }
+ }
+});
