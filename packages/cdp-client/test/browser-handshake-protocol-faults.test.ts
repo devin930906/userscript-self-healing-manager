@@ -32,7 +32,7 @@ test('RG-04 clean Browser.getVersion CDP envelope still confirms exact Chrome id
  assert.equal(await verifyBrowserCdpHandshake({
   endpoint,port:9223,socketFactory:()=>socket,
  }),valid.product);
- assert.deepEqual(socket.sent.map(JSON.parse).map(x=>x.method),['Browser.getVersion']);
+ assert.deepEqual(socket.sent.map(item=>JSON.parse(item)).map(x=>x.method),['Browser.getVersion']);
 });
 
 test('RG-04 Chrome identity must reject every CDP error property even when falsy',async()=>{
@@ -55,6 +55,6 @@ test('RG-04 Chrome identity must reject every CDP error property even when falsy
    assert.equal('cause' in error,false);
    return true;
   });
-  assert.deepEqual(socket.sent.map(JSON.parse).map(x=>x.method),['Browser.getVersion']);
+  assert.deepEqual(socket.sent.map(item=>JSON.parse(item)).map(x=>x.method),['Browser.getVersion']);
  }
 });
