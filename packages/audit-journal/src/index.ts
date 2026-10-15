@@ -5,6 +5,7 @@ import {parseAuditTrace,type AuditTrace} from '../../contracts/src/audit-trace.t
 type SqlRow=Record<string,string>;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const sha256=/^[0-9a-f]{64}$/;
+const canonicalTimestamp=/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 const tableColumns=Object.freeze({
  audit_jobs:['id','script_id','attempt_id','source_sha256'],
  audit_findings:['id','job_id','script_id','attempt_id'],
@@ -175,6 +176,11 @@ WHERE r.id=?
     if(!uuid.test(row[key]??''))throw new Error('Corrupt audit journal identity');
    for(const key of ['source_sha256','revision_sha256'] as const)
     if(!sha256.test(row[key]??''))throw new Error('Corrupt audit journal hash');
+   const expiry=row.expires_at??'';
+   const parsedExpiry=Date.parse(expiry);
+   if(!canonicalTimestamp.test(expiry)||!Number.isFinite(parsedExpiry)||
+      new Date(parsedExpiry).toISOString()!==expiry)
+    throw new Error('Corrupt audit journal approval expiry');
    return freezeTrace(row);
   },
   close():void{db.close();},
