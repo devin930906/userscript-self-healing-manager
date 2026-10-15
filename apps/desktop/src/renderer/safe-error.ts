@@ -22,12 +22,18 @@ const SAFE_CODES:Readonly<Record<string,string>>=Object.freeze({
 });
 /** Always return private-data-free UI copy; unknown errors are never echoed. */
 export function summarizeSafeDesktopError(error:unknown):string{
- if(!(error instanceof Error)||typeof error.message!=='string')return UNKNOWN;
- let message=error.message;
- // Electron's *known, namespaced* IPC envelope may be unwrapped, but the
- // payload must still be an exact allowlisted code. Reject appended text.
- const envelope=/^Error invoking remote method 'usshm:[a-z-]{1,64}': Error: (.+)$/s.exec(message);
- if(envelope)message=envelope[1]!;
- return Object.prototype.hasOwnProperty.call(SAFE_CODES,message)?
-  SAFE_CODES[message]!:UNKNOWN;
+ // An Error subclass or Proxy can throw when its prototype or message is
+ // accessed. Even the formatter must fail closed and never surface the throw.
+ try{
+  if(!(error instanceof Error)||typeof error.message!=='string')return UNKNOWN;
+  let message=error.message;
+  // Electron's *known, namespaced* IPC envelope may be unwrapped, but the
+  // payload must still be an exact allowlisted code. Reject appended text.
+  const envelope=/^Error invoking remote method 'usshm:[a-z-]{1,64}': Error: (.+)$/s.exec(message);
+  if(envelope)message=envelope[1]!;
+  return Object.prototype.hasOwnProperty.call(SAFE_CODES,message)?
+   SAFE_CODES[message]!:UNKNOWN;
+ }catch{
+  return UNKNOWN;
+ }
 }
