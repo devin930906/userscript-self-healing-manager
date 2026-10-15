@@ -60,6 +60,7 @@ import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index
 import {ManualDomTransitionGate} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {reviewProductAction} from '../../../../packages/test-runner/src/product-action-review.ts';
+import {runApprovedControlFocus} from '../../../../packages/test-runner/src/approved-focus.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
@@ -741,6 +742,63 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   return report;
  });
+  let focusActionBusy=false;
+  ipcMain.handle('usshm:approved-control-focus',async(event,input:unknown)=>{
+   assertSender(event);
+   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+   if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+      typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+      !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+      typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+    throw new Error('Explicit selected button, scan identity and one-time focus approval required');
+   if(focusActionBusy)throw new Error('Another browser focus confirmation is already pending');
+   focusActionBusy=true;
+   try{
+   const scanSnapshot=scanSessions.require(q.scanId);
+   const item=scanSnapshot.items[q.itemIndex as number];
+   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+    throw new Error('Focus requires a current authorized scanned userscript');
+   const record=item.analysis.selectorRecords[q.selectorIndex as number];
+   if(!record||record.runtimeRequired||record.receiver!=='document')
+    throw new Error('Only one static top-document button locator may receive approved focus');
+   const cdp=await getVerifiedChromeStatus({port:9223});
+   const selected=cdp.pages.find(page=>page.id===q.targetId);
+   if(!selected?.webSocketDebuggerUrl)
+    throw new Error('Explicitly selected Chrome page no longer exists');
+   const pageScope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+   if(pageScope.status!=='allowed')
+    throw new Error('Selected page is outside the approved userscript scope');
+   scanSessions.assertCurrent(scanSnapshot);
+    const beforePrompt=await confirmPageIdentity(selected);
+    // Even a compromised renderer cannot turn an approved:true Boolean into
+    // browser interaction without trusted Main's native OS-level consent.
+    // No raw script source, private page path, URL query or credentials shown.
+    const decision=await dialog.showMessageBox(mainWindow,{
+     type:'warning',
+     title:'浏览器操作批准',
+     message:'确认聚焦当前已选择的 Chrome 页面控件？',
+     detail:'仅允许对唯一普通按钮聚焦一次。可能触发网页的 focus 事件或用户脚本监听器；不保证自动回滚，不证明任何脚本业务功能。请选择取消或明确同意。',
+     buttons:['取消','明确批准聚焦一次'],defaultId:0,cancelId:0,noLink:true,
+    });
+    if(decision.response!==1)throw new Error('Native focus confirmation cancelled; no action was sent');
+    const afterPrompt=await confirmPageIdentity(selected);
+    assertStablePageDocument(beforePrompt,afterPrompt);
+    scanSessions.assertCurrent(scanSnapshot);
+    const receipt=await runApprovedControlFocus({
+     approved:true,target:selected,
+     approvedDocument:afterPrompt,
+     locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+     confirm:confirmPageIdentity,
+     assertAuthorizedBeforeAction:()=>{
+      scanSessions.assertCurrent(scanSnapshot);
+      if(!withinAuthorized(item.path))
+       throw new Error('Focus source authorization revoked before action');
+     },
+    });
+    scanSessions.assertCurrent(scanSnapshot);
+    return receipt;
+   }finally{focusActionBusy=false;}
+  });
   ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;

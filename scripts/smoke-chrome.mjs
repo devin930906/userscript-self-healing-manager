@@ -30,6 +30,7 @@ import {runReadOnlyDomContract} from '../packages/test-runner/src/index.ts';
 import {ManualDomTransitionGate} from '../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {reviewProductAction} from '../packages/test-runner/src/product-action-review.ts';
+import {runApprovedControlFocus} from '../packages/test-runner/src/approved-focus.ts';
 import {runSiteAdapterRoleDomCheck} from '../packages/test-runner/src/site-adapter-role.ts';
 import {parseSiteAdapter} from '../packages/candidate-engine/src/site-adapter.ts';
 import {collectPagedDomDiagnosis} from '../packages/scan-service/src/paginated-dom.ts';
@@ -69,7 +70,7 @@ const verifiedManagedCurrentHash=async(scriptId)=>{
 };
 const html=`<!doctype html><html><head><title>USSHM CDP local fixture</title></head>
 <body><main><button id="heal-button" name="heal-action" class="heal-button-unique" data-testid="heal-control">Action</button>
-<button id="fixture-safe-click" type="button">Safe synthetic interaction</button><div id="manual-observation"><span class="manual-count">Seed</span></div>
+<button id="fixture-safe-click" type="button">Safe synthetic interaction</button><button id="safe-focus" type="button">One approved focus</button><button id="hidden-focus" type="button" style="display:none">Hidden test target</button><div id="manual-observation"><span class="manual-count">Seed</span></div>
 <button id="disabled-demo" disabled>Disabled</button><button id="aria-disabled-demo" aria-disabled="true">ARIA disabled</button><input id="readonly-demo" readonly value="synthetic"><div class="target-pane"></div><button class="batch-role">A</button><button class="batch-role">B</button><iframe id="fixture-child" src="/child" title="read only child"></iframe><div id="shadow-host"></div><div id="closed-shadow-host"></div></main>
 <script>
  document.getElementById('fixture-safe-click').addEventListener('click',event=>{
@@ -255,6 +256,39 @@ try{
  const identity=await confirmPageIdentity(selected);
  assert.equal(identity.confirmedUrl,fixtureUrl);
  assert.ok(identity.frameId&&identity.loaderId,'real Chrome must expose stable main-frame and loader identity');
+ // FR-024: this REAL Chrome action is limited to a fixed button on our
+ // disposable 127.0.0.1 fixture. Never copy this blanket consent to real
+ // accounts, and never classify a focus as named userscript functionality.
+ // Actual disposable Chrome negative: DOM.focus must never be sent to a
+ // display:none control, even when it is unique and type="button".
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target:selected,approvedDocument:identity,
+  locator:{method:'querySelector',expression:'#hidden-focus',runtimeRequired:false},
+  confirm:confirmPageIdentity,timeoutMs:7000,
+ }),/invisible|visibility|layout|focus/i);
+ console.log('PASS real Chrome FR-024 hidden control blocked before any approved DOM.focus; no V2 credit.');
+ const focusReceipt=await runApprovedControlFocus({
+  approved:true,target:selected,approvedDocument:identity,
+  locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
+  confirm:confirmPageIdentity,timeoutMs:7000,
+ });
+ assert.equal(focusReceipt.status,'focus-observed');
+ assert.equal(focusReceipt.V2,'focus-observed-only');
+ assert.equal(focusReceipt.interactionVerified,true);
+ assert.equal(focusReceipt.functionalVerified,false);
+ assert.equal(focusReceipt.V3,'not-configured');
+ assert.equal(focusReceipt.V4,'not-configured');
+ console.log('PASS real Chrome FR-024 approved local button focus and :focus postcondition; no real userscript or named V3 proof.');
+ // A second invocation on the same STILL-focused control must not earn a
+ // fresh V2 interaction receipt. This is an actual Chrome DOM precondition,
+ // not merely a synthetic CDP reply or a postcondition-only check.
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target:selected,approvedDocument:identity,
+  locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
+  confirm:confirmPageIdentity,timeoutMs:7000,
+ }),/already focused|no verifiable new focus transition/i);
+ console.log('PASS real Chrome FR-024 already-focused replay rejected: no false positive V2 transition.');
+
  // Observe a REAL isolated Chrome Page target without any page injection.
  // Natural fixture exceptions (if any) are counts only, NEVER evidence that
  // a userscript/GM manager executed or that V3/V4 functionality passed.
@@ -1036,6 +1070,18 @@ try{
  }
  assert.equal(stableNewSyntheticDocument,true,
   'A fresh stable synthetic document loader must be observed after test-only reload');
+ // Reuse an actual old-loader approval after the owned same-URL reload.
+ // Production must refuse it before even opening a DOM action connection.
+ let staleApprovalActionSockets=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target:selected,approvedDocument:priorSyntheticDocument,
+  locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
+  confirm:confirmPageIdentity,timeoutMs:7000,
+  socketFactory:uri=>{staleApprovalActionSockets++;return new WebSocket(uri);},
+ }),/document identity changed|navigation|reload/i);
+ assert.equal(staleApprovalActionSockets,0,
+  'native consent for the old document must not open a new focus action socket');
+ console.log('PASS real Chrome FR-024 stale native approval rejected after same-URL fresh-loader reload; no focus action socket.');
  const cleanBefore=await fixtureLifecycleDeps.observe(selected);
  assert.equal(cleanBefore.matchCount,1,'fixture reset must restore the original single node');
  const fixtureV2Lifecycle=await runNamedFixtureV2Lifecycle({
