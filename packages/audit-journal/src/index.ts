@@ -1,4 +1,5 @@
-import {isAbsolute} from 'node:path';
+import {dirname,isAbsolute,resolve} from 'node:path';
+import {lstatSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {parseAuditTrace,type AuditTrace} from '../../contracts/src/audit-trace.ts';
 
@@ -56,8 +57,43 @@ function freezeTrace(row:SqlRow):AuditTrace{
  * is accepted. A repeated historical entity may be referenced by a later trace
  * only when its immutable fields match byte-for-byte.
  */
+/**
+ * Fail closed on existing SQLite file aliases BEFORE opening the database.
+ * SQLite can read/write its -wal/-shm/-journal companions during construction.
+ * Follow the existing FR-029 checkpoint pattern without changing this
+ * synchronous API. This is a lexical/lstat fence, NOT a native Win32 handle
+ * lock against a malicious concurrent rename.
+ */
+function assertSafeAuditJournalPath(file:string):void{
+ if(typeof file!=='string'||!isAbsolute(file)||file.length>4096||
+    file.split(/[\\/]/).includes('..'))
+  throw new Error('Invalid or unsafe audit SQLite journal path');
+ const parent=dirname(resolve(file));
+ const parts:string[]=[];
+ for(let current=parent;;){
+  parts.push(current);
+  const above=dirname(current);
+  if(above===current)break;
+  current=above;
+ }
+ for(const part of parts.reverse()){
+  const info=lstatSync(part);
+  if(!info.isDirectory()||info.isSymbolicLink())
+   throw new Error('Unsafe audit SQLite journal directory: linked ancestor');
+ }
+ for(const name of [file,file+'-wal',file+'-shm',file+'-journal']){
+  try{
+   const info=lstatSync(name);
+   if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
+      !Number.isSafeInteger(info.size)||info.size<0)
+    throw new Error('Unsafe audit SQLite journal file or sidecar: linked or invalid file');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
+ }
+}
 export function openAuditJournal(file:string){
- if(typeof file!=='string'||!isAbsolute(file))throw new Error('Audit journal path must be absolute');
+ assertSafeAuditJournalPath(file);
  const db=new DatabaseSync(file);
  try{
   const version=(db.prepare('PRAGMA user_version').get() as {user_version:number}).user_version;
