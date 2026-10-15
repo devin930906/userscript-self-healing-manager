@@ -29,7 +29,7 @@ export function assertStablePageDocument(before:ConfirmedPageIdentity,after:Conf
  // may authorize a child scope; unsupported children remain count-only.
  const validChild=(item:ConfirmedPageIdentity):boolean=>{
   const count=item.subframeCount;
-  if(count!==undefined&&(!Number.isSafeInteger(count)||count<1||count>64))return false;
+  if(count!==undefined&&(!Number.isSafeInteger(count)||count<0||count>64))return false;
   const child=item.soleSameOriginSubframe;
   if(child===undefined)return true;
   return count===1&&child!==null&&
