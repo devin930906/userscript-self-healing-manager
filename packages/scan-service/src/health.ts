@@ -44,8 +44,8 @@ function classifyCheck(input:unknown):'found'|'missing'|'review'{
     (typeof methodValue!=='string'||!SUPPORTED_PROBE_METHODS.has(methodValue)))
   return 'review';
  const matchCount=count.value as unknown;
- if(status.value==='found'&&Number.isSafeInteger(matchCount)&&
-    typeof matchCount==='number'&&matchCount>=1&&matchCount<=10_000&&
+ if(status.value==='found'&&typeof matchCount==='number'&&
+    Number.isSafeInteger(matchCount)&&matchCount>=1&&matchCount<=10_000&&
     (matchCount===1||methodValue===undefined||
      COLLECTION_PROBE_METHODS.has(methodValue as string)))
   return 'found';
