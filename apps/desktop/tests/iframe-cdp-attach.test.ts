@@ -75,3 +75,75 @@ test('QA-048 real Electron security runner never starts iframe navigation in Run
  assert.match(stage,/FRAME_MARKER_44/);
  assert.match(stage,/\[outcome\.bridge,outcome\.ipc,outcome\.node\]/);
 });
+
+
+test('QA-048 recovers one stale CDP DOM node handle by resolving a fresh trusted document and host',async()=>{
+ assert.equal(typeof func,'function');
+ const methods:string[]=[];
+ let documentReads=0;
+ let mutations=0;
+ const exec=func as (options:{
+  expectedUrl:string;call:(method:string,params?:Record<string,unknown>)=>Promise<Record<string,unknown>>;
+  assertAlive:()=>void;
+ })=>Promise<void>;
+ await exec({
+  expectedUrl:trust,
+  assertAlive:()=>{},
+  call:async(method,params={})=>{
+   methods.push(method);
+   if(method==='DOM.getDocument')return {root:{documentURL:trust,nodeId:++documentReads*10}};
+   if(method==='DOM.querySelector')return {nodeId:documentReads*10+1};
+   if(method==='DOM.setOuterHTML'){
+    mutations++;
+    if(mutations===1)throw new Error('Could not find node with given id');
+    assert.equal(params.nodeId,21,'second attempt must not reuse stale host node');
+    return {};
+   }
+   throw new Error('unexpected CDP method');
+  },
+ });
+ assert.deepEqual(methods,[
+  'DOM.getDocument','DOM.querySelector','DOM.setOuterHTML',
+  'DOM.getDocument','DOM.querySelector','DOM.setOuterHTML',
+ ]);
+});
+
+test('QA-048 refuses a changed renderer document after stale DOM node invalidation',async()=>{
+ const methods:string[]=[];
+ let documents=0;
+ const exec=func as (options:{
+  expectedUrl:string;call:(method:string,params?:Record<string,unknown>)=>Promise<Record<string,unknown>>;
+  assertAlive:()=>void;
+ })=>Promise<void>;
+ await assert.rejects(exec({
+  expectedUrl:trust,assertAlive:()=>{},
+  call:async(method)=>{
+   methods.push(method);
+   if(method==='DOM.getDocument')return {root:{documentURL:++documents===1?trust:'https://untrusted.invalid/private',nodeId:documents*10}};
+   if(method==='DOM.querySelector')return {nodeId:documents*10+1};
+   if(method==='DOM.setOuterHTML')throw new Error('Could not find node with given id');
+   throw new Error('unexpected CDP method');
+  },
+ }),/trusted renderer document changed/);
+ assert.equal(methods.filter(method=>method==='DOM.setOuterHTML').length,1,'must not mutate the changed document');
+});
+
+test('QA-048 does not retry non-stale protocol errors or unlimited stale nodes',async()=>{
+ const exec=func as (options:{
+  expectedUrl:string;call:(method:string,params?:Record<string,unknown>)=>Promise<Record<string,unknown>>;
+  assertAlive:()=>void;
+ })=>Promise<void>;
+ for(const reason of ['Permission denied','Could not find node with given id']){
+  let mutations=0;
+  await assert.rejects(exec({
+   expectedUrl:trust,assertAlive:()=>{},
+   call:async(method)=>{
+    if(method==='DOM.getDocument')return {root:{documentURL:trust,nodeId:11}};
+    if(method==='DOM.querySelector')return {nodeId:12};
+    if(method==='DOM.setOuterHTML'){mutations++;throw new Error(reason);}
+    throw new Error('unexpected CDP method');
+   },
+  }),reason==='Permission denied'?/Permission denied/:/Could not find node with given id/);
+  assert.equal(mutations,reason==='Permission denied'?1:2,'retry only one confirmed stale handle');
+ }
+});
