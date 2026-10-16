@@ -22,17 +22,37 @@ const SAFE_FRAME_DIAGNOSTICS=new Set([
  'CDP nested frame limit exceeded',
  'Invalid main-frame document identity token',
 ]);
+// A CDP frame/loader ID is an opaque identity token, never free-form text.
+// Whitespace-only or control-bearing tokens cannot certify browser identity.
+const validIdentityToken=(token:unknown):token is string=>
+ typeof token==='string'&&token.length>0&&token.length<=256&&
+ token.trim().length>0&&!/[\u0000-\u001f\u007f]/.test(token);
+
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
+ // Do not accept two matching forged/incomplete child receipts as proof of
+ // stability. Only confirmPageIdentity's single-child, digest-bound shape
+ // may authorize a child scope; unsupported children remain count-only.
+ const validChild=(item:ConfirmedPageIdentity):boolean=>{
+  const count=item.subframeCount;
+  if(count!==undefined&&(!Number.isSafeInteger(count)||count<0||count>64))return false;
+  const child=item.soleSameOriginSubframe;
+  if(child===undefined)return true;
+  return count===1&&child!==null&&
+   validIdentityToken(child.frameId)&&
+   child.frameId!==item.frameId&&
+   validIdentityToken(child.loaderId)&&
+   typeof child.urlFingerprint==='string'&&/^[a-f0-9]{64}$/.test(child.urlFingerprint);
+ };
  // Two absent (or invalid) tokens comparing equal is not proof that a
  // same-URL navigation did not happen. Require the actual live document
  // identity on both sides before any equality comparison can pass.
  const pinned=(item:ConfirmedPageIdentity):boolean=>!!item&&
   typeof item.targetId==='string'&&item.targetId.length>0&&
   typeof item.confirmedUrl==='string'&&item.confirmedUrl.length>0&&
-  typeof item.frameId==='string'&&item.frameId.length>0&&item.frameId.length<=256&&
-  typeof item.loaderId==='string'&&item.loaderId.length>0&&item.loaderId.length<=256;
+  validIdentityToken(item.frameId)&&validIdentityToken(item.loaderId)&&
+  validChild(item);
  if(!pinned(before)||!pinned(after))
   throw new Error('CDP main-frame document identity unavailable during inspection');
  if(before.targetId!==after.targetId||before.confirmedUrl!==after.confirmedUrl||
@@ -93,10 +113,15 @@ export async function confirmPageIdentity(
     const frameTree=response.result?.frameTree;
     const queue:unknown[]=[frameTree];
     let nestedFrames=0;
+    const observedFrameIds=new Set<string>();
     for(let index=0;index<queue.length;index++){
      const node=queue[index] as {frame?:{id?:unknown};childFrames?:unknown}|null;
-     if(!node||!node.frame||typeof node.frame.id!=='string')
+     if(!node||!node.frame||typeof node.frame.id!=='string'||
+        (index>0&&!validIdentityToken(node.frame.id)))
       throw new Error('Invalid nested CDP frame tree');
+     if(observedFrameIds.has(node.frame.id))
+      throw new Error('Invalid nested CDP frame tree');
+     observedFrameIds.add(node.frame.id);
      if(node.childFrames!==undefined){
       if(!Array.isArray(node.childFrames))throw new Error('Invalid nested CDP frame list');
       nestedFrames+=node.childFrames.length;
@@ -107,7 +132,7 @@ export async function confirmPageIdentity(
     const topFrame=frameTree.frame as {id:string;loaderId?:unknown};
     const frameId=topFrame.id;
     const loaderId=topFrame.loaderId;
-    if(!frameId||frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
+    if(!validIdentityToken(frameId)||!validIdentityToken(loaderId))
      throw new Error('Invalid main-frame document identity token');
     // A single same-origin child is the only nested scope that can be
     // identified unambiguously without a user-supplied frame selector.
@@ -117,8 +142,7 @@ export async function confirmPageIdentity(
     if(nestedFrames===1&&Array.isArray(frameTree.childFrames)&&frameTree.childFrames.length===1){
      const child=frameTree.childFrames[0]?.frame;
      const childId=child?.id,childLoader=child?.loaderId,childUrl=child?.url;
-     if(typeof childId==='string'&&childId.length>0&&childId.length<=256&&
-        typeof childLoader==='string'&&childLoader.length>0&&childLoader.length<=256&&
+     if(validIdentityToken(childId)&&validIdentityToken(childLoader)&&
         typeof childUrl==='string'&&childUrl.length<=8192){
       try{
        const parsedChild=new URL(childUrl);

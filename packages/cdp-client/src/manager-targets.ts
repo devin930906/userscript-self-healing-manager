@@ -80,7 +80,7 @@ export async function inspectKnownUserscriptManagerTargets({
      throw new Error('Invalid CDP manager target envelope');
     const message=raw as {id?:unknown;error?:unknown;result?:any};
     if(done||message.id!==expected)return;
-    if(message.error||!message.result||typeof message.result!=='object'||
+    if(Object.hasOwn(message,'error')||!message.result||typeof message.result!=='object'||
        Array.isArray(message.result))
      throw new Error('Chrome manager target request rejected or invalid');
     if(method==='Browser.getVersion'){
