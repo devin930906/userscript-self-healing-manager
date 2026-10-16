@@ -89,6 +89,11 @@ function readScopeRules(source:object,key:string,optional=false):string[]|null{
  return rules;
 }
 export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:string):PageScopeResult {
+ // Page URLs arrive across a runtime trust boundary: TypeScript alone cannot
+ // prevent object coercion from invoking an untrusted toString/toPrimitive.
+ // Share the 8192-character cap of the CDP page identity boundary.
+ if(typeof pageUrl!=='string'||pageUrl.length===0||pageUrl.length>8192)
+  return {status:'blocked',reason:'Invalid page URL'};
  // Treat userscript metadata as hostile input, not a bounded trusted list.
  // Enforce the aggregate cap BEFORE accepting even the first @match: a huge
  // trailing deny/include list must not bypass full activation-scope review.
