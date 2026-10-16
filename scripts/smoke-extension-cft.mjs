@@ -56,11 +56,7 @@ let stderr='';
 try{
  // Generated from fixed source at test time; no user scripts, credentials,
  // arbitrary extension IDs or remote extension download URLs are accepted.
- const manifest=JSON.stringify({
-  manifest_version:3,name:'USSHM Synthetic Extension Fixture',version:'0.0.1',
-  background:{service_worker:'background.js'},
-  content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}],
- });
+ const manifest='{"manifest_version":3,"name":"USSHM Synthetic Extension Fixture","version":"0.0.1","background":{"service_worker":"background.js"},"content_scripts":[{"matches":["http://127.0.0.1/*"],"js":["content.js"],"run_at":"document_idle"}]}';
  // Fixed synthetic echo over the REAL MV3 content -> service-worker ->
  // content path. API property presence alone must never pass this control.
  const background=`chrome.runtime.onMessage.addListener((request,sender,reply)=>{
