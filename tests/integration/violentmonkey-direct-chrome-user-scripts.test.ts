@@ -19,7 +19,8 @@ test('RG-05 direct Chrome userScripts control registers only fixed loopback scri
   async register(scripts:any[]){
    assert.equal(scripts.length,1);
    assert.equal(scripts[0].id,DIRECT_CONTROL_ID);
-   assert.deepEqual(JSON.parse(JSON.stringify(scripts[0].matches)),[site]);
+   assert.deepEqual(JSON.parse(JSON.stringify(scripts[0].matches)),['http://127.0.0.1/rg05-direct-control']);
+   assert.match(scripts[0].js[0].code,/32123\\/rg05-direct-control/);
    assert.equal(scripts[0].world,'USER_SCRIPT');
    assert.equal(scripts[0].runAt,'document_start');
    assert.equal(scripts[0].js.length,1);
