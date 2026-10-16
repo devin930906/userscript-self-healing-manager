@@ -170,3 +170,41 @@ test('RG-07 report projection never invokes post-validation Proxy value getters'
  }
  assert.equal(rowReads,0,'validated rows must not be read again through their untrusted proxies');
 });
+
+
+test('RG-07 report cannot silently omit rows through Proxy length spoofing',()=>{
+ let lengthReads=0;
+ const items=new Proxy([fixture.items[0]!],{
+  get(target,key,receiver){
+   if(key==='length'){lengthReads++;return 0;}
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ const forged:ScanBatchResult={...fixture,items,enumeratedCount:0,
+  processedCount:0,passedCount:0,errorCount:0};
+ for(const format of ['json','markdown'] as const){
+  assert.throws(()=>serializeStaticReport(forged,format),error=>{
+   assert.ok(error instanceof Error);
+   assert.match(error.message,/Invalid static report item|Inconsistent static report item counts/);
+   return true;
+  },'actual descriptor-backed row inventory cannot disappear from '+format);
+ }
+ assert.equal(lengthReads,0,'untrusted Proxy length getter must not determine report rows');
+});
+
+test('RG-07 report preserves descriptor-backed diagnostic inventory despite Proxy length spoof',()=>{
+ let lengthReads=0;
+ const diagnostics=new Proxy(['private diagnostic must be redacted'],{
+  get(target,key,receiver){
+   if(key==='length'){lengthReads++;return 0;}
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ const report:ScanBatchResult={...fixture,items:[{...fixture.items[0]!,diagnostics}]};
+ const json=JSON.parse(serializeStaticReport(report,'json'));
+ assert.deepEqual(json.items[0].diagnostics,['STATIC_DIAGNOSTIC_REDACTED']);
+ const markdown=serializeStaticReport(report,'markdown');
+ assert.match(markdown,/STATIC_DIAGNOSTIC_REDACTED/);
+ assert.doesNotMatch(markdown,/private diagnostic/);
+ assert.equal(lengthReads,0,'untrusted diagnostic length getter must never be evaluated');
+});
