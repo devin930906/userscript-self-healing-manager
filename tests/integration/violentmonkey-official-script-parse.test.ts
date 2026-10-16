@@ -581,3 +581,47 @@ test('RG-05 rejects inherited CDP execution-context events before recording an i
   },'a forged context must not authorize exception attribution');
  }
 });
+
+
+test('RG-05 isolates official injector exception evidence across real document context resets',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const collector=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ const error=(ctx:number,code:string)=>({
+  exceptionDetails:{scriptId:code,executionContextId:ctx,lineNumber:0,columnNumber:2577,
+   exception:{className:'TypeError',description:
+    "TypeError: Cannot read properties of undefined (reading 'addListener')"}},
+ });
+ collector.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:frame,isDefault:false}}});
+ collector.observe('Debugger.scriptParsed',{...parsed('chrome-extension://'+extension+'/injected.js'),scriptId:'old'});
+ collector.observe('Runtime.exceptionThrown',error(9,'old'));
+ assert.equal(collector.injectedFailureSignature(),'missing-runtime-onmessage-addlistener',
+  'first cold-start document retains its actual bounded error signature');
+ collector.observe('Runtime.executionContextsCleared',{});
+ assert.deepEqual(collector.snapshot(),{
+  injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+ },'the next document must never inherit the first document error evidence');
+ assert.equal(collector.injectedExceptionClass(),'not-observed');
+ assert.equal(collector.injectedFailureSignature(),'not-observed');
+ assert.equal(collector.injectedFailureSite(),'not-observed');
+ collector.observe('Runtime.executionContextCreated',{context:{id:10,auxData:{frameId:frame,isDefault:false}}});
+ collector.observe('Debugger.scriptParsed',{...parsed('chrome-extension://'+extension+'/injected-web.js'),scriptId:'new',executionContextId:10});
+ collector.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'new',executionContextId:10}});
+ assert.deepEqual(collector.snapshot(),{
+  injectedWebExceptionObserved:true,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+ },'second document attribution is independent and cannot be mixed with first');
+ assert.equal(collector.injectedFailureSignature(),'not-observed');
+});
+
+test('RG-05 captures the failed first Chrome document fault before its one bounded reload',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const firstFailed=source.indexOf('RG-05 cold-start injection was absent; one isolated loopback reload required');
+ const firstAttribution=source.indexOf('RG-05 first failed Chrome document official injected.js signature:');
+ const reload=source.indexOf("await pageCdp.send('Page.reload',{ignoreCache:true})");
+ const secondAttribution=source.indexOf('RG-05 official injected.js failure signature after missing GM receipts:');
+ const denial=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(firstFailed>=0&&firstAttribution>firstFailed&&reload>firstAttribution,
+  'first-document diagnosis must occur after a missing GM receipt but before page reload');
+ assert.ok(secondAttribution>reload&&denial>secondAttribution,
+  'fresh second-document diagnosis must not replace or bypass the strict GM refusal');
+ assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
+});
