@@ -23,6 +23,7 @@ import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemov
 } from './violentmonkey-direct-chrome-control.ts';
 import {readVerifiedOfficialManagerCdpReply,readVerifiedDirectChromeControlValue} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
+import {summarizeOfficialManagerWorkerTargets} from './violentmonkey-worker-target-evidence.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
 import {createPinnedBootstrapMarkerEvidence,createPinnedIsolatedRuntimeExceptionEvidence} from './violentmonkey-bootstrap-marker-evidence.ts';
@@ -180,6 +181,16 @@ async function openCdp(endpoint,onEvent){
   },
   close(){scriptParsedObserver=null;try{socket.close();}catch{}}
  };
+}
+
+/** Passive post-GM snapshot only. Never wake or attach to a worker target,
+ * and do not expose URLs/IDs or allow diagnostics to bypass the GM gate. */
+async function readOfficialWorkerCensus(browserCdp){
+ try{
+  return summarizeOfficialManagerWorkerTargets(await browserCdp.send('Target.getTargets'));
+ }catch{
+  return summarizeOfficialManagerWorkerTargets(null);
+ }
 }
 
 async function waitForPage(targetId,expectedUrl,hasExited){
@@ -986,6 +997,11 @@ try{
   initialInjectorExceptions.injectedExceptionClass()+'; allowlisted class only.');
  console.log('RG-05 official injected.js failure signature control: '+
   initialInjectorExceptions.injectedFailureSignature()+'; fixed upstream signature only.');
+ // Passive worker-target snapshot only AFTER two genuine, verified GM receipts.
+ // It may reveal process-restart target lifecycle differences, not root cause.
+ console.log('RG-05 official worker targets after two REAL GM receipts: '+
+  JSON.stringify(await readOfficialWorkerCensus(browserCdp))+
+  '; target census only, never a GM/V4 receipt.');
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
@@ -1135,6 +1151,9 @@ try{
   if(pinned?.id!==afterRestartIdentity.frameId||
      pinned?.url!==fixtureUrl||pinned?.loaderId!==afterRestartIdentity.loaderId)
    throw new Error('Cold-start fixture page identity was not stable before one bounded reload');
+  console.log('RG-05 official worker targets after first missing cold-start GM receipt: '+
+   JSON.stringify(await readOfficialWorkerCensus(browserCdp))+
+   '; passive target census, GM remains absent.');
   const coldMissingRegistration=await readManagerFixtureRegistration(optionsCdp,fixtureUrl,()=>exited);
    console.log('RG-05 official Chrome registration after missing cold-start GM receipt: '+JSON.stringify(coldMissingRegistration));
    startupWarmup=true;
@@ -1188,6 +1207,11 @@ try{
   appManagerVerified:resumedManagers.managerVerified,expectedStorageBefore:2,
  };
  if(startupInjectionBlocked){
+  // Compare only after the SECOND genuine GM miss; never wake a worker or
+  // treat TargetInfo presence as evidence that the official runtime works.
+  console.log('RG-05 official worker targets after two absent GM receipts: '+
+   JSON.stringify(await readOfficialWorkerCensus(browserCdp))+
+   '; passive target census, not manager verification.');
   // Only AFTER cold restart and one bounded reload both lacked the GM receipt.
   // A bridge response must never count as actual user script GM execution.
   try{
