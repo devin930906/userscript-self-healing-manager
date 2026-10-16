@@ -41,7 +41,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // prototype can supply inherited .every/.filter/.map getters, which the
  // existing own-property check alone cannot detect before export.
  // A Proxy's getPrototypeOf trap can throw private data: never propagate it.
- const hasNativeArrayPrototype=(value:unknown):boolean=>{
+ const hasNativeArrayPrototype=(value:unknown):value is unknown[]=>{
   try{return Array.isArray(value)&&Object.getPrototypeOf(value)===Array.prototype;}
   catch{return false;}
  };
