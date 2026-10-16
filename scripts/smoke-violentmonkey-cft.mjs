@@ -939,6 +939,22 @@ try{
  assert.equal(requests.length,2,'only the two fixed loopback GM request callbacks are allowed');
  assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
  assert.deepEqual(secondReceipt.apis,firstReceipt.apis);
+ // RG-05 PRE-RESTART diagnostic control. Two actual official GM receipts
+ // established a working manager BEFORE we sample Chrome's existing default
+ // USER_SCRIPT world. This temporary exact-loopback script is not a GM
+ // replacement and must never modify the manager's default world settings.
+ const baselineDefaultWorld=await runDirectChromeUserScriptDiagnostic({
+  browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+  world:'default',
+ });
+ console.log('RG-05 default USER_SCRIPT before Chrome process restart: '+
+  JSON.stringify(baselineDefaultWorld)+'; diagnostic only, not a GM receipt or V4 proof.');
+ // Never proceed into a cold-start comparison if a registered disposable
+ // synthetic script or its response listener was not demonstrably removed.
+ if(baselineDefaultWorld.registered===true&&
+    (baselineDefaultWorld.cleanupVerified!==true||
+     baselineDefaultWorld.listenerRemoved!==true))
+  throw new Error('RG-05 baseline synthetic control cleanup was not verified');
  // This is a control sample only after TWO independently validated real GM
  // receipts in the original process. Without a known working control we
  // cannot claim that a false restarted response identifies the failing layer.
