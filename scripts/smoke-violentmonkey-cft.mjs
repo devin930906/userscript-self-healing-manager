@@ -17,6 +17,7 @@ import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.ts';
 import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
 import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemoval,
+ buildDirectChromeDefaultWorldRegistration,buildDirectChromeDefaultWorldRemoval,
  buildDirectChromeUserScriptListenerInstallation,buildDirectChromeUserScriptListenerRemoval,
  buildDirectChromeUserScriptListenerObservation,
 } from './violentmonkey-direct-chrome-control.ts';
@@ -413,8 +414,9 @@ async function collectPreReloadViolentmonkeyAccess({browserCdp,hasExited}){
  * The result cannot satisfy any manager GM, FR-026 or Stable release gate.
  */
 async function runDirectChromeUserScriptDiagnostic({
- browserCdp,optionsCdp,controlUrl,hasExited,
+ browserCdp,optionsCdp,controlUrl,hasExited,world='dedicated',
 }){
+ if(world!=='dedicated'&&world!=='default')throw new Error('Unsupported isolated Chrome world differential');
  let targetId,pageCdp,registered=false,cleanupVerified=false;
  let listenerAttached=false,listenerRemoved=false;
  let marker='not-observed',roundtrip='unavailable';
@@ -423,7 +425,8 @@ async function runDirectChromeUserScriptDiagnostic({
  try{
   if(hasExited())return {registered:false,marker,roundtrip,messageReceipt,listenerRemoved:false,cleanupVerified:false};
   const receipt=await optionsCdp.send('Runtime.evaluate',{
-   expression:buildDirectChromeUserScriptRegistration(controlUrl),
+   expression:world==='default'?buildDirectChromeDefaultWorldRegistration(controlUrl):
+    buildDirectChromeUserScriptRegistration(controlUrl),
    awaitPromise:true,returnByValue:true,
   });
   if(receipt?.exceptionDetails||receipt?.result?.value!=='registered')
@@ -534,7 +537,8 @@ async function runDirectChromeUserScriptDiagnostic({
   if(registered){
    try{
     const removed=await optionsCdp.send('Runtime.evaluate',{
-     expression:buildDirectChromeUserScriptRemoval(),
+     expression:world==='default'?buildDirectChromeDefaultWorldRemoval():
+      buildDirectChromeUserScriptRemoval(),
      awaitPromise:true,returnByValue:true,
     });
     cleanupVerified=!removed?.exceptionDetails&&removed?.result?.value==='removed';
@@ -1234,6 +1238,14 @@ try{
   });
   console.log('RG-05 Chrome direct USER_SCRIPT after failed official manager cold start: '+
    JSON.stringify(directUserScript)+'; NOT an official GM receipt or release pass.');
+  // Only after official GM is independently blocked: compare the manager-owned
+  // default world with the named control. No manager/default world reconfiguration.
+  const defaultUserScript=await runDirectChromeUserScriptDiagnostic({
+   browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+   world:'default',
+  });
+  console.log('RG-05 Chrome default USER_SCRIPT after failed official manager cold start: '+
+   JSON.stringify(defaultUserScript)+'; diagnostic only, GM acceptance remains blocked.');
 
   // Root-cause diagnostic only, after the blocker is already immutable: reload
   // the pinned official extension (not Chrome, not a user profile), then test
