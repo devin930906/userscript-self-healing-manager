@@ -25,6 +25,16 @@ const MARKER_EXPRESSION=`(()=>{try{
  }catch{return JSON.stringify({readyMarker:false,webBootstrap:false,
   officialRuntimeId:false,runtimeOnMessageAvailable:false});}})()`;
 type CdpSend=(method:string,params:Record<string,unknown>)=>Promise<unknown>;
+/** Read only own data fields from decoded CDP events. Untrusted accessors and
+ * inherited fields cannot prove a world exists or an exception was thrown. */
+function ownCdpData(object:unknown,name:string):unknown{
+ if(!object||typeof object!=='object')return undefined;
+ try{
+  if(Array.isArray(object))return undefined;
+  const descriptor=Object.getOwnPropertyDescriptor(object,name);
+  return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
+ }catch{return undefined;}
+}
 export interface PinnedBootstrapMarkerEvidence {
  readonly isolatedWorldsObserved:number;
  readonly worldsChecked:number;
@@ -46,19 +56,17 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
    if(method==='Runtime.executionContextsCleared'){
     contexts.clear();truncated=false;epoch++;
    }else if(method==='Runtime.executionContextDestroyed'){
-    const id=(params as {executionContextId?:unknown}|null)?.executionContextId;
+    const id=ownCdpData(params,'executionContextId');
     if(Number.isSafeInteger(id)&&contexts.delete(id as number))epoch++;
    }else if(method==='Runtime.executionContextCreated'){
-    const context=(params as {context?:unknown}|null)?.context;
-    if(!context||typeof context!=='object'||Array.isArray(context))return;
-    const obj=context as {id?:unknown;auxData?:unknown};
-    const aux=obj.auxData;
-    if(!aux||typeof aux!=='object'||Array.isArray(aux))return;
-    const meta=aux as {frameId?:unknown;isDefault?:unknown};
-    if(meta.frameId!==frameId||meta.isDefault!==false||
-       !Number.isSafeInteger(obj.id)||(obj.id as number)<=0)return;
-    if(contexts.size>=8&&!contexts.has(obj.id as number)){truncated=true;return;}
-    contexts.add(obj.id as number);epoch++;
+    const context=ownCdpData(params,'context');
+    const aux=ownCdpData(context,'auxData');
+    const id=ownCdpData(context,'id');
+    if(ownCdpData(aux,'frameId')!==frameId||
+       ownCdpData(aux,'isDefault')!==false||
+       !Number.isSafeInteger(id)||(id as number)<=0)return;
+    if(contexts.size>=8&&!contexts.has(id as number)){truncated=true;return;}
+    contexts.add(id as number);epoch++;
    }
   },
   async read(send:CdpSend):Promise<PinnedBootstrapMarkerEvidence>{
@@ -141,29 +149,26 @@ export function createPinnedIsolatedRuntimeExceptionEvidence(frameId:string){
     contexts.clear();return;
    }
    if(method==='Runtime.executionContextDestroyed'){
-    const id=(params as {executionContextId?:unknown}|null)?.executionContextId;
+    const id=ownCdpData(params,'executionContextId');
     if(Number.isSafeInteger(id))contexts.delete(id as number);
     return;
    }
    if(method==='Runtime.executionContextCreated'){
-    const context=(params as {context?:unknown}|null)?.context;
-    if(!context||typeof context!=='object'||Array.isArray(context))return;
-    const candidate=context as {id?:unknown;auxData?:unknown};
-    const aux=candidate.auxData;
-    if(!aux||typeof aux!=='object'||Array.isArray(aux)||
-       (aux as {frameId?:unknown;isDefault?:unknown}).frameId!==frameId||
-       (aux as {isDefault?:unknown}).isDefault!==false||
-       !Number.isSafeInteger(candidate.id)||(candidate.id as number)<1)return;
-    if(contexts.size>=8&&!contexts.has(candidate.id as number)){
+    const context=ownCdpData(params,'context');
+    const aux=ownCdpData(context,'auxData');
+    const id=ownCdpData(context,'id');
+    if(ownCdpData(aux,'frameId')!==frameId||
+       ownCdpData(aux,'isDefault')!==false||
+       !Number.isSafeInteger(id)||(id as number)<1)return;
+    if(contexts.size>=8&&!contexts.has(id as number)){
      incomplete=true;return;
     }
-    contexts.add(candidate.id as number);
+    contexts.add(id as number);
     return;
    }
    if(method!=='Runtime.exceptionThrown')return;
-   const details=(params as {exceptionDetails?:unknown}|null)?.exceptionDetails;
-   if(!details||typeof details!=='object'||Array.isArray(details))return;
-   const id=(details as {executionContextId?:unknown}).executionContextId;
+   const details=ownCdpData(params,'exceptionDetails');
+   const id=ownCdpData(details,'executionContextId');
    if(!Number.isSafeInteger(id)||!contexts.has(id as number))return;
    if(count<8)count++;
    else incomplete=true;
