@@ -31,27 +31,49 @@ export interface ReadinessDeps{
 }
 type Sample={fingerprint:string;listenerCount:number};
 const safeId=/^[0-9a-f]{64}$/;
+/** Runtime adapter receipts are untrusted JSON-like values, not JavaScript
+ * proof objects. Inherited properties and accessors cannot authorize a
+ * potentially-ready product control or execute adapter-owned getters. */
+function ownData(value:unknown,key:string):unknown{
+ if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+ try{
+  const descriptor=Object.getOwnPropertyDescriptor(value,key);
+  return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
+ }catch{return undefined;}
+}
 function fingerprint(probe:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):string|null{
- if(!probe||probe.validationLevel!=='dom-only'||probe.targetId!==target.id||
-   probe.url!==target.url||!Array.isArray(probe.checks)||probe.checks.length!==1)return null;
- const check=probe.checks[0];
- return check&&check.method===locator.method&&check.expression===locator.expression&&
-  check.status==='found'&&check.matchCount===1&&
-  typeof check.nodeFingerprint==='string'&&safeId.test(check.nodeFingerprint)?
-   check.nodeFingerprint:null;
+ if(ownData(probe,'validationLevel')!=='dom-only'||
+    ownData(probe,'targetId')!==target.id||
+    ownData(probe,'url')!==target.url)return null;
+ const checks=ownData(probe,'checks');
+ if(!Array.isArray(checks)||checks.length!==1)return null;
+ let check:unknown;
+ try{
+  const entry=Object.getOwnPropertyDescriptor(checks,'0');
+  if(!entry||!Object.hasOwn(entry,'value'))return null;
+  check=entry.value;
+ }catch{return null;}
+ const digest=ownData(check,'nodeFingerprint');
+ return ownData(check,'method')===locator.method&&
+  ownData(check,'expression')===locator.expression&&
+  ownData(check,'status')==='found'&&ownData(check,'matchCount')===1&&
+  typeof digest==='string'&&safeId.test(digest)?digest:null;
 }
 function validateVisibility(e:ReadOnlyVisibilityEvidence,target:ChromeTarget):boolean{
- return !!e&&e.targetId===target.id&&e.url===target.url&&
-  e.validationLevel==='css-box-read-only'&&e.V2==='blocked'&&
-  e.V3==='not-configured'&&e.V4==='not-configured'&&
-  e.interactionVerified===false;
+ return ownData(e,'targetId')===target.id&&ownData(e,'url')===target.url&&
+  ownData(e,'validationLevel')==='css-box-read-only'&&
+  ownData(e,'V2')==='blocked'&&ownData(e,'V3')==='not-configured'&&
+  ownData(e,'V4')==='not-configured'&&ownData(e,'interactionVerified')===false&&
+  ownData(e,'status')!==undefined&&ownData(e,'matchCount')!==undefined&&
+  ownData(e,'pointerBlocked')!==undefined&&ownData(e,'controlBlocker')!==undefined;
 }
 function validateListeners(e:ReadOnlyEventListenerEvidence,target:ChromeTarget):boolean{
- return !!e&&e.targetId===target.id&&e.url===target.url&&
-  e.validationLevel==='direct-event-listener-read-only'&&
-  e.eventType==='click'&&e.V2==='blocked'&&
-  e.V3==='not-configured'&&e.V4==='not-configured'&&
-  e.interactionVerified===false;
+ return ownData(e,'targetId')===target.id&&ownData(e,'url')===target.url&&
+  ownData(e,'validationLevel')==='direct-event-listener-read-only'&&
+  ownData(e,'eventType')==='click'&&ownData(e,'V2')==='blocked'&&
+  ownData(e,'V3')==='not-configured'&&ownData(e,'V4')==='not-configured'&&
+  ownData(e,'interactionVerified')===false&&
+  ownData(e,'status')!==undefined&&ownData(e,'listenerCount')!==undefined;
 }
 /**
  * Bounded, two-sample correlation of live DOM node identity, basic CSS control
