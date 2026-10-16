@@ -33,8 +33,10 @@ export interface ReadOnlyDomContractDeps {
  * prototype, getter, sparse array slot or proxy cannot certify a V1 result.
  * Never include raw site/adapter exception details in a user verdict. */
 function ownEvidenceField(value:unknown,key:string):unknown{
- if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
  try{
+  // A revoked Proxy throws even during Array.isArray; invalid decoded
+  // evidence must remain inconclusive, not crash a named V1 assertion.
+  if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
   const descriptor=Object.getOwnPropertyDescriptor(value,key);
   return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
  }catch{return undefined;}
@@ -44,9 +46,9 @@ function readOwnLocatorRow(evidence:LocatorProbeResult,target:ChromeTarget,locat
     ownEvidenceField(evidence,'url')!==target.url||
     ownEvidenceField(evidence,'validationLevel')!=='dom-only')return undefined;
  const checks=ownEvidenceField(evidence,'checks');
- if(!Array.isArray(checks)||checks.length!==1)return undefined;
  let check:unknown;
  try{
+  if(!Array.isArray(checks)||checks.length!==1)return undefined;
   const first=Object.getOwnPropertyDescriptor(checks,'0');
   if(!first||!Object.hasOwn(first,'value'))return undefined;
   check=first.value;
