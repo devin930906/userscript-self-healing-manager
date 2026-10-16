@@ -531,3 +531,53 @@ test('RG-05 rejects inherited debugger events from forged official injector befo
  assert.equal(e.injectedFailureSignature(),'not-observed',
   'a forged source must not claim a causal Chrome runtime signature');
 });
+
+
+test('RG-05 rejects inherited official exception envelopes and nested accessor evidence without attribution',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const validScript=parsed('chrome-extension://'+extension+'/injected.js');
+ const forgedDetails={scriptId:'101',executionContextId:9,exception:{
+  className:'TypeError',
+  description:"TypeError: Cannot read properties of undefined (reading 'addListener')",
+ }};
+ const cases=[
+  Object.create({exceptionDetails:forgedDetails}),
+  {exceptionDetails:Object.create(forgedDetails)},
+ ];
+ let getterCalls=0;
+ const accessorEvent={};
+ Object.defineProperty(accessorEvent,'exceptionDetails',{
+  get(){getterCalls++;throw Error('PRIVATE_BROWSER_EXCEPTION');},
+ });
+ cases.push(accessorEvent);
+ for(const event of cases){
+  const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+  e.observe('Debugger.scriptParsed',validScript);
+  assert.doesNotThrow(()=>e.observe('Runtime.exceptionThrown',event));
+  assert.deepEqual(e.snapshot(),{
+   injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+  },'untrusted exception envelopes must not certify a genuine official injector exception');
+  assert.equal(e.injectedFailureSignature(),'not-observed');
+ }
+ assert.equal(getterCalls,0,'passive observer must not run exception getters');
+});
+
+test('RG-05 rejects inherited CDP execution-context events before recording an isolated official injector context',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const context={id:88,auxData:{frameId:frame,isDefault:false}};
+ const cases=[
+  Object.create({context}),
+  {context:Object.create(context)},
+  {context:{id:88,auxData:Object.create({frameId:frame,isDefault:false})}},
+ ];
+ for(const event of cases){
+  const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+  assert.doesNotThrow(()=>e.observe('Runtime.executionContextCreated',event));
+  e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+   executionContextId:88,scriptId:'unknown',
+  }});
+  assert.deepEqual(e.snapshot(),{
+   injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+  },'a forged context must not authorize exception attribution');
+ }
+});
