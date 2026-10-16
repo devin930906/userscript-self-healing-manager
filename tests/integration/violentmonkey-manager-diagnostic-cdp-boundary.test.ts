@@ -51,7 +51,7 @@ test('RG-07 manager read-only diagnostic never invokes hostile CDP getters',()=>
 });
 
 test('RG-05 four official manager diagnostics validate protocol envelopes before trusting data',async()=>{
- const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const source=(await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8')).replace(/\r\n/g,'\n');
  const sections=[
   ['readManagerInjectionOptions',160],
   ['readManagerFixtureMatch',80],
