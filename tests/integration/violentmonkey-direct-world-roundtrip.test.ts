@@ -5,6 +5,18 @@ import vm from 'node:vm';
 
 const extension='jinjaccalgkegednnccohejagnlnfdag';
 const options='chrome-extension://'+extension+'/options/index.html#settings';
+const worldId='usshm-rg05-direct-control-world-v1';
+function worldApi(){
+ let configured=false;
+ return {
+  async getWorldConfigurations(){return configured?[{worldId,messaging:true}]:[];},
+  async configureWorld(args:any){
+   assert.deepEqual(JSON.parse(JSON.stringify(args)),{worldId,messaging:true});
+   configured=true;
+  },
+  async resetWorldConfiguration(id:string){assert.equal(id,worldId);configured=false;},
+ };
+}
 const site='http://127.0.0.1:32123/rg05-direct-control';
 
 test('RG-05 USER_SCRIPT roundtrip accepts only a real bounded onUserScriptMessage reply',async()=>{
@@ -18,6 +30,7 @@ test('RG-05 USER_SCRIPT roundtrip accepts only a real bounded onUserScriptMessag
    addListener(fn:any){assert.equal(listener,undefined);listener=fn;},
    removeListener(fn:any){assert.equal(fn,listener);listener=undefined;removed++;},
   }},userScripts:{
+   ...worldApi(),
    async getScripts(){return registered?[registered]:[];},
    async register(xs:any[]){registered=xs[0];},
    async unregister(){registered=undefined;},
@@ -109,6 +122,7 @@ test('RG-05 direct USER_SCRIPT accepts a real callback-only runtime.sendMessage 
  const extensionContext:any={
   location:{href:options},window:{},JSON,
   chrome:{runtime:{id:extension},userScripts:{
+   ...worldApi(),
    async getScripts(){return owned?[owned]:[];},
    async register(xs:any[]){owned=xs[0];},
    async unregister(){owned=undefined;},
