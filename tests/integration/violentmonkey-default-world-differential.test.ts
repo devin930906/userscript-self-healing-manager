@@ -89,3 +89,18 @@ test('RG-05 actual default world Chrome experiment follows named-world control a
  assert.ok(classified>=0&&dedicated>classified&&defaultControl>dedicated&&gate>defaultControl);
  assert.match(body,/RG-05 Chrome default USER_SCRIPT after failed official manager cold start/);
 });
+
+test('RG-05 default world diagnostic refuses a fabricated manager identity before any Chrome userScripts call',async()=>{
+ const api:any=await import('../../scripts/violentmonkey-direct-chrome-control.ts');
+ let touched=0;
+ const expression=api.buildDirectChromeDefaultWorldRegistration(site);
+ const result=await vm.runInNewContext(expression,{
+  location:{href:options},JSON,chrome:{runtime:{id:'other-extension'},userScripts:{
+   async getScripts(){touched++;return [];},
+   async getWorldConfigurations(){touched++;return [{messaging:true}];},
+   async register(){touched++;},
+  }},
+ });
+ assert.equal(result,'unavailable');
+ assert.equal(touched,0);
+});
