@@ -44,7 +44,9 @@ export async function captureCandidateNodes(target:ChromeTarget,options:{socketF
     if(typeof event.data!=='string'||event.data.length>MAX_MESSAGE)throw new Error('DOM snapshot payload limit exceeded');
     const m=JSON.parse(event.data);
     if(m.id!==1)return;
-    if(m.error)throw new Error('CDP DOM snapshot failed');
+    // Presence of the CDP error field invalidates a claimed success result,
+    // even when its hostile value is null, false, zero or an empty string.
+    if(Object.hasOwn(m,'error'))throw new Error('CDP DOM snapshot failed');
     const strings=m.result?.strings;
     const docs=m.result?.documents;
     if(!Array.isArray(strings)||!Array.isArray(docs)||docs.length===0||!docs[0]?.nodes)throw new Error('Invalid DOM snapshot document');

@@ -88,11 +88,12 @@ jobs:
         run: node --experimental-strip-types scripts/smoke-chrome.mjs
       - name: Real Chrome for Testing 155 isolated MV3 extension load (NOT Tampermonkey)
         id: synthetic_mv3
-        continue-on-error: true
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
         run: node --experimental-strip-types scripts/smoke-extension-cft.mjs
       - name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -112,8 +113,9 @@ jobs:
           }
           "USSHM_VIOLENTMONKEY_EXTENSION=$extensionRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile (synthetic loopback only)
+        if: github.event_name != 'pull_request'
         id: official_gm
-        continue-on-error: true
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
           # The default control remains headless; a separately authorized
@@ -129,7 +131,7 @@ jobs:
       # Per-step continue-on-error only preserves independent diagnostic execution;
       # it NEVER weakens final RG-05 acceptance.
       - name: Enforce both Chrome extension and official GM acceptance
-        if: ${{ always() && steps.synthetic_mv3.outcome != 'skipped' }}
+        if: ${{ always() && github.event_name != 'pull_request' }}
         shell: pwsh
         run: |
           if ('${{ steps.synthetic_mv3.outcome }}' -ne 'success' -or '${{ steps.official_gm.outcome }}' -ne 'success') {

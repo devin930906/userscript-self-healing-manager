@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,readFile,access,link,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,access,link,rm,cp,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDatabase,migrateDatabase} from '../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../packages/job-journal/src/index.ts';
 import {createCoreRecoveryBundle} from '../../packages/repair-workflow/src/core-recovery.ts';
-import {stageCoreRecoveryForOfflineReview} from '../../packages/repair-workflow/src/core-recovery-stage.ts';
+import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '../../packages/repair-workflow/src/core-recovery-stage.ts';
 
 const sha=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 
@@ -87,3 +87,34 @@ for(const scenario of ['managed-same-size-rewrite','registry-corruption','manage
   })
  );
 }
+
+test('RG-06 replaced non-active stage directory cannot receive a completion marker',async()=>withSnapshot(async({root,source,backup,target})=>{
+ const originalStage=join(root,'Original-Stage');
+ let injected=0;
+ await assert.rejects(stageCoreRecoveryForOfflineReview({
+  snapshotDirectory:backup,activeDataRoot:source,destination:target,
+  beforeFinalMarker:async()=>{
+   await rename(target,originalStage);
+   await cp(originalStage,target,{recursive:true});
+   injected++;
+  },
+ }),/offline stage directory identity changed/i);
+ assert.equal(injected,1);
+ await assert.rejects(access(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json')),{code:'ENOENT'});
+ await assert.rejects(access(join(originalStage,'USSHM-RECOVERY-NOT-ACTIVE.json')),{code:'ENOENT'});
+}));
+
+test('RG-06 replaced offline stage directory cannot pass independent audit despite identical files',async()=>withSnapshot(async({root,source,backup,target})=>{
+ await stageCoreRecoveryForOfflineReview({snapshotDirectory:backup,activeDataRoot:source,destination:target});
+ const originalStage=join(root,'Original-Stage');
+ let injected=0;
+ await assert.rejects(verifyCoreOfflineRecoveryStage({
+  snapshotDirectory:backup,stagedDirectory:target,
+  beforeFinalStageAudit:async()=>{
+   await rename(target,originalStage);
+   await cp(originalStage,target,{recursive:true});
+   injected++;
+  },
+ }),/offline stage directory identity changed/i);
+ assert.equal(injected,1);
+}));

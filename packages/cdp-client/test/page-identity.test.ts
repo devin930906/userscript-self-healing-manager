@@ -277,3 +277,24 @@ test('RG-04 credentialed same-origin child URLs stay count-only and cannot autho
   assert.equal(socket.listenerCount('message'),0);
  }
 });
+
+test('RG-01 stable document fence rejects malformed same-origin child receipts on both sides',()=>{
+ const valid={
+  targetId:page.id,confirmedUrl:page.url,
+  frameId:'root',loaderId:'loader-one',subframeCount:1,
+  soleSameOriginSubframe:{frameId:'child',loaderId:'child-loader',urlFingerprint:'a'.repeat(64)},
+ };
+ assert.doesNotThrow(()=>assertStablePageDocument(valid,valid));
+ const malformed=[
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,frameId:''}},
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,loaderId:''}},
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,frameId:'root'}},
+  {...valid,soleSameOriginSubframe:{...valid.soleSameOriginSubframe,urlFingerprint:'not-a-digest'}},
+  {...valid,subframeCount:2},
+ ];
+ for(const [index,receipt] of malformed.entries()){
+  assert.throws(()=>assertStablePageDocument(receipt,receipt),
+   /document identity|frame identity|child identity/i,
+   'identical invalid child receipt '+index+' must not certify a stable frame');
+ }
+});

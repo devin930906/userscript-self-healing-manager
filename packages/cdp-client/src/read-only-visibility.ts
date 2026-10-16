@@ -111,7 +111,9 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
      throw new Error('CDP visibility response size exceeded');
     const m=JSON.parse(event.data);
     if(m.id!==expectedId||ended)return;
-    if(m.error){
+    // Never accept a fabricated successful CDP payload if an error field
+    // exists, including false-valued error envelopes.
+    if(Object.hasOwn(m,'error')){
      if(expectedMethod==='DOM.getDocument')throw new Error('Cannot read CDP document root');
      if(expectedMethod==='DOM.getAttributes'){
       controlBlocker='unknown';send('CSS.enable');
@@ -167,6 +169,13 @@ export async function inspectReadOnlyElementVisibility(target:ChromeTarget,locat
         finish(undefined,output('unknown',matchCount));return;
        }
        styles.set(x.name,x.value.trim().toLowerCase());
+      }
+      // CDP styles are untrusted. Number('') / Number('0x0') would become 0
+      // and incorrectly manufacture a definite hidden classification.
+      // Accept only normalized, bounded decimal opacity evidence.
+      if(styles.has('opacity')&&
+         !/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(styles.get('opacity')!)){
+       finish(undefined,output('unknown',matchCount));break;
       }
       const hidden=styles.get('display')==='none'||['hidden','collapse'].includes(styles.get('visibility')??'')||
        (styles.has('opacity')&&Number(styles.get('opacity'))===0);

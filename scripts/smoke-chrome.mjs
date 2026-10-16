@@ -43,6 +43,7 @@ import {activateManagedRevision} from '../packages/repair-workflow/src/history.t
 import {inspectManagedIntegrity} from '../packages/repair-workflow/src/managed-health.ts';
 import {exportManagedCurrent} from '../packages/repair-workflow/src/export.ts';
 import {runIsolatedFixtureBehavior} from './local-fixture-behavior.ts';
+import {classifyChromeSmokeStartupFailure} from '../packages/cdp-client/src/chrome-smoke-startup.ts';
 import {runIsolatedFixtureInteraction} from './local-fixture-interaction.ts';
 import {runNamedFixtureV2Lifecycle} from './fixture-v2-named-lifecycle.ts';
 import {reloadOwnedSyntheticFixture} from './local-fixture-reset.ts';
@@ -99,7 +100,12 @@ const server=createServer((req,res)=>{
 });
 let chrome;
 let exportRoot;
-let diagnostics='';
+let stderrObserved=false;
+// Record only fixed classifications; stdout/stderr/exception objects from a
+// hosted Windows runner may contain executable/profile paths or page URLs.
+const startupObservation={
+ launchFailed:false,processExited:false,cdpResponded:false,fixtureTargetSeen:false,
+};
 try{
  await new Promise((resolve,reject)=>{
   server.once('error',reject);
@@ -108,42 +114,51 @@ try{
  const address=server.address();
  if(!address||typeof address==='string')throw new Error('Failed to bind local HTTP fixture');
  const fixtureUrl='http://127.0.0.1:'+address.port+'/fixture';
+ // QA-004/005: fail closed if a previous process occupies our CDP port.
+ // The later live socket + page/frame/loader checks remain mandatory.
+ await assertChromeDebuggerPortFree(9223);
  chrome=spawn(executable,[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
   '--headless=new','--no-first-run','--no-default-browser-check',
   '--disable-extensions','--disable-background-networking','--disable-sync',
   '--disable-gpu','--new-window',fixtureUrl,
  ],{windowsHide:true,stdio:['ignore','ignore','pipe']});
- chrome.stderr?.on('data',chunk=>{diagnostics=(diagnostics+String(chunk)).slice(-1800);});
- let spawnFailure;
- let exitDetails='';
- chrome.on('error',error=>{spawnFailure=error;});
- chrome.on('exit',(code,signal)=>{exitDetails='Chrome exited before CDP readiness (code='+code+', signal='+signal+')';});
+ chrome.stderr?.on('data',chunk=>{if(chunk.length>0)stderrObserved=true;});
+ chrome.on('error',()=>{startupObservation.launchFailed=true;});
+ chrome.on('exit',()=>{startupObservation.processExited=true;});
  let selected;
- let lastIdentityError='',lastStatusError='',observedPageCount=0;
- // Cold Windows hosted runners can spend longer initializing first-run Chrome
- // and CDP even with an isolated profile. Do not report a protocol failure from
- // a short startup race; still fail closed if no real frame is confirmed.
+ let observedPageCount=0;
+ // Do not infer a port-collision cause from a failed CDP fetch. Each bounded
+ // poll records only whether a valid response/target was actually observed.
+ // Still require the original real Main-frame identity before PASS.
  for(let attempt=0;attempt<110;attempt++){
-  if(spawnFailure)throw spawnFailure;
-  if(exitDetails)throw new Error(exitDetails+' '+diagnostics);
+  if(startupObservation.launchFailed||startupObservation.processExited)
+   throw new Error('Real Chrome startup failed: '+classifyChromeSmokeStartupFailure(startupObservation)+
+    '; stderr observed='+stderrObserved);
   try{
    const status=await getChromeStatus({port:9223});
+   startupObservation.cdpResponded=true;
    observedPageCount=status.pages.length;
    const candidate=status.pages.find(x=>x.url===fixtureUrl&&x.webSocketDebuggerUrl);
    if(candidate){
+    startupObservation.fixtureTargetSeen=true;
     // /json/list may announce the URL just before the top FrameTree is ready.
     try{
      await confirmPageIdentity(candidate);
      selected=candidate;
      break;
-    }catch(error){lastIdentityError=String(error);}
+    }catch{
+     // Never expose raw CDP or page errors in shared CI output.
+    }
    }
-  }catch(error){lastStatusError=String(error).slice(0,350);}
+  }catch{
+   // A transport failure is not a frame failure or a successful handshake.
+  }
   await delay(350);
  }
- if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture. Last CDP status='+lastStatusError+
-  '; observed page count='+observedPageCount+'; frame identity='+lastIdentityError+'; Chrome stderr='+diagnostics);
+ if(!selected)throw new Error('Real Chrome did not expose a frame-confirmed loopback fixture; startup stage='+
+  classifyChromeSmokeStartupFailure(startupObservation)+
+  '; observed page count='+observedPageCount+'; stderr observed='+stderrObserved);
  // A successful process spawn is not enough: the real running Chrome must
  // expose a verified localhost browser websocket. The live port must also
  // reject a second launch so we never misattribute an existing session.
@@ -259,13 +274,13 @@ try{
  // FR-024: this REAL Chrome action is limited to a fixed button on our
  // disposable 127.0.0.1 fixture. It proves one focus transition only.
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target:selected,
+  approved:true,target:selected,approvedDocument:await confirmPageIdentity(selected),
   locator:{method:'querySelector',expression:'#hidden-focus',runtimeRequired:false},
   confirm:confirmPageIdentity,timeoutMs:7000,
  }),/invisible|visibility|layout|focus/i);
  console.log('PASS real Chrome FR-024 hidden control blocked before any approved DOM.focus; no V2 credit.');
  const focusReceipt=await runApprovedControlFocus({
-  approved:true,target:selected,
+  approved:true,target:selected,approvedDocument:await confirmPageIdentity(selected),
   locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
   confirm:confirmPageIdentity,timeoutMs:7000,
  });
@@ -277,7 +292,7 @@ try{
  assert.equal(focusReceipt.V4,'not-configured');
  console.log('PASS real Chrome FR-024 approved local button focus and :focus postcondition; no real userscript or named V3 proof.');
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target:selected,
+  approved:true,target:selected,approvedDocument:await confirmPageIdentity(selected),
   locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
   confirm:confirmPageIdentity,timeoutMs:7000,
  }),/already focused|no verifiable new focus transition/i);

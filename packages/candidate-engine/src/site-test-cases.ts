@@ -317,10 +317,13 @@ export function verifySiteTestCaseSelection({entry,selectedUrl,metadata}:{
    pageStateVerified:false as const,V2:'blocked' as const,
    V3:'not-configured' as const,V4:'not-configured' as const,
    functionalVerified:false as const});
- if(!entry||typeof entry!=='object'||typeof entry.id!=='string'||
-    typeof entry.scriptId!=='string')return result('scope-blocked');
+ // Treat the record as untrusted across the verification boundary, not
+ // merely its URL. An invalid UUID, script identity, state, label or extra
+ // field cannot be promoted to a configured-page match.
  let stored:string;
- try{stored=exactPageUrl(entry.url);}catch{return result('scope-blocked');}
+ try{
+  stored=validateState({schemaVersion:1,cases:[entry]}).cases[0]!.url;
+ }catch{return result('scope-blocked');}
  if(checkUserscriptPageScope(metadata,stored).status!=='allowed')
   return result('scope-blocked');
  let current:string;

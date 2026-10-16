@@ -96,3 +96,27 @@ test('FR-014 real Electron product exposes case create/list/delete and explicit 
  assert.match(ui,/检查已选 Chrome 页面与场景/);
  assert.match(ui,/V2.*blocked|V2.*未验证/);
 });
+
+test('FR-014 rejects malformed or forged selected scenario records before claiming a configured URL match',async()=>temp(async root=>{
+ const authentic=await createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/dashboard',label:'Dashboard',stateId:'logged-out',metadata:meta});
+ const selectedUrl=authentic.url;
+ assert.equal(verifySiteTestCaseSelection({entry:authentic,selectedUrl,metadata:meta}).status,'matched');
+ const forged=[
+  {...authentic,id:'not-a-canonical-uuid'},
+  {...authentic,scriptId:'../other-script'},
+  {...authentic,label:'Danger'+String.fromCharCode(10)+'Injected'},
+  {...authentic,stateId:'admin-verified'},
+  {...authentic,extra:'unreviewed'},
+ ];
+ for(const candidate of forged){
+  const receipt=verifySiteTestCaseSelection({
+   entry:candidate as typeof authentic,selectedUrl,metadata:meta,
+  });
+  assert.equal(receipt.status,'scope-blocked','a malformed saved record must never match');
+  assert.equal(receipt.functionalVerified,false);
+  assert.equal(receipt.V2,'blocked');
+  assert.equal(receipt.V3,'not-configured');
+  assert.equal(receipt.V4,'not-configured');
+ }
+}));
