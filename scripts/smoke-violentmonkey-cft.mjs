@@ -21,7 +21,7 @@ import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemov
  buildDirectChromeUserScriptListenerInstallation,buildDirectChromeUserScriptListenerRemoval,
  buildDirectChromeUserScriptListenerObservation,
 } from './violentmonkey-direct-chrome-control.ts';
-import {readVerifiedOfficialManagerCdpReply} from './violentmonkey-cdp-transport-reply.ts';
+import {readVerifiedOfficialManagerCdpReply,readVerifiedDirectChromeControlValue} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
@@ -429,7 +429,7 @@ async function runDirectChromeUserScriptDiagnostic({
     buildDirectChromeUserScriptRegistration(controlUrl),
    awaitPromise:true,returnByValue:true,
   });
-  if(receipt?.exceptionDetails||receipt?.result?.value!=='registered')
+  if(readVerifiedDirectChromeControlValue(receipt)!=='registered')
    return {registered:false,marker,cleanupVerified:false};
   registered=true;
   // The response listener lives only in this disposable options page and is
@@ -440,9 +440,7 @@ async function runDirectChromeUserScriptDiagnostic({
     expression:buildDirectChromeUserScriptListenerInstallation(controlUrl),
     returnByValue:true,
    });
-   listenerAttached=!!listener&&
-    !Object.hasOwn(listener,'error')&&!Object.hasOwn(listener,'exceptionDetails')&&
-    listener.result?.value==='attached';
+   listenerAttached=readVerifiedDirectChromeControlValue(listener)==='attached';
    if(listenerAttached)roundtrip='missing';
   }catch{}
   const created=await browserCdp.send('Target.createTarget',{url:controlUrl});
@@ -468,9 +466,8 @@ async function runDirectChromeUserScriptDiagnostic({
    const current=after?.frameTree?.frame;
    if(current?.id!==identity.frameId||current?.loaderId!==identity.loaderId||
       current?.url!==controlUrl)throw new Error('Direct Chrome diagnostic document changed');
-   if(value?.exceptionDetails)
-    throw new Error('Direct Chrome diagnostic evaluation failed');
-   if(markers.includes(value?.result?.value))marker=value.result.value;
+   const observedMarker=readVerifiedDirectChromeControlValue(value);
+   if(markers.includes(observedMarker))marker=observedMarker;
    // API presence alone was the old control. A true USER_SCRIPT -> extension
    // onUserScriptMessage -> USER_SCRIPT reply proves actual messaging in this
    // post-blocker disposable fixture, and never substitutes for official GM.
@@ -481,10 +478,10 @@ async function runDirectChromeUserScriptDiagnostic({
    const final=await pageCdp.send('Page.getFrameTree');
    const afterReply=final?.frameTree?.frame;
    if(afterReply?.id!==identity.frameId||afterReply?.loaderId!==identity.loaderId||
-      afterReply?.url!==controlUrl||!response||
-      Object.hasOwn(response,'error')||Object.hasOwn(response,'exceptionDetails'))
+      afterReply?.url!==controlUrl)
     throw new Error('Direct Chrome messaging document or receipt changed');
-   if(listenerAttached&&response.result?.value==='verified'){
+   const observedReply=readVerifiedDirectChromeControlValue(response);
+   if(listenerAttached&&observedReply==='verified'){
     roundtrip='verified';
     break;
    }
@@ -508,7 +505,7 @@ async function runDirectChromeUserScriptDiagnostic({
     });
     if(snapshot&&!Object.hasOwn(snapshot,'error')&&
        !Object.hasOwn(snapshot,'exceptionDetails')){
-     const raw=snapshot?.result?.value;
+     const raw=readVerifiedDirectChromeControlValue(snapshot);
      if(typeof raw==='string'&&raw.length<128){
       const parsed=JSON.parse(raw);
       if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
@@ -530,8 +527,7 @@ async function runDirectChromeUserScriptDiagnostic({
      expression:buildDirectChromeUserScriptListenerRemoval(),
      returnByValue:true,
     });
-    listenerRemoved=!!removed&&!Object.hasOwn(removed,'error')&&
-     !Object.hasOwn(removed,'exceptionDetails')&&removed.result?.value==='removed';
+    listenerRemoved=readVerifiedDirectChromeControlValue(removed)==='removed';
    }catch{}
   }
   if(registered){
@@ -541,7 +537,7 @@ async function runDirectChromeUserScriptDiagnostic({
       buildDirectChromeUserScriptRemoval(),
      awaitPromise:true,returnByValue:true,
     });
-    cleanupVerified=!removed?.exceptionDetails&&removed?.result?.value==='removed';
+    cleanupVerified=readVerifiedDirectChromeControlValue(removed)==='removed';
    }catch{}
   }
  }
