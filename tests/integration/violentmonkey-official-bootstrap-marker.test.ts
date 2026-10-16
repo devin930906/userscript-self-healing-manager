@@ -322,3 +322,22 @@ test('RG-05 bootstrap read rejects inherited and accessor CDP result envelopes w
  assert.equal((genuine as {sameWorldRuntimeReadyObserved:boolean}).sameWorldRuntimeReadyObserved,true);
  assert.equal((genuine as {observationIncomplete:boolean}).observationIncomplete,false);
 });
+
+
+test('RG-05 samples first failed Chrome document bootstrap only after actual missing GM',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const firstMiss=source.indexOf('RG-05 cold-start injection was absent; one isolated loopback reload required');
+ const firstBootstrap=source.indexOf('RG-05 first failed Chrome document official bootstrap marker:');
+ const reload=source.indexOf("await pageCdp.send('Page.reload',{ignoreCache:true})",firstMiss);
+ const secondFail=source.indexOf('startupInjectionBlocked=true',reload);
+ const finalDenial=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)',secondFail);
+ assert.ok(firstMiss>=0&&firstBootstrap>firstMiss&&reload>firstBootstrap,
+  'first-document bootstrap must be sampled after genuine absent GM and before one reload');
+ assert.ok(secondFail>reload&&finalDenial>secondFail,
+  'first-document passive evidence must never count as official GM or relax failure');
+ const slice=source.slice(firstMiss,reload);
+ assert.match(slice,/restartedMarkerEvidence\.read\(/);
+ assert.doesNotMatch(slice,/GetInjected\s*\(|\.getScriptSource\s*\(|configureWorld\s*\(/);
+ assert.match(source,/RG-05 official VM bootstrap marker after missing GM receipts:/,
+  'second-document passive diagnostic must remain available');
+});
