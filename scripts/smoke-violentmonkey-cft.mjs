@@ -16,6 +16,7 @@ import {
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.ts';
 import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
+import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemoval} from './violentmonkey-direct-chrome-control.ts';
 import {readVerifiedOfficialManagerCdpReply} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
@@ -401,6 +402,79 @@ async function collectPreReloadViolentmonkeyAccess({browserCdp,hasExited}){
  }
 }
 
+/**
+ * RG-05 POST-BLOCKER ONLY: distinguish direct Chrome USER_SCRIPT runtime
+ * support from Violentmonkey's content bridge after a genuine failed restart.
+ * Register a fixed synthetic script from the pinned options page, observe a
+ * different disposable loopback document, and unregister the exact fixture ID.
+ * The result cannot satisfy any manager GM, FR-026 or Stable release gate.
+ */
+async function runDirectChromeUserScriptDiagnostic({
+ browserCdp,optionsCdp,controlUrl,hasExited,
+}){
+ let targetId,pageCdp,registered=false,cleanupVerified=false;
+ let marker='not-observed';
+ const markers=['none','send-only','onmessage-only','send-onmessage','unavailable'];
+ try{
+  if(hasExited())return {registered:false,marker,cleanupVerified:false};
+  const receipt=await optionsCdp.send('Runtime.evaluate',{
+   expression:buildDirectChromeUserScriptRegistration(controlUrl),
+   awaitPromise:true,returnByValue:true,
+  });
+  if(receipt?.exceptionDetails||receipt?.result?.value!=='registered')
+   return {registered:false,marker,cleanupVerified:false};
+  registered=true;
+  const created=await browserCdp.send('Target.createTarget',{url:controlUrl});
+  targetId=created?.targetId;
+  if(typeof targetId!=='string'||!targetId)
+   throw new Error('Direct Chrome diagnostic target was not created');
+  const page=await waitForPage(targetId,controlUrl,hasExited);
+  const identity=await confirmPageIdentity(page);
+  if(identity.confirmedUrl!==controlUrl||!identity.frameId||!identity.loaderId)
+   throw new Error('Direct Chrome diagnostic identity missing');
+  pageCdp=await openCdp(page.webSocketDebuggerUrl);
+  await pageCdp.send('Runtime.enable');
+  for(let attempt=0;attempt<24&&!hasExited();attempt++){
+   const before=await pageCdp.send('Page.getFrameTree');
+   const pinned=before?.frameTree?.frame;
+   if(pinned?.id!==identity.frameId||pinned?.loaderId!==identity.loaderId||
+      pinned?.url!==controlUrl)throw new Error('Direct Chrome diagnostic document changed');
+   const value=await pageCdp.send('Runtime.evaluate',{
+    expression:"document.documentElement?.getAttribute('data-usshm-rg05-direct-control') ?? null",
+    returnByValue:true,
+   });
+   const after=await pageCdp.send('Page.getFrameTree');
+   const current=after?.frameTree?.frame;
+   if(current?.id!==identity.frameId||current?.loaderId!==identity.loaderId||
+      current?.url!==controlUrl)throw new Error('Direct Chrome diagnostic document changed');
+   if(value?.exceptionDetails)
+    throw new Error('Direct Chrome diagnostic evaluation failed');
+   if(markers.includes(value?.result?.value)){
+    marker=value.result.value;
+    break;
+   }
+   if(attempt<23)await delay(200);
+  }
+ }catch{
+  // Chrome/extension exceptions are untrusted: only the fixed status escapes.
+ }finally{
+  pageCdp?.close();
+  if(targetId){
+   try{await browserCdp.send('Target.closeTarget',{targetId});}catch{}
+  }
+  if(registered){
+   try{
+    const removed=await optionsCdp.send('Runtime.evaluate',{
+     expression:buildDirectChromeUserScriptRemoval(),
+     awaitPromise:true,returnByValue:true,
+    });
+    cleanupVerified=!removed?.exceptionDetails&&removed?.result?.value==='removed';
+   }catch{}
+  }
+ }
+ return {registered,marker,cleanupVerified};
+}
+
 const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
  'reload-request','reload-issued','options-ready','capability-ready',
  'injector-ready','script-retained','fixture-ready','gm-observed','recovered',
@@ -608,6 +682,12 @@ const server=createServer((request,response)=>{
   response.end('<!doctype html><html><head><title>USSHM VM fixture</title></head><body><main id="usshm-vm-fixture">Local synthetic manager fixture</main></body></html>');
   return;
  }
+ if(request.method==='GET'&&request.url==='/rg05-direct-control'){
+  // Separate synthetic document: the pinned manager fixture only matches /fixture.
+  response.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});
+  response.end('<!doctype html><html><head><title>RG-05 direct Chrome control</title></head><body><main>Isolated direct USER_SCRIPT control</main></body></html>');
+  return;
+ }
  if(request.method==='GET'&&request.url==='/gm-request'){
   requests.push({method:request.method,url:request.url});
   response.writeHead(200,{'content-type':'text/plain; charset=utf-8','cache-control':'no-store'});
@@ -625,6 +705,7 @@ try{
  const address=server.address();
  if(!address||typeof address==='string')throw new Error('Loopback fixture failed to bind');
  const fixtureUrl=`http://127.0.0.1:${address.port}/fixture`;
+ const directControlUrl=`http://127.0.0.1:${address.port}/rg05-direct-control`;
  const optionsUrl=`chrome-extension://${extensionId}/options/index.html#settings`;
  const pinnedLaunchArgs=[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
@@ -1074,6 +1155,16 @@ try{
   assert.equal(blocked.status,'fixture-restart-blocked');
   assert.equal(blocked.productionEligible,false);
   console.log('BLOCKED RG-05 official VM 2.49.0 Chrome process restart: installed script and permission retained, but GM injection absent after first visit and one isolated reload. Product V4 not-configured.');
+
+  // Real Chrome direct userScripts control on a DIFFERENT disposable page.
+  // This only runs after the official GM cold-start blocker is immutable.
+  // It can identify a userScripts-runtime limitation vs VM-specific bridge
+  // initialization, but must never turn blocked GM into a V4 PASS.
+  const directUserScript=await runDirectChromeUserScriptDiagnostic({
+   browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+  });
+  console.log('RG-05 Chrome direct USER_SCRIPT after failed official manager cold start: '+
+   JSON.stringify(directUserScript)+'; NOT an official GM receipt or release pass.');
 
   // Root-cause diagnostic only, after the blocker is already immutable: reload
   // the pinned official extension (not Chrome, not a user profile), then test
