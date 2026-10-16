@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {runReadOnlyInteractionReadiness} from '../src/read-only-interaction-readiness.ts';
+import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../src/read-only-interaction-readiness.ts';
 
 const target={type:'page',id:'ready-own-proof',url:'https://fixture.example.test/consented',
  webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/ready-own-proof'};
@@ -98,4 +98,57 @@ test('FR-025 click listener accessors cannot execute in read-only readiness',asy
  assert.equal(invoked,0);
  assert.equal(v.status,'needs-review');
  assert.doesNotMatch(JSON.stringify(v),/PRIVATE_READY_LISTENER/);
+});
+
+
+// Visibility wait shares the untrusted CDP adapter boundary with interaction
+// readiness. Tests intentionally use hostile in-memory receipts, never page JS.
+function executeVisibilityWait(receipt:unknown){
+ return runReadOnlyVisibilityWait({
+  approved:true,target,locator,caseId:'FR025-VISIBLE-OWN-DATA',
+  maxSamples:2,
+  deps:{
+   confirm:async()=>identity,
+   probe:async()=>receipt as any,
+   inspectVisibility:async()=>visibility() as any,
+   wait:async()=>{},
+  },
+ });
+}
+
+test('FR-025 visibility wait does not invoke accessor-backed top-level probe fields',async()=>{
+ let getterCalls=0;
+ const hostile=probe() as Record<string,unknown>;
+ Object.defineProperty(hostile,'validationLevel',{get(){
+  getterCalls++;throw new Error('PRIVATE_VISIBLE_TOPLEVEL');
+ }});
+ const result=await executeVisibilityWait(hostile);
+ assert.equal(getterCalls,0);
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.V2,'blocked');
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_VISIBLE_TOPLEVEL/);
+});
+
+test('FR-025 visibility wait does not invoke accessor-backed nested check identity',async()=>{
+ let getterCalls=0;
+ const hostile=node() as Record<string,unknown>;
+ Object.defineProperty(hostile,'method',{get(){
+  getterCalls++;throw new Error('PRIVATE_VISIBLE_METHOD');
+ }});
+ const result=await executeVisibilityWait({...probe(),checks:[hostile]});
+ assert.equal(getterCalls,0);
+ assert.equal(result.status,'needs-review');
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_VISIBLE_METHOD/);
+});
+
+test('FR-025 visibility wait does not invoke accessor-backed missing result fields',async()=>{
+ let getterCalls=0;
+ const hostile=node() as Record<string,unknown>;
+ Object.defineProperty(hostile,'status',{get(){
+  getterCalls++;throw new Error('PRIVATE_VISIBLE_STATUS');
+ }});
+ const result=await executeVisibilityWait({...probe(),checks:[hostile]});
+ assert.equal(getterCalls,0);
+ assert.equal(result.status,'needs-review');
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_VISIBLE_STATUS/);
 });
