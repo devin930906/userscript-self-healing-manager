@@ -42,7 +42,7 @@ class FocusSocket extends EventEmitter{
  }
  close(){this.emit('close');}
 }
-const run=async(socket:FocusSocket,confirm=async()=>frame,approved=true)=>runApprovedControlFocus({
+const run=async(socket:FocusSocket,confirm=async()=>frame,approved=true)=>runApprovedControlFocus({approvedDocument:frame,
  approved,target,locator,
  confirm,socketFactory:()=>socket,timeoutMs:2000,
 });
@@ -87,9 +87,11 @@ test('FR-024 refuses unauthenticated request, untrusted page sockets and navigat
  const s=new FocusSocket();
  await assert.rejects(run(s,async()=>frame,false),/approval/i);
  assert.deepEqual(s.methods,[]);
- await assert.rejects(runApprovedControlFocus({approved:true,target:{...target,url:'https://bank.invalid/pay'},
+ await assert.rejects(runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target:{...target,url:'https://bank.invalid/pay'},
   locator,confirm:async()=>frame,socketFactory:()=>s}),/identity|page|target|URL/i);
- await assert.rejects(runApprovedControlFocus({approved:true,target:{...target,webSocketDebuggerUrl:'ws://evil.invalid/devtools/page/approvedFocusFixture'},
+ await assert.rejects(runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target:{...target,webSocketDebuggerUrl:'ws://evil.invalid/devtools/page/approvedFocusFixture'},
   locator,confirm:async()=>frame,socketFactory:()=>s}),/CDP|loopback|socket/i);
  let calls=0;const moved=new FocusSocket();
  await assert.rejects(run(moved,async()=>++calls===1?frame:{...frame,loaderId:'navigated'}),/document|identity|navigation|changed/i);
@@ -114,8 +116,8 @@ test('FR-024 approved focus must be available from authorized Main, limited Prel
 test('FR-024 expired consent budget during slow document recheck can never dispatch DOM.focus',async()=>{
  const socket=new FocusSocket();
  let calls=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,timeoutMs:100,
+ await assert.rejects(runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target,locator,timeoutMs:100,
   confirm:async()=>{
    calls++;
    if(calls===2)await new Promise(resolve=>setTimeout(resolve,180));
@@ -166,8 +168,8 @@ test('FR-024 a button already focused before authorization cannot earn a new V2 
 test('FR-024 revoked scan during CDP preparation cannot dispatch an observable focus',async()=>{
  const socket=new FocusSocket();
  let checks=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,confirm:async()=>frame,timeoutMs:2000,
+ await assert.rejects(runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target,locator,confirm:async()=>frame,timeoutMs:2000,
   socketFactory:()=>socket,
   assertAuthorizedBeforeAction:()=>{
    checks++;
@@ -218,8 +220,8 @@ test('FR-024 mutation during final page identity recheck cannot dispatch DOM.foc
  const options:{lateDisabled?:boolean}={};
  const socket=new FocusSocket(options);
  let confirms=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,timeoutMs:2000,
+ await assert.rejects(runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target,locator,timeoutMs:2000,
   confirm:async()=>{
    confirms++;
    if(confirms===2)options.lateDisabled=true;
@@ -246,8 +248,8 @@ test('FR-024 mutation during pre-action focus evidence cannot dispatch DOM.focus
 test('FR-024 initial page identity verification consumes the consent time budget',async()=>{
  const socket=new FocusSocket();
  let created=0,checks=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,timeoutMs:100,
+ await assert.rejects(runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target,locator,timeoutMs:100,
   confirm:async()=>{
    checks++;
    await new Promise(resolve=>setTimeout(resolve,200));
@@ -266,8 +268,8 @@ test('FR-024 a non-settling initial identity check must time out without opening
  let fallback:ReturnType<typeof setTimeout>|undefined;
  try{
   const observed=await Promise.race([
-   runApprovedControlFocus({
-    approved:true,target,locator,timeoutMs:100,
+   runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target,locator,timeoutMs:100,
     confirm:async()=>new Promise<never>(()=>{}),
     socketFactory:()=>{sockets++;return socket;},
    }).then(()=> 'unexpected-success',(error:unknown)=>
@@ -291,8 +293,8 @@ test('FR-024 a stalled pre-action identity recheck expires without dispatching f
  let watchdog:ReturnType<typeof setTimeout>|undefined;
  try{
   const result=await Promise.race([
-   runApprovedControlFocus({
-    approved:true,target,locator,timeoutMs:100,
+   runApprovedControlFocus({approvedDocument:frame,
+ approved:true,target,locator,timeoutMs:100,
     confirm:async()=>{
      confirmations++;
      if(confirmations===1)return frame;
