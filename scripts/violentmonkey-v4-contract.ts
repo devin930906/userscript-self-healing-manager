@@ -336,6 +336,40 @@ export function buildViolentmonkeyProfileDeveloperModeExpression():string{
 }
 
 /**
+ * RG-05 ISOLATED CFT EXPERIMENT ONLY: an unpacked extension may have a
+ * different cross-process lifecycle when the temporary Chrome profile's
+ * Developer Mode is off. This opt-in callback can run ONLY in Chrome's
+ * internal extensions WebUI, never an extension/page/userscript world.
+ *
+ * It changes only the disposable CFT profile and requires an explicit
+ * readback. It is unrelated to Chrome 138+ per-extension Allow User Scripts,
+ * which is separately granted and verified as before. A successful profile
+ * toggle can NEVER certify actual GM injection or a Stable release.
+ */
+export function buildViolentmonkeyDisposableDeveloperModeExpression():string{
+ return `(async()=>{
+  try{
+   if(location.href!=='chrome://extensions/')return 'unavailable';
+   const api=chrome.developerPrivate;
+   if(typeof api?.getProfileConfiguration!=='function'||
+      typeof api?.updateProfileConfiguration!=='function')return 'unavailable';
+   const read=async()=>{
+    const config=await api.getProfileConfiguration();
+    const flag=config&&typeof config==='object'?
+     Object.getOwnPropertyDescriptor(config,'inDeveloperMode'):null;
+    return flag&&Object.hasOwn(flag,'value')&&typeof flag.value==='boolean'?
+     flag.value:null;
+   };
+   const before=await read();
+   if(before===null)return 'unavailable';
+   if(before===true)return 'enabled';
+   await api.updateProfileConfiguration({inDeveloperMode:true});
+   return await read()===true?'enabled':'unavailable';
+  }catch{return 'unavailable';}
+ })()`;
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
