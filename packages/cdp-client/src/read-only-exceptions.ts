@@ -127,7 +127,7 @@ export async function observeReadOnlyPageExceptions(
      // not a successful acknowledgement and cannot certify a quiet window.
      if(Object.hasOwn(message,'error')||Object.hasOwn(message,'exceptionDetails')||
         !message.result||typeof message.result!=='object'||Array.isArray(message.result)||
-        Object.keys(message.result).length!==0{
+        Object.keys(message.result).length!==0){
       // No error message from Chrome may escape.
       if(method==='Runtime.enable')finish(new Error('CDP Runtime exception observer rejected'));
       else{invalid=true;finish();}
