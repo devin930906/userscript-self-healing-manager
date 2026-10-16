@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {runReadOnlyInteractionReadiness} from '../src/read-only-interaction-readiness.ts';
+
+const target={type:'page',id:'ready-own-proof',url:'https://fixture.example.test/consented',
+ webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/ready-own-proof'};
+const locator={method:'querySelector',expression:'#button',runtimeRequired:false};
+const identity={targetId:target.id,confirmedUrl:target.url,frameId:'main',loaderId:'stable'};
+const node=()=>({method:locator.method,expression:locator.expression,
+ status:'found',matchCount:1,nodeFingerprint:'b'.repeat(64)});
+const probe=()=>({targetId:target.id,url:target.url,validationLevel:'dom-only',checks:[node()]});
+const visibility=()=>({targetId:target.id,url:target.url,validationLevel:'css-box-read-only',
+ status:'potentially-visible',matchCount:1,pointerBlocked:false,controlBlocker:'none-detected',
+ V2:'blocked',V3:'not-configured',V4:'not-configured',interactionVerified:false});
+const listeners=()=>({targetId:target.id,url:target.url,
+ validationLevel:'direct-event-listener-read-only',status:'registered',listenerCount:1,
+ eventType:'click',V2:'blocked',V3:'not-configured',V4:'not-configured',interactionVerified:false});
+function execute(responses:{
+ probe?:unknown;visibility?:unknown;listeners?:unknown;
+}={}){
+ const calls={probe:0,visibility:0,listeners:0};
+ const deps={
+  confirm:async()=>identity,
+  wait:async()=>{},
+  probe:async()=>{calls.probe++;return (responses.probe??probe()) as any;},
+  inspectVisibility:async()=>{calls.visibility++;return (responses.visibility??visibility()) as any;},
+  inspectListeners:async()=>{calls.listeners++;return (responses.listeners??listeners()) as any;},
+ };
+ const result=runReadOnlyInteractionReadiness({
+  approved:true,target,locator,caseId:'FR025-OWN-EVIDENCE',deps,
+ });
+ return {calls,result};
+}
+
+test('FR-025 does not mark readiness from inherited CDP node packet identity',async()=>{
+ const forged=Object.create(probe());
+ const x=execute({probe:forged});
+ const v=await x.result;
+ assert.equal(v.status,'needs-review');
+ assert.equal(v.samples,1);
+ assert.equal(x.calls.visibility,0);
+ assert.equal(v.V2,'blocked');
+});
+
+test('FR-025 does not certify DOM node continuity from inherited HMAC fingerprint',async()=>{
+ const forged=Object.create({nodeFingerprint:'b'.repeat(64)});
+ Object.assign(forged,{method:locator.method,expression:locator.expression,status:'found',matchCount:1});
+ const x=execute({probe:{...probe(),checks:[forged]}});
+ const v=await x.result;
+ assert.equal(v.status,'needs-review');
+ assert.equal(x.calls.visibility,0);
+});
+
+test('FR-025 node fingerprint accessors must never run in read-only readiness',async()=>{
+ let invoked=0;
+ const forged=node() as Record<string,unknown>;
+ Object.defineProperty(forged,'nodeFingerprint',{get(){invoked++;throw Error('PRIVATE_READY_FINGERPRINT');}});
+ const x=execute({probe:{...probe(),checks:[forged]}});
+ const v=await x.result;
+ assert.equal(invoked,0);
+ assert.equal(v.status,'needs-review');
+ assert.doesNotMatch(JSON.stringify(v),/PRIVATE_READY_FINGERPRINT/);
+});
+
+test('FR-025 inherited CSS visibility receipts cannot create potentially-ready result',async()=>{
+ const x=execute({visibility:Object.create(visibility())});
+ const v=await x.result;
+ assert.equal(v.status,'needs-review');
+ assert.equal(x.calls.listeners,0);
+ assert.equal(v.directClickListeners,null);
+});
+
+test('FR-025 CSS visibility accessors must never execute inside readiness',async()=>{
+ let invoked=0;
+ const forged=visibility() as Record<string,unknown>;
+ Object.defineProperty(forged,'status',{get(){invoked++;throw Error('PRIVATE_READY_CSS');}});
+ const x=execute({visibility:forged});
+ const v=await x.result;
+ assert.equal(invoked,0);
+ assert.equal(v.status,'needs-review');
+ assert.doesNotMatch(JSON.stringify(v),/PRIVATE_READY_CSS/);
+});
+
+test('FR-025 inherited click listener receipts cannot create potentially-ready result',async()=>{
+ const x=execute({listeners:Object.create(listeners())});
+ const v=await x.result;
+ assert.equal(v.status,'needs-review');
+ assert.equal(v.directClickListeners,null);
+ assert.equal(v.V3,'not-configured');
+});
+
+test('FR-025 click listener accessors cannot execute in read-only readiness',async()=>{
+ let invoked=0;
+ const forged=listeners() as Record<string,unknown>;
+ Object.defineProperty(forged,'listenerCount',{get(){invoked++;throw Error('PRIVATE_READY_LISTENER');}});
+ const x=execute({listeners:forged});
+ const v=await x.result;
+ assert.equal(invoked,0);
+ assert.equal(v.status,'needs-review');
+ assert.doesNotMatch(JSON.stringify(v),/PRIVATE_READY_LISTENER/);
+});
