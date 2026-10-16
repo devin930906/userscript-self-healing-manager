@@ -616,7 +616,7 @@ test('RG-05 captures the failed first Chrome document fault before its one bound
  const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  const firstFailed=source.indexOf('RG-05 cold-start injection was absent; one isolated loopback reload required');
  const firstAttribution=source.indexOf('RG-05 first failed Chrome document official injected.js signature:');
- const reload=source.indexOf("await pageCdp.send('Page.reload',{ignoreCache:true})");
+ const reload=source.indexOf("await pageCdp.send('Page.reload',{ignoreCache:true})",firstFailed);
  const secondAttribution=source.indexOf('RG-05 official injected.js failure signature after missing GM receipts:');
  const denial=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
  assert.ok(firstFailed>=0&&firstAttribution>firstFailed&&reload>firstAttribution,
