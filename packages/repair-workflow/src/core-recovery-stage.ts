@@ -14,6 +14,25 @@ const hex=/^[a-f0-9]{64}$/;
 const managedPath=/^managed\/[A-Za-z0-9_-]{1,64}\/(?:current\.user\.js|(?:original|revision)-[a-f0-9]{64}\.user\.js)$/;
 type HashedFile={path:string;sha256:string;bytes:number};
 const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
+/**
+ * Bind a NON-ACTIVE recovery staging directory to its native identity.
+ * Identical copied contents cannot inherit approval from a replaced root.
+ * An optimistic fence only, not a Win32 FileIdInfo guarantee or atomic lock.
+ */
+async function pinOfflineStageDirectory(path:string):Promise<()=>Promise<void>>{
+ await assertUnlinkedRecoveryDirectory(path);
+ const before=await lstat(path,{bigint:true});
+ if(!before.isDirectory()||before.isSymbolicLink())
+  throw new Error('Unsafe offline stage directory');
+ return async()=>{
+  await assertUnlinkedRecoveryDirectory(path);
+  const current=await lstat(path,{bigint:true});
+  if(!current.isDirectory()||current.isSymbolicLink()||
+     current.dev!==before.dev||current.ino!==before.ino||
+     current.birthtimeNs!==before.birthtimeNs||current.mode!==before.mode)
+   throw new Error('Offline stage directory identity changed during audit');
+ };
+}
 
 /**
  * Revalidate the actual staged pathname and bounded bytes, not merely the
@@ -101,6 +120,7 @@ export async function stageCoreRecoveryForOfflineReview({
    throw new Error('Managed offline recovery data exceeds size budget');
  }
  await mkdir(target,{recursive:false,mode:0o700});
+ const assertTargetDirectoryIdentity=await pinOfflineStageDirectory(target);
  for(const item of core.files.slice(0,2)){
   await copyChecked(join(source,item.path),join(target,item.path),item);
  }
@@ -146,6 +166,7 @@ export async function stageCoreRecoveryForOfflineReview({
  }
  // A trusted source snapshot is not proof that its newly copied staging
  // output stayed intact while SQLite and source audits were awaited.
+ await assertTargetDirectoryIdentity();
  await assertUnlinkedRecoveryDirectory(target);
  const expectedRoot=['registry.sqlite','diagnosis-journal.sqlite',...(files.length?['managed']:[])].sort();
  if(JSON.stringify((await readdir(target)).sort())!==JSON.stringify(expectedRoot))
@@ -181,8 +202,10 @@ export async function stageCoreRecoveryForOfflineReview({
   fileCount:2+files.length,
   note:'NON-ACTIVE. Review offline before any separate, explicit migration; never overwrite a running Data directory.',
  };
+ await assertTargetDirectoryIdentity();
  await writeFile(join(target,'USSHM-RECOVERY-NOT-ACTIVE.json'),
   JSON.stringify(record,null,2)+'\n',{flag:'wx',mode:0o600});
+ await assertTargetDirectoryIdentity();
  return {path:target,fileCount:record.fileCount,sourceManifestSha256};
 }
 
@@ -210,6 +233,7 @@ export async function verifyCoreOfflineRecoveryStage({
  const source=resolve(snapshotDirectory),stage=resolve(stagedDirectory);
  await assertUnlinkedRecoveryDirectory(source);
  await assertUnlinkedRecoveryDirectory(stage);
+ const assertStageDirectoryIdentity=await pinOfflineStageDirectory(stage);
  await verifyCoreRecoveryBundle({snapshotDirectory:source});
  const sourceManifest=await readBoundedManifest(join(source,'manifest.json'));
  const sourceManifestSha256=digest(sourceManifest);
@@ -291,6 +315,7 @@ export async function verifyCoreOfflineRecoveryStage({
  }
  // The last complete file inspection covers actual staged outputs, including
  // unexpected entries, directory aliases, verified hashes and SQLite schemas.
+ await assertStageDirectoryIdentity();
  await assertUnlinkedRecoveryDirectory(stage);
  const rootNames=(await readdir(stage)).sort();
  const expectedRoot=['USSHM-RECOVERY-NOT-ACTIVE.json',
@@ -335,5 +360,6 @@ export async function verifyCoreOfflineRecoveryStage({
  if(!(await readBoundedManifest(markerPath)).equals(markerBytes)||
     (await lstat(markerPath)).nlink!==1)
   throw new Error('Offline stage completion marker changed during audit');
+ await assertStageDirectoryIdentity();
  return {valid:true,fileCount:2+files.length,sourceManifestSha256};
 }
