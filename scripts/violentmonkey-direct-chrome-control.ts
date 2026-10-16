@@ -5,6 +5,7 @@
  * Neither registration nor DOM markers are proof of official manager V4.
  */
 export const DIRECT_CONTROL_ID='usshm-rg05-disposable-direct-control-v1';
+export const DIRECT_CONTROL_WORLD_ID='usshm-rg05-direct-control-world-v1';
 const EXTENSION_ID='jinjaccalgkegednnccohejagnlnfdag';
 const OPTIONS_URL='chrome-extension://'+EXTENSION_ID+'/options/index.html#settings';
 
@@ -58,38 +59,54 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
   }catch{}
  })();`;
  return `(async()=>{
-  let created=false;
+  let created=false,worldConfigured=false,accepted=false;
   try{
    if(location.href!==${JSON.stringify(OPTIONS_URL)}||
       chrome.runtime?.id!==${JSON.stringify(EXTENSION_ID)})return 'unavailable';
    const api=chrome.userScripts;
-   if(typeof api?.getScripts!=='function'||typeof api.register!=='function')
-    return 'unavailable';
+   if(typeof api?.getScripts!=='function'||typeof api.register!=='function'||
+      typeof api.getWorldConfigurations!=='function'||
+      typeof api.configureWorld!=='function'||
+      typeof api.resetWorldConfiguration!=='function')return 'unavailable';
    const prior=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
    if(!Array.isArray(prior)||prior.length!==0)return 'unavailable';
+   const before=await api.getWorldConfigurations();
+   if(!Array.isArray(before)||before.some(x=>x?.worldId===${JSON.stringify(DIRECT_CONTROL_WORLD_ID)}))
+    return 'unavailable';
+   // A dedicated world avoids modifying the official manager's default CSP
+   // or default messaging configuration; never reconfigure an existing world.
+   worldConfigured=true;
+   await api.configureWorld({worldId:${JSON.stringify(DIRECT_CONTROL_WORLD_ID)},messaging:true});
+   const worlds=await api.getWorldConfigurations();
+   if(!Array.isArray(worlds)||worlds.filter(x=>x?.worldId===${JSON.stringify(DIRECT_CONTROL_WORLD_ID)}&&x?.messaging===true).length!==1)
+    return 'unavailable';
    await api.register([{id:${JSON.stringify(DIRECT_CONTROL_ID)},
     matches:[${JSON.stringify(match)}],js:[{code:${JSON.stringify(script)}}],
-    world:'USER_SCRIPT',runAt:'document_idle',allFrames:false}]);
+    world:'USER_SCRIPT',worldId:${JSON.stringify(DIRECT_CONTROL_WORLD_ID)},
+    runAt:'document_idle',allFrames:false}]);
    created=true;
    const check=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
    // The fixed ID and match alone cannot prove our own code, stage or frame scope.
    const valid=Array.isArray(check)&&check.length===1&&
     check[0]?.id===${JSON.stringify(DIRECT_CONTROL_ID)}&&
     check[0]?.world==='USER_SCRIPT'&&
+    check[0]?.worldId===${JSON.stringify(DIRECT_CONTROL_WORLD_ID)}&&
     check[0]?.runAt==='document_idle'&&
     check[0]?.allFrames!==true&&
     Array.isArray(check[0]?.js)&&check[0].js.length===1&&
     check[0].js[0]?.code===${JSON.stringify(script)}&&
     Array.isArray(check[0]?.matches)&&check[0].matches.length===1&&
     check[0].matches[0]===${JSON.stringify(match)};
-   if(valid)return 'registered';
-   try{await api.unregister({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});}catch{}
+   if(valid){accepted=true;return 'registered';}
    return 'unavailable';
-  }catch{
-   if(created){
-    try{await chrome.userScripts?.unregister({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});}catch{}
+  }catch{return 'unavailable';}
+  finally{
+   if(!accepted){
+    if(created){try{await chrome.userScripts?.unregister({ids:${JSON.stringify(DIRECT_CONTROL_ID)}});}catch{}}
+    if(worldConfigured){
+     try{await chrome.userScripts?.resetWorldConfiguration(${JSON.stringify(DIRECT_CONTROL_WORLD_ID)});}catch{}
+    }
    }
-   return 'unavailable';
   }
  })()`;
 }
@@ -101,11 +118,17 @@ export function buildDirectChromeUserScriptRemoval():string{
    if(location.href!==${JSON.stringify(OPTIONS_URL)}||
       chrome.runtime?.id!==${JSON.stringify(EXTENSION_ID)})return 'unavailable';
    const api=chrome.userScripts;
-   if(typeof api?.unregister!=='function'||typeof api.getScripts!=='function')
-    return 'unavailable';
+   if(typeof api?.unregister!=='function'||typeof api.getScripts!=='function'||
+      typeof api.resetWorldConfiguration!=='function'||
+      typeof api.getWorldConfigurations!=='function')return 'unavailable';
    await api.unregister({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
    const after=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
-   return Array.isArray(after)&&after.length===0?'removed':'unavailable';
+   if(!Array.isArray(after)||after.length!==0)return 'unavailable';
+   await api.resetWorldConfiguration(${JSON.stringify(DIRECT_CONTROL_WORLD_ID)});
+   const worlds=await api.getWorldConfigurations();
+   return Array.isArray(worlds)&&
+    !worlds.some(x=>x?.worldId===${JSON.stringify(DIRECT_CONTROL_WORLD_ID)})?
+    'removed':'unavailable';
   }catch{return 'unavailable';}
  })()`;
 }
