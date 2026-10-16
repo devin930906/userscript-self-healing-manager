@@ -91,7 +91,10 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
   publishedStage=await lstat(destinationPath,{bigint:true});
   if(!approvedStage||!sameObject(approvedStage,publishedStage)||
      approvedStage.size!==publishedStage.size||
-     approvedStage.mtimeNs!==publishedStage.mtimeNs)
+     approvedStage.mtimeNs!==publishedStage.mtimeNs||
+     // One staging name and one final name are the only authorized hardlinks.
+     // A third alias means an independent writer retained a pathname.
+     publishedStage.nlink!==2n)
    throw new Error('Exported userscript publication identity changed');
   if(afterPublishedStat)await afterPublishedStat();
   await validate(destinationPath);
@@ -101,7 +104,8 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
   const finalStage=await lstat(destinationPath,{bigint:true});
   if(!sameObject(publishedStage,finalStage)||
      publishedStage.size!==finalStage.size||
-     publishedStage.mtimeNs!==finalStage.mtimeNs)
+     publishedStage.mtimeNs!==finalStage.mtimeNs||
+     finalStage.nlink!==2n)
    throw new Error('Exported userscript publication identity changed after validation');
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
