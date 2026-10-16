@@ -22,7 +22,8 @@ test('RG-05 isolates headed Chrome window mode without weakening default Chrome 
  const workflow=await readFile('.github/workflows/dev-ci.yml','utf8');
  assert.match(smoke,/pinnedViolentmonkeyWindowFlags\(process\.env\.USSHM_RG05_CFT_WINDOW_MODE\)/);
  assert.match(smoke,/\.\.\.pinnedViolentmonkeyWindowFlags/);
- assert.match(workflow,/USSHM_RG05_CFT_WINDOW_MODE:\s*'headed'/);
+ assert.match(workflow,/USSHM_RG05_CFT_WINDOW_MODE:\s*'headless'/,
+  'headful compatibility was tested separately and did not clear official GM restart failure');
  assert.match(workflow,/Enforce both Chrome extension and official GM acceptance/);
  assert.match(smoke,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
  assert.doesNotMatch(smoke,/--no-sandbox/);
