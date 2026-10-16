@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,writeFile,readFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,symlink,mkdir,rmdir,lstat,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {savePreferredChromePath,loadPreferredChromePath} from '../src/preferred-chrome.ts';
@@ -52,4 +52,39 @@ test('saved Chrome preference uses bounded identity-pinned reads on the settings
  assert.equal(await loadPreferredChromePath({dataRoot:root}),exe);
  await writeFile(join(root,'preferred-chrome.json'),' '.repeat(4097));
  assert.equal(await loadPreferredChromePath({dataRoot:root}),null);
+}));
+
+
+test('Chrome choice writes fail closed while another process holds the preference lease',async()=>fixture(async(root,exe)=>{
+ const second=join(root,'Alternate Chrome.exe');
+ await writeFile(second,'alternate fake browser');
+ await savePreferredChromePath({dataRoot:root,executablePath:exe});
+ const config=join(root,'preferred-chrome.json');
+ const before=await readFile(config,'utf8');
+ const lock=join(root,'preferred-chrome.json.write-lock');
+ await mkdir(lock);
+ try{
+  await assert.rejects(
+   savePreferredChromePath({dataRoot:root,executablePath:second}),
+   /lock|writer|process/i,
+   'a second writer must not bypass an existing cross-process preference lock');
+  assert.equal(await readFile(config,'utf8'),before,
+   'a rejected concurrent writer must not replace an approved browser choice');
+  assert.deepEqual((await readdir(lock)),[],
+   'a rejected writer must leave the existing owner lock untouched');
+ }finally{await rmdir(lock);}
+ await savePreferredChromePath({dataRoot:root,executablePath:second});
+ assert.equal(await loadPreferredChromePath({dataRoot:root}),second);
+}));
+
+test('Chrome choice releases its writer lease after successful and rejected saves',async()=>fixture(async(root,exe)=>{
+ const lock=join(root,'preferred-chrome.json.write-lock');
+ await savePreferredChromePath({dataRoot:root,executablePath:exe});
+ await assert.rejects(lstat(lock),{code:'ENOENT'});
+ const corrupt=join(root,'preferred-chrome.json');
+ await writeFile(corrupt,'A'.repeat(4097));
+ await assert.rejects(
+  savePreferredChromePath({dataRoot:root,executablePath:exe}),/safe length/i);
+ await assert.rejects(lstat(lock),{code:'ENOENT'},
+  'failed write must not strand a permanent lock');
 }));

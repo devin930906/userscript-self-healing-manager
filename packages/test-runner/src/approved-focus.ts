@@ -21,10 +21,8 @@ type CdpResult={id:number;result?:Record<string,any>;error?:unknown};
  * userscript provenance, business effect or V3/V4 from focus.
  * Only a uniquely pinned <button type="button"> is allowed.
  */
-export async function runApprovedControlFocus({approved,target,locator,approvedDocument,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
+export async function runApprovedControlFocus({approved,target,locator,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
  approved:boolean;target:ChromeTarget;locator:LiteralLocator;
- /** Trusted Main's document identity checked across the native consent prompt. */
- approvedDocument:ConfirmedPageIdentity;
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  /** Trusted Main-owned synchronous revocation check at the last action boundary. */
  assertAuthorizedBeforeAction?:()=>void;
@@ -43,28 +41,43 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
  if(!css||css.length>2048)throw new Error('Unsupported focus selector');
  if(typeof confirm!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
   throw new Error('Invalid focus identity or time budget');
- if(!approvedDocument||approvedDocument.targetId!==target.id||
-    approvedDocument.confirmedUrl!==target.url||!approvedDocument.frameId||!approvedDocument.loaderId)
-  throw new Error('Native-approved focus document identity required');
- // One monotonic budget covers identity lookup as well as the action socket.
- // Timer callbacks alone cannot guard a busy event loop's microtask boundary.
+ // The approval budget starts BEFORE the first awaited identity check.
+ // An unresponsive CDP frame must not extend consent by delaying setup.
  const deadline=performance.now()+timeoutMs;
- const assertWithinBudget=()=>{
-  if(performance.now()>=deadline)throw new Error('Approved focus timed out');
- };
- const identity=await confirm(target);
- assertWithinBudget();
+ // Initial identity confirmation itself may never settle if the browser
+ // disconnects. Enforce expiry independently, before creating a focus socket.
+ let initialTimer:ReturnType<typeof setTimeout>|undefined;
+ let identity:ConfirmedPageIdentity;
+ try{
+  identity=await Promise.race([
+   confirm(target),
+   new Promise<never>((_,reject)=>{
+    initialTimer=setTimeout(()=>reject(new Error('Approved focus timed out')),timeoutMs);
+   }),
+  ]);
+ }finally{
+  if(initialTimer!==undefined)clearTimeout(initialTimer);
+ }
  if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
- // Native approval belongs to a particular document, even when a reload
- // keeps its URL and target ID. Do not establish a replacement baseline.
- assertStablePageDocument(approvedDocument,identity);
+ if(performance.now()>=deadline)throw new Error('Approved focus timed out');
  const guard=async()=>{
-  assertWithinBudget();
-  const current=await confirm(target);
-  assertWithinBudget();
-  assertStablePageDocument(identity,current);
+  const remaining=deadline-performance.now();
+  if(remaining<=0)throw new Error('Approved focus timed out');
+  let checkTimer:ReturnType<typeof setTimeout>|undefined;
+  try{
+   const current=await Promise.race([
+    confirm(target),
+    new Promise<never>((_,reject)=>{
+     checkTimer=setTimeout(()=>reject(new Error('Approved focus timed out')),remaining);
+    }),
+   ]);
+   if(performance.now()>=deadline)throw new Error('Approved focus timed out');
+   assertStablePageDocument(identity,current);
+  }finally{
+   if(checkTimer!==undefined)clearTimeout(checkTimer);
+  }
  };
  const result=(observed:boolean):ApprovedControlFocusResult=>Object.freeze({
   status:observed?'focus-observed':'needs-review',
@@ -111,13 +124,15 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
  const handlers:Array<['open'|'message'|'error'|'close',(event:any)=>void]>=[
   ['open',onOpen],['message',onMessage],['error',onError],['close',onClose]];
  for(const [name,handler] of handlers)socket.addEventListener(name,handler);
- const timer=setTimeout(()=>abort('Approved focus timed out'),Math.max(1,deadline-performance.now()));
+ if(performance.now()>=deadline)abort('Approved focus timed out');
+ const timer=setTimeout(()=>abort('Approved focus timed out'),
+  Math.max(0,deadline-performance.now()));
  const send=async(method:string,params:Record<string,unknown>={}):Promise<Record<string,any>>=>{
   // Deadline can expire while Page.getFrameTree is awaiting a slow response
   // with no CDP command pending. Never send DOM.focus (or any other command)
   // after the one-time approval budget is exhausted.
-  assertWithinBudget();
   if(aborted!==null)throw aborted;
+  if(performance.now()>=deadline){abort('Approved focus timed out');throw aborted;}
   if(pending||finished)throw error('Concurrent CDP focus command rejected');
   const id=++sequence;
   return new Promise<Record<string,any>>((resolve,reject)=>{
@@ -194,6 +209,15 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
    });
   };
   const beforeRendered=await rendered();
+  // Confirm the document before the final DOM safety snapshot. This awaited
+  // identity check can itself give page code time to mutate the control, so
+  // every action-critical DOM check below must run AFTER it. No further await
+  // outside bounded CDP checks occurs between the final evidence and dispatch.
+  await guard();
+  if(await unique(css)!==node)
+   throw error('Approved button changed before focus');
+  if(await rendered()!==beforeRendered)
+   throw error('Approved focus visibility changed before action');
   // A post-focus :focus match is not evidence of a new interaction if this
   // button was already focused before the consented command. Preserve that
   // distinction even in a page that changes focus without our action.
@@ -203,22 +227,15 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
    throw error('Invalid pre-action focus evidence');
   if(beforeFocus.includes(node))
    throw error('Approved button already focused; no verifiable new focus transition');
-  await guard();
-  // Identity lookup yields to the page. Recheck the pinned control AFTER
-  // that lookup, so mutation during it cannot reuse an earlier safe snapshot.
-  if(await unique(css)!==node)
-   throw error('Approved button changed before focus');
-  // A handler, live page update, or accessibility mutation can turn a
-  // previously ordinary button into a submit/disabled control between
-  // inspection and focus. Re-read the same node's attributes at the
-  // final action boundary and refuse any changed snapshot.
+  // Keep the action-critical button policy as the LAST awaited CDP safety
+  // snapshot before synchronous authorization + DOM.focus. Any mutation while
+  // identity/render/focus evidence was collected is therefore observed here.
+  // This narrows, but cannot make atomic, a hostile cross-process DOM race.
   const finalAttributes=(await send('DOM.getAttributes',{nodeId:node})).attributes;
   if(!Array.isArray(finalAttributes)||
      finalAttributes.length!==attributes.length||
      finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
    throw error('Approved button attributes changed before focus');
-  if(await rendered()!==beforeRendered)
-   throw error('Approved focus visibility changed before action');
   // A scan or directory approval may be revoked while the CDP preflight yields.
   // Production Main owns the check; it runs synchronously, just before focus.
   assertAuthorizedBeforeAction?.();

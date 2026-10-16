@@ -25,6 +25,32 @@ test('checks actual top-frame URL using read-only Page.getFrameTree, not stale /
  assert.deepEqual(socket.sent.map(x=>x.method),['Page.getFrameTree']);
 });
 
+test('RG-01 page identity rejects CDP errors even when the error payload is falsy',async()=>{
+ for(const error of [null,false,0,'']){
+  let socket:EventEmitter|undefined;
+  await assert.rejects(
+   confirmPageIdentity(page,{socketFactory:()=>{
+    socket=new (class extends EventEmitter{
+     constructor(){super();queueMicrotask(()=>this.emit('open'));}
+     addEventListener(name:string,listener:(event:any)=>void){this.on(name,listener);}
+     removeEventListener(name:string,listener:(event:any)=>void){this.off(name,listener);}
+     send(command:string){
+      const {id}=JSON.parse(command);
+      queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+       id,error,result:{frameTree:{frame:{url:page.url,id:'forged-frame',loaderId:'forged-loader'}}},
+      })}));
+     }
+     close(){this.emit('close');}
+    })();
+    return socket as any;
+   }}),
+   /CDP frame tree rejected/i,
+   'an error-bearing response must not certify a page document',
+  );
+  assert.equal(socket?.listenerCount('message'),0,'rejected CDP replies release listeners');
+ }
+});
+
 test('page navigation during DOM inspection is rejected rather than using a mismatched page',async()=>{
  await assert.rejects(confirmPageIdentity(page,{socketFactory:()=>new FakeSocket('https://other.example/account')}),/page.*(changed|mismatch)/i);
  await assert.rejects(confirmPageIdentity(page,{socketFactory:()=>new FakeSocket(null)}),/frame tree|frame URL/i);
@@ -72,6 +98,17 @@ test('rejects a same-URL navigation when the main-frame document loader changes'
  assert.throws(()=>assertStablePageDocument(previous,{...previous,frameId:'different-root'}),/document|frame|identity/i);
  assert.doesNotThrow(()=>assertStablePageDocument(previous,{...previous}));
 });
+test('same-URL document fence rejects absent frame or loader tokens on both snapshots',()=>{
+ const pinned={targetId:page.id,confirmedUrl:page.url,frameId:'root',loaderId:'loader-one'};
+ for(const field of ['frameId','loaderId'] as const){
+  const missing={...pinned};
+  delete (missing as Partial<typeof pinned>)[field];
+  assert.throws(()=>assertStablePageDocument(missing,missing),/document|frame|loader|identity/i,
+   'identically missing '+field+' cannot prove the document was stable');
+  assert.throws(()=>assertStablePageDocument(pinned,missing),/document|frame|loader|identity/i);
+ }
+});
+
 test('reads stable loader identity from Page.getFrameTree without collecting frame contents',async()=>{
  const socket=new (class extends EventEmitter{
   constructor(){super();queueMicrotask(()=>this.emit('open'));}
@@ -86,6 +123,26 @@ test('reads stable loader identity from Page.getFrameTree without collecting fra
  assert.equal(result.frameId,'root');
  assert.equal(result.loaderId,'loader-current');
  assert.equal(result.confirmedUrl,page.url);
+});
+
+test('RG-01 empty main-frame ID cannot become trusted page identity',async()=>{
+ const socket=new (class extends EventEmitter{
+  constructor(){super();queueMicrotask(()=>this.emit('open'));}
+  addEventListener(name:string,callback:(event:any)=>void){this.on(name,callback);}
+  removeEventListener(name:string,callback:(event:any)=>void){this.off(name,callback);}
+  send(command:string){
+   const {id}=JSON.parse(command);
+   queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+    id,result:{frameTree:{frame:{id:'',loaderId:'loader-current',url:page.url}}},
+   })}));
+  }
+  close(){this.emit('close');}
+ })();
+ await assert.rejects(
+  confirmPageIdentity(page,{socketFactory:()=>socket}),
+  /main-frame document identity token/i,
+ );
+ assert.equal(socket.listenerCount('message'),0);
 });
 
 test('a frame with no loader ID is not trustworthy enough for DOM evidence',async()=>{
@@ -165,4 +222,58 @@ test('same-loader iframe SPA navigation invalidates evidence without exposing th
  assert.notEqual(before.soleSameOriginSubframe?.urlFingerprint,after.soleSameOriginSubframe?.urlFingerprint);
  assert.doesNotMatch(JSON.stringify([before,after]),/ALPHA_TOKEN|BETA_TOKEN|\/account|\/settings/);
  assert.throws(()=>assertStablePageDocument(before,after),/document|navigation|frame|identity/i);
+});
+
+test('RG-04 direct page identity confirmation rejects credential-bearing URLs before CDP transport',async()=>{
+ for(const unsafeUrl of [
+  'https://alice:SECRET_PASSWORD@example.test/path?session=private',
+  'https://alice@example.test/path',
+  'https://%61lice:%53ECRET@example.test/path',
+ ]){
+  let sockets=0;
+  const target={...page,url:unsafeUrl};
+  await assert.rejects(
+   confirmPageIdentity(target,{socketFactory:()=>{
+    sockets++;
+    return new FakeSocket(unsafeUrl);
+   }}),
+   error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/invalid|credential/i);
+    assert.doesNotMatch(error.message,/alice|SECRET|private|session/i);
+    return true;
+   },
+   'credentialed URLs must never become trusted frame identities',
+  );
+  assert.equal(sockets,0,'CDP transport must not open before credential rejection');
+ }
+});
+
+test('RG-04 credentialed same-origin child URLs stay count-only and cannot authorize child DOM scope',async()=>{
+ for(const childUrl of [
+  'https://alice:TOP_SECRET@example.test/private?session=PRIVATE_TOKEN',
+  'https://alice@example.test/private',
+ ]){
+  const socket=new (class extends EventEmitter{
+   constructor(){super();queueMicrotask(()=>this.emit('open'));}
+   addEventListener(name:string,cb:(data:any)=>void){this.on(name,cb);}
+   removeEventListener(name:string,cb:(data:any)=>void){this.off(name,cb);}
+   send(message:string){
+    const {id}=JSON.parse(message);
+    queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+     id,result:{frameTree:{
+      frame:{id:'root',loaderId:'root-loader',url:page.url},
+      childFrames:[{frame:{id:'child',loaderId:'child-loader',url:childUrl}}],
+     }},
+    })}));
+   }
+   close(){this.emit('close');}
+  })();
+  const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
+  assert.equal(result.subframeCount,1);
+  assert.equal(result.soleSameOriginSubframe,undefined,
+   'private HTTP Basic Auth child URLs cannot be promoted to trusted same-origin identity');
+  assert.doesNotMatch(JSON.stringify(result),/TOP_SECRET|PRIVATE_TOKEN|alice|private/i);
+  assert.equal(socket.listenerCount('message'),0);
+ }
 });

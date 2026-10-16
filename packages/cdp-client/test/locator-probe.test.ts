@@ -469,3 +469,39 @@ test('invalid ASCII separators in synthetic element host names fail closed (QA-0
   assert.deepEqual(socket.sent.map(x=>x.method),['DOM.getDocument']);
  }
 });
+
+test('RG-01 never accepts a CDP error-bearing locator result as V1 evidence',async()=>{
+ const locator={method:'querySelector',expression:'#save',runtimeRequired:false};
+ for(const method of ['DOM.getDocument','DOM.querySelectorAll','DOM.describeNode'] as const){
+  for(const errorValue of [null,false,0,''] as const){
+   class MalformedSocket extends ProtocolSocket{
+    override send(raw:string){
+     const message=JSON.parse(raw);
+     if(message.method!==method)return super.send(raw);
+     this.sent.push(message);
+     const result=method==='DOM.getDocument'?{root:{nodeId:8}}:
+      method==='DOM.querySelectorAll'?{nodeIds:[31]}:
+       {node:{backendNodeId:4791,nodeType:1}};
+     queueMicrotask(()=>this.emit('message',{
+      data:JSON.stringify({id:message.id,result,error:errorValue}),
+     }));
+    }
+   }
+   const socket=new MalformedSocket({
+    'DOM.getDocument':()=>({root:{nodeId:8}}),
+    'DOM.querySelectorAll':()=>({nodeIds:[31]}),
+    'DOM.describeNode':()=>({node:{backendNodeId:4791,nodeType:1}}),
+   });
+   const sampling={socketFactory:()=>socket,includeNodeFingerprints:true};
+   if(method==='DOM.getDocument'){
+    await assert.rejects(probePageLocators(page,[locator],sampling),/CDP document root request rejected/);
+    assert.equal(socket.sent.some(x=>x.method==='DOM.querySelectorAll'),false);
+   }else{
+    const probe=await probePageLocators(page,[locator],sampling);
+    assert.equal(probe.checks[0]?.status,method==='DOM.querySelectorAll'?'blocked':'unverified',
+     'error-bearing '+method+' must not be labeled found');
+    assert.equal(probe.checks[0]?.nodeFingerprint,undefined);
+   }
+  }
+ }
+});

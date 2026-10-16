@@ -59,10 +59,9 @@ export async function exportManagedRecovery(input:{
     !isAbsolute(managedRoot)||!isAbsolute(destination))
   throw new Error('Absolute source and destination are required');
  const source=resolve(managedRoot),target=resolve(destination);
- // Raw caller paths must reach the lexical boundary guards unchanged.
- if(!(await safeDir(managedRoot))||!(await safeDir(dirname(target))))
+ if(!(await safeDir(source))||!(await safeDir(dirname(target))))
   throw new Error('Missing or unsafe recovery source/destination directory');
- await assertRecoveryDestinationOutsideSource(managedRoot,destination);
+ await assertRecoveryDestinationOutsideSource(source,target);
  const managed=join(source,'managed');
  const managedExists=await safeDir(managed);
  const scriptIds=managedExists?(await readdir(managed)).sort():[];
@@ -76,12 +75,14 @@ export async function exportManagedRecovery(input:{
  // empty managed/ would make this otherwise valid zero-script backup fail
  // its own independent verification and block core Data recovery.
  if(scriptIds.length>0){
-  await mkdir(join(target,'managed'));
   for(const scriptId of scriptIds){
    if(!ID.test(scriptId))throw new Error('Unsafe managed script directory name');
    const folder=join(managed,scriptId);
    if(!(await safeDir(folder)))throw new Error('Missing managed script directory');
    const names=(await readdir(folder)).sort();
+   // Interrupted or pre-created script directories contain no recoverable
+   // files. Do not publish directories omitted from the closed manifest.
+   if(names.length===0)continue;
    if(names.length>LIMIT_FILES)throw new Error('Managed archive exceeds file cap');
    const archived=new Set<string>();
    for(const name of names){
@@ -90,6 +91,9 @@ export async function exportManagedRecovery(input:{
     else if(name!=='current.user.js')
      throw new Error('Unsafe or unexpected managed archive entry (lock, staging or symlink)');
    }
+   // Create output directories only once an eligible file inventory exists.
+   // This keeps zero-file exports independently verifiable too.
+   if(files.length===0)await mkdir(join(target,'managed'));
    await mkdir(join(target,'managed',scriptId));
    for(const name of names){
     const path=join(folder,name),info=await lstat(path);
@@ -172,7 +176,7 @@ export async function verifyManagedRecovery({snapshotDirectory}:{
  if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory))
   throw new Error('Managed recovery path must be absolute');
  const root=resolve(snapshotDirectory);
- if(!(await safeDir(snapshotDirectory)))throw new Error('Unsafe or missing managed recovery directory');
+ if(!(await safeDir(root)))throw new Error('Unsafe or missing managed recovery directory');
  const manifestPath=join(root,'manifest.json'),manifestInfo=await lstat(manifestPath);
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe managed recovery manifest');

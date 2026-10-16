@@ -9,10 +9,11 @@ import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.t
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import {summarizeSafeDesktopError} from './safe-error.ts';
-import type {SiteTestCase,SiteTestSelection,DeclaredPageState} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import {safeDomReportPageOrigin} from './safe-page-origin.ts';
+import type {SiteTestCase,SiteTestSelection,DeclaredPageState} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
+import type {AuditTrace} from '../../../../packages/contracts/src/audit-trace.ts';
 import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -47,6 +48,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
 
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
+ getAuditTrace:(input:{revisionId:string})=>Promise<AuditTrace|null>;
  getRepairQueueRecovery:()=>Promise<RepairQueueRecoverySummary>;
  getRepairQueueActivity:()=>Promise<RepairQueueActivitySummary>;
  cancelBatchRepair:(input:{proposalId:string})=>Promise<boolean>;
@@ -81,9 +83,10 @@ declare global {interface Window{ussm:{
  applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
  applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:string;activePath:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
- applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string;activePath:string}>;
+ applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string;activePath:string;auditRevisionId:string|null}>;
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
+ getManagedAuditTrace:(input:{scanId:string;itemIndex:number;revisionHash:string})=>Promise<AuditTrace|null>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
@@ -216,6 +219,7 @@ function App(){
  const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string;itemIndex:number;scanId:string}|null>(null);
  const [stagedMultiScriptJobs,setStagedMultiScriptJobs]=useState<{itemIndex:number;scriptId:string;proposalId:string;proposedHash:string}[]>([]);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
+ const [repairAudit,setRepairAudit]=useState<AuditTrace|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
@@ -723,10 +727,6 @@ function App(){
   if(focused===null||!result||!targetId||busy)return;
   const record=result.items[focused]?.analysis?.selectorRecords[repairIndex];
   if(!record||record.runtimeRequired||record.receiver!=='document')return;
-  // A focus event can run page or installed userscript handlers; do not
-  // construe V1 DOM metadata or previous read-only review as permission.
-  // Trusted Main shows the sole native consent dialog. A Renderer prompt
-  // cannot authorize an action because its response can be forged by page code.
   const token=focusGeneration.current.begin();
   const scanId=result.scanId,itemIndex=focused,selectorIndex=repairIndex,target=targetId;
   focusActive.current=true;setBusy(true);setError('');setFocusEvidence(null);
@@ -963,7 +963,7 @@ function App(){
  }
  async function applyRepair(){if(!repairProposal||!result)return;
   setWatchEnabled(false);setBusy(true);setError('');
-  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.activePath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
+  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairAudit(null);setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.activePath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  async function applyRepairGuarded(){
@@ -974,17 +974,22 @@ function App(){
     scanId:result.scanId,proposalId:repairProposal.proposalId,
     itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true,
    });
-   setRepairProposal(null);setManagedRevisions(null);
+   setRepairProposal(null);setManagedRevisions(null);setRepairAudit(null);
    if(guarded.status==='retained-v1'){
     setRepairApplied({backupPath:guarded.backupPath,managedPath:guarded.managedPath,
      hash:guarded.appliedHash,itemIndex:focused,selectorIndex:repairIndex});
     setManagedActive(null);
-    setMessage('修订在真实 Chrome V1 双采样中成立，已保留受管副本。V2/V3/V4 未验证；尚不能判定油猴脚本功能成功。');
+    if(!guarded.auditRevisionId)throw new Error('Retained repair audit identity missing');
+    const audit=await window.ussm.getAuditTrace({revisionId:guarded.auditRevisionId});
+    if(!audit||audit.revision.id!==guarded.auditRevisionId||audit.revision.revisionSha256!==guarded.appliedHash)
+     throw new Error('Retained repair audit readback mismatch');
+    setRepairAudit(audit);
+    setMessage('修订在真实 Chrome V1 双采样中成立，已保留受管副本并写入可追溯审计链。V2/V3/V4 未验证；尚不能判定油猴脚本功能成功。');
    }else if(guarded.status==='rolled-back-v1'){
-    setRepairApplied(null);setManagedActive(null);
+    setRepairApplied(null);setManagedActive(null);setRepairAudit(null);
     setMessage('新修订的 V1 证据不成立或无法确认，已自动恢复上一受管修订。V2/V3/V4 未验证，原始脚本未覆盖。');
    }else{
-    setRepairApplied(null);setManagedActive(null);
+    setRepairApplied(null);setManagedActive(null);setRepairAudit(null);
     setError('自动复核后回滚受阻（rollback-blocked）：未确认当前受管版本；请先检查修订历史和外部编辑，原始脚本保持不变。');
    }
   }catch(error){setError('受管补丁安全保存和 V1 自动复核失败：'+summarizeSafeDesktopError(error));}
@@ -1013,6 +1018,16 @@ function App(){
   setBusy(true);setError('');
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
+ }
+ async function showManagedAudit(hash:string){
+  if(focused===null||!result||busy)return;
+  setBusy(true);setError('');setRepairAudit(null);
+  try{
+   const audit=await window.ussm.getManagedAuditTrace({scanId:result.scanId,itemIndex:focused,revisionHash:hash});
+   if(audit){setRepairAudit(audit);setMessage('已从本机审计库回查此受管修订的 FR-041 关联链。');}
+   else setMessage('此受管修订没有可关联的 FR-041 审计链；可能是旧修订、原始备份或非受保护写入路径。');
+  }catch(error){setError('读取受管修订审计链失败：'+summarizeSafeDesktopError(error));}
+  finally{setBusy(false);}
  }
  async function exportManaged(){if(focused===null||!result)return;
   setBusy(true);setError('');
@@ -1257,7 +1272,7 @@ function App(){
    </section>
    {(error||message)&&<div role="status" className={'notice '+(error?'error':'')}>{error||message}</div>}
    <section className="panel"><div className="panel-head"><div><h2>静态诊断结果</h2><p>每个脚本独立显示解析状态与需要运行时确认的定位器。</p></div><div className="actions small"><button disabled={!result} className="secondary" onClick={()=>void exportReport('json')}>导出 JSON</button><button disabled={!result} className="secondary" onClick={()=>void exportReport('markdown')}>导出 Markdown</button></div></div>
-   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
+   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setRepairAudit(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
    </section>
    {details?.scriptId&&result&&focused!==null&&<section className="panel">
     <div className="panel-head"><div><h2>FR-014 · 明确测试页面场景</h2>
@@ -1468,6 +1483,7 @@ function App(){
     {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setWatchEnabled(false);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
     {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button><button disabled={busy||!targetId||focused===null} onClick={()=>void applyRepairGuarded()}>保存并自动 V1 复核，失败恢复上一修订</button><p className="dim">仅对受管脚本 current.user.js 生效，不部署到油猴或修改原件。V2/V3/V4 未验证。</p></div>}
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p><button type="button" className="secondary" disabled={busy||!targetId||focused!==repairApplied.itemIndex} onClick={()=>void verifyManagedDom()}>只读复核受管修订 V1</button><p className="dim">检查受管 current.user.js 的真实归档哈希与 Chrome DOM 双采样。V2/V3/V4 未验证，不会执行用户脚本、点击网页或自动部署。</p></div>}
+    {repairAudit&&<div className="notice"><b>FR-041 审计链：</b>job → finding → candidate → test → approval → revision<p>Job：<code>{repairAudit.job.id}</code></p><p>Revision：<code>{repairAudit.revision.id}</code> · SHA-256 <code>{repairAudit.revision.revisionSha256}</code></p><p className="dim">这是 Main 从本机 append-only SQLite 只读回查的关联证据；不包含脚本源码、DOM、URL、凭据或异常正文。</p></div>}
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void inspectManagedHealth()}>检查受管资料完整性</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
@@ -1475,7 +1491,7 @@ function App(){
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
      {managedActive&&<p className="dim">当前受管副本：<code>{managedActive.activePath}</code> · SHA256 {managedActive.hash.slice(0,12)}…</p>}
-     {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
+     {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void showManagedAudit(item.hash)}>查看审计链</button><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
     </section>
    </div>
    {details.analysis?.selectorRecords.map((s,i)=><div className="selector" key={i}><div className="selector-top"><span>{s.method} · 源码第 {s.sourceRange.start.line} 行</span><span className={s.runtimeRequired?'warn':''}>{s.runtimeRequired?'需要运行时确认':'静态字面量'}</span></div><code>{s.expression}</code><small>函数：{s.functionName||'顶层'} {s.alternateSelectors.length?`｜备用选择器：${s.alternateSelectors.join('、')}`:''}</small></div>)}

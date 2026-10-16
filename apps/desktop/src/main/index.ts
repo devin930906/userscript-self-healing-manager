@@ -8,6 +8,7 @@ import {parseMultiScriptBatchRequest} from './multi-script-batch-request.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
+import {persistRetainedRepairAudit} from './retained-repair-audit.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -20,6 +21,7 @@ import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
+import {openAuditJournal} from '../../../../packages/audit-journal/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {DiagnosisRequestGate} from '../../../../packages/scan-service/src/diagnosis-request-gate.ts';
@@ -113,15 +115,25 @@ async function bootstrap():Promise<void>{
  approvedChromePath=await loadPreferredChromePath({dataRoot});
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
+ const auditJournal=openAuditJournal(join(dataRoot,'audit-journal.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
  const batchRepairs=createBatchRepairWorkflow({managedRoot:dataRoot});
  const adapters=createSiteAdapterLibrary({dataRoot});
  const manualTransitions=new ManualDomTransitionGate();
  let manualTransitionBusy=false;
- app.on('before-quit',()=>{db.close();journal.close();});
+ app.on('before-quit',()=>{db.close();journal.close();auditJournal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:audit-trace',(event,input:unknown)=>{assertSender(event);
+  const q=input as {revisionId?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).sort().join(',')!=='revisionId'||
+     typeof q.revisionId!=='string'||
+     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(q.revisionId))
+   throw new Error('Invalid canonical audit revision id');
+  const revisionId=q.revisionId;
+  return auditJournal.getByRevision(revisionId);
+ });
  ipcMain.handle('usshm:cancel-batch-repair',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {proposalId?:unknown}|null;
@@ -743,17 +755,17 @@ async function bootstrap():Promise<void>{
   return report;
  });
   let focusActionBusy=false;
-  ipcMain.handle('usshm:approved-control-focus',async(event,input:unknown)=>{
-   assertSender(event);
-   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
-   if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
-      typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
-      !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
-      typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
-    throw new Error('Explicit selected button, scan identity and one-time focus approval required');
-   if(focusActionBusy)throw new Error('Another browser focus confirmation is already pending');
-   focusActionBusy=true;
-   try{
+ ipcMain.handle('usshm:approved-control-focus',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit selected button, scan identity and one-time focus approval required');
+  if(focusActionBusy)throw new Error('Another browser focus confirmation is already pending');
+  focusActionBusy=true;
+  try{
    const scanSnapshot=scanSessions.require(q.scanId);
    const item=scanSnapshot.items[q.itemIndex as number];
    if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
@@ -769,37 +781,33 @@ async function bootstrap():Promise<void>{
    if(pageScope.status!=='allowed')
     throw new Error('Selected page is outside the approved userscript scope');
    scanSessions.assertCurrent(scanSnapshot);
-    const beforePrompt=await confirmPageIdentity(selected);
-    // Even a compromised renderer cannot turn an approved:true Boolean into
-    // browser interaction without trusted Main's native OS-level consent.
-    // No raw script source, private page path, URL query or credentials shown.
-    const decision=await dialog.showMessageBox(mainWindow,{
-     type:'warning',
-     title:'浏览器操作批准',
-     message:'确认聚焦当前已选择的 Chrome 页面控件？',
-     detail:'仅允许对唯一普通按钮聚焦一次。可能触发网页的 focus 事件或用户脚本监听器；不保证自动回滚，不证明任何脚本业务功能。请选择取消或明确同意。',
-     buttons:['取消','明确批准聚焦一次'],defaultId:0,cancelId:0,noLink:true,
-    });
-    if(decision.response!==1)throw new Error('Native focus confirmation cancelled; no action was sent');
-    const afterPrompt=await confirmPageIdentity(selected);
-    assertStablePageDocument(beforePrompt,afterPrompt);
-    scanSessions.assertCurrent(scanSnapshot);
-    const receipt=await runApprovedControlFocus({
-     approved:true,target:selected,
-     approvedDocument:afterPrompt,
-     locator:{method:record.method,expression:record.expression,runtimeRequired:false},
-     confirm:confirmPageIdentity,
-     assertAuthorizedBeforeAction:()=>{
-      scanSessions.assertCurrent(scanSnapshot);
-      if(!withinAuthorized(item.path))
-       throw new Error('Focus source authorization revoked before action');
-     },
-    });
-    scanSessions.assertCurrent(scanSnapshot);
-    return receipt;
-   }finally{focusActionBusy=false;}
-  });
-  ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
+   const beforePrompt=await confirmPageIdentity(selected);
+   const decision=await dialog.showMessageBox(mainWindow,{
+    type:'warning',
+    title:'浏览器操作批准',
+    message:'确认聚焦当前已选择的 Chrome 页面控件？',
+    detail:'仅允许对唯一普通按钮聚焦一次。可能触发网页的 focus 事件或用户脚本监听器；不保证自动回滚，不证明任何脚本业务功能。请选择取消或明确同意。',
+    buttons:['取消','明确批准聚焦一次'],defaultId:0,cancelId:0,noLink:true,
+   });
+   if(decision.response!==1)throw new Error('Native focus confirmation cancelled; no action was sent');
+   const afterPrompt=await confirmPageIdentity(selected);
+   assertStablePageDocument(beforePrompt,afterPrompt);
+   scanSessions.assertCurrent(scanSnapshot);
+   const receipt=await runApprovedControlFocus({
+    approved:true,target:selected,
+    locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+    confirm:confirmPageIdentity,
+    assertAuthorizedBeforeAction:()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Focus source authorization revoked before action');
+    },
+   });
+   scanSessions.assertCurrent(scanSnapshot);
+   return receipt;
+  }finally{focusActionBusy=false;}
+ });
+ ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
    targetId?:unknown;action?:unknown;approved?:unknown}|null;
@@ -871,9 +879,6 @@ async function bootstrap():Promise<void>{
   return createSiteTestCase({
    dataRoot,scriptId:item.scriptId!,url:q.url,label:q.label,
    stateId:q.stateId as 'logged-out'|'logged-in'|'custom',metadata:item.analysis!.metadata,
-   // The initial IPC consent may be revoked while filesystem I/O yields.
-   // Check the trusted scan and authorized source path at the last save gate.
-   // No renderer callback, browser action or userscript execution is involved.
    beforeFinalWrite:async()=>{
     scanSessions.assertCurrent(scanSnapshot);
     if(!withinAuthorized(item.path))
@@ -886,8 +891,6 @@ async function bootstrap():Promise<void>{
    },
   });
  });
- // Renderer approved:true is not authorization to delete persisted data.
- // Serialize modal prompts in Main, independently of renderer UI state.
  let siteTestRemoveBusy=false;
  ipcMain.handle('usshm:site-test-case-remove',async(event,input:unknown)=>{
   assertSender(event);
@@ -910,8 +913,6 @@ async function bootstrap():Promise<void>{
     buttons:['取消','仅删除此场景'],defaultId:0,cancelId:0,noLink:true,
    });
    if(decision.response!==1)return {deleted:false};
-   // A modal is an asynchronous authorization boundary. A later scan,
-   // changed selected record, or revoked source-path access voids consent.
    scanSessions.assertCurrent(scanSnapshot);
    if(!withinAuthorized(item.path))throw new Error('Scenario source authorization changed');
    const latest=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
@@ -1526,6 +1527,8 @@ async function bootstrap():Promise<void>{
   // rollback target nor replacement selector, even with IPC tampering.
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
+  let auditApproval={checkedAt:-1,expiresAt:-1};
+  let auditReceipt:Readonly<{revisionId:string;jobId:string;revisionSha256:string}>|null=null;
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
   try{
    applied=await approveAndApplyManagedRevision({
@@ -1536,7 +1539,7 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     pendingApprovals.require(proposalId,scanSnapshot.scanId);
+     auditApproval=pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
@@ -1546,7 +1549,7 @@ async function bootstrap():Promise<void>{
      // The durable queue rechecks native approval, source evidence and page
      // identity before recording the running checkpoint and dispatching write.
      preflight:async()=>{
-      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      auditApproval=pendingApprovals.require(proposalId,scanSnapshot.scanId);
       scanSessions.assertCurrent(scanSnapshot);
       assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
       if(!withinAuthorized(item.path))return false;
@@ -1620,8 +1623,23 @@ async function bootstrap():Promise<void>{
    },
    restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
+  if(safety.status==='retained-v1'){
+   auditReceipt=await persistRetainedRepairAudit({
+    journal:auditJournal,jobId:proposalId,scriptId:item.scriptId,attemptId:scanSnapshot.scanId,
+    sourceSha256:item.analysis.sourceSha256,revisionSha256:applied.hash,
+    previousHash:trusted.previousHash,approval:auditApproval,
+    restore:expectedCurrentHash=>{
+     if(expectedCurrentHash!==applied.hash)
+      throw new Error('Retained audit rollback identity mismatch');
+     return repairs.restore({
+      scriptId:item.scriptId!,hash:trusted.previousHash,approved:true,expectedCurrentHash:applied.hash,
+     });
+    },
+   });
+  }
   return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath,
-   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
+   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js'),
+   auditRevisionId:auditReceipt?.revisionId??null};
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;proposalId:string;approved:true}|null;
@@ -1738,6 +1756,21 @@ async function bootstrap():Promise<void>{
   const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+ });
+ ipcMain.handle('usshm:managed-audit-trace',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;revisionHash?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).sort().join(',')!=='itemIndex,revisionHash,scanId'||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     typeof q.revisionHash!=='string'||!/^[a-f0-9]{64}$/.test(q.revisionHash))
+   throw new Error('Invalid managed audit history request');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  const revisions=await listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+  if(!revisions.some(revision=>revision.hash===q.revisionHash))
+   throw new Error('Managed revision not found in verified history');
+  scanSessions.assertCurrent(scanSnapshot);
+  return auditJournal.getByManagedRevision({scriptId:item.scriptId,revisionSha256:q.revisionHash});
  });
  ipcMain.handle('usshm:export-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number}|null;

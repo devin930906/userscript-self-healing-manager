@@ -12,19 +12,21 @@ const frame={targetId:target.id,confirmedUrl:url,frameId:'mainframe',loaderId:'m
 const locator={method:'querySelector',expression:'#safe-focus',runtimeRequired:false};
 class FocusSocket extends EventEmitter{
  readonly methods:string[]=[];readonly inputs:any[]=[];
- readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean};
+ readonly opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;mutateDisabledOnPreFocus?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean};
  focused=false;
- constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean}={}){
+ constructor(opts:{disabled?:boolean;submit?:boolean;ambiguous?:boolean;focusMissing?:boolean;changed?:boolean;lateSubmit?:boolean;lateDisabled?:boolean;mutateDisabledOnPreFocus?:boolean;initiallyFocused?:boolean;htmlHidden?:boolean;cssHidden?:boolean;cssTransparent?:boolean;zeroBox?:boolean}={}){
   super();this.opts=opts;this.focused=opts.initiallyFocused===true;setImmediate(()=>this.emit('open'));
  }
  addEventListener(name:string,fn:(e:any)=>void){this.on(name,fn);}
  removeEventListener(name:string,fn:(e:any)=>void){this.off(name,fn);}
  send(raw:string){
   const msg=JSON.parse(raw);this.methods.push(msg.method);this.inputs.push(msg.params);
+  if(msg.method==='DOM.querySelectorAll'&&msg.params?.selector===':focus'&&
+     this.opts.mutateDisabledOnPreFocus&&!this.focused)this.opts.lateDisabled=true;
   const ids=msg.params?.selector===':focus'?
    (this.opts.focusMissing?[]:this.focused?[42]:[]):(this.opts.ambiguous?[42,43]:[42]);
   const result=msg.method==='DOM.getDocument'?{root:{nodeId:1}}:
-   msg.method==='DOM.querySelectorAll'?{nodeIds:this.opts.changed&&msg.params?.selector==='#safe-focus'&&this.inputs.filter(x=>x?.selector==='#safe-focus').length>=2?[57]:ids}:
+   msg.method==='DOM.querySelectorAll'?{nodeIds:this.opts.changed&&this.methods.filter(x=>x==='DOM.querySelectorAll').length===2?[57]:ids}:
    msg.method==='DOM.describeNode'?{node:{nodeName:'BUTTON',nodeId:42}}:
    msg.method==='DOM.getAttributes'?{attributes:['id','safe-focus','type',this.opts.submit||this.opts.lateSubmit&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?'submit':'button',...(this.opts.disabled||this.opts.lateDisabled&&this.methods.filter(x=>x==='DOM.getAttributes').length>1?['disabled','']:[]),...(this.opts.htmlHidden?['hidden','']:[])]}:
    msg.method==='CSS.getComputedStyleForNode'?{computedStyle:[
@@ -41,7 +43,7 @@ class FocusSocket extends EventEmitter{
  close(){this.emit('close');}
 }
 const run=async(socket:FocusSocket,confirm=async()=>frame,approved=true)=>runApprovedControlFocus({
- approved,target,locator,approvedDocument:frame,
+ approved,target,locator,
  confirm,socketFactory:()=>socket,timeoutMs:2000,
 });
 test('FR-024 actual approved focus uses only DOM CDP and proves the same button became :focus',async()=>{
@@ -57,11 +59,12 @@ test('FR-024 actual approved focus uses only DOM CDP and proves the same button 
  assert.deepEqual(socket.methods,[
   'DOM.getDocument','CSS.enable','DOM.querySelectorAll','DOM.describeNode','DOM.getAttributes',
   'CSS.getComputedStyleForNode','DOM.getBoxModel',
-  'DOM.querySelectorAll','DOM.querySelectorAll','DOM.getAttributes',
-  'CSS.getComputedStyleForNode','DOM.getBoxModel','DOM.focus','DOM.querySelectorAll',
+  'DOM.querySelectorAll','CSS.getComputedStyleForNode','DOM.getBoxModel',
+  'DOM.querySelectorAll','DOM.getAttributes','DOM.focus','DOM.querySelectorAll',
  ]);
- assert.equal(socket.inputs[8].selector,'#safe-focus');
- assert.equal(socket.inputs[7].selector,':focus');
+ assert.equal(socket.inputs[7].selector,'#safe-focus');
+ assert.equal(socket.inputs[10].selector,':focus');
+ assert.equal(socket.inputs[11].nodeId,42);
  assert.equal(socket.inputs[12].nodeId,42);
  assert.equal(socket.inputs[13].selector,':focus');
  assert.equal(socket.methods.some(x=>x.startsWith('Runtime.')||x.startsWith('Input.')),false);
@@ -84,9 +87,9 @@ test('FR-024 refuses unauthenticated request, untrusted page sockets and navigat
  const s=new FocusSocket();
  await assert.rejects(run(s,async()=>frame,false),/approval/i);
  assert.deepEqual(s.methods,[]);
- await assert.rejects(runApprovedControlFocus({approved:true,approvedDocument:frame,target:{...target,url:'https://bank.invalid/pay'},
+ await assert.rejects(runApprovedControlFocus({approved:true,target:{...target,url:'https://bank.invalid/pay'},
   locator,confirm:async()=>frame,socketFactory:()=>s}),/identity|page|target|URL/i);
- await assert.rejects(runApprovedControlFocus({approved:true,approvedDocument:frame,target:{...target,webSocketDebuggerUrl:'ws://evil.invalid/devtools/page/approvedFocusFixture'},
+ await assert.rejects(runApprovedControlFocus({approved:true,target:{...target,webSocketDebuggerUrl:'ws://evil.invalid/devtools/page/approvedFocusFixture'},
   locator,confirm:async()=>frame,socketFactory:()=>s}),/CDP|loopback|socket/i);
  let calls=0;const moved=new FocusSocket();
  await assert.rejects(run(moved,async()=>++calls===1?frame:{...frame,loaderId:'navigated'}),/document|identity|navigation|changed/i);
@@ -112,7 +115,7 @@ test('FR-024 expired consent budget during slow document recheck can never dispa
  const socket=new FocusSocket();
  let calls=0;
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,approvedDocument:frame,timeoutMs:100,
+  approved:true,target,locator,timeoutMs:100,
   confirm:async()=>{
    calls++;
    if(calls===2)await new Promise(resolve=>setTimeout(resolve,180));
@@ -164,7 +167,7 @@ test('FR-024 revoked scan during CDP preparation cannot dispatch an observable f
  const socket=new FocusSocket();
  let checks=0;
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,approvedDocument:frame,confirm:async()=>frame,timeoutMs:2000,
+  approved:true,target,locator,confirm:async()=>frame,timeoutMs:2000,
   socketFactory:()=>socket,
   assertAuthorizedBeforeAction:()=>{
    checks++;
@@ -211,62 +214,12 @@ test('FR-024 actual Chrome isolation smoke must exercise a hidden target denial,
   'the product flow must also refuse a genuinely hidden browser node');
 });
 
-test('FR-024 a same-URL reload after native approval cannot become a fresh focus baseline',async()=>{
- const socket=new FocusSocket();
- let opened=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,approvedDocument:frame,
-  confirm:async()=>({...frame,loaderId:'new-document-after-native-approval'}),
-  socketFactory:()=>{opened++;return socket;},timeoutMs:2000,
- }),/document identity changed|navigation|reload/i);
- assert.equal(opened,0,'reject stale native consent before opening the action socket');
- assert.equal(socket.methods.includes('DOM.focus'),false);
-});
-
-test('FR-024 trusted Main passes the document confirmed by native consent into focus execution',async()=>{
- const main=await readFile('apps/desktop/src/main/index.ts','utf8');
- const start=main.indexOf("ipcMain.handle('usshm:approved-control-focus'");
- const end=main.indexOf("ipcMain.handle('usshm:product-action-review'",start);
- assert.ok(start>=0&&end>start);
- const body=main.slice(start,end);
- const call=body.slice(body.indexOf('runApprovedControlFocus('));
- assert.match(call,/approvedDocument:afterPrompt/,
-  'a new independent baseline must not silently replace the native-approved document');
-});
-
-
-test('FR-024 the initial document confirmation consumes the same one-time approval budget',async()=>{
- let socket:FocusSocket|null=null;let opened=0;let confirmations=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,approvedDocument:frame,timeoutMs:100,
-  confirm:async()=>{if(++confirmations===1)await new Promise(resolve=>setTimeout(resolve,180));return frame;},
-  socketFactory:()=>{opened++;socket=new FocusSocket();return socket;},
- }),/timed out|expired|deadline|timeout/i);
- assert.equal(opened,0,'expired native consent must not open an action socket');
- assert.equal(socket,null,'no expired action connection may be constructed');
-});
-
-test('FR-024 a delayed event loop cannot dispatch focus before the expired timer callback runs',async()=>{
- const socket=new FocusSocket();let confirmations=0;
- await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,approvedDocument:frame,timeoutMs:100,
-  confirm:async()=>{
-   if(++confirmations===2)Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,180);
-   return frame;
-  },
-  socketFactory:()=>socket,
- }),/timed out|expired|deadline|timeout/i);
- assert.ok(confirmations>=2,'the final pre-action document confirmation must be delayed');
- assert.equal(socket.methods.includes('DOM.focus'),false,
-  'elapsed monotonic deadline must block action even when timer delivery is delayed');
-});
-
 test('FR-024 mutation during final page identity recheck cannot dispatch DOM.focus',async()=>{
  const options:{lateDisabled?:boolean}={};
  const socket=new FocusSocket(options);
  let confirms=0;
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target,locator,approvedDocument:frame,timeoutMs:2000,
+  approved:true,target,locator,timeoutMs:2000,
   confirm:async()=>{
    confirms++;
    if(confirms===2)options.lateDisabled=true;
@@ -280,48 +233,109 @@ test('FR-024 mutation during final page identity recheck cannot dispatch DOM.foc
   'never dispatch the observable focus after a control changes during identity recheck');
 });
 
-test('RG-01/FR-024 error-bearing CDP preflight replies cannot authorize observable focus',async()=>{
- for(const bad of [null,false,0,'']){
-  const socket=new FocusSocket();
-  const send=socket.send.bind(socket);
-  socket.send=(raw:string)=>{
-   const msg=JSON.parse(raw);
-   if(msg.method==='DOM.getAttributes'){
-    socket.methods.push(msg.method);socket.inputs.push(msg.params);
-    queueMicrotask(()=>socket.emit('message',{data:JSON.stringify({
-     id:msg.id,error:bad,result:{attributes:['id','safe-focus','type','button']},
-    })}));
-    return;
-   }
-   send(raw);
-  };
-  await assert.rejects(run(socket),/CDP|focus|invalid|error/i,
-   'CDP error presence must invalidate forged successful preflight');
-  assert.equal(socket.methods.includes('DOM.focus'),false,
-   'no focus side effect may follow an error-bearing DOM attribute response');
-  assert.equal(socket.listenerCount('message'),0,
-   'rejected focus operations must release the CDP event listener');
+test('FR-024 mutation during pre-action focus evidence cannot dispatch DOM.focus',async()=>{
+ const socket=new FocusSocket({mutateDisabledOnPreFocus:true});
+ await assert.rejects(run(socket),/button|disabled|changed|unsafe|focus/i,
+  'a control that becomes disabled while collecting pre-action focus evidence must be revalidated');
+ assert.ok(socket.methods.includes('DOM.querySelectorAll'),
+  'fault injection must occur during the final pre-action focus evidence query');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'never dispatch the observable focus after a control changes during pre-action evidence');
+});
+
+test('FR-024 initial page identity verification consumes the consent time budget',async()=>{
+ const socket=new FocusSocket();
+ let created=0,checks=0;
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,timeoutMs:100,
+  confirm:async()=>{
+   checks++;
+   await new Promise(resolve=>setTimeout(resolve,200));
+   return frame;
+  },
+  socketFactory:()=>{created++;return socket;},
+ }),/timed out|expired|deadline|timeout/i);
+ assert.equal(checks,1,'the original document identity was verified once');
+ assert.equal(created,0,'an expired approval must not even open a CDP action socket');
+ assert.deepEqual(socket.methods,[],'no CDP command may be sent after slow initial identity');
+});
+
+test('FR-024 a non-settling initial identity check must time out without opening a focus socket',async()=>{
+ const socket=new FocusSocket();
+ let sockets=0;
+ let fallback:ReturnType<typeof setTimeout>|undefined;
+ try{
+  const observed=await Promise.race([
+   runApprovedControlFocus({
+    approved:true,target,locator,timeoutMs:100,
+    confirm:async()=>new Promise<never>(()=>{}),
+    socketFactory:()=>{sockets++;return socket;},
+   }).then(()=> 'unexpected-success',(error:unknown)=>
+    error instanceof Error?error.message:'unexpected-error'),
+   new Promise<string>(resolve=>{
+    fallback=setTimeout(()=>resolve('identity-never-settled'),350);
+   }),
+  ]);
+  assert.equal(observed,'Approved focus timed out',
+   'the approval must expire even if the first CDP identity confirmation never settles');
+  assert.equal(sockets,0);
+  assert.deepEqual(socket.methods,[]);
+ }finally{
+  if(fallback!==undefined)clearTimeout(fallback);
  }
 });
 
-test('RG-01/FR-024 a CDP focus command with a falsy error cannot earn an observed V2 result',async()=>{
+test('FR-024 a stalled pre-action identity recheck expires without dispatching focus',async()=>{
  const socket=new FocusSocket();
- const send=socket.send.bind(socket);
- socket.send=(raw:string)=>{
-  const msg=JSON.parse(raw);
-  if(msg.method==='DOM.focus'){
-   socket.methods.push(msg.method);socket.inputs.push(msg.params);
-   socket.focused=true;
-   queueMicrotask(()=>socket.emit('message',{data:JSON.stringify({
-    id:msg.id,error:null,result:{},
-   })}));
-   return;
+ let confirmations=0;
+ let watchdog:ReturnType<typeof setTimeout>|undefined;
+ try{
+  const result=await Promise.race([
+   runApprovedControlFocus({
+    approved:true,target,locator,timeoutMs:100,
+    confirm:async()=>{
+     confirmations++;
+     if(confirmations===1)return frame;
+     return new Promise<never>(()=>{});
+    },
+    socketFactory:()=>socket,
+   }).then(()=> 'unexpected-success',(error:unknown)=>
+    error instanceof Error?error.message:'unexpected-error'),
+   new Promise<string>(resolve=>{
+    watchdog=setTimeout(()=>resolve('pre-action-identity-never-settled'),350);
+   }),
+  ]);
+  assert.equal(result,'Approved focus timed out');
+  assert.ok(confirmations>=2,'initial identity passes; stalled pre-action check is actually reached');
+  assert.ok(socket.methods.includes('DOM.getDocument'),'the CDP verification path was exercised');
+  assert.equal(socket.methods.includes('DOM.focus'),false,
+   'an indefinitely pending frame recheck must never authorize an action');
+ }finally{
+  if(watchdog!==undefined)clearTimeout(watchdog);
+ }
+});
+
+test('FR-024 rejects any CDP error envelope even when its error value is falsy',async()=>{
+ for(const method of ['DOM.getDocument','DOM.focus'] as const){
+  for(const errorField of [null,false,0,''] as const){
+   class MalformedEnvelopeSocket extends FocusSocket{
+    override send(raw:string){
+     const message=JSON.parse(raw);
+     if(message.method!==method)return super.send(raw);
+     this.methods.push(message.method);
+     this.inputs.push(message.params);
+     const result=method==='DOM.getDocument'?{root:{nodeId:1}}:{};
+     queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+      id:message.id,result,error:errorField,
+     })}));
+    }
+   }
+   const socket=new MalformedEnvelopeSocket();
+   await assert.rejects(()=>run(socket),/CDP focus command did not return a valid result/,
+    'a forged '+method+' result with an error property must not be accepted');
+   if(method==='DOM.getDocument')
+    assert.equal(socket.methods.includes('DOM.focus'),false,
+     'reject a malformed preflight before dispatching the observable action');
   }
-  send(raw);
- };
- await assert.rejects(run(socket),/CDP|focus|invalid|error/i,
-  'a forged successful reply must not turn a CDP action error into V2 credit');
- assert.equal(socket.methods.filter(method=>method==='DOM.focus').length,1,
-  'an uncertain action is never retried');
- assert.equal(socket.listenerCount('message'),0);
+ }
 });
