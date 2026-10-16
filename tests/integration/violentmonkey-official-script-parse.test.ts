@@ -471,3 +471,39 @@ test('RG-05 recognizes only the fixed runtime.onMessage addListener nullish Type
  }});
  assert.equal(other.injectedFailureSignature(),'other-type-error');
 });
+
+
+test('RG-05 rejects inherited and accessor-backed debugger scriptParsed metadata before attributing official injector parses',async()=>{
+ const {createOfficialManagerScriptEvidence}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const trusted=parsed('chrome-extension://'+extension+'/injected.js');
+ let gettersCalled=0;
+ const nestedAccessor={};
+ Object.defineProperty(nestedAccessor,'frameId',{
+  get(){gettersCalled++;throw new Error('PRIVATE_FRAME_ID');},
+ });
+ const eventAccessor={};
+ Object.defineProperty(eventAccessor,'scriptId',{
+  get(){gettersCalled++;throw new Error('PRIVATE_SCRIPT_ID');},
+ });
+ Object.assign(eventAccessor,{
+  url:trusted.url,executionContextId:9,executionContextAuxData:{frameId:frame},
+ });
+ const inheritedEvent=Object.create(trusted);
+ const inheritedAux=Object.create({frameId:frame});
+ const nestedInherited={...trusted,executionContextAuxData:inheritedAux};
+ const events=[inheritedEvent,eventAccessor,
+  {...trusted,executionContextAuxData:nestedAccessor},
+  nestedInherited];
+ for(const event of events){
+  const observer=createOfficialManagerScriptEvidence(frame,extension);
+  assert.doesNotThrow(()=>observer.observe('Debugger.scriptParsed',event),
+   'malformed CDP event must not run an accessor or crash observation');
+  assert.deepEqual(observer.snapshot(),{injectedWebParsed:false,injectedParsed:false},
+   'inherited or accessor-backed metadata cannot prove an official injector parsed');
+ }
+ assert.equal(gettersCalled,0,'event observation must not invoke private getters');
+ const valid=createOfficialManagerScriptEvidence(frame,extension);
+ valid.observe('Debugger.scriptParsed',trusted);
+ assert.deepEqual(valid.snapshot(),{injectedWebParsed:false,injectedParsed:true},
+  'a legitimate decoded own-data CDP event remains accepted');
+});
