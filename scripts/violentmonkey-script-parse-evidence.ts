@@ -6,6 +6,14 @@
  * Never retain or export script URL, source text, CDP script IDs, or contexts.
  */
 const OFFICIAL_EXTENSION_ID='jinjaccalgkegednnccohejagnlnfdag';
+/** Decoded CDP payloads are data, never prototypes or accessor callbacks. */
+function ownData(value:unknown,key:string):unknown{
+ if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+ try{
+  const property=Object.getOwnPropertyDescriptor(value,key);
+  return property&&Object.hasOwn(property,'value')?property.value:undefined;
+ }catch{return undefined;}
+}
 export interface OfficialManagerScriptParseSnapshot {
  readonly injectedWebParsed:boolean;
  readonly injectedParsed:boolean;
@@ -20,19 +28,15 @@ export function createOfficialManagerScriptEvidence(frameId:string,extensionId:s
   observe(method:string,params:unknown):void{
    if(method!=='Debugger.scriptParsed'||!params||
       typeof params!=='object'||Array.isArray(params))return;
-   const parsed=params as {
-    scriptId?:unknown;url?:unknown;executionContextId?:unknown;
-    executionContextAuxData?:unknown;
-   };
-   if(typeof parsed.scriptId!=='string'||!parsed.scriptId||
-      !Number.isSafeInteger(parsed.executionContextId)||
-      Number(parsed.executionContextId)<1||
-      typeof parsed.url!=='string')return;
-   const aux=parsed.executionContextAuxData;
-   if(!aux||typeof aux!=='object'||Array.isArray(aux)||
-      (aux as {frameId?:unknown}).frameId!==frameId)return;
-   if(parsed.url===prefix+'injected-web.js')injectedWebParsed=true;
-   else if(parsed.url===prefix+'injected.js')injectedParsed=true;
+   const scriptId=ownData(params,'scriptId');
+   const contextId=ownData(params,'executionContextId');
+   const url=ownData(params,'url');
+   const aux=ownData(params,'executionContextAuxData');
+   if(typeof scriptId!=='string'||!scriptId||
+      !Number.isSafeInteger(contextId)||(contextId as number)<1||
+      typeof url!=='string'||ownData(aux,'frameId')!==frameId)return;
+   if(url===prefix+'injected-web.js')injectedWebParsed=true;
+   else if(url===prefix+'injected.js')injectedParsed=true;
   },
   snapshot():OfficialManagerScriptParseSnapshot{
    // No identifiers survive the reduction to fixed booleans.
@@ -86,24 +90,22 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
    }
    if(method==='Debugger.scriptParsed'){
     if(!params||typeof params!=='object'||Array.isArray(params))return;
-    const event=params as {
-     scriptId?:unknown;url?:unknown;executionContextId?:unknown;
-     executionContextAuxData?:unknown;
-    };
-    const aux=event.executionContextAuxData;
-    if(!aux||typeof aux!=='object'||Array.isArray(aux)||
-       (aux as {frameId?:unknown}).frameId!==frameId||
-       typeof event.scriptId!=='string'||!event.scriptId||
-       event.scriptId.length>128||!Number.isSafeInteger(event.executionContextId)||
-       Number(event.executionContextId)<1||typeof event.url!=='string')return;
-    const ctx=event.executionContextId as number;
+    const aux=ownData(params,'executionContextAuxData');
+    const scriptId=ownData(params,'scriptId');
+    const contextId=ownData(params,'executionContextId');
+    const url=ownData(params,'url');
+    if(ownData(aux,'frameId')!==frameId||
+       typeof scriptId!=='string'||!scriptId||
+       scriptId.length>128||!Number.isSafeInteger(contextId)||
+       (contextId as number)<1||typeof url!=='string')return;
+    const ctx=contextId as number;
     if(!contexts.has(ctx)){
      if(contexts.size>=8)return;
      contexts.add(ctx);
     }
-    const kind=event.url===prefix+'injected-web.js'?'web':
-     event.url===prefix+'injected.js'?'injected':null;
-    if(kind&&sources.size<32)sources.set(event.scriptId,{kind,contextId:ctx});
+    const kind=url===prefix+'injected-web.js'?'web':
+     url===prefix+'injected.js'?'injected':null;
+    if(kind&&sources.size<32)sources.set(scriptId,{kind,contextId:ctx});
     return;
    }
    if(method!=='Runtime.exceptionThrown')return;
