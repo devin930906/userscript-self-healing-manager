@@ -105,3 +105,32 @@ test('RG-05 direct Chrome userscript diagnostic occurs only AFTER the true cold-
  assert.match(text,/NOT an official GM receipt/);
  assert.doesNotMatch(text,/if\s*\([^)]*directUserScript[^)]*\)\s*assertOfficialViolentmonkeyReleaseGate\('fixture-restart-passed'\)/);
 });
+
+
+test('RG-05 direct registration refuses misleading readback for a different script, run stage or frame scope',async()=>{
+ const match='http://127.0.0.1/rg05-direct-control';
+ for(const defect of ['source','runAt','allFrames'] as const){
+  let registration:any,readCount=0,removed=0;
+  const api={
+   async getScripts(){
+    if(++readCount===1)return [];
+    const reported={...registration,js:[...registration.js]};
+    if(defect==='source')reported.js=[{code:'/* unexpected control source */'}];
+    if(defect==='runAt')reported.runAt='document_start';
+    if(defect==='allFrames')reported.allFrames=true;
+    return [reported];
+   },
+   async register(entries:any[]){registration=entries[0];},
+   async unregister(query:any){
+    assert.deepEqual(JSON.parse(JSON.stringify(query)),{ids:[DIRECT_CONTROL_ID]});
+    removed++;
+   },
+  };
+  const state=await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),{
+   location:{href:options},chrome:{runtime:{id:extension},userScripts:api},JSON,
+  });
+  assert.equal(registration.matches[0],match);
+  assert.equal(state,'unavailable','readback mismatch '+defect+' must not be called registered');
+  assert.equal(removed,1,'readback mismatch '+defect+' must clean up its fixed registration');
+ }
+});
