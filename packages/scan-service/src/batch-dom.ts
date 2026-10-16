@@ -94,13 +94,18 @@ function normalizeProbeShape(value:unknown,target:ChromeTarget,locators:readonly
       ownProbeData(check,'expression')!==locator.expression)return null;
    const status=ownProbeData(check,'status');
    const matchCount=ownProbeData(check,'matchCount');
-   if(status!=='found'&&status!=='missing'&&status!=='ambiguous'&&
-      status!=='blocked'&&status!=='unverified')return null;
-   if(matchCount!==null&&typeof matchCount!=='number')return null;
+   // Absent/accessor-backed fields are structurally invalid, but present
+   // values of an unexpected type must retain the previous needs-review
+   // semantics. Never promote a forged count or leak object properties.
+   if(status===undefined||matchCount===undefined)return null;
    if(asCss(locator)===null&&(status!=='unverified'||matchCount!==null))return null;
-   // Own data only: discard raw object reference, getters, reasons and
-   // node IDs. Batch V1 counts need no other CDP-backed properties.
-   normalized.push({method:locator.method,expression:locator.expression,status,matchCount});
+   const safeStatus=status==='found'||status==='missing'||status==='ambiguous'||
+    status==='blocked'||status==='unverified'?status:'unverified';
+   const safeCount=typeof matchCount==='number'||matchCount===null?matchCount:null;
+   // Only safe primitive copies leave this boundary. Raw adapter getters,
+   // rows and arrays are never read again by the batch/recheck evaluator.
+   normalized.push({method:locator.method,expression:locator.expression,
+    status:safeStatus,matchCount:safeCount});
   }
  }catch{return null;}
  return {targetId:target.id,url:target.url,validationLevel:'dom-only',checks:normalized};
