@@ -285,3 +285,40 @@ test('RG-05 passive isolated runtime exception provenance rejects inherited and 
   isolatedExceptionObserved:true,isolatedExceptionCount:1,observationIncomplete:false,
  });
 });
+
+test('RG-05 bootstrap read rejects inherited and accessor CDP result envelopes without executing getters',async()=>{
+ const positive=JSON.stringify({
+  readyMarker:true,webBootstrap:false,officialRuntimeId:true,runtimeOnMessageAvailable:true,
+ });
+ let getters=0;
+ const getterPacket={};
+ Object.defineProperty(getterPacket,'result',{enumerable:true,get(){
+  getters++;return {value:positive};
+ }});
+ const getterValue={};
+ Object.defineProperty(getterValue,'value',{enumerable:true,get(){
+  getters++;return positive;
+ }});
+ for(const forged of [
+  Object.create({result:{value:positive}}),
+  getterPacket,
+  {result:Object.create({value:positive})},
+  {result:getterValue},
+ ]){
+  const sample=factory('fixture');
+  sample.observe('Runtime.executionContextCreated',{context:{id:66,auxData:{frameId:'fixture',isDefault:false}}});
+  const receipt=await sample.read(async()=>forged);
+  assert.deepEqual(receipt,{
+   isolatedWorldsObserved:1,worldsChecked:0,
+   readyMarkerObserved:false,webBootstrapObserved:false,
+   officialRuntimeIdObserved:false,runtimeOnMessageAvailableObserved:false,
+   sameWorldRuntimeReadyObserved:false,observationIncomplete:true,
+  },'malformed CDP result must never certify official runtime readiness');
+ }
+ assert.equal(getters,0,'CDP receipt accessors must never execute in passive diagnostics');
+ const sample=factory('fixture');
+ sample.observe('Runtime.executionContextCreated',{context:{id:67,auxData:{frameId:'fixture',isDefault:false}}});
+ const genuine=await sample.read(async()=>({result:{value:positive}}));
+ assert.equal((genuine as {sameWorldRuntimeReadyObserved:boolean}).sameWorldRuntimeReadyObserved,true);
+ assert.equal((genuine as {observationIncomplete:boolean}).observationIncomplete,false);
+});
