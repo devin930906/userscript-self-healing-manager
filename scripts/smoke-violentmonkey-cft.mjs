@@ -1146,6 +1146,17 @@ try{
   console.log('RG-05 first failed Chrome document official injected.js signature: '+
    restartedInjectorExceptions.injectedFailureSignature()+
    '; no GM or product V4 proof.');
+  // Read only the PINNED synthetic first-document USER_SCRIPT world after
+  // genuine official GM absence. This cannot satisfy injection acceptance,
+  // trigger GetInjected or change the default world/manager configuration.
+  try{
+   const firstBootstrap=await restartedMarkerEvidence.read(
+    (method,params)=>pageCdp.send(method,params));
+   console.log('RG-05 first failed Chrome document official bootstrap marker: '+
+    JSON.stringify(firstBootstrap)+'; diagnostic only, not a GM/V4 receipt.');
+  }catch{
+   console.log('RG-05 first failed Chrome document official bootstrap marker: unavailable; GM still absent.');
+  }
   await pageCdp.send('Page.reload',{ignoreCache:true});
   try{
    third=await readViolentmonkeyFixtureObservation({
