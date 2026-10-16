@@ -26,6 +26,9 @@ function requireDirectControlUrl(input:string):string{
  */
 export function buildDirectChromeUserScriptRegistration(controlUrl:string):string{
  const url=requireDirectControlUrl(controlUrl);
+ // Chrome match patterns do not include a dynamic localhost port. The script
+ // itself enforces the FULL pinned URL before touching the DOM.
+ const match='http://127.0.0.1/rg05-direct-control';
  const script=`(()=>{
   if(location.href!==${JSON.stringify(url)})return;
   const root=document.documentElement;
@@ -50,14 +53,14 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
    const prior=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
    if(!Array.isArray(prior)||prior.length!==0)return 'unavailable';
    await api.register([{id:${JSON.stringify(DIRECT_CONTROL_ID)},
-    matches:[${JSON.stringify(url)}],js:[{code:${JSON.stringify(script)}}],
+    matches:[${JSON.stringify(match)}],js:[{code:${JSON.stringify(script)}}],
     world:'USER_SCRIPT',runAt:'document_start',allFrames:false}]);
    const check=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
    return Array.isArray(check)&&check.length===1&&
     check[0]?.id===${JSON.stringify(DIRECT_CONTROL_ID)}&&
     check[0]?.world==='USER_SCRIPT'&&
     Array.isArray(check[0]?.matches)&&check[0].matches.length===1&&
-    check[0].matches[0]===${JSON.stringify(url)}
+    check[0].matches[0]===${JSON.stringify(match)}
      ?'registered':'unavailable';
   }catch{return 'unavailable';}
  })()`;
