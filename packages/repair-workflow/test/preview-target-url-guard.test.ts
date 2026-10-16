@@ -67,3 +67,31 @@ test('RG-01 rejects malformed target IDs before any repair-preview CDP observati
   assert.deepEqual(counts(),{confirms:0,discoveries:0,proposals:0});
  }
 });
+
+
+test('RG-01 preview rejects revoked target and never opens CDP or leaks Proxy exceptions',async()=>{
+ const {input,counts}=buildInput('https://example.test/editor');
+ const p=Proxy.revocable(input.target,{});p.revoke();
+ input.target=p.proxy;
+ await assert.rejects(prepareVerifiedRepairPreview(input),/Invalid selected CDP target/);
+ assert.deepEqual(counts(),{confirms:0,discoveries:0,proposals:0});
+});
+
+test('RG-01 preview reads target own data without invoking get traps or target getters',async()=>{
+ const {input,counts}=buildInput('https://example.test/editor');
+ const source=input.target;
+ let traps=0;
+ input.target=new Proxy(source,{get(){traps++;throw Error('PRIVATE_TARGET_GET_TRAP');}});
+ const output=await prepareVerifiedRepairPreview(input);
+ assert.equal(output.status,'needs-review');
+ assert.equal(traps,0);
+ assert.deepEqual(counts(),{confirms:2,discoveries:1,proposals:0});
+ for(const key of ['id','url'] as const){
+  const {input:other,counts:otherCounts}=buildInput('https://example.test/editor');
+  let getterCalls=0;
+  Object.defineProperty(other.target,key,{enumerable:true,get(){getterCalls++;throw Error('PRIVATE_TARGET_GETTER');}});
+  await assert.rejects(prepareVerifiedRepairPreview(other),/Invalid selected CDP target/);
+  assert.equal(getterCalls,0);
+  assert.deepEqual(otherCounts(),{confirms:0,discoveries:0,proposals:0});
+ }
+});
