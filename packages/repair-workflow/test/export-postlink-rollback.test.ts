@@ -48,3 +48,22 @@ test('RG-06 post-link destination substitution never authorizes deleting the com
   'the approved original link is no longer ours to remove by its old pathname');
  assert.deepEqual((await readdir(root)).filter(name=>name.includes('.staging-')),[]);
 }));
+
+test('RG-06 identity-check failure cannot delete a substituted destination already observed by lstat',async()=>withDestination(async(root,destination)=>{
+ const approved=Buffer.from('// approved installed bytes');
+ const competitor=Buffer.from('// exact other-writer file stays');
+ const displaced=join(root,'moved-approved.user.js');
+ await assert.rejects(publishExclusiveExport({
+  destinationPath:destination,bytes:approved,
+  afterLink:async()=>{
+   await rename(destination,displaced);
+   await writeFile(destination,competitor);
+   // No synthetic exception: the production native identity check itself
+   // must reject this replacement, without treating it as owned for rollback.
+  },
+ }),/identity changed|unsafe|replaced/i);
+ assert.deepEqual(await readFile(destination),competitor,
+  'a failed native identity check must not unlink the other writer');
+ assert.deepEqual(await readFile(displaced),approved);
+ assert.deepEqual((await readdir(root)).filter(name=>name.includes('.staging-')),[]);
+}));
