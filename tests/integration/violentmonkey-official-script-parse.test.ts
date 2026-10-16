@@ -471,3 +471,183 @@ test('RG-05 recognizes only the fixed runtime.onMessage addListener nullish Type
  }});
  assert.equal(other.injectedFailureSignature(),'other-type-error');
 });
+
+
+test('RG-05 rejects inherited and accessor-backed debugger scriptParsed metadata before attributing official injector parses',async()=>{
+ const {createOfficialManagerScriptEvidence}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const trusted=parsed('chrome-extension://'+extension+'/injected.js');
+ let gettersCalled=0;
+ const nestedAccessor={};
+ Object.defineProperty(nestedAccessor,'frameId',{
+  get(){gettersCalled++;throw new Error('PRIVATE_FRAME_ID');},
+ });
+ const eventAccessor={};
+ Object.defineProperty(eventAccessor,'scriptId',{
+  get(){gettersCalled++;throw new Error('PRIVATE_SCRIPT_ID');},
+ });
+ Object.assign(eventAccessor,{
+  url:trusted.url,executionContextId:9,executionContextAuxData:{frameId:frame},
+ });
+ const inheritedEvent=Object.create(trusted);
+ const inheritedAux=Object.create({frameId:frame});
+ const nestedInherited={...trusted,executionContextAuxData:inheritedAux};
+ const events=[inheritedEvent,eventAccessor,
+  {...trusted,executionContextAuxData:nestedAccessor},
+  nestedInherited];
+ for(const event of events){
+  const observer=createOfficialManagerScriptEvidence(frame,extension);
+  assert.doesNotThrow(()=>observer.observe('Debugger.scriptParsed',event),
+   'malformed CDP event must not run an accessor or crash observation');
+  assert.deepEqual(observer.snapshot(),{injectedWebParsed:false,injectedParsed:false},
+   'inherited or accessor-backed metadata cannot prove an official injector parsed');
+ }
+ assert.equal(gettersCalled,0,'event observation must not invoke private getters');
+ const valid=createOfficialManagerScriptEvidence(frame,extension);
+ valid.observe('Debugger.scriptParsed',trusted);
+ assert.deepEqual(valid.snapshot(),{injectedWebParsed:false,injectedParsed:true},
+  'a legitimate decoded own-data CDP event remains accepted');
+});
+
+
+test('RG-05 rejects inherited debugger events from forged official injector before attributing runtime errors',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ e.observe('Runtime.executionContextCreated',{context:{
+  id:9,auxData:{frameId:frame,isDefault:false},
+ }});
+ const original=parsed('chrome-extension://'+extension+'/injected.js');
+ // A valid context does not make an inherited scriptId/url genuine.
+ const forged=Object.create(original);
+ assert.doesNotThrow(()=>e.observe('Debugger.scriptParsed',forged));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,exception:{
+   className:'TypeError',
+   description:"TypeError: Cannot read properties of undefined (reading 'addListener')",
+  },
+ }});
+ assert.deepEqual(e.snapshot(),{
+  injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:true,
+ },'an inherited debugger event must not become a pinned-official source');
+ assert.equal(e.injectedFailureSignature(),'not-observed',
+  'a forged source must not claim a causal Chrome runtime signature');
+});
+
+
+test('RG-05 rejects inherited official exception envelopes and nested accessor evidence without attribution',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const validScript=parsed('chrome-extension://'+extension+'/injected.js');
+ const forgedDetails={scriptId:'101',executionContextId:9,exception:{
+  className:'TypeError',
+  description:"TypeError: Cannot read properties of undefined (reading 'addListener')",
+ }};
+ const cases=[
+  Object.create({exceptionDetails:forgedDetails}),
+  {exceptionDetails:Object.create(forgedDetails)},
+ ];
+ let getterCalls=0;
+ const accessorEvent={};
+ Object.defineProperty(accessorEvent,'exceptionDetails',{
+  get(){getterCalls++;throw Error('PRIVATE_BROWSER_EXCEPTION');},
+ });
+ cases.push(accessorEvent);
+ for(const event of cases){
+  const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+  e.observe('Debugger.scriptParsed',validScript);
+  assert.doesNotThrow(()=>e.observe('Runtime.exceptionThrown',event));
+  assert.deepEqual(e.snapshot(),{
+   injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+  },'untrusted exception envelopes must not certify a genuine official injector exception');
+  assert.equal(e.injectedFailureSignature(),'not-observed');
+ }
+ assert.equal(getterCalls,0,'passive observer must not run exception getters');
+});
+
+test('RG-05 rejects inherited CDP execution-context events before recording an isolated official injector context',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const context={id:88,auxData:{frameId:frame,isDefault:false}};
+ const cases=[
+  Object.create({context}),
+  {context:Object.create(context)},
+  {context:{id:88,auxData:Object.create({frameId:frame,isDefault:false})}},
+ ];
+ for(const event of cases){
+  const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+  assert.doesNotThrow(()=>e.observe('Runtime.executionContextCreated',event));
+  e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+   executionContextId:88,scriptId:'unknown',
+  }});
+  assert.deepEqual(e.snapshot(),{
+   injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+  },'a forged context must not authorize exception attribution');
+ }
+});
+
+
+test('RG-05 isolates official injector exception evidence across real document context resets',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const collector=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ const error=(ctx:number,code:string)=>({
+  exceptionDetails:{scriptId:code,executionContextId:ctx,lineNumber:0,columnNumber:2577,
+   exception:{className:'TypeError',description:
+    "TypeError: Cannot read properties of undefined (reading 'addListener')"}},
+ });
+ collector.observe('Runtime.executionContextCreated',{context:{id:9,auxData:{frameId:frame,isDefault:false}}});
+ collector.observe('Debugger.scriptParsed',{...parsed('chrome-extension://'+extension+'/injected.js'),scriptId:'old'});
+ collector.observe('Runtime.exceptionThrown',error(9,'old'));
+ assert.equal(collector.injectedFailureSignature(),'missing-runtime-onmessage-addlistener',
+  'first cold-start document retains its actual bounded error signature');
+ collector.observe('Runtime.executionContextsCleared',{});
+ assert.deepEqual(collector.snapshot(),{
+  injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+ },'the next document must never inherit the first document error evidence');
+ assert.equal(collector.injectedExceptionClass(),'not-observed');
+ assert.equal(collector.injectedFailureSignature(),'not-observed');
+ assert.equal(collector.injectedFailureSite(),'not-observed');
+ collector.observe('Runtime.executionContextCreated',{context:{id:10,auxData:{frameId:frame,isDefault:false}}});
+ collector.observe('Debugger.scriptParsed',{...parsed('chrome-extension://'+extension+'/injected-web.js'),scriptId:'new',executionContextId:10});
+ collector.observe('Runtime.exceptionThrown',{exceptionDetails:{scriptId:'new',executionContextId:10}});
+ assert.deepEqual(collector.snapshot(),{
+  injectedWebExceptionObserved:true,injectedExceptionObserved:false,unattributedExceptionObserved:false,
+ },'second document attribution is independent and cannot be mixed with first');
+ assert.equal(collector.injectedFailureSignature(),'not-observed');
+});
+
+test('RG-05 captures the failed first Chrome document fault before its one bounded reload',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const firstFailed=source.indexOf('RG-05 cold-start injection was absent; one isolated loopback reload required');
+ const firstAttribution=source.indexOf('RG-05 first failed Chrome document official injected.js signature:');
+ const reload=source.indexOf("await pageCdp.send('Page.reload',{ignoreCache:true})",firstFailed);
+ const secondAttribution=source.indexOf('RG-05 official injected.js failure signature after missing GM receipts:');
+ const denial=source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)');
+ assert.ok(firstFailed>=0&&firstAttribution>firstFailed&&reload>firstAttribution,
+  'first-document diagnosis must occur after a missing GM receipt but before page reload');
+ assert.ok(secondAttribution>reload&&denial>secondAttribution,
+  'fresh second-document diagnosis must not replace or bypass the strict GM refusal');
+ assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
+});
+
+
+test('RG-05 does not merge two separate document fault signatures into a fake mixed restart cause',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ const enter=(ctx:number,scriptId:string)=>{
+  e.observe('Runtime.executionContextCreated',{context:{id:ctx,auxData:{frameId:frame,isDefault:false}}});
+  e.observe('Debugger.scriptParsed',{...parsed('chrome-extension://'+extension+'/injected.js'),executionContextId:ctx,scriptId});
+ };
+ enter(41,'first');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'first',executionContextId:41,exception:{className:'TypeError',
+   description:"TypeError: Cannot read properties of undefined (reading 'addListener')"},
+ }});
+ assert.equal(e.injectedFailureSignature(),'missing-runtime-onmessage-addlistener');
+ e.observe('Runtime.executionContextsCleared',{});
+ enter(42,'second');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'second',executionContextId:42,exception:{className:'ReferenceError',
+   description:'PRIVATE_SECOND_DOCUMENT_STACK'},
+ }});
+ assert.equal(e.injectedFailureSignature(),'unknown',
+  'reload-only error must not be merged with first-document TypeError');
+ assert.equal(e.injectedExceptionClass(),'ReferenceError');
+ assert.doesNotMatch(e.injectedFailureSignature()+JSON.stringify(e.snapshot()),/PRIVATE_SECOND_DOCUMENT_STACK/);
+});

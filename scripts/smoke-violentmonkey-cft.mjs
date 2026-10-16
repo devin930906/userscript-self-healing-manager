@@ -10,6 +10,7 @@ import {access,lstat,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {basename,join,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {pinnedViolentmonkeyWindowFlags} from './violentmonkey-window-mode.ts';
 import {
  assertChromeDebuggerPortFree,buildChromeLaunchArgs,getVerifiedChromeStatus,getChromeStatus,
 } from '../packages/cdp-client/src/index.ts';
@@ -17,11 +18,13 @@ import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.ts';
 import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
 import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemoval,
+ buildDirectChromeDefaultWorldRegistration,buildDirectChromeDefaultWorldRemoval,
  buildDirectChromeUserScriptListenerInstallation,buildDirectChromeUserScriptListenerRemoval,
  buildDirectChromeUserScriptListenerObservation,
 } from './violentmonkey-direct-chrome-control.ts';
-import {readVerifiedOfficialManagerCdpReply} from './violentmonkey-cdp-transport-reply.ts';
+import {readVerifiedOfficialManagerCdpReply,readVerifiedDirectChromeControlValue} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
+import {summarizeOfficialManagerWorkerTargets} from './violentmonkey-worker-target-evidence.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
 import {createPinnedBootstrapMarkerEvidence,createPinnedIsolatedRuntimeExceptionEvidence} from './violentmonkey-bootstrap-marker-evidence.ts';
@@ -34,6 +37,7 @@ import {
  buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
  readViolentmonkeyPreReloadAccess,buildViolentmonkeyProfileDeveloperModeExpression,
  enableDisposableProfileDeveloperMode,
+ buildViolentmonkeyDisposableDeveloperModeExpression,
  enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
@@ -185,6 +189,16 @@ async function openCdp(endpoint,onEvent){
  };
 }
 
+/** Passive post-GM snapshot only. Never wake or attach to a worker target,
+ * and do not expose URLs/IDs or allow diagnostics to bypass the GM gate. */
+async function readOfficialWorkerCensus(browserCdp){
+ try{
+  return summarizeOfficialManagerWorkerTargets(await browserCdp.send('Target.getTargets'));
+ }catch{
+  return summarizeOfficialManagerWorkerTargets(null);
+ }
+}
+
 async function waitForPage(targetId,expectedUrl,hasExited){
  let lastStatus;
  for(let attempt=0;attempt<80;attempt++){
@@ -322,8 +336,7 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
    expression:buildViolentmonkeyContentBridgeDiagnosticExpression(fixtureUrl),
    awaitPromise:true,returnByValue:true,
   });
-  if(answer.exceptionDetails||answer.result?.exceptionDetails)throw Error('invalid');
-  value=answer.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(answer,160);
  }catch{throw new Error('RG-05 official bridge diagnostic transport failed');}
  if(typeof value!=='string'||value.length>120)
   throw new Error('RG-05 official bridge diagnostic receipt invalid');
@@ -405,8 +418,9 @@ async function collectPreReloadViolentmonkeyAccess({browserCdp,hasExited}){
  * The result cannot satisfy any manager GM, FR-026 or Stable release gate.
  */
 async function runDirectChromeUserScriptDiagnostic({
- browserCdp,optionsCdp,controlUrl,hasExited,
+ browserCdp,optionsCdp,controlUrl,hasExited,world='dedicated',
 }){
+ if(world!=='dedicated'&&world!=='default')throw new Error('Unsupported isolated Chrome world differential');
  let targetId,pageCdp,registered=false,cleanupVerified=false;
  let listenerAttached=false,listenerRemoved=false;
  let marker='not-observed',roundtrip='unavailable';
@@ -415,10 +429,11 @@ async function runDirectChromeUserScriptDiagnostic({
  try{
   if(hasExited())return {registered:false,marker,roundtrip,messageReceipt,listenerRemoved:false,cleanupVerified:false};
   const receipt=await optionsCdp.send('Runtime.evaluate',{
-   expression:buildDirectChromeUserScriptRegistration(controlUrl),
+   expression:world==='default'?buildDirectChromeDefaultWorldRegistration(controlUrl):
+    buildDirectChromeUserScriptRegistration(controlUrl),
    awaitPromise:true,returnByValue:true,
   });
-  if(receipt?.exceptionDetails||receipt?.result?.value!=='registered')
+  if(readVerifiedDirectChromeControlValue(receipt)!=='registered')
    return {registered:false,marker,cleanupVerified:false};
   registered=true;
   // The response listener lives only in this disposable options page and is
@@ -429,9 +444,7 @@ async function runDirectChromeUserScriptDiagnostic({
     expression:buildDirectChromeUserScriptListenerInstallation(controlUrl),
     returnByValue:true,
    });
-   listenerAttached=!!listener&&
-    !Object.hasOwn(listener,'error')&&!Object.hasOwn(listener,'exceptionDetails')&&
-    listener.result?.value==='attached';
+   listenerAttached=readVerifiedDirectChromeControlValue(listener)==='attached';
    if(listenerAttached)roundtrip='missing';
   }catch{}
   const created=await browserCdp.send('Target.createTarget',{url:controlUrl});
@@ -457,9 +470,8 @@ async function runDirectChromeUserScriptDiagnostic({
    const current=after?.frameTree?.frame;
    if(current?.id!==identity.frameId||current?.loaderId!==identity.loaderId||
       current?.url!==controlUrl)throw new Error('Direct Chrome diagnostic document changed');
-   if(value?.exceptionDetails)
-    throw new Error('Direct Chrome diagnostic evaluation failed');
-   if(markers.includes(value?.result?.value))marker=value.result.value;
+   const observedMarker=readVerifiedDirectChromeControlValue(value);
+   if(markers.includes(observedMarker))marker=observedMarker;
    // API presence alone was the old control. A true USER_SCRIPT -> extension
    // onUserScriptMessage -> USER_SCRIPT reply proves actual messaging in this
    // post-blocker disposable fixture, and never substitutes for official GM.
@@ -470,10 +482,10 @@ async function runDirectChromeUserScriptDiagnostic({
    const final=await pageCdp.send('Page.getFrameTree');
    const afterReply=final?.frameTree?.frame;
    if(afterReply?.id!==identity.frameId||afterReply?.loaderId!==identity.loaderId||
-      afterReply?.url!==controlUrl||!response||
-      Object.hasOwn(response,'error')||Object.hasOwn(response,'exceptionDetails'))
+      afterReply?.url!==controlUrl)
     throw new Error('Direct Chrome messaging document or receipt changed');
-   if(listenerAttached&&response.result?.value==='verified'){
+   const observedReply=readVerifiedDirectChromeControlValue(response);
+   if(listenerAttached&&observedReply==='verified'){
     roundtrip='verified';
     break;
    }
@@ -497,7 +509,7 @@ async function runDirectChromeUserScriptDiagnostic({
     });
     if(snapshot&&!Object.hasOwn(snapshot,'error')&&
        !Object.hasOwn(snapshot,'exceptionDetails')){
-     const raw=snapshot?.result?.value;
+     const raw=readVerifiedDirectChromeControlValue(snapshot);
      if(typeof raw==='string'&&raw.length<128){
       const parsed=JSON.parse(raw);
       if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
@@ -519,17 +531,17 @@ async function runDirectChromeUserScriptDiagnostic({
      expression:buildDirectChromeUserScriptListenerRemoval(),
      returnByValue:true,
     });
-    listenerRemoved=!!removed&&!Object.hasOwn(removed,'error')&&
-     !Object.hasOwn(removed,'exceptionDetails')&&removed.result?.value==='removed';
+    listenerRemoved=readVerifiedDirectChromeControlValue(removed)==='removed';
    }catch{}
   }
   if(registered){
    try{
     const removed=await optionsCdp.send('Runtime.evaluate',{
-     expression:buildDirectChromeUserScriptRemoval(),
+     expression:world==='default'?buildDirectChromeDefaultWorldRemoval():
+      buildDirectChromeUserScriptRemoval(),
      awaitPromise:true,returnByValue:true,
     });
-    cleanupVerified=!removed?.exceptionDetails&&removed?.result?.value==='removed';
+    cleanupVerified=readVerifiedDirectChromeControlValue(removed)==='removed';
    }catch{}
   }
  }
@@ -735,6 +747,14 @@ async function collectOfficialManagerScriptEvidence(cdp,frameId,hasExited){
  }
 }
 
+// No real Chrome profile or global preference may be changed. Only this
+// process-owned, newly created disposable profile is eligible for the opt-in
+// unpacked-extension lifecycle differential.
+if(process.env.USSHM_RG05_DISPOSABLE_DEV_MODE!==undefined&&
+   process.env.USSHM_RG05_DISPOSABLE_DEV_MODE!=='enabled'&&
+   process.env.USSHM_RG05_DISPOSABLE_DEV_MODE!=='disabled')
+ throw new Error('Invalid isolated developer-mode differential selector');
+const useDisposableDeveloperMode=process.env.USSHM_RG05_DISPOSABLE_DEV_MODE==='enabled';
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -770,7 +790,8 @@ try{
  const optionsUrl=`chrome-extension://${extensionId}/options/index.html#settings`;
  const pinnedLaunchArgs=[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
-  '--headless=new','--no-first-run','--no-default-browser-check',
+  ...pinnedViolentmonkeyWindowFlags(process.env.USSHM_RG05_CFT_WINDOW_MODE),
+  '--no-first-run','--no-default-browser-check',
   '--disable-background-networking','--disable-sync','--disable-gpu',
   // A dead local proxy blocks non-loopback HTTP(S); Chrome bypasses proxies
   // for loopback, which is the only network target granted by the fixture.
@@ -827,7 +848,21 @@ try{
   const extensionsPage=await waitForPage(createdExtensions.targetId,extensionsUrl,()=>exited);
   extensionsCdp=await openCdp(extensionsPage.webSocketDebuggerUrl);
   await extensionsCdp.send('Runtime.enable');
-  await enableDisposableProfileDeveloperMode(extensionsCdp.send);
+  if(useDisposableDeveloperMode){
+   // This is the exact Chrome internal WebUI of the newly created profile.
+   // Never modify the user's browser, official extension bits or the manager
+   // default USER_SCRIPT world. Only fixed literal/readback status escapes.
+   const answer=await extensionsCdp.send('Runtime.evaluate',{
+    expression:buildViolentmonkeyDisposableDeveloperModeExpression(),
+    awaitPromise:true,returnByValue:true,
+   });
+   if(!answer||typeof answer!=='object'||'error' in answer||
+      'exceptionDetails' in answer||
+      answer.result?.value!=='enabled')
+    throw new Error('Disposable CFT Developer Mode verification failed');
+   await enableDisposableProfileDeveloperMode(extensionsCdp.send);
+   console.log('RG-05 isolated unpacked Developer Mode enabled and read back in disposable Chrome profile; NOT a GM receipt.');
+  }
   if(!initiallyAvailable)
    await enableViolentmonkeyUserScriptsAccess(extensionsCdp.send);
  }finally{
@@ -935,6 +970,22 @@ try{
  assert.equal(requests.length,2,'only the two fixed loopback GM request callbacks are allowed');
  assert.ok(requests.every(item=>item.method==='GET'&&item.url==='/gm-request'));
  assert.deepEqual(secondReceipt.apis,firstReceipt.apis);
+ // RG-05 PRE-RESTART diagnostic control. Two actual official GM receipts
+ // established a working manager BEFORE we sample Chrome's existing default
+ // USER_SCRIPT world. This temporary exact-loopback script is not a GM
+ // replacement and must never modify the manager's default world settings.
+ const baselineDefaultWorld=await runDirectChromeUserScriptDiagnostic({
+  browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+  world:'default',
+ });
+ console.log('RG-05 default USER_SCRIPT before Chrome process restart: '+
+  JSON.stringify(baselineDefaultWorld)+'; diagnostic only, not a GM receipt or V4 proof.');
+ // Never proceed into a cold-start comparison if a registered disposable
+ // synthetic script or its response listener was not demonstrably removed.
+ if(baselineDefaultWorld.registered===true&&
+    (baselineDefaultWorld.cleanupVerified!==true||
+     baselineDefaultWorld.listenerRemoved!==true))
+  throw new Error('RG-05 baseline synthetic control cleanup was not verified');
  // This is a control sample only after TWO independently validated real GM
  // receipts in the original process. Without a known working control we
  // cannot claim that a false restarted response identifies the failing layer.
@@ -970,6 +1021,11 @@ try{
   initialInjectorExceptions.injectedExceptionClass()+'; allowlisted class only.');
  console.log('RG-05 official injected.js failure signature control: '+
   initialInjectorExceptions.injectedFailureSignature()+'; fixed upstream signature only.');
+ // Passive worker-target snapshot only AFTER two genuine, verified GM receipts.
+ // It may reveal process-restart target lifecycle differences, not root cause.
+ console.log('RG-05 official worker targets after two REAL GM receipts: '+
+  JSON.stringify(await readOfficialWorkerCensus(browserCdp))+
+  '; target census only, never a GM/V4 receipt.');
  // RG-05: Page.reload never proves storage survives actual browser restart.
  console.log('RG-05 fixed stage: page-reload-documented');
  const previousChromePid=chrome.pid;
@@ -1118,10 +1174,31 @@ try{
   if(pinned?.id!==afterRestartIdentity.frameId||
      pinned?.url!==fixtureUrl||pinned?.loaderId!==afterRestartIdentity.loaderId)
    throw new Error('Cold-start fixture page identity was not stable before one bounded reload');
+  console.log('RG-05 official worker targets after first missing cold-start GM receipt: '+
+   JSON.stringify(await readOfficialWorkerCensus(browserCdp))+
+   '; passive target census, GM remains absent.');
   const coldMissingRegistration=await readManagerFixtureRegistration(optionsCdp,fixtureUrl,()=>exited);
    console.log('RG-05 official Chrome registration after missing cold-start GM receipt: '+JSON.stringify(coldMissingRegistration));
    startupWarmup=true;
   console.log('RG-05 cold-start injection was absent; one isolated loopback reload required (not immediate GM injection).');
+  // Preserve only a public-bundle, allowlisted failure category for the FIRST
+  // failed Chrome document. The passive observer resets its document evidence
+  // on Runtime.executionContextsCleared, preventing stale evidence from being
+  // incorrectly attributed to the new document after this authorized reload.
+  console.log('RG-05 first failed Chrome document official injected.js signature: '+
+   restartedInjectorExceptions.injectedFailureSignature()+
+   '; no GM or product V4 proof.');
+  // Read only the PINNED synthetic first-document USER_SCRIPT world after
+  // genuine official GM absence. This cannot satisfy injection acceptance,
+  // trigger GetInjected or change the default world/manager configuration.
+  try{
+   const firstBootstrap=await restartedMarkerEvidence.read(
+    (method,params)=>pageCdp.send(method,params));
+   console.log('RG-05 first failed Chrome document official bootstrap marker: '+
+    JSON.stringify(firstBootstrap)+'; diagnostic only, not a GM/V4 receipt.');
+  }catch{
+   console.log('RG-05 first failed Chrome document official bootstrap marker: unavailable; GM still absent.');
+  }
   await pageCdp.send('Page.reload',{ignoreCache:true});
   try{
    third=await readViolentmonkeyFixtureObservation({
@@ -1153,6 +1230,11 @@ try{
   appManagerVerified:resumedManagers.managerVerified,expectedStorageBefore:2,
  };
  if(startupInjectionBlocked){
+  // Compare only after the SECOND genuine GM miss; never wake a worker or
+  // treat TargetInfo presence as evidence that the official runtime works.
+  console.log('RG-05 official worker targets after two absent GM receipts: '+
+   JSON.stringify(await readOfficialWorkerCensus(browserCdp))+
+   '; passive target census, not manager verification.');
   // Only AFTER cold restart and one bounded reload both lacked the GM receipt.
   // A bridge response must never count as actual user script GM execution.
   try{
@@ -1233,6 +1315,23 @@ try{
   });
   console.log('RG-05 Chrome direct USER_SCRIPT after failed official manager cold start: '+
    JSON.stringify(directUserScript)+'; NOT an official GM receipt or release pass.');
+  // Only after official GM is independently blocked: compare the manager-owned
+  // default world with the named control. No manager/default world reconfiguration.
+  const defaultUserScript=await runDirectChromeUserScriptDiagnostic({
+   browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+   world:'default',
+  });
+  console.log('RG-05 Chrome default USER_SCRIPT after failed official manager cold start: '+
+   JSON.stringify(defaultUserScript)+'; diagnostic only, GM acceptance remains blocked.');
+  // A/B/A order removes a time/order or stale-listener explanation for an
+  // apparent default-world failure. Only use a new, disposable synthetic page
+  // after the previous registrations/listeners ran their own finally cleanup.
+  // The official manager's genuine cold GM verdict is already irrevocable.
+  const namedReplayUserScript=await runDirectChromeUserScriptDiagnostic({
+   browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+  });
+  console.log('RG-05 Chrome named replay USER_SCRIPT after failed official manager cold start: '+
+   JSON.stringify(namedReplayUserScript)+'; diagnostic only, GM acceptance remains blocked.');
 
   // Root-cause diagnostic only, after the blocker is already immutable: reload
   // the pinned official extension (not Chrome, not a user profile), then test

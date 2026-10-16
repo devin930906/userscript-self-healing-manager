@@ -46,3 +46,21 @@ test('RG-05 real official manager socket uses fail-closed CDP receipt validation
  assert.match(source,/readVerifiedOfficialManagerCdpReply\(response\)/);
  assert.doesNotMatch(source,/if\(response\.error\)/);
 });
+
+
+test('RG-05 nested official manager CDP error envelopes cannot supply forged success receipts',()=>{
+ const privateToken='PRIVATE_NESTED_MANAGER_TRANSPORT_ERROR';
+ for(const result of [
+  {value:'registered',error:0},
+  {value:'registered',exceptionDetails:null},
+  Object.assign(Object.create({error:{message:privateToken}}),{value:'registered'}),
+ ]){
+  assert.throws(()=>readVerifiedOfficialManagerCdpReply({result}),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'CDP command failed');
+   assert.equal('cause' in error,false);
+   assert.doesNotMatch(error.message,/PRIVATE_NESTED_MANAGER_TRANSPORT_ERROR/);
+   return true;
+  },'nested transport failure must not be counted as a valid official manager receipt');
+ }
+});

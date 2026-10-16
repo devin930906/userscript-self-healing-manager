@@ -11,10 +11,23 @@ import {
 const site='http://127.0.0.1:32123/rg05-direct-control';
 const extension='jinjaccalgkegednnccohejagnlnfdag';
 const options='chrome-extension://'+extension+'/options/index.html#settings';
+const worldId='usshm-rg05-direct-control-world-v1';
+function worldApi(){
+ let configured=false;
+ return {
+  async getWorldConfigurations(){return configured?[{worldId,messaging:true}]:[];},
+  async configureWorld(args:any){
+   assert.deepEqual(JSON.parse(JSON.stringify(args)),{worldId,messaging:true});
+   configured=true;
+  },
+  async resetWorldConfiguration(id:string){assert.equal(id,worldId);configured=false;},
+ };
+}
 
 test('RG-05 direct Chrome userScripts control registers only fixed loopback script in USER_SCRIPT world',async()=>{
  const registry:any[]=[];
  const api={
+  ...worldApi(),
   async getScripts(query:any){assert.deepEqual(JSON.parse(JSON.stringify(query)),{ids:[DIRECT_CONTROL_ID]});return registry;},
   async register(scripts:any[]){
    assert.equal(scripts.length,1);
@@ -57,6 +70,7 @@ test('RG-05 diagnostic refuses untrusted origins and manager identity, without e
  const privateError='PRIVATE_CHROME_EXTENSION_ERROR';
  const failed=await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),{
   location:{href:options},chrome:{runtime:{id:extension},userScripts:{
+   ...worldApi(),
    async getScripts(){throw new Error(privateError);},async register(){calls++;}
   }},JSON,
  });
@@ -69,6 +83,7 @@ test('RG-05 direct Chrome diagnostic rolls back its registration if readback thr
  let read=0,registered=0,removed=0;
  const text=await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),{
   location:{href:options},chrome:{runtime:{id:extension},userScripts:{
+   ...worldApi(),
    async getScripts(){if(++read===1)return [];throw Error('PRIVATE_EXTENSION_READBACK');},
    async register(){registered++;},
    async unregister(query:any){
@@ -86,6 +101,7 @@ test('RG-05 direct Chrome diagnostic rolls back malformed nonmatching registrati
  let read=0,removed=0;
  const result=await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),{
   location:{href:options},chrome:{runtime:{id:extension},userScripts:{
+   ...worldApi(),
    async getScripts(){return ++read===1?[]:[{id:DIRECT_CONTROL_ID,world:'MAIN',matches:[site]}];},
    async register(){},
    async unregister(){removed++;},
@@ -112,6 +128,7 @@ test('RG-05 direct registration refuses misleading readback for a different scri
  for(const defect of ['source','runAt','allFrames'] as const){
   let registration:any,readCount=0,removed=0;
   const api={
+  ...worldApi(),
    async getScripts(){
     if(++readCount===1)return [];
     const reported={...registration,js:[...registration.js]};

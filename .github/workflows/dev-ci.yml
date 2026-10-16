@@ -116,6 +116,14 @@ jobs:
         continue-on-error: true
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
+          # The default control remains headless; a separately authorized
+          # disposable CFT differential may explicitly select headed mode.
+          # Real official manager GM receipts remain mandatory either way.
+          USSHM_RG05_CFT_WINDOW_MODE: 'headless'
+          # Controlled unpacked-extension lifecycle differential ONLY in the
+          # runner's brand-new disposable CFT profile. This does not alter
+          # the exact four genuine GM API receipts / final fail-closed gate.
+          USSHM_RG05_DISPOSABLE_DEV_MODE: 'enabled'
         run: node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs
       # Always fail the job if either test genuinely failed OR was skipped.
       # Per-step continue-on-error only preserves independent diagnostic execution;

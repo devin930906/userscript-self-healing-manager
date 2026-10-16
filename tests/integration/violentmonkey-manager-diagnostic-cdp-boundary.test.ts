@@ -108,3 +108,16 @@ test('RG-05 real Chrome restart configuration audit refuses unchecked CDP succes
  assert.match(check,/persistedConfig\.scope===true/);
  assert.match(check,/persistedConfig\.gmGrants===true/);
 });
+
+
+test('RG-05 official content bridge transport does not accept unchecked protocol error envelopes',async()=>{
+ const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const begin=source.indexOf('async function readOfficialContentBridgeDiagnostic(');
+ const end=source.indexOf('\n}\n',begin+1)+3;
+ assert.ok(begin>=0&&end>begin,'find the bounded official bridge transport adapter');
+ const adapter=source.slice(begin,end);
+ assert.match(adapter,/readViolentmonkeyManagerDiagnosticCdpValue\(answer,160\)/,
+  'official bridge must reject top-level/nested CDP errors and hostile getters');
+ assert.doesNotMatch(adapter,/answer\.result\?\.value|answer\.exceptionDetails/,
+  'official bridge must not trust unchecked response fields');
+});
