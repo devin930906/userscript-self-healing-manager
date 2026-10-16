@@ -140,16 +140,19 @@ function revoked<T extends object>(value:T):T{
 }
 
 test('RG-01 revoked CDP packets, arrays and nested checks do not abort unrelated scripts',async()=>{
- for(const forged of [
-  revoked(normal()),
-  {...normal(),checks:revoked([check()])},
-  {...normal(),checks:[revoked(check())]},
- ]){
+ const failures:[unknown,string][]=[
+  // Async adapter return of a revoked Proxy rejects during Promise thenable
+  // assimilation, before the probe-shape classifier receives any packet.
+  [revoked(normal()),'CDP locator probe failed'],
+  [{...normal(),checks:revoked([check()])},'CDP evidence identity or shape mismatch'],
+  [{...normal(),checks:[revoked(check())]},'CDP evidence identity or shape mismatch'],
+ ];
+ for(const [forged,reason] of failures){
   const d=deps([forged,normal()]);
   const result=await diagnoseScriptsOnPage({items:[one,one] as any,target,consent:true,deps:d});
   assert.equal(d.calls,2);
   assert.deepEqual(result.items.map(x=>x.status),['error','dom-present']);
-  assert.equal(result.items[0]?.reason,'CDP evidence identity or shape mismatch');
+  assert.equal(result.items[0]?.reason,reason);
  }
 });
 
