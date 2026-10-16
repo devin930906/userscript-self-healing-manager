@@ -44,6 +44,7 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
   root.setAttribute('data-usshm-rg05-direct-control',state);
  })();`;
  return `(async()=>{
+  let created=false;
   try{
    if(location.href!==${JSON.stringify(OPTIONS_URL)}||
       chrome.runtime?.id!==${JSON.stringify(EXTENSION_ID)})return 'unavailable';
@@ -55,14 +56,22 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
    await api.register([{id:${JSON.stringify(DIRECT_CONTROL_ID)},
     matches:[${JSON.stringify(match)}],js:[{code:${JSON.stringify(script)}}],
     world:'USER_SCRIPT',runAt:'document_idle',allFrames:false}]);
+   created=true;
    const check=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
-   return Array.isArray(check)&&check.length===1&&
+   const valid=Array.isArray(check)&&check.length===1&&
     check[0]?.id===${JSON.stringify(DIRECT_CONTROL_ID)}&&
     check[0]?.world==='USER_SCRIPT'&&
     Array.isArray(check[0]?.matches)&&check[0].matches.length===1&&
-    check[0].matches[0]===${JSON.stringify(match)}
-     ?'registered':'unavailable';
-  }catch{return 'unavailable';}
+    check[0].matches[0]===${JSON.stringify(match)};
+   if(valid)return 'registered';
+   try{await api.unregister({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});}catch{}
+   return 'unavailable';
+  }catch{
+   if(created){
+    try{await chrome.userScripts?.unregister({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});}catch{}
+   }
+   return 'unavailable';
+  }
  })()`;
 }
 
