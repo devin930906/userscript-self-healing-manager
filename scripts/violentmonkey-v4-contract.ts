@@ -336,6 +336,59 @@ export function buildViolentmonkeyProfileDeveloperModeExpression():string{
 }
 
 /**
+ * RG-05 controlled compatibility experiment ONLY. Enable Chrome Extensions
+ * Developer Mode solely in the fresh, disposable CFT155 test profile, with an
+ * exact chrome://extensions WebUI origin and fresh readback. This never alters
+ * the daily Chrome profile, production manager, GM fixture or release gate.
+ * Requiring real GM receipts after a full process restart remains mandatory.
+ */
+export function buildDisposableProfileDeveloperModeExpression():string{
+ return `(async()=>{
+  try{
+   if(location.href!=='chrome://extensions/')return 'unavailable';
+   const api=chrome.developerPrivate;
+   if(typeof api?.getProfileConfiguration!=='function'||
+      typeof api?.updateProfileConfiguration!=='function')return 'unavailable';
+   const before=await api.getProfileConfiguration();
+   const previous=before&&typeof before==='object'?
+    Object.getOwnPropertyDescriptor(before,'inDeveloperMode'):null;
+   const policy=before&&typeof before==='object'?
+    Object.getOwnPropertyDescriptor(before,'isDeveloperModeControlledByPolicy'):null;
+   if(!previous||!Object.hasOwn(previous,'value')||
+      typeof previous.value!=='boolean'||policy?.value===true)return 'unavailable';
+   if(previous.value!==true)
+    await api.updateProfileConfiguration({inDeveloperMode:true});
+   const after=await api.getProfileConfiguration();
+   const state=after&&typeof after==='object'?
+    Object.getOwnPropertyDescriptor(after,'inDeveloperMode'):null;
+   const afterPolicy=after&&typeof after==='object'?
+    Object.getOwnPropertyDescriptor(after,'isDeveloperModeControlledByPolicy'):null;
+   return state&&Object.hasOwn(state,'value')&&state.value===true&&
+    afterPolicy?.value!==true?'enabled':'unavailable';
+  }catch{return 'unavailable';}
+ })()`;
+}
+
+export async function enableDisposableProfileDeveloperMode(
+ send:(method:string,params:Record<string,unknown>)=>Promise<unknown>,
+):Promise<void>{
+ if(typeof send!=='function')
+  throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
+ let value:string;
+ try{
+  const response=await send('Runtime.evaluate',{
+   expression:buildDisposableProfileDeveloperModeExpression(),
+   awaitPromise:true,returnByValue:true,
+  });
+  value=readViolentmonkeyManagerDiagnosticCdpValue(response,80);
+ }catch{
+  throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
+ }
+ if(value!=='enabled')
+  throw new Error('RG-05 disposable profile Developer Mode readback not enabled');
+}
+
+/**
  * TEST ONLY: equivalent to the Chrome 138+ Allow User Scripts toggle, scoped
  * to the pinned unpacked manager in the workflow's disposable profile.
  * Never set global Developer Mode, file access, or access for another manager.
