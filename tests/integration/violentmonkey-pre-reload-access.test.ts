@@ -161,3 +161,33 @@ test('RG-05 Developer Mode gate rejects forged CDP success envelopes and redacts
    });
  }
 });
+
+test('RG-05 disposable Developer Mode tolerates transient Chrome extensions WebUI bootstrap but not trust failure',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ const statuses=['settings-api','enabled'];
+ const probes:string[]=[];
+ const pauses:number[]=[];
+ await api.enableDisposableProfileDeveloperMode(async(method:string,params:any)=>{
+  assert.equal(method,'Runtime.evaluate');
+  probes.push(params.expression);
+  return {result:{value:statuses.shift()}};
+ },async(milliseconds:number)=>{pauses.push(milliseconds);});
+ assert.equal(probes.length,2,'only the initial fixed WebUI readiness check may be retried');
+ assert.deepEqual(pauses,[150]);
+ let malformedCalls=0;
+ await assert.rejects(api.enableDisposableProfileDeveloperMode(async()=>{
+  malformedCalls++;
+  return {result:{value:'policy'}};
+ },async()=>{throw new Error('policy must not retry');}),/Developer Mode|disposable/i);
+ assert.equal(malformedCalls,1,'policy denial is permanent, not an initialization transient');
+});
+
+test('RG-05 Developer Mode readiness has a strict upper bound and never accepts persistent unavailable settings',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ let attempts=0;
+ await assert.rejects(api.enableDisposableProfileDeveloperMode(async()=>{
+  attempts++;
+  return {result:{value:'settings-api'}};
+ },async()=>{}),/Developer Mode|disposable/i);
+ assert.ok(attempts>=2&&attempts<=20,'no unlimited settings retries');
+});
