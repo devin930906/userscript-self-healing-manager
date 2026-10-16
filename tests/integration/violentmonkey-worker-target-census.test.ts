@@ -57,6 +57,30 @@ test('RG-05 accessor-backed target type/url cannot run getters and malformed tar
  assert.equal(calls,0);
 });
 
+
+test('RG-05 CDP protocol errors cannot authenticate a worker census',async()=>{
+ const valid=[{type:'service_worker',url:ownUrl}];
+ // Chrome protocol faults must never be promoted from a success-shaped
+ // target inventory, even when the error field has a falsy value.
+ for(const error of [null,false,0,'',{code:-32000,message:'Private target error'}]){
+  const receipt=await summarize({targetInfos:valid,error});
+  assert.deepEqual(receipt,{status:'unavailable',serviceWorkers:null,backgroundPages:null});
+ }
+ for(const fault of [
+  {targetInfos:valid,exceptionDetails:null},
+  Object.assign(Object.create({error:undefined}),{targetInfos:valid}),
+ ]){
+  assert.deepEqual(await summarize(fault),{
+   status:'unavailable',serviceWorkers:null,backgroundPages:null,
+  });
+ }
+ let getterCalled=0;
+ const malicious={targetInfos:valid};
+ Object.defineProperty(malicious,'error',{get(){getterCalled++;throw Error('PRIVATE_TARGET_ERROR');}});
+ assert.equal((await summarize(malicious)).status,'unavailable');
+ assert.equal(getterCalled,0);
+});
+
 test('RG-05 revoked target list proxy must fail closed without throwing',async()=>{
  const hostile=Proxy.revocable([],{});hostile.revoke();
  assert.deepEqual(await summarize({targetInfos:hostile.proxy}),{
