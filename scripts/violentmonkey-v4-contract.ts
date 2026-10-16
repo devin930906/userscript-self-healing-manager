@@ -397,7 +397,10 @@ export async function enableDisposableProfileDeveloperMode(
    throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
   }
   if(value==='enabled')return;
-  if(value!=='settings-api')
+  // A newly created, already URL-pinned chrome://extensions target can
+  // momentarily evaluate in its previous about:blank context. No setting is
+  // modified unless the eventual page href is EXACTLY chrome://extensions/.
+  if(value!=='settings-api'&&value!=='page-context')
    throw new Error('RG-05 disposable profile Developer Mode readback not enabled ('+
     (['page-context','policy','update-failed','readback','unsupported-state'].includes(value)?
       value:'invalid-receipt')+')');
