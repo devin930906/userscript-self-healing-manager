@@ -35,3 +35,23 @@ test('invalid snapshot and oversized documents must not produce guessed candidat
 test('candidate snapshot blocks cross-port local CDP target redirect',async()=>{
  await assert.rejects(captureCandidateNodes({...target,webSocketDebuggerUrl:'ws://localhost:9224/devtools/page/p1'}),/port/i);
 });
+
+test('RG-01 candidate snapshot rejects every CDP error-bearing envelope even with forged valid node data',async()=>{
+ for(const invalidError of [null,false,0,'']){
+  const socket=new FakeSocket(snapshot);
+  const send=socket.send.bind(socket);
+  socket.send=(raw:string)=>{
+   const req=JSON.parse(raw);
+   socket.sent.push(req);
+   queueMicrotask(()=>socket.emit('message',{data:JSON.stringify({
+    id:req.id,error:invalidError,result:snapshot,
+   })}));
+  };
+  await assert.rejects(captureCandidateNodes(target,{socketFactory:()=>socket}),
+   /CDP DOM snapshot failed/,
+   'an error property must invalidate a success-shaped candidate receipt');
+  assert.deepEqual(socket.sent.map(item=>item.method),['DOMSnapshot.captureSnapshot']);
+  assert.equal(socket.listenerCount('message'),0,
+   'a rejected CDP candidate response must release its message listener');
+ }
+});

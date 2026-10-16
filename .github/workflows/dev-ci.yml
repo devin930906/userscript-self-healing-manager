@@ -91,6 +91,7 @@ jobs:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
         run: node --experimental-strip-types scripts/smoke-extension-cft.mjs
       - name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -110,6 +111,7 @@ jobs:
           }
           "USSHM_VIOLENTMONKEY_EXTENSION=$extensionRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile (synthetic loopback only)
+        if: github.event_name != 'pull_request'
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
         run: node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs

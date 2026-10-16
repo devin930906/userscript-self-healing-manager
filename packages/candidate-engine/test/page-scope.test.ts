@@ -99,3 +99,201 @@ test('RG-04 credentialed CDP target URLs cannot inherit an authorized userscript
  }
  assert.equal(checkUserscriptPageScope(m,'https://example.org/settings').status,'allowed');
 });
+
+test('RG-01 accessor-backed deny rules fail closed without running untrusted getters',()=>{
+ let invoked=0;
+ const raw:Record<string,string[]>={};
+ Object.defineProperty(raw,'exclude',{
+  enumerable:true,
+  get(){invoked++;throw new Error('PRIVATE-METADATA-GETTER');},
+ });
+ const verdict=checkUserscriptPageScope(
+  meta(['https://example.org/*'],[],raw),
+  'https://example.org/private',
+ );
+ assert.equal(verdict.status,'unknown');
+ assert.equal(invoked,0,'the policy decision must inspect only metadata data properties');
+ assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE-METADATA/);
+});
+
+test('RG-01 getter-backed rule-array elements cannot grant page authorization',()=>{
+ let invoked=0;
+ const allow=['https://example.org/*'];
+ Object.defineProperty(allow,'0',{
+  configurable:true,enumerable:true,
+  get(){invoked++;throw new Error('PRIVATE-PATTERN-GETTER');},
+ });
+ const verdict=checkUserscriptPageScope(meta(allow),'https://example.org/private');
+ assert.equal(verdict.status,'unknown');
+ assert.equal(invoked,0,'a hostile array element getter must never be evaluated');
+ assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE-PATTERN/);
+});
+
+test('RG-01 cannot ignore exclusion rules when a Proxy spoofs array length',()=>{
+ for(const key of ['exclude','exclude-match'] as const){
+  let reads=0;
+  const rules=new Proxy(['https://example.org/private/*'],{
+   get(target,property,receiver){
+    if(property==='length'){reads++;return 0;}
+    return Reflect.get(target,property,receiver);
+   },
+  });
+  const scope=meta(['https://example.org/*'],[],{[key]:rules});
+  const verdict=checkUserscriptPageScope(scope,'https://example.org/private/account');
+  assert.notEqual(verdict.status,'allowed',
+   'a hidden '+key+' must not authorize an excluded document');
+  assert.equal(reads,0,'hostile array length getter must not determine exclusion rules');
+ }
+});
+
+test('RG-01 exclusion rule budget cannot be truncated by spoofing array length',()=>{
+ const oversized=Array.from({length:257},()=> 'https://example.org/*');
+ const rules=new Proxy(oversized,{
+  get(target,property,receiver){
+   if(property==='length')return 1;
+   return Reflect.get(target,property,receiver);
+  },
+ });
+ const scope=meta(['https://example.org/*'],[],{exclude:rules});
+ assert.equal(checkUserscriptPageScope(scope,'https://example.org/home').status,'unknown');
+});
+
+test('RG-01 rejects forged own-length descriptors that omit a real exclusion',()=>{
+ for(const key of ['exclude','exclude-match'] as const){
+  const rule='https://example.org/private/*';
+  const rules=new Proxy([rule],{
+   getOwnPropertyDescriptor(target,property){
+    const descriptor=Reflect.getOwnPropertyDescriptor(target,property);
+    return property==='length'&&descriptor?{...descriptor,value:0}:descriptor;
+   },
+  });
+  const verdict=checkUserscriptPageScope(
+   meta(['https://example.org/*'],[],{[key]:rules}),
+   'https://example.org/private/account',
+  );
+  assert.equal(verdict.status,'unknown',
+   'a forged length descriptor cannot erase a real '+key+' rule');
+ }
+});
+
+test('RG-01 never grants a page on coherently forged Proxy length and ownKeys',()=>{
+ let indexGetterCalls=0;
+ const rules=new Proxy(['https://example.org/private/*'],{
+  getOwnPropertyDescriptor(target,key){
+   const own=Reflect.getOwnPropertyDescriptor(target,key);
+   if(key==='length'&&own)return {...own,value:0};
+   return own;
+  },
+  ownKeys(){return ['length'];},
+  get(target,key,receiver){
+   if(key==='0')indexGetterCalls++;
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ const verdict=checkUserscriptPageScope(
+  meta(['https://example.org/*'],[],{exclude:rules}),
+  'https://example.org/private/account',
+ );
+ assert.equal(verdict.status,'unknown',
+  'a forged descriptor and hidden configurable indices must fail closed');
+ assert.equal(indexGetterCalls,0,'private rule values must not be read through Proxy get traps');
+});
+
+test('RG-01 refuses extra accessor keys before deep-cloning exclusion arrays',()=>{
+ let secretReads=0;
+ const rules=['https://example.org/private/*'];
+ Object.defineProperty(rules,'privateMarker',{enumerable:true,get(){
+  secretReads++;throw new Error('PRIVATE_SCOPE_EXTRA_GETTER');
+ }});
+ const verdict=checkUserscriptPageScope(
+  meta(['https://example.org/*'],[],{exclude:rules}),
+  'https://example.org/private/account',
+ );
+ assert.equal(verdict.status,'unknown');
+ assert.equal(secretReads,0,'no unexpected metadata getter may run in safety validation');
+ assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE_SCOPE_EXTRA_GETTER/);
+});
+
+
+test('RG-01 rejects object-backed URL coercion without invoking untrusted code',()=>{
+ let evaluations=0;
+ const hostileUrl={
+  toString(){evaluations++;return 'https://example.org/private';},
+  [Symbol.toPrimitive](){evaluations++;return 'https://example.org/private';},
+ };
+ const scope=meta(['https://example.org/*']);
+ const verdict=checkUserscriptPageScope(scope,hostileUrl as unknown as string);
+ assert.equal(verdict.status,'blocked','an object must never grant a userscript page scope');
+ assert.equal(verdict.reason,'Invalid page URL');
+ assert.equal(evaluations,0,'hostile URL coercion must not be evaluated');
+});
+
+test('RG-01 bounds untrusted page URLs before parsing or matching activation rules',()=>{
+ const scope=meta(['https://example.org/*']);
+ const oversized='https://example.org/?'+('x'.repeat(100_000));
+ const verdict=checkUserscriptPageScope(scope,oversized);
+ assert.equal(verdict.status,'blocked');
+ assert.equal(verdict.reason,'Invalid page URL');
+ assert.equal(checkUserscriptPageScope(scope,'https://example.org/valid').status,'allowed');
+});
+
+
+test('RG-01 raw Proxy cannot hide an existing exclude by forging absence descriptors',()=>{
+ const deny='https://example.org/private/*';
+ for(const key of ['exclude','exclude-match'] as const){
+  let propertyReads=0;
+  const realRaw:Record<string,string[]>={[key]:[deny]};
+  const forgedRaw=new Proxy(realRaw,{
+   getOwnPropertyDescriptor(target,property){
+    return property===key?undefined:Reflect.getOwnPropertyDescriptor(target,property);
+   },
+   has(target,property){return property===key?false:Reflect.has(target,property);},
+   get(target,property,receiver){
+    propertyReads++;
+    return Reflect.get(target,property,receiver);
+   },
+  });
+  const verdict=checkUserscriptPageScope(
+   meta(['https://example.org/*'],[],forgedRaw),'https://example.org/private/page');
+  assert.equal(verdict.status,'unknown','a forged missing deny rule is not authorization');
+  assert.equal(propertyReads,0,'never execute get traps while validating deny metadata');
+ }
+});
+
+test('RG-01 root Proxy cannot replace genuine raw deny rules with a forged empty descriptor',()=>{
+ const actual=meta(['https://example.org/*'],[],{exclude:['https://example.org/private/*']});
+ let getterReads=0;
+ const forged=new Proxy(actual,{
+  getOwnPropertyDescriptor(target,key){
+   if(key==='raw')return {...Reflect.getOwnPropertyDescriptor(target,key)!,value:{}};
+   return Reflect.getOwnPropertyDescriptor(target,key);
+  },
+  get(target,key,receiver){
+   getterReads++;
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ assert.equal(checkUserscriptPageScope(forged,'https://example.org/private/page').status,'unknown');
+ assert.equal(getterReads,0);
+});
+
+test('RG-01 extra metadata getters are never executed when rejecting unknown fields',()=>{
+ const allowed=meta(['https://example.org/*']);
+ let reads=0;
+ Object.defineProperty(allowed,'irrelevantPrivateField',{enumerable:true,configurable:true,
+  get(){reads++;throw new Error('SENSITIVE_METADATA_GETTER');},
+ });
+ const verdict=checkUserscriptPageScope(allowed,'https://example.org/page');
+ assert.equal(verdict.status,'unknown');
+ assert.equal(reads,0);
+ assert.doesNotMatch(JSON.stringify(verdict),/SENSITIVE_METADATA_GETTER/);
+});
+
+test('RG-01 parsed-shaped plain metadata remains authorized when all scopes are safe',()=>{
+ const allowed={
+  name:'synthetic',match:['https://example.org/*'],include:[],
+  exclude:[],require:[],grant:[],runAt:'document-idle',version:null,
+  diagnostics:[],raw:Object.assign(Object.create(null),{name:['synthetic'],match:['https://example.org/*']}),
+ };
+ assert.equal(checkUserscriptPageScope(allowed,'https://example.org/public').status,'allowed');
+});

@@ -23,8 +23,39 @@ const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
 export function serializeStaticReport(report:ScanBatchResult,format:'json'|'markdown'):string{
  if(format!=='json'&&format!=='markdown')
   throw new Error('Invalid static report format');
- if(!report||typeof report!=='object'||!Array.isArray(report.items))
+ if(!report||typeof report!=='object'||Array.isArray(report))
   throw new Error('Invalid static report input');
+ // Snapshot validated own data descriptors. Do not re-read an untrusted
+ // Proxy's get traps after validation, even when descriptors are ordinary.
+ const verifiedRoot:Record<string,unknown>=Object.create(null);
+ // Validate all incoming root descriptors before accessing any value.
+ // In particular, Array.isArray(report.items) and numeric count checks
+ // must not invoke an untrusted accessor or export its thrown message.
+ for(const key of ['items','scanMode','createdAt','requestedCount',
+                    'enumeratedCount','processedCount','passedCount','errorCount']){
+  let descriptor:PropertyDescriptor|undefined;
+  // Proxy descriptor traps may throw private exception text. The export
+  // boundary reports only its fixed validation error, never that text.
+  try{descriptor=Object.getOwnPropertyDescriptor(report,key);}
+  catch{throw new Error(key==='items'?'Invalid static report input':
+    key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
+    'Invalid static report count');}
+  if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+   throw new Error(key==='items'?'Invalid static report input':
+    key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
+    'Invalid static report count');
+  verifiedRoot[key]=descriptor.value;
+ }
+ report=verifiedRoot as unknown as ScanBatchResult;
+ if(!Array.isArray(report.items))throw new Error('Invalid static report input');
+ // JSON-like report arrays must use native Array.prototype. A hostile custom
+ // prototype can supply inherited .every/.filter/.map getters, which the
+ // existing own-property check alone cannot detect before export.
+ // A Proxy's getPrototypeOf trap can throw private data: never propagate it.
+ const hasNativeArrayPrototype=(value:unknown):value is unknown[]=>{
+  try{return Array.isArray(value)&&Object.getPrototypeOf(value)===Array.prototype;}
+  catch{return false;}
+ };
  // Never relabel runtime/manager evidence as a static scan; reject malformed
  // timestamps before Markdown escaping or JSON serialization can inspect them.
  if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
@@ -34,14 +65,67 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // Array.every() skips holes; a sparse row/diagnostic array would otherwise
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
+ // Array Proxy get traps can lie about .length without touching own indices,
+ // hiding report rows or diagnostics. Read the non-accessor own length
+ // descriptor and use it consistently while building trusted snapshots.
+ const descriptorArrayLength=(items:unknown[]):number|null=>{
+  const length=Object.getOwnPropertyDescriptor(items,'length');
+  return length&&Object.hasOwn(length,'value')&&
+   Number.isSafeInteger(length.value)&&length.value>=0?length.value:null;
+ };
  const validItems=():boolean=>{
-  for(const item of report.items){
-   if(!item||typeof item!=='object'||typeof item.path!=='string'||
-      !Array.isArray(item.diagnostics))return false;
-   for(const message of item.diagnostics)
-    if(typeof message!=='string')return false;
+  // Reject throwing Proxy own-property traps without leaking their errors.
+  try{
+  const safeItems:ScanBatchResult['items']=[];
+  if(!hasNativeArrayPrototype(report.items))return false;
+  const itemCount=descriptorArrayLength(report.items);
+  if(itemCount===null)return false;
+  // Later serialization uses these native Array methods. Reject own
+  // overrides without accessing them, before any untrusted method call.
+  if(['every','filter','map'].some(method=>Object.hasOwn(report.items,method)))
+   return false;
+  // Runtime input must not execute an accessor while a supposedly static
+  // report is being inspected. Validate own enumerable data descriptors
+  // before downstream status/count projections read any row property.
+  for(let index=0;index<itemCount;index++){
+   const slot=Object.getOwnPropertyDescriptor(report.items,String(index));
+   if(!slot||!slot.enumerable||!Object.hasOwn(slot,'value'))return false;
+   const item=slot.value;
+   if(!item||typeof item!=='object'||Array.isArray(item))return false;
+   const values:Record<string,unknown>=Object.create(null);
+   for(const key of ['path','status','selectorCount','runtimeRequiredCount','diagnostics']){
+    const descriptor=Object.getOwnPropertyDescriptor(item,key);
+    if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+     return false;
+    values[key]=descriptor.value;
+   }
+   if(typeof values.path!=='string'||!hasNativeArrayPrototype(values.diagnostics)||
+      Object.hasOwn(values.diagnostics,'map'))
+    return false;
+   // for..of invokes accessor-backed array elements, including malicious
+   // getters containing private error text. Inspect only owned data slots.
+   const safeDiagnostics:string[]=[];
+   const diagnosticCount=descriptorArrayLength(values.diagnostics);
+   if(diagnosticCount===null)return false;
+   for(let index=0;index<diagnosticCount;index++){
+    const descriptor=Object.getOwnPropertyDescriptor(values.diagnostics,String(index));
+    if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value')||
+       typeof descriptor.value!=='string')return false;
+    safeDiagnostics.push(descriptor.value);
+   }
+   // Never use status/count/path reads or .map on the original row Proxy
+   // after descriptor validation. Output is computed from a trusted copy.
+   safeItems.push({
+    path:values.path as string,
+    status:values.status as ScanBatchResult['items'][number]['status'],
+    selectorCount:values.selectorCount as number,
+    runtimeRequiredCount:values.runtimeRequiredCount as number,
+    diagnostics:safeDiagnostics,
+   });
   }
+  report.items=safeItems;
   return true;
+  }catch{return false;}
  };
  if(!validItems())throw new Error('Invalid static report item');
  // The TypeScript union cannot authenticate an object crossing a runtime

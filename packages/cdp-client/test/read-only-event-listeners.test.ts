@@ -253,3 +253,26 @@ test('a valid remote handle returned for a non-node is released without inspecti
  assert.deepEqual(socket.sent.at(-1)?.params,{objectId:'remote-non-node'});
  assert.ok(!JSON.stringify(evidence).includes('remote-non-node'));
 });
+
+test('RG-01 falsy CDP error envelopes cannot fabricate direct click listener evidence',async()=>{
+ for(const error of [null,false,0,'']){
+  const socket=makeSocket([{type:'click'}]);
+  const send=socket.send.bind(socket);
+  socket.send=(raw:string)=>{
+   const command=JSON.parse(raw);
+   if(command.method==='DOMDebugger.getEventListeners'){
+    socket.sent.push(command);
+    queueMicrotask(()=>socket.emit('message',{data:JSON.stringify({
+     id:command.id,error,result:{listeners:[{type:'click'}]},
+    })}));
+   }else send(raw);
+  };
+  const evidence=await inspectReadOnlyEventListeners(target,locator,{socketFactory:()=>socket});
+  assert.equal(evidence.status,'unknown','error-bearing CDP response must never confirm listeners');
+  assert.equal(evidence.listenerCount,null);
+  assert.equal(evidence.V2,'blocked');
+  assert.ok(socket.sent.some(command=>command.method==='Runtime.releaseObject'),
+   'a rejected listener response must release the pinned remote handle');
+  assert.equal(socket.listenerCount('message'),0);
+ }
+});

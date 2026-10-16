@@ -87,7 +87,11 @@ export async function observeReadOnlyPageExceptions(
    ended=true;
    if(observationTimer!==undefined)clearTimeout(observationTimer);
    clearTimeout(deadlineTimer);
-   for(const [name,handler] of handlers)socket.removeEventListener(name,handler);
+   for(const [name,handler] of handlers){
+    try{socket.removeEventListener(name,handler);}catch{
+     // Failed transport cleanup cannot hide the final result or strand a request.
+    }
+   }
    try{socket.close();}catch{}
    if(error){reject(error);return;}
    resolve(invalid?{status:'unknown',count:null}:
@@ -102,6 +106,7 @@ export async function observeReadOnlyPageExceptions(
    try{send('Runtime.disable');}catch{finish(new Error('Could not stop passive exception observation'));}
   }
   function onOpen(){
+   if(ended)return;
    try{send('Runtime.enable');}
    catch{finish(new Error('Could not enable passive exception observation'));}
   }
@@ -117,7 +122,12 @@ export async function observeReadOnlyPageExceptions(
     }
     const message=raw as {id?:unknown;method?:unknown;params?:unknown;error?:unknown;result?:unknown};
     if(message.id===requestId){
-     if(message.error!==undefined||!message.result||typeof message.result!=='object'||Array.isArray(message.result)){
+     // Runtime.enable and Runtime.disable return an empty CDP result object.
+     // An error/exception field (even null/false) or a nonempty result is
+     // not a successful acknowledgement and cannot certify a quiet window.
+     if(Object.hasOwn(message,'error')||Object.hasOwn(message,'exceptionDetails')||
+        !message.result||typeof message.result!=='object'||Array.isArray(message.result)||
+        Object.keys(message.result).length!==0){
       // No error message from Chrome may escape.
       if(method==='Runtime.enable')finish(new Error('CDP Runtime exception observer rejected'));
       else{invalid=true;finish();}
@@ -179,7 +189,8 @@ export async function observeReadOnlyPageExceptions(
   }
   function onError(){finish(new Error('Passive CDP exception socket error'));}
   function onClose(){finish(new Error('Passive CDP exception socket closed'));}
-  for(const [name,handler] of handlers)socket.addEventListener(name,handler);
+  try{for(const [name,handler] of handlers)socket.addEventListener(name,handler);}
+  catch{finish(new Error('CDP exception observation listener initialization failed'));}
  });
  // Even a matching URL is insufficient after a same-URL reload. Returning
  // counts from an old loader would be misleading.
