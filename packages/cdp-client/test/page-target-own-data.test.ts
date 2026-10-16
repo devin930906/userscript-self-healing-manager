@@ -26,3 +26,12 @@ test('RG-04 accepts literal own-data Chrome page target and distinguishes missin
  assert.equal(validateCdpPageSocket({id:'alpha',webSocketDebuggerUrl:url}),url);
  assert.throws(()=>validateCdpPageSocket({id:'alpha'}),/no debugger socket/);
 });
+
+test('RG-04 rejects proxy-backed CDP targets before invoking descriptor traps',()=>{
+ let trapCalls=0;
+ const target=new Proxy({id:'alpha',webSocketDebuggerUrl:url},{
+  getOwnPropertyDescriptor(object,key){trapCalls++;return Reflect.getOwnPropertyDescriptor(object,key);},
+ });
+ assert.throws(()=>validateCdpPageSocket(target),/CDP page target identity mismatch/);
+ assert.equal(trapCalls,0,'untrusted proxy descriptor traps must never run');
+});
