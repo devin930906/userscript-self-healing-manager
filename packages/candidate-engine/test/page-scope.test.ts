@@ -213,3 +213,26 @@ test('RG-01 refuses extra accessor keys before deep-cloning exclusion arrays',()
  assert.equal(secretReads,0,'no unexpected metadata getter may run in safety validation');
  assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE_SCOPE_EXTRA_GETTER/);
 });
+
+
+test('RG-01 rejects object-backed URL coercion without invoking untrusted code',()=>{
+ let evaluations=0;
+ const hostileUrl={
+  toString(){evaluations++;return 'https://example.org/private';},
+  [Symbol.toPrimitive](){evaluations++;return 'https://example.org/private';},
+ };
+ const scope=meta(['https://example.org/*']);
+ const verdict=checkUserscriptPageScope(scope,hostileUrl as unknown as string);
+ assert.equal(verdict.status,'blocked','an object must never grant a userscript page scope');
+ assert.equal(verdict.reason,'Invalid page URL');
+ assert.equal(evaluations,0,'hostile URL coercion must not be evaluated');
+});
+
+test('RG-01 bounds untrusted page URLs before parsing or matching activation rules',()=>{
+ const scope=meta(['https://example.org/*']);
+ const oversized='https://example.org/?'+('x'.repeat(100_000));
+ const verdict=checkUserscriptPageScope(scope,oversized);
+ assert.equal(verdict.status,'blocked');
+ assert.equal(verdict.reason,'Invalid page URL');
+ assert.equal(checkUserscriptPageScope(scope,'https://example.org/valid').status,'allowed');
+});
