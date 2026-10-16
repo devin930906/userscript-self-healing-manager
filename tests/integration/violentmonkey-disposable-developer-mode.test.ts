@@ -61,7 +61,9 @@ test('RG-05 disposable mode is opt-in, never replaces real GM acceptance',async(
  assert.match(source,/buildViolentmonkeyDisposableDeveloperModeExpression\(/);
  assert.match(source,/buildViolentmonkeyProfileDeveloperModeExpression\(/);
  assert.match(source,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
- assert.match(workflow,/USSHM_RG05_DISPOSABLE_DEV_MODE:\s*'enabled'/);
+ assert.match(workflow,/USSHM_RG05_DISPOSABLE_DEV_MODE:\s*'disabled'/);
+ assert.doesNotMatch(workflow,/USSHM_RG05_DISPOSABLE_DEV_MODE:\s*'enabled'/,
+  'optional Chrome Developer Mode must not block official cold-start GM acceptance');
  assert.match(source,/absoluteRunnerTemp/);
  assert.doesNotMatch(source,/--no-sandbox/);
 });
