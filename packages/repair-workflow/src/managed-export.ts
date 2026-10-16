@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {lstat,mkdir,readdir,readFile,writeFile} from 'node:fs/promises';
+import {lstat,mkdir,readdir,writeFile} from 'node:fs/promises';
 import {isAbsolute,join,resolve,dirname} from 'node:path';
 import {assertRecoveryDestinationOutsideSource} from '../../runtime-paths/src/recovery-destination.ts';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
@@ -116,7 +116,17 @@ export async function exportManagedRecovery(input:{
      throw new Error('Managed recovery exceeds size or file limit');
     const destinationFile=join(target,'managed',scriptId,name);
     await writeFile(destinationFile,bytes,{flag:'wx',mode:0o600});
-    const saved=await readFile(destinationFile);
+    // Another process could replace this newly written pathname before the
+    // first verification read. Never follow a substituted link or load an
+    // unbounded foreign file. Pin a regular, single-linked output inode.
+    const savedInfo=await lstat(destinationFile);
+    if(!savedInfo.isFile()||savedInfo.isSymbolicLink()||
+       savedInfo.nlink!==1||savedInfo.size!==bytes.byteLength)
+     throw new Error('Unsafe written managed snapshot file');
+    const saved=await readPinnedRegularFile(destinationFile,{
+     maxBytes:LIMIT_EACH,expected:savedInfo,
+     expectedNative:await lstat(destinationFile,{bigint:true}),
+    });
     if(hash(saved)!==digest)throw new Error('Written managed snapshot hash mismatch');
     files.push({path:'managed/'+scriptId+'/'+name,sha256:digest,bytes:bytes.byteLength});
    }
