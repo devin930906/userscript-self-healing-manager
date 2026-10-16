@@ -101,3 +101,43 @@ test('RG-07 static report refuses inherited diagnostic map getter without export
  }
  assert.equal(invoked,0,'inherited diagnostics.map getter cannot run');
 });
+
+
+test('RG-07 static report redacts throwing root descriptor traps',()=>{
+ let attempted=0;
+ const hostile=new Proxy(fixture,{
+  getOwnPropertyDescriptor(target,key){
+   if(key==='items'){attempted++;throw new Error(secret);}
+   return Reflect.getOwnPropertyDescriptor(target,key);
+  },
+ });
+ for(const format of ['json','markdown'] as const){
+  assert.throws(()=>serializeStaticReport(hostile,format),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Invalid static report input');
+   assert.doesNotMatch(error.message,/PRIVATE_ARRAY_METHOD_GETTER_MUST_NOT_LEAK/);
+   return true;
+  });
+ }
+ assert.equal(attempted,2);
+});
+
+test('RG-07 static report redacts throwing row descriptor traps',()=>{
+ let attempted=0;
+ const row=new Proxy(fixture.items[0]!,{
+  getOwnPropertyDescriptor(target,key){
+   if(key==='path'){attempted++;throw new Error(secret);}
+   return Reflect.getOwnPropertyDescriptor(target,key);
+  },
+ });
+ const hostile:ScanBatchResult={...fixture,items:[row]};
+ for(const format of ['json','markdown'] as const){
+  assert.throws(()=>serializeStaticReport(hostile,format),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Invalid static report item');
+   assert.doesNotMatch(error.message,/PRIVATE_ARRAY_METHOD_GETTER_MUST_NOT_LEAK/);
+   return true;
+  });
+ }
+ assert.equal(attempted,2);
+});
