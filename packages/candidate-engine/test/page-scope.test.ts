@@ -128,3 +128,32 @@ test('RG-01 getter-backed rule-array elements cannot grant page authorization',(
  assert.equal(invoked,0,'a hostile array element getter must never be evaluated');
  assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE-PATTERN/);
 });
+
+test('RG-01 cannot ignore exclusion rules when a Proxy spoofs array length',()=>{
+ for(const key of ['exclude','exclude-match'] as const){
+  let reads=0;
+  const rules=new Proxy(['https://example.org/private/*'],{
+   get(target,property,receiver){
+    if(property==='length'){reads++;return 0;}
+    return Reflect.get(target,property,receiver);
+   },
+  });
+  const scope=meta(['https://example.org/*'],[],{[key]:rules});
+  const verdict=checkUserscriptPageScope(scope,'https://example.org/private/account');
+  assert.notEqual(verdict.status,'allowed',
+   'a hidden '+key+' must not authorize an excluded document');
+  assert.ok(reads===0||verdict.status!=='allowed');
+ }
+});
+
+test('RG-01 exclusion rule budget cannot be truncated by spoofing array length',()=>{
+ const oversized=Array.from({length:257},()=> 'https://example.org/*');
+ const rules=new Proxy(oversized,{
+  get(target,property,receiver){
+   if(property==='length')return 1;
+   return Reflect.get(target,property,receiver);
+  },
+ });
+ const scope=meta(['https://example.org/*'],[],{exclude:rules});
+ assert.equal(checkUserscriptPageScope(scope,'https://example.org/home').status,'unknown');
+});
