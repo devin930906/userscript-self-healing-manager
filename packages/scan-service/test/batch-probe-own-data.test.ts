@@ -161,7 +161,12 @@ test('RG-01 uses normalized own-data proof and never runs Proxy get traps after 
  const privateMarker='PRIVATE_BATCH_RAW_GET';
  const trappedRow=new Proxy(check(),{get(){getterCalls++;throw Error(privateMarker);}});
  const trappedPacket=new Proxy({...normal(),checks:[trappedRow]},{
-  get(){getterCalls++;throw Error(privateMarker);},
+  get(_target,key){
+   // Async fixture adapter's Promise resolution is required to inspect
+   // 'then' before delivering the packet. Trap only application field reads.
+   if(key==='then')return undefined;
+   getterCalls++;throw Error(privateMarker);
+  },
  });
  const d=deps([trappedPacket,normal()]);
  const result=await diagnoseScriptsOnPage({items:[one,one] as any,target,consent:true,deps:d});
