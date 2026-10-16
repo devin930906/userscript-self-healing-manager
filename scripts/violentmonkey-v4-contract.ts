@@ -393,6 +393,66 @@ export async function enableViolentmonkeyUserScriptsAccess(
  throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
 }
 
+export function assertViolentmonkeyRestartPermissionReceipt(response:unknown):true{
+ const fail=():never=>{
+  throw new Error('Pinned manager userScripts permission not retained across process restart');
+ };
+ const data=(candidate:unknown,key:string):unknown=>{
+  if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+     'error' in candidate||'exceptionDetails' in candidate)fail();
+  const field=Object.getOwnPropertyDescriptor(candidate,key);
+  if(!field||!Object.hasOwn(field,'value'))fail();
+  return field.value;
+ };
+ let value:unknown;
+ try{value=data(data(response,'result'),'value');}
+ catch{fail();}
+ if(value!==JSON.stringify({available:true}))fail();
+ return true;
+}
+
+export function assertViolentmonkeyPreflightReceipt(response:unknown):{found:boolean}{
+ const fail=():never=>{
+  throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');
+ };
+ const ownData=(object:unknown,key:string):unknown=>{
+  if(!object||typeof object!=='object'||Array.isArray(object)||
+     'error' in object||'exceptionDetails' in object)fail();
+  const descriptor=Object.getOwnPropertyDescriptor(object,key);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))fail();
+  return descriptor.value;
+ };
+ let value:unknown;
+ try{value=ownData(ownData(response,'result'),'value');}
+ catch{fail();}
+ if(typeof value!=='string'||value.length>512)fail();
+ let parsed:unknown;
+ try{parsed=JSON.parse(value);}catch{fail();}
+ if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
+    Object.keys(parsed).length!==1||!Object.hasOwn(parsed,'found')||
+    typeof (parsed as {found?:unknown}).found!=='boolean')fail();
+ return {found:(parsed as {found:boolean}).found};
+}
+
+export function readViolentmonkeyManagerDiagnosticCdpValue(
+ response:unknown,maxBytes:number,
+):string{
+ const fail=():never=>{throw new Error('Isolated manager diagnostic CDP envelope invalid');};
+ if(maxBytes!==80&&maxBytes!==160&&maxBytes!==256)fail();
+ const ownData=(object:unknown,key:string):unknown=>{
+  if(!object||typeof object!=='object'||Array.isArray(object)||
+     'error' in object||'exceptionDetails' in object)fail();
+  const descriptor=Object.getOwnPropertyDescriptor(object,key);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))fail();
+  return descriptor.value;
+ };
+ let value:unknown;
+ try{value=ownData(ownData(response,'result'),'value');}
+ catch{fail();}
+ if(typeof value!=='string'||value.length>maxBytes)fail();
+ return value;
+}
+
 /** TEST ONLY: read a bounded receipt from one fixed loopback fixture document. */
 export async function readViolentmonkeyFixtureObservation(input:{
  send:(method:string,params?:Record<string,unknown>)=>Promise<any>;
@@ -461,7 +521,17 @@ export async function readViolentmonkeyFixtureObservation(input:{
   const answer=await input.send('Runtime.evaluate',{
    expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-stage') ?? null",returnByValue:true,
   });
-  if(stages.includes(answer?.result?.value))stage=answer.result.value;
+  // Diagnostic-only fallback: never invoke an accessor or trust inherited
+  // fields, CDP fault envelopes or non-string stage values. Inconclusive
+  // responses stay "not-observed"; they can never certify GM execution.
+  const ownData=(candidate:unknown,key:string):unknown=>{
+   if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+      'error' in candidate||'exceptionDetails' in candidate)return undefined;
+   const field=Object.getOwnPropertyDescriptor(candidate,key);
+   return field&&Object.hasOwn(field,'value')?field.value:undefined;
+  };
+  const observed=ownData(ownData(answer,'result'),'value');
+  if(typeof observed==='string'&&stages.includes(observed))stage=observed;
  }catch{}
  // A late navigation or CFT exit must not allow a stage read from a
  // different document to be reported as the approved loopback fixture.

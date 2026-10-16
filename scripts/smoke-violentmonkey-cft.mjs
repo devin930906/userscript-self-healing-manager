@@ -43,6 +43,9 @@ import {
  readViolentmonkeyFixtureObservation,
  waitForVerifiedViolentmonkeyInjector,
  scopeViolentmonkeyFixtureToUrl,
+ assertViolentmonkeyRestartPermissionReceipt,
+ assertViolentmonkeyPreflightReceipt,
+ readViolentmonkeyManagerDiagnosticCdpValue,
  VIOLENTMONKEY_CFT_RELEASE,
 } from './violentmonkey-v4-contract.ts';
 
@@ -198,19 +201,15 @@ async function waitForPage(targetId,expectedUrl,hasExited){
 async function readManagerPreflight(cdp,hasExited){
  if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
  const expression=buildViolentmonkeyFixturePreflightExpression(fixtureMeta.name,fixtureMeta.namespace);
- let value;
+ let answer;
  try{
-  const answer=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});
-  value=answer.result?.value;
+  answer=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});
  }catch{throw new Error('Violentmonkey bounded read-only preflight request failed');}
- if(typeof value!=='string'||value.length>512)
-  throw new Error('Violentmonkey did not return a bounded read-only fixture preflight');
- let receipt;
- try{receipt=JSON.parse(value);}catch{throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');}
- if(receipt?.failed===true)throw new Error('Violentmonkey read-only preflight returned a fixed failure marker');
- if(typeof receipt?.found!=='boolean')
-  throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');
- return {found:receipt.found};
+ // Validate the protocol envelope AND the exact bounded manager response.
+ // A nested or inherited fault cannot be mistaken for persisted script state.
+ const verified=assertViolentmonkeyPreflightReceipt(answer);
+ if(hasExited())throw new Error('Isolated CFT exited during the bounded manager preflight');
+ return verified;
 }
 
 /**
@@ -225,9 +224,7 @@ async function readManagerInjectionOptions(cdp,hasExited){
    expression:buildViolentmonkeyManagerInjectionOptionsExpression(),
    awaitPromise:true,returnByValue:true,
   });
-  if(result.exceptionDetails||result.result?.exceptionDetails)
-   throw new Error('unexpected evaluation');
-  value=result.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(result,160);
  }catch{throw new Error('RG-05 official manager injection options inspection failed');}
  if(typeof value!=='string'||value.length>160)
   throw new Error('RG-05 official manager injection options receipt invalid');
@@ -251,9 +248,7 @@ async function readManagerFixtureMatch(cdp,fixtureUrl,scriptId,hasExited){
    expression:buildViolentmonkeyFixtureMatchExpression(fixtureUrl,scriptId),
    awaitPromise:true,returnByValue:true,
   });
-  if(response.exceptionDetails||response.result?.exceptionDetails)
-   throw new Error('evaluation failed');
-  text=response.result?.value;
+  text=readViolentmonkeyManagerDiagnosticCdpValue(response,80);
  }catch{throw new Error('RG-05 official manager fixture matcher inspection failed');}
  if(typeof text!=='string'||text.length>80)
   throw new Error('RG-05 official manager fixture matcher receipt invalid');
@@ -276,9 +271,7 @@ async function readManagerFixtureRegistration(cdp,fixtureUrl,hasExited){
    expression:buildViolentmonkeyFixtureRegistrationExpression(fixtureUrl),
    awaitPromise:true,returnByValue:true,
   });
-  if(answer.exceptionDetails||answer.result?.exceptionDetails)
-   throw new Error('unexpected diagnostic exception');
-  value=answer.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(answer,160);
  }catch{throw new Error('RG-05 official registration diagnostic failed');}
  if(typeof value!=='string'||value.length>160)
   throw new Error('RG-05 official registration receipt invalid');
@@ -303,9 +296,7 @@ async function readManagerWorldConfiguration(cdp,hasExited){
    expression:buildViolentmonkeyWorldConfigurationExpression(),
    awaitPromise:true,returnByValue:true,
   });
-  if(response.exceptionDetails||response.result?.exceptionDetails)
-   throw new Error('invalid world diagnostic');
-  value=response.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(response,160);
  }catch{throw new Error('RG-05 official world configuration diagnostic failed');}
  if(typeof value!=='string'||value.length>160)
   throw new Error('RG-05 official world configuration receipt invalid');
@@ -1028,8 +1019,7 @@ try{
  const permission=await optionsCdp.send('Runtime.evaluate',{
   expression:buildViolentmonkeyUserScriptsProbeExpression(),awaitPromise:true,returnByValue:true,
  });
- if(permission.result?.value!==JSON.stringify({available:true}))
-  throw new Error('Pinned manager userScripts permission not retained across process restart');
+ const permissionRetained=assertViolentmonkeyRestartPermissionReceipt(permission);
  await waitForVerifiedViolentmonkeyInjector({
   send:(method,params)=>optionsCdp.send(method,params),
   hasExited:()=>exited,
@@ -1044,7 +1034,7 @@ try{
    fixtureMeta.name,fixtureMeta.namespace,fixtureUrl),
   awaitPromise:true,returnByValue:true,
  });
- const auditText=auditResponse.result?.value;
+ const auditText=readViolentmonkeyManagerDiagnosticCdpValue(auditResponse,256);
  if(typeof auditText!=='string'||auditText.length>256)
   throw new Error('RG-05 persisted manager configuration receipt invalid');
  let persistedConfig;
@@ -1218,7 +1208,7 @@ try{
   const blocked=classifyOfficialViolentmonkeyRestartBlocker({
    ...attestationContext,fixture:undefined,missedColdStart:true,
    scriptStillInstalled:retainedScript.found===true,
-   permissionStillActive:permission.result?.value===JSON.stringify({available:true}),
+   permissionStillActive:permissionRetained,
    loopbackRequestsObserved:requests.length,
   });
   assert.equal(blocked.status,'fixture-restart-blocked');
