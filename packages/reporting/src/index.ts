@@ -37,6 +37,14 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
     'Invalid static report count');
  }
  if(!Array.isArray(report.items))throw new Error('Invalid static report input');
+ // JSON-like report arrays must use native Array.prototype. A hostile custom
+ // prototype can supply inherited .every/.filter/.map getters, which the
+ // existing own-property check alone cannot detect before export.
+ // A Proxy's getPrototypeOf trap can throw private data: never propagate it.
+ const hasNativeArrayPrototype=(value:unknown):boolean=>{
+  try{return Array.isArray(value)&&Object.getPrototypeOf(value)===Array.prototype;}
+  catch{return false;}
+ };
  // Never relabel runtime/manager evidence as a static scan; reject malformed
  // timestamps before Markdown escaping or JSON serialization can inspect them.
  if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
@@ -47,6 +55,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
  const validItems=():boolean=>{
+  if(!hasNativeArrayPrototype(report.items))return false;
   // Later serialization uses these native Array methods. Reject own
   // overrides without accessing them, before any untrusted method call.
   if(['every','filter','map'].some(method=>Object.hasOwn(report.items,method)))
@@ -66,7 +75,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
      return false;
     values[key]=descriptor.value;
    }
-   if(typeof values.path!=='string'||!Array.isArray(values.diagnostics)||
+   if(typeof values.path!=='string'||!hasNativeArrayPrototype(values.diagnostics)||
       Object.hasOwn(values.diagnostics,'map'))
     return false;
    // for..of invokes accessor-backed array elements, including malicious
