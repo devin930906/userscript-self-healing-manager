@@ -102,3 +102,37 @@ test('RG-05 roundtrip listener is installed before fresh document and removed in
  assert.match(body,/roundtrip/);
  assert.ok(source.indexOf('assertOfficialViolentmonkeyReleaseGate(blocked.status)')>source.indexOf('const directUserScript=await runDirectChromeUserScriptDiagnostic('));
 });
+
+test('RG-05 direct USER_SCRIPT accepts a real callback-only runtime.sendMessage reply',async()=>{
+ const api=await import('../../scripts/violentmonkey-direct-chrome-control.ts');
+ let owned:any;
+ const extensionContext:any={
+  location:{href:options},window:{},JSON,
+  chrome:{runtime:{id:extension},userScripts:{
+   async getScripts(){return owned?[owned]:[];},
+   async register(xs:any[]){owned=xs[0];},
+   async unregister(){owned=undefined;},
+  }},
+ };
+ assert.equal(await vm.runInNewContext(api.buildDirectChromeUserScriptRegistration(site),extensionContext),'registered');
+ const run=(reply:any)=>{
+  const fields:Record<string,string>={};
+  const world={location:{href:site},document:{
+   documentElement:{setAttribute(k:string,v:string){fields[k]=v;}},
+  },chrome:{runtime:{
+   sendMessage(request:any,callback:(value:any)=>void){
+    assert.equal(request.kind,'usshm-rg05-direct-v1');
+    assert.equal(typeof callback,'function','Chrome callback-only USER_SCRIPT API requires reply callback');
+    callback(reply);
+    return undefined; // Valid callback API: no Promise object.
+   },
+   onMessage:{addListener(){}},
+  }}};
+  vm.runInNewContext(owned.js[0].code,world);
+  return fields;
+ };
+ assert.equal(run({kind:'usshm-rg05-direct-v1-response'})['data-usshm-rg05-direct-roundtrip'],
+  'verified','a genuine callback reply must count as a synthetic USER_SCRIPT roundtrip');
+ assert.notEqual(run({kind:'unrelated'})['data-usshm-rg05-direct-roundtrip'],
+  'verified','unknown callback replies must not count');
+});
