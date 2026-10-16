@@ -211,3 +211,77 @@ test('RG-05 bootstrap read must discard credentials from a CDP context destroyed
   },'stale response from a removed document must never be counted');
  }
 });
+
+test('RG-05 bootstrap world evidence does not trust inherited or getter-backed context lifecycle events',async()=>{
+ let getterCalls=0,probes=0;
+ const isolated={id:73,auxData:{frameId:'fixture',isDefault:false}};
+ const probe=factory('fixture');
+ const getterParams={};
+ Object.defineProperty(getterParams,'context',{enumerable:true,get(){getterCalls++;return isolated;}});
+ for(const event of [
+  Object.create({context:isolated}),getterParams,
+  {context:Object.create(isolated)},
+  {context:{id:74,auxData:Object.create({frameId:'fixture',isDefault:false})}},
+ ]){
+  assert.doesNotThrow(()=>probe.observe('Runtime.executionContextCreated',event));
+ }
+ const result=await probe.read(async()=>{probes++;throw new Error('forged context must not be queried');});
+ assert.equal(probes,0,'untrusted event metadata must never select an arbitrary CDP execution context');
+ assert.equal(getterCalls,0,'must not invoke event accessor getters');
+ assert.deepEqual(result,{
+  isolatedWorldsObserved:0,worldsChecked:0,
+  readyMarkerObserved:false,webBootstrapObserved:false,officialRuntimeIdObserved:false,
+  runtimeOnMessageAvailableObserved:false,sameWorldRuntimeReadyObserved:false,
+  observationIncomplete:true,
+ });
+ // A forged destruction event must not erase a valid context either.
+ probe.observe('Runtime.executionContextCreated',{context:{id:75,auxData:{frameId:'fixture',isDefault:false}}});
+ const forgedDestroy={};
+ Object.defineProperty(forgedDestroy,'executionContextId',{enumerable:true,get(){getterCalls++;return 75;}});
+ probe.observe('Runtime.executionContextDestroyed',forgedDestroy);
+ probe.observe('Runtime.executionContextDestroyed',Object.create({executionContextId:75}));
+ const retained=await probe.read(async(_method,params)=>{
+  assert.equal(params.contextId,75);
+  return {result:{value:JSON.stringify({
+   readyMarker:true,webBootstrap:false,officialRuntimeId:true,runtimeOnMessageAvailable:true,
+  })}};
+ });
+ assert.equal(getterCalls,0);
+ assert.equal((retained as {sameWorldRuntimeReadyObserved:boolean}).sameWorldRuntimeReadyObserved,true);
+});
+
+test('RG-05 passive isolated runtime exception provenance rejects inherited and accessor-backed event fields',()=>{
+ const exceptionFactory=(module as Record<string,unknown>).createPinnedIsolatedRuntimeExceptionEvidence as
+  ((frameId:string)=>{observe:(method:string,params:unknown)=>void;snapshot:()=>unknown});
+ const e=exceptionFactory('fixture');
+ let getters=0;
+ const context={id:81,auxData:{frameId:'fixture',isDefault:false}};
+ const accessor={};
+ Object.defineProperty(accessor,'context',{enumerable:true,get(){getters++;return context;}});
+ for(const item of [Object.create({context}),accessor,{context:Object.create(context)},
+  {context:{id:82,auxData:Object.create({frameId:'fixture',isDefault:false})}}]){
+  assert.doesNotThrow(()=>e.observe('Runtime.executionContextCreated',item));
+ }
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:81,text:'PRIVATE_TOKEN'}});
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:82,text:'PRIVATE_TOKEN'}});
+ assert.deepEqual(e.snapshot(),{
+  isolatedExceptionObserved:false,isolatedExceptionCount:0,observationIncomplete:false,
+ });
+ assert.equal(getters,0);
+ e.observe('Runtime.executionContextCreated',{context:{id:83,auxData:{frameId:'fixture',isDefault:false}}});
+ const getterException={};
+ Object.defineProperty(getterException,'exceptionDetails',{enumerable:true,get(){
+  getters++;return {executionContextId:83,text:'PRIVATE_TOKEN'};
+ }});
+ e.observe('Runtime.exceptionThrown',getterException);
+ e.observe('Runtime.exceptionThrown',Object.create({exceptionDetails:{executionContextId:83,text:'PRIVATE_TOKEN'}}));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:Object.create({executionContextId:83})});
+ assert.equal(getters,0,'no arbitrary diagnostic exception getters may run');
+ assert.deepEqual(e.snapshot(),{
+  isolatedExceptionObserved:false,isolatedExceptionCount:0,observationIncomplete:false,
+ });
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{executionContextId:83,text:'PRIVATE_TOKEN'}});
+ assert.deepEqual(e.snapshot(),{
+  isolatedExceptionObserved:true,isolatedExceptionCount:1,observationIncomplete:false,
+ });
+});
