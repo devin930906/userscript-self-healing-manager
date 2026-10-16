@@ -21,7 +21,8 @@ test('RG-05 counts ONLY pinned official service workers and background pages wit
   {type:'service_worker',url:'http://127.0.0.1:1234/fixture'},
  ]});
  assert.deepEqual(data,{status:'observed',serviceWorkers:1,backgroundPages:1});
- assert.doesNotMatch(JSON.stringify(data),/chrome-extension|127|jinjacc|background/);
+ assert.doesNotMatch(JSON.stringify(data),/chrome-extension|127|jinjacc/);
+ assert.equal(JSON.stringify(data).includes('background.js'),false);
  assert.equal(Object.isFrozen(data),true);
 });
 
