@@ -18,6 +18,7 @@ import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.t
 import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
 import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemoval,
  buildDirectChromeUserScriptListenerInstallation,buildDirectChromeUserScriptListenerRemoval,
+ buildDirectChromeUserScriptListenerObservation,
 } from './violentmonkey-direct-chrome-control.ts';
 import {readVerifiedOfficialManagerCdpReply} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
@@ -417,9 +418,10 @@ async function runDirectChromeUserScriptDiagnostic({
  let targetId,pageCdp,registered=false,cleanupVerified=false;
  let listenerAttached=false,listenerRemoved=false;
  let marker='not-observed',roundtrip='unavailable';
+ let messageReceipt=Object.freeze({received:false,sourceMatched:false,replied:false});
  const markers=['none','send-only','onmessage-only','send-onmessage','unavailable'];
  try{
-  if(hasExited())return {registered:false,marker,roundtrip,listenerRemoved:false,cleanupVerified:false};
+  if(hasExited())return {registered:false,marker,roundtrip,messageReceipt,listenerRemoved:false,cleanupVerified:false};
   const receipt=await optionsCdp.send('Runtime.evaluate',{
    expression:buildDirectChromeUserScriptRegistration(controlUrl),
    awaitPromise:true,returnByValue:true,
@@ -494,6 +496,32 @@ async function runDirectChromeUserScriptDiagnostic({
    try{await browserCdp.send('Target.closeTarget',{targetId});}catch{}
   }
   if(listenerAttached){
+   // Read strictly bounded receipt BEFORE detaching the exact listener.
+   // Never print message contents, sender IDs, URLs or extension metadata.
+   try{
+    const snapshot=await optionsCdp.send('Runtime.evaluate',{
+     expression:buildDirectChromeUserScriptListenerObservation(),
+     returnByValue:true,
+    });
+    if(snapshot&&!Object.hasOwn(snapshot,'error')&&
+       !Object.hasOwn(snapshot,'exceptionDetails')){
+     const raw=snapshot?.result?.value;
+     if(typeof raw==='string'&&raw.length<128){
+      const parsed=JSON.parse(raw);
+      if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&
+         Object.keys(parsed).sort().join(',')==='received,replied,sourceMatched'&&
+         typeof parsed.received==='boolean'&&
+         typeof parsed.sourceMatched==='boolean'&&
+         typeof parsed.replied==='boolean'&&
+         (!parsed.replied||parsed.sourceMatched)&&
+         (!parsed.sourceMatched||parsed.received)){
+       messageReceipt=Object.freeze({
+        received:parsed.received,sourceMatched:parsed.sourceMatched,replied:parsed.replied,
+       });
+      }
+     }
+    }
+   }catch{}
    try{
     const removed=await optionsCdp.send('Runtime.evaluate',{
      expression:buildDirectChromeUserScriptListenerRemoval(),
@@ -513,7 +541,7 @@ async function runDirectChromeUserScriptDiagnostic({
    }catch{}
   }
  }
- return {registered,marker,roundtrip,listenerRemoved,cleanupVerified};
+ return {registered,marker,roundtrip,messageReceipt,listenerRemoved,cleanupVerified};
 }
 
 const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
