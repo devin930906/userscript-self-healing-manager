@@ -10,7 +10,7 @@ import {access,lstat,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {basename,join,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {pinnedViolentmonkeyWindowFlags,pinnedViolentmonkeyBackgroundNetworkFlags} from './violentmonkey-window-mode.ts';
+import {pinnedViolentmonkeyWindowFlags} from './violentmonkey-window-mode.ts';
 import {
  assertChromeDebuggerPortFree,buildChromeLaunchArgs,getVerifiedChromeStatus,getChromeStatus,
 } from '../packages/cdp-client/src/index.ts';
@@ -800,9 +800,8 @@ try{
  const pinnedLaunchArgs=[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
   ...pinnedViolentmonkeyWindowFlags(process.env.USSHM_RG05_CFT_WINDOW_MODE),
-  ...pinnedViolentmonkeyBackgroundNetworkFlags(process.env.USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE),
   '--no-first-run','--no-default-browser-check',
-  '--disable-sync','--disable-gpu',
+  '--disable-background-networking','--disable-sync','--disable-gpu',
   // A dead local proxy blocks non-loopback HTTP(S); Chrome bypasses proxies
   // for loopback, which is the only network target granted by the fixture.
   '--proxy-server=http://127.0.0.1:9',
@@ -811,9 +810,6 @@ try{
   '--load-extension='+absoluteExtensionRoot,
   '--new-window','about:blank',
  ];
- console.log('RG-05 isolated launch background mode: '+
-  (process.env.USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE==='proxy-isolated'?'proxy-isolated':'disabled')+
-  '; dead proxy and DNS isolation unchanged.');
  chrome=spawn(executable,pinnedLaunchArgs,{windowsHide:true,stdio:['ignore','ignore','ignore']});
  chrome.on('error',error=>{spawnFailure=error;exited=true;});
  chrome.on('exit',()=>{exited=true;});

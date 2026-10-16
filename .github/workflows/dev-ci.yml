@@ -124,8 +124,6 @@ jobs:
           # runner's brand-new disposable CFT profile. This does not alter
           # the exact four genuine GM API receipts / final fail-closed gate.
           USSHM_RG05_DISPOSABLE_DEV_MODE: 'enabled'
-          # Single startup-switch differential; dead proxy, DNS and GM gate unchanged.
-          USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE: 'proxy-isolated'
         run: node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs
       # Always fail the job if either test genuinely failed OR was skipped.
       # Per-step continue-on-error only preserves independent diagnostic execution;
