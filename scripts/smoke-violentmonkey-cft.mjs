@@ -16,6 +16,7 @@ import {
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.ts';
 import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
+import {readVerifiedOfficialManagerCdpReply} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
@@ -148,8 +149,8 @@ async function openCdp(endpoint,onEvent){
   const task=pending.get(response.id);
   if(!task)return;
   pending.delete(response.id);clearTimeout(task.timer);
-  if(response.error)task.reject(new Error('CDP command failed'));
-  else task.resolve(response.result??{});
+  try{task.resolve(readVerifiedOfficialManagerCdpReply(response));}
+  catch{task.reject(new Error('CDP command failed'));}
  });
  socket.addEventListener('close',()=>{
   closed=true;openedReject(new Error('CDP WebSocket closed'));
