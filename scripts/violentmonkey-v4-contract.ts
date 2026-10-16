@@ -495,7 +495,7 @@ function buildViolentmonkeyManagerCommandExpression(
   const onMessage=event=>{
    const packet=event.data;
    if(packet?.id!==${requestId})return;
-   if(packet.err)return finish(JSON.stringify({failed:true}));
+   if(Object.hasOwn(packet,'err')&&packet.err!==undefined)return finish(JSON.stringify({failed:true}));
    const value=packet.res;
    ${responseCode}
   };
@@ -607,7 +607,7 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
 /** TEST ONLY: initialize the official injector after Chrome grants permission. */
 export function buildViolentmonkeyInjectorReadyExpression():string{
  return buildViolentmonkeyManagerCommandExpression('GetInjectorError',{},0x7ffffffc,`
-   finish(JSON.stringify({ready:value===undefined||value===null}));`);
+   finish(JSON.stringify({ready:Object.hasOwn(packet,'res')&&(value===undefined||value===null)}));`);
 }
 
 /** Return only a boolean for the exact pinned manager's base injector files. */
