@@ -65,3 +65,32 @@ test('RG-05 disposable mode is opt-in, never replaces real GM acceptance',async(
  assert.match(source,/absoluteRunnerTemp/);
  assert.doesNotMatch(source,/--no-sandbox/);
 });
+
+
+test('RG-05 reconciled parent and child keep genuine official preflight, opted-in WebUI mode and cold-start GM gate',async()=>{
+ const smoke=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const contracts=await readFile('scripts/violentmonkey-v4-contract.ts','utf8');
+ const setup=smoke.slice(smoke.indexOf("const initiallyAvailable=await probeAccess()"),
+  smoke.indexOf("if(!await probeAccess())throw new Error("));
+ assert.match(setup,/await extensionsCdp\.send\('Runtime\.enable'\)/,
+  'WebUI diagnostics must not run before enabling the pinned CDP Runtime');
+ assert.match(setup,/if\(useDisposableDeveloperMode\)\{/,
+  'changing the disposable Chrome profile remains opt-in');
+ assert.match(setup,/buildViolentmonkeyDisposableDeveloperModeExpression\(\)/);
+ assert.match(setup,/await enableDisposableProfileDeveloperMode\(extensionsCdp\.send\)/);
+ assert.ok(setup.indexOf("await enableDisposableProfileDeveloperMode(extensionsCdp.send)")>
+  setup.indexOf("if(useDisposableDeveloperMode){"),
+  'parent bounded readback runs only inside the child opt-in scope');
+ assert.match(setup,/if\(!initiallyAvailable\)/);
+ assert.match(setup,/await enableViolentmonkeyUserScriptsAccess\(extensionsCdp\.send\)/);
+ assert.match(setup,/extensionsCdp\?\.close\(\)/,
+  'Chrome internal WebUI CDP socket must be closed after setup failure');
+ for(const method of ['assertViolentmonkeyPreflightReceipt(answer)',
+  'assertViolentmonkeyRestartPermissionReceipt(permission)',
+  'readViolentmonkeyManagerDiagnosticCdpValue(auditResponse,256)',
+  'assertOfficialViolentmonkeyReleaseGate(blocked.status)'])
+  assert.ok(smoke.includes(method),'no parent manager evidence or GM gate can be dropped: '+method);
+ assert.match(contracts,/export function readViolentmonkeyManagerDiagnosticCdpValue/);
+ assert.match(contracts,/export async function enableDisposableProfileDeveloperMode/);
+ assert.doesNotMatch(smoke,/--no-sandbox/);
+});
