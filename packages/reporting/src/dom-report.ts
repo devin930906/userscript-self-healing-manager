@@ -2,6 +2,14 @@ import type {BatchDomResult,BatchDomStatus} from '../../scan-service/src/batch-d
 
 const statuses=new Set<BatchDomStatus>(['locator-missing','dom-present','needs-review','no-evidence','out-of-scope','skipped','error']);
 const validationStates=new Set(['passed','failed','skipped','blocked','not-configured']);
+// An audit export must never evaluate accessor-backed diagnostic evidence.
+// Require declared own data fields before reading any user-influenced records.
+function requireOwnDataFields(value:unknown,fields:readonly string[],kind:string):void{
+ if(!value||typeof value!=='object'||fields.some(field=>{
+  const descriptor=Object.getOwnPropertyDescriptor(value,field);
+  return !descriptor||!Object.hasOwn(descriptor,'value');
+ }))throw new Error('Invalid DOM diagnosis '+kind);
+}
 // Human-facing Markdown must not allow untrusted filename text to add
 // visual record separators or reverse the following verification cells.
 // Keep the original basename untouched in the JSON evidence projection.
@@ -18,6 +26,7 @@ export function serializeDomBatchReport(
  report:BatchDomResult,format:'json'|'markdown',createdAt:string,
 ):string{
  if(format!=='json'&&format!=='markdown')throw new Error('Invalid report format');
+ requireOwnDataFields(report,['validationLevel','totalItems','items','pageUrl'],'batch');
  if(!report||report.validationLevel!=='dom-only'||!Number.isSafeInteger(report.totalItems)||
   report.totalItems<0||report.totalItems>1000||!Array.isArray(report.items)||
   report.items.length!==report.totalItems)throw new Error('Invalid DOM diagnosis batch');
@@ -49,7 +58,17 @@ export function serializeDomBatchReport(
  if(!['http:','https:'].includes(url.protocol)||!url.hostname||
     url.username||url.password)
   throw new Error('Invalid DOM diagnosis origin');
- const entries=report.items.map((row,index)=>{
+ // Array.map skips holes and invokes overridden methods/accessors. Audit
+ // processedCount must describe exactly the number of validated own rows.
+ const entries=Array.from({length:report.totalItems},(_,index)=>{
+  const itemDescriptor=Object.getOwnPropertyDescriptor(report.items,index);
+  if(!itemDescriptor||!Object.hasOwn(itemDescriptor,'value'))
+   throw new Error('Invalid DOM diagnosis row');
+  const row=itemDescriptor.value as BatchDomResult['items'][number];
+  requireOwnDataFields(row,[
+   'index','scriptId','path','status','checked','found','missing',
+   'needsReview','verification',
+  ],'row');
   if(!row||!Number.isSafeInteger(row.index)||row.index!==index||
    typeof row.path!=='string'||row.path.length>4096||
    row.scriptId!==null&&(typeof row.scriptId!=='string'||row.scriptId.length>128)||
@@ -73,6 +92,10 @@ export function serializeDomBatchReport(
    ordinaryZero;
   if(!statusValid)throw new Error('Contradictory DOM diagnosis status and counters');
   const v=row.verification;
+  requireOwnDataFields(v,[
+   'V0','V1','V2','V3','V4','highestVerified',
+   'functionalVerified','managerVerified',
+  ],'verification');
   if(!v||!validationStates.has(v.V0)||!validationStates.has(v.V1)||
    v.V2!=='blocked'||v.V3!=='not-configured'||v.V4!=='not-configured'||
    v.functionalVerified!==false||v.managerVerified!==false)
