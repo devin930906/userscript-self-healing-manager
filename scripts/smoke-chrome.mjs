@@ -114,6 +114,9 @@ try{
  const address=server.address();
  if(!address||typeof address==='string')throw new Error('Failed to bind local HTTP fixture');
  const fixtureUrl='http://127.0.0.1:'+address.port+'/fixture';
+ // QA-004/005: fail closed if a previous process occupies our CDP port.
+ // The later live socket + page/frame/loader checks remain mandatory.
+ await assertChromeDebuggerPortFree(9223);
  chrome=spawn(executable,[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
   '--headless=new','--no-first-run','--no-default-browser-check',
