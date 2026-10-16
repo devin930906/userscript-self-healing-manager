@@ -28,3 +28,24 @@ test('RG-05 isolates headed Chrome window mode without weakening default Chrome 
  assert.match(smoke,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
  assert.doesNotMatch(smoke,/--no-sandbox/);
 });
+
+
+test('RG-05 background-networking A/B preserves default and proxy-isolated experiment',async()=>{
+ const module=await import('../../scripts/violentmonkey-window-mode.ts');
+ const select=(module as any).pinnedViolentmonkeyBackgroundNetworkFlags;
+ assert.equal(typeof select,'function','Missing test-only background-network A/B selector');
+ assert.deepEqual(select(undefined),['--disable-background-networking']);
+ assert.deepEqual(select('disabled'),['--disable-background-networking']);
+ assert.deepEqual(select('proxy-isolated'),[]);
+ for(const invalid of ['', 'enabled','--no-sandbox','true','none']){
+  assert.throws(()=>select(invalid),/Invalid isolated Chrome background-network mode/);
+ }
+ const smoke=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const workflow=await readFile('.github/workflows/dev-ci.yml','utf8');
+ assert.match(smoke,/pinnedViolentmonkeyBackgroundNetworkFlags\(process\.env\.USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE\)/);
+ assert.match(smoke,/--proxy-server=http:\/\/127\.0\.0\.1:9/);
+ assert.match(smoke,/--host-resolver-rules=MAP \* ~NOTFOUND/);
+ assert.doesNotMatch(smoke,/--no-sandbox/);
+ assert.match(workflow,/USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE:\s*'proxy-isolated'/);
+ assert.match(smoke,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
+});
