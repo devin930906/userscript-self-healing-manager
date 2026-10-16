@@ -64,6 +64,37 @@ test('RG-05 diagnostic refuses untrusted origins and manager identity, without e
  assert.equal(calls,0);
 });
 
+
+test('RG-05 direct Chrome diagnostic rolls back its registration if readback throws',async()=>{
+ let read=0,registered=0,removed=0;
+ const text=await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),{
+  location:{href:options},chrome:{runtime:{id:extension},userScripts:{
+   async getScripts(){if(++read===1)return [];throw Error('PRIVATE_EXTENSION_READBACK');},
+   async register(){registered++;},
+   async unregister(query:any){
+    assert.deepEqual(JSON.parse(JSON.stringify(query)),{ids:[DIRECT_CONTROL_ID]});
+    removed++;
+   },
+  }},JSON,
+ });
+ assert.equal(text,'unavailable');
+ assert.equal(registered,1);
+ assert.equal(removed,1,'a successful registration must be removed when its subsequent receipt fails');
+});
+
+test('RG-05 direct Chrome diagnostic rolls back malformed nonmatching registration',async()=>{
+ let read=0,removed=0;
+ const result=await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),{
+  location:{href:options},chrome:{runtime:{id:extension},userScripts:{
+   async getScripts(){return ++read===1?[]:[{id:DIRECT_CONTROL_ID,world:'MAIN',matches:[site]}];},
+   async register(){},
+   async unregister(){removed++;},
+  }},JSON,
+ });
+ assert.equal(result,'unavailable');
+ assert.equal(removed,1);
+});
+
 test('RG-05 direct Chrome userscript diagnostic occurs only AFTER the true cold-restart GM blocker',async()=>{
  const text=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
  const blocker=text.indexOf('const blocked=classifyOfficialViolentmonkeyRestartBlocker({');
