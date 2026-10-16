@@ -88,6 +88,51 @@ function readScopeRules(source:object,key:string,optional=false):string[]|null{
     cloned.some((rule,index)=>rule!==rules[index]))return null;
  return rules;
 }
+/**
+ * A Proxy can forge the absence of a configurable @exclude property on raw,
+ * or replace the root's raw descriptor with an empty object. Descriptors alone
+ * cannot authenticate either container: structuredClone rejects Proxy values.
+ *
+ * Before cloning, census only bounded own DATA properties and string arrays
+ * so structuredClone cannot execute an unrelated user-supplied getter.
+ * Fail closed for malformed/oversized metadata, not just the four scope keys.
+ */
+function metadataCloneIsSafe(meta:object,raw:object):boolean{
+ let totalEntries=0,totalCharacters=0;
+ const scan=(source:object,root:boolean):boolean=>{
+  const keys=Reflect.ownKeys(source);
+  if(keys.length>64)return false;
+  for(const key of keys){
+   if(typeof key!=='string')return false;
+   const descriptor=Object.getOwnPropertyDescriptor(source,key);
+   if(!descriptor||!Object.hasOwn(descriptor,'value'))return false;
+   const value=descriptor.value;
+   if(root&&key==='raw'){
+    if(value!==raw)return false;
+    continue;
+   }
+   if(Array.isArray(value)){
+    const items=readScopeRules(source,key);
+    if(!items)return false;
+    totalEntries+=items.length;
+    for(const item of items)totalCharacters+=item.length;
+   }else if(root&&(value===null||typeof value==='string'||
+                     typeof value==='boolean'||typeof value==='number')){
+    if(typeof value==='number'&&!Number.isFinite(value))return false;
+    if(typeof value==='string')totalCharacters+=value.length;
+   }else return false;
+   if(totalEntries>4096||totalCharacters>131072)return false;
+  }
+  return true;
+ };
+ try{
+  if(!scan(meta,true)||!scan(raw,false))return false;
+  // The original container, not a sanitized re-creation, must be cloneable:
+  // cloning a copied record would miss Proxy-forged property descriptors.
+  const copy=structuredClone(meta);
+  return copy!==null&&typeof copy==='object'&&!Array.isArray(copy);
+ }catch{return false;}
+}
 export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:string):PageScopeResult {
  // Page URLs arrive across a runtime trust boundary: TypeScript alone cannot
  // prevent object coercion from invoking an untrusted toString/toPrimitive.
@@ -110,6 +155,7 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
   const excludeMatch=readScopeRules(raw,'exclude-match',true);
   const exclude=readScopeRules(raw,'exclude',true);
   if(!match||!include||!excludeMatch||!exclude)return unverified;
+  if(!metadataCloneIsSafe(meta,raw))return unverified;
   matchRules=match;includeRules=include;
   excludeMatchRules=excludeMatch;excludeRules=exclude;
  }catch{return unverified;}
