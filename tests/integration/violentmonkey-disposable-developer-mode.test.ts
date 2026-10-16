@@ -27,7 +27,7 @@ async function execute(opts:{
    return {inDeveloperMode:current};
   },
   async updateProfileConfiguration(fields:unknown){
-   updates.push(fields);
+   updates.push({inDeveloperMode:(fields as {inDeveloperMode?:unknown}).inDeveloperMode});
    if(opts.failUpdate)throw new Error('PRIVATE_EXTENSION_PROFILE_SECRET');
    current=opts.updated??true;
   },
