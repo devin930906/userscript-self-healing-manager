@@ -34,8 +34,9 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
   const root=document.documentElement;
   if(!root)return;
   let state='none';
+  let runtime;
   try{
-   const runtime=typeof chrome==='object'?chrome.runtime:null;
+   runtime=typeof chrome==='object'?chrome.runtime:null;
    const send=typeof runtime?.sendMessage==='function';
    const onMessage=typeof runtime?.onMessage?.addListener==='function';
    state=send?(onMessage?'send-onmessage':'send-only'):
