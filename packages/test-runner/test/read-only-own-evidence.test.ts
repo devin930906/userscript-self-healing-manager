@@ -103,3 +103,36 @@ test('RG-01 named V1 must not invoke a Shadow DOM context accessor',async()=>{
  assert.equal(v.status,'needs-review');
  assert.doesNotMatch(JSON.stringify(v),/PRIVATE_NAMED_V1_SHADOW/);
 });
+
+
+// A revoked Proxy can throw from Array.isArray itself, before any getter is
+// touched. Such injected adapter values are untrusted observations.
+function revoked<T extends object>(value:T):T{
+ const revocable=Proxy.revocable(value,{});
+ revocable.revoke();
+ return revocable.proxy;
+}
+
+test('RG-01 revoked named V1 probe packets fail closed without escaping the contract',async()=>{
+ for(const forged of [
+  revoked(packet()),
+  {...packet(),checks:revoked([row()])},
+  {...packet(),checks:[revoked(row())]},
+ ]){
+  const r=run([forged,packet()]);
+  const result=await r.result;
+  assert.equal(result.status,'needs-review');
+  assert.equal(result.matchCount,null);
+  assert.equal(result.V2,'blocked');
+  assert.equal(result.managerVerified,false);
+  assert.equal(r.calls(),1);
+ }
+});
+
+test('RG-01 revoked unique-node HMAC receipt cannot prove node continuity',async()=>{
+ const r=run([{...packet(),checks:[revoked(row())]},packet()],{expectation:'unique'});
+ const result=await r.result;
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.matchCount,null);
+ assert.equal(result.functionalVerified,false);
+});
