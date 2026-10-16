@@ -223,3 +223,57 @@ test('same-loader iframe SPA navigation invalidates evidence without exposing th
  assert.doesNotMatch(JSON.stringify([before,after]),/ALPHA_TOKEN|BETA_TOKEN|\/account|\/settings/);
  assert.throws(()=>assertStablePageDocument(before,after),/document|navigation|frame|identity/i);
 });
+
+test('RG-04 direct page identity confirmation rejects credential-bearing URLs before CDP transport',async()=>{
+ for(const unsafeUrl of [
+  'https://alice:SECRET_PASSWORD@example.test/path?session=private',
+  'https://alice@example.test/path',
+  'https://%61lice:%53ECRET@example.test/path',
+ ]){
+  let sockets=0;
+  const target={...page,url:unsafeUrl};
+  await assert.rejects(
+   confirmPageIdentity(target,{socketFactory:()=>{
+    sockets++;
+    return new FakeSocket(unsafeUrl);
+   }}),
+   error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/invalid|credential/i);
+    assert.doesNotMatch(error.message,/alice|SECRET|private|session/i);
+    return true;
+   },
+   'credentialed URLs must never become trusted frame identities',
+  );
+  assert.equal(sockets,0,'CDP transport must not open before credential rejection');
+ }
+});
+
+test('RG-04 credentialed same-origin child URLs stay count-only and cannot authorize child DOM scope',async()=>{
+ for(const childUrl of [
+  'https://alice:TOP_SECRET@example.test/private?session=PRIVATE_TOKEN',
+  'https://alice@example.test/private',
+ ]){
+  const socket=new (class extends EventEmitter{
+   constructor(){super();queueMicrotask(()=>this.emit('open'));}
+   addEventListener(name:string,cb:(data:any)=>void){this.on(name,cb);}
+   removeEventListener(name:string,cb:(data:any)=>void){this.off(name,cb);}
+   send(message:string){
+    const {id}=JSON.parse(message);
+    queueMicrotask(()=>this.emit('message',{data:JSON.stringify({
+     id,result:{frameTree:{
+      frame:{id:'root',loaderId:'root-loader',url:page.url},
+      childFrames:[{frame:{id:'child',loaderId:'child-loader',url:childUrl}}],
+     }},
+    })}));
+   }
+   close(){this.emit('close');}
+  })();
+  const result=await confirmPageIdentity(page,{socketFactory:()=>socket});
+  assert.equal(result.subframeCount,1);
+  assert.equal(result.soleSameOriginSubframe,undefined,
+   'private HTTP Basic Auth child URLs cannot be promoted to trusted same-origin identity');
+  assert.doesNotMatch(JSON.stringify(result),/TOP_SECRET|PRIVATE_TOKEN|alice|private/i);
+  assert.equal(socket.listenerCount('message'),0);
+ }
+});
