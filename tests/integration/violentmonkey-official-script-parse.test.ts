@@ -507,3 +507,27 @@ test('RG-05 rejects inherited and accessor-backed debugger scriptParsed metadata
  assert.deepEqual(valid.snapshot(),{injectedWebParsed:false,injectedParsed:true},
   'a legitimate decoded own-data CDP event remains accepted');
 });
+
+
+test('RG-05 rejects inherited debugger events from forged official injector before attributing runtime errors',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ e.observe('Runtime.executionContextCreated',{context:{
+  id:9,auxData:{frameId:frame,isDefault:false},
+ }});
+ const original=parsed('chrome-extension://'+extension+'/injected.js');
+ // A valid context does not make an inherited scriptId/url genuine.
+ const forged=Object.create(original);
+ assert.doesNotThrow(()=>e.observe('Debugger.scriptParsed',forged));
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'101',executionContextId:9,exception:{
+   className:'TypeError',
+   description:"TypeError: Cannot read properties of undefined (reading 'addListener')",
+  },
+ }});
+ assert.deepEqual(e.snapshot(),{
+  injectedWebExceptionObserved:false,injectedExceptionObserved:false,unattributedExceptionObserved:true,
+ },'an inherited debugger event must not become a pinned-official source');
+ assert.equal(e.injectedFailureSignature(),'not-observed',
+  'a forged source must not claim a causal Chrome runtime signature');
+});
