@@ -90,3 +90,42 @@ test('RG-01 rejects sparse CDP check arrays without upgrading V1 or terminating 
  assert.deepEqual(result.items.map(x=>x.status),['error','dom-present']);
  assert.deepEqual(result.items.map(x=>x.verification?.V1),['blocked','passed']);
 });
+
+
+test('RG-01 inherited Shadow DOM absence cannot turn an unverified selector into a false V1 failure',async()=>{
+ const forged=Object.create({
+  targetId:target.id,url:target.url,authorShadowTreeNodes:0,
+ });
+ const result=await diagnoseScriptsOnPage({
+  items:[one] as any,target,consent:true,
+  deps:{
+   confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'root',loaderId:'fresh'}),
+   probe:async()=>({...normal(),checks:[{...check(),status:'missing',matchCount:0}]} as any),
+   summarize:async()=>forged,
+  },
+ });
+ assert.equal(result.items[0]?.status,'needs-review',
+  'an inherited zero ShadowRoot count is not trustworthy evidence of Shadow DOM absence');
+ assert.equal(result.items[0]?.verification?.V1,'blocked');
+ assert.equal(result.items[0]?.missing,0);
+});
+
+test('RG-01 Shadow DOM context accessor does not execute browser-controlled adapter code',async()=>{
+ let getterCalls=0;
+ const forged={targetId:target.id,url:target.url} as Record<string,unknown>;
+ Object.defineProperty(forged,'authorShadowTreeNodes',{
+  get(){getterCalls++;throw Error('PRIVATE_BROWSER_SHADOW_CONTEXT');},
+ });
+ const result=await diagnoseScriptsOnPage({
+  items:[one] as any,target,consent:true,
+  deps:{
+   confirm:async()=>({targetId:target.id,confirmedUrl:target.url,frameId:'root',loaderId:'fresh'}),
+   probe:async()=>({...normal(),checks:[{...check(),status:'missing',matchCount:0}]} as any),
+   summarize:async()=>forged as any,
+  },
+ });
+ assert.equal(getterCalls,0,'never invoke a getter supplied in Shadow DOM adapter data');
+ assert.equal(result.items[0]?.status,'needs-review');
+ assert.equal(result.items[0]?.verification?.V1,'blocked');
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BROWSER_SHADOW_CONTEXT/);
+});
