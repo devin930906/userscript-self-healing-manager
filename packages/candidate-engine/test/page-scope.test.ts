@@ -142,7 +142,7 @@ test('RG-01 cannot ignore exclusion rules when a Proxy spoofs array length',()=>
   const verdict=checkUserscriptPageScope(scope,'https://example.org/private/account');
   assert.notEqual(verdict.status,'allowed',
    'a hidden '+key+' must not authorize an excluded document');
-  assert.ok(reads===0||verdict.status!=='allowed');
+  assert.equal(reads,0,'hostile array length getter must not determine exclusion rules');
  }
 });
 

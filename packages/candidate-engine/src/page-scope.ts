@@ -61,9 +61,14 @@ function readScopeRules(source:object,key:string,optional=false):string[]|null{
  if(!field)return optional&&!(key in source)?[]:null;
  if(!Object.hasOwn(field,'value')||!Array.isArray(field.value))return null;
  const values=field.value as unknown[];
- if(values.length>256)return null;
+ // Array Proxy get('length') may lie and silently omit an @exclude rule.
+ // Read the array's own data descriptor instead of running a hostile getter.
+ const ownLength=Object.getOwnPropertyDescriptor(values,'length');
+ const count=ownLength?.value;
+ if(!ownLength||!Object.hasOwn(ownLength,'value')||
+    !Number.isSafeInteger(count)||count<0||count>256)return null;
  const rules:string[]=[];
- for(let i=0;i<values.length;i++){
+ for(let i=0;i<count;i++){
   const item=Object.getOwnPropertyDescriptor(values,String(i));
   if(!item||!Object.hasOwn(item,'value')||typeof item.value!=='string')return null;
   rules.push(item.value);
