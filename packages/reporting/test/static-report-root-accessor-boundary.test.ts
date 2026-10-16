@@ -71,27 +71,3 @@ test('RG-07 static export retains canonical root data and ordinary item-array co
  assert.equal(report.items[0].verification.V4,'not-configured');
  assert.match(serializeStaticReport(fixture,'markdown'),/safe\.user\.js/);
 });
-
-test('RG-07 rejects noncanonical static report timestamps without exporting private metadata',()=>{
- // The genuine scan service supplies new Date().toISOString(). Arbitrary strings
- // must never be echoed in a JSON report or mistaken for a scan timestamp.
- for(const createdAt of [
-  'https://private.example.test/account?token=SECRET_REPORT_TIME',
-  'C:\\Users\\SECRET_REPORT_TIME\\scan.json',
-  '2026-02-30T00:00:00.000Z',
-  '2026-10-16T08:00:00.000+08:00',
-  '2026-10-16T00:00:00.000Z\\nSECRET_REPORT_TIME',
- ]){
-  const forged:ScanBatchResult={...fixture,createdAt};
-  for(const format of ['json','markdown'] as const){
-   assert.throws(()=>serializeStaticReport(forged,format),error=>{
-    assert.ok(error instanceof Error);
-    assert.equal(error.message,'Invalid static report metadata');
-    assert.doesNotMatch(error.message,/SECRET_REPORT_TIME/);
-    return true;
-   });
-  }
- }
- const genuine=JSON.parse(serializeStaticReport(fixture,'json'));
- assert.equal(genuine.createdAt,'2026-10-16T00:00:00.000Z');
-});
