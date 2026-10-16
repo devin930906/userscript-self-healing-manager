@@ -67,3 +67,28 @@ test('RG-06 identity-check failure cannot delete a substituted destination alrea
  assert.deepEqual(await readFile(displaced),approved);
  assert.deepEqual((await readdir(root)).filter(name=>name.includes('.staging-')),[]);
 }));
+
+test('RG-06 post-verification same-byte destination substitution is not a successful export',async()=>withDestination(async(root,destination)=>{
+ const approved=Buffer.from('// approved synthetic bytes that an attacker can duplicate');
+ const displaced=join(root,'displaced-published.user.js');
+ let injected=false;
+ // Deliberately inject AFTER the first published inode lstat but BEFORE
+ // the content-pinned reader. A same-byte replacement can satisfy SHA256
+ // while no longer referring to the inode created by this export.
+ const attempt={
+  destinationPath:destination,bytes:approved,
+  afterPublishedStat:async()=>{
+   injected=true;
+   await rename(destination,displaced);
+   await writeFile(destination,approved);
+  },
+ };
+ await assert.rejects(publishExclusiveExport(attempt),/identity changed|unsafe|replaced/i,
+  'identical bytes must not certify a competing inode as our export');
+ assert.equal(injected,true,'test must exercise the post-stat window');
+ assert.deepEqual(await readFile(destination),approved,
+  'failed export must not delete the competing same-byte destination');
+ assert.deepEqual(await readFile(displaced),approved,
+  'the original linked bytes were displaced, not automatically deleted');
+ assert.deepEqual((await readdir(root)).filter(name=>name.includes('.staging-')),[]);
+}));
