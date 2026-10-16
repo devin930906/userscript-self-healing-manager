@@ -15,7 +15,7 @@ type ExportChunkWriter=(file:FileHandle,chunk:Uint8Array,position:number)=>Promi
  * A failed or crashed staging write cannot create an incomplete final output.
  * No automatic fallback to rename/copy (which may overwrite a competing file).
  */
-export async function publishExclusiveExport({destinationPath,bytes,writeChunk,beforePublish,afterLink}:{
+export async function publishExclusiveExport({destinationPath,bytes,writeChunk,beforePublish,afterLink,afterPublishedStat}:{
  destinationPath:string;bytes:Uint8Array;
  /** File fault simulation for deterministic recovery tests; never exposed via IPC. */
  writeChunk?:ExportChunkWriter;
@@ -23,6 +23,8 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
  beforePublish?:()=>Promise<void>;
  /** Synthetic fault injection after link publication; never passed through desktop IPC. */
  afterLink?:()=>Promise<void>;
+ /** Test-only race injection after the first destination inode check. */
+ afterPublishedStat?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof destinationPath!=='string'||!isAbsolute(destinationPath)||
     !/\.user\.js$/i.test(destinationPath)||
@@ -91,7 +93,16 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
      approvedStage.size!==publishedStage.size||
      approvedStage.mtimeNs!==publishedStage.mtimeNs)
    throw new Error('Exported userscript publication identity changed');
+  if(afterPublishedStat)await afterPublishedStat();
   await validate(destinationPath);
+  // Content equality cannot establish ownership: a competing writer can
+  // replace the final pathname with byte-identical content during the read.
+  // Fence the validated bytes to the previously observed linked inode.
+  const finalStage=await lstat(destinationPath,{bigint:true});
+  if(!sameObject(publishedStage,finalStage)||
+     publishedStage.size!==finalStage.size||
+     publishedStage.mtimeNs!==finalStage.mtimeNs)
+   throw new Error('Exported userscript publication identity changed after validation');
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
  // The first destination stat can fail, or observe a *different writer's*
