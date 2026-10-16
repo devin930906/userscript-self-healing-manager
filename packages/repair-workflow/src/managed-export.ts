@@ -59,9 +59,10 @@ export async function exportManagedRecovery(input:{
     !isAbsolute(managedRoot)||!isAbsolute(destination))
   throw new Error('Absolute source and destination are required');
  const source=resolve(managedRoot),target=resolve(destination);
- if(!(await safeDir(source))||!(await safeDir(dirname(target))))
+ // Check raw public paths first: resolve() erases '..' and linked components.
+ if(!(await safeDir(managedRoot))||!(await safeDir(dirname(destination))))
   throw new Error('Missing or unsafe recovery source/destination directory');
- await assertRecoveryDestinationOutsideSource(source,target);
+ await assertRecoveryDestinationOutsideSource(managedRoot,destination);
  const managed=join(source,'managed');
  const managedExists=await safeDir(managed);
  const scriptIds=managedExists?(await readdir(managed)).sort():[];
@@ -176,7 +177,7 @@ export async function verifyManagedRecovery({snapshotDirectory}:{
  if(typeof snapshotDirectory!=='string'||!isAbsolute(snapshotDirectory))
   throw new Error('Managed recovery path must be absolute');
  const root=resolve(snapshotDirectory);
- if(!(await safeDir(root)))throw new Error('Unsafe or missing managed recovery directory');
+ if(!(await safeDir(snapshotDirectory)))throw new Error('Unsafe or missing managed recovery directory');
  const manifestPath=join(root,'manifest.json'),manifestInfo=await lstat(manifestPath);
  if(!manifestInfo.isFile()||manifestInfo.isSymbolicLink()||manifestInfo.size>1024*1024)
   throw new Error('Unsafe managed recovery manifest');
