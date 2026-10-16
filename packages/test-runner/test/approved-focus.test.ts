@@ -279,3 +279,49 @@ test('FR-024 mutation during final page identity recheck cannot dispatch DOM.foc
  assert.equal(socket.methods.includes('DOM.focus'),false,
   'never dispatch the observable focus after a control changes during identity recheck');
 });
+
+test('RG-01/FR-024 error-bearing CDP preflight replies cannot authorize observable focus',async()=>{
+ for(const bad of [null,false,0,'']){
+  const socket=new FocusSocket();
+  const send=socket.send.bind(socket);
+  socket.send=(raw:string)=>{
+   const msg=JSON.parse(raw);
+   if(msg.method==='DOM.getAttributes'){
+    socket.methods.push(msg.method);socket.inputs.push(msg.params);
+    queueMicrotask(()=>socket.emit('message',{data:JSON.stringify({
+     id:msg.id,error:bad,result:{attributes:['id','safe-focus','type','button']},
+    })}));
+    return;
+   }
+   send(raw);
+  };
+  await assert.rejects(run(socket),/CDP|focus|invalid|error/i,
+   'CDP error presence must invalidate forged successful preflight');
+  assert.equal(socket.methods.includes('DOM.focus'),false,
+   'no focus side effect may follow an error-bearing DOM attribute response');
+  assert.equal(socket.listenerCount('message'),0,
+   'rejected focus operations must release the CDP event listener');
+ }
+});
+
+test('RG-01/FR-024 a CDP focus command with a falsy error cannot earn an observed V2 result',async()=>{
+ const socket=new FocusSocket();
+ const send=socket.send.bind(socket);
+ socket.send=(raw:string)=>{
+  const msg=JSON.parse(raw);
+  if(msg.method==='DOM.focus'){
+   socket.methods.push(msg.method);socket.inputs.push(msg.params);
+   socket.focused=true;
+   queueMicrotask(()=>socket.emit('message',{data:JSON.stringify({
+    id:msg.id,error:null,result:{},
+   })}));
+   return;
+  }
+  send(raw);
+ };
+ await assert.rejects(run(socket),/CDP|focus|invalid|error/i,
+  'a forged successful reply must not turn a CDP action error into V2 credit');
+ assert.equal(socket.methods.filter(method=>method==='DOM.focus').length,1,
+  'an uncertain action is never retried');
+ assert.equal(socket.listenerCount('message'),0);
+});
