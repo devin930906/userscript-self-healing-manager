@@ -4,11 +4,25 @@ const statuses=new Set<BatchDomStatus>(['locator-missing','dom-present','needs-r
 const validationStates=new Set(['passed','failed','skipped','blocked','not-configured']);
 // An audit export must never evaluate accessor-backed diagnostic evidence.
 // Require declared own data fields before reading any user-influenced records.
-function requireOwnDataFields(value:unknown,fields:readonly string[],kind:string):void{
- if(!value||typeof value!=='object'||fields.some(field=>{
-  const descriptor=Object.getOwnPropertyDescriptor(value,field);
-  return !descriptor||!Object.hasOwn(descriptor,'value');
- }))throw new Error('Invalid DOM diagnosis '+kind);
+function requireOwnDataFields(value:unknown,fields:readonly string[],kind:string):Record<string,unknown>{
+ // The object (and any nested array/row) may be a revoked or hostile Proxy.
+ // Never read its fields through ordinary property access after validation:
+ // first snapshot exact own data values into a fresh null-prototype record.
+ try{
+  if(!value||typeof value!=='object')throw new Error('Invalid');
+  const safe:Record<string,unknown>=Object.create(null) as Record<string,unknown>;
+  for(const field of fields){
+   const descriptor=Object.getOwnPropertyDescriptor(value,field);
+   if(!descriptor||!Object.hasOwn(descriptor,'value'))
+    throw new Error('Invalid');
+   safe[field]=descriptor.value as unknown;
+  }
+  return safe;
+ }catch{
+  // Never export a Proxy trap exception: it may contain private DOM,
+  // script content, credentials or browser extension diagnostics.
+  throw new Error('Invalid DOM diagnosis '+kind);
+ }
 }
 // Human-facing Markdown must not allow untrusted filename text to add
 // visual record separators or reverse the following verification cells.
@@ -26,10 +40,18 @@ export function serializeDomBatchReport(
  report:BatchDomResult,format:'json'|'markdown',createdAt:string,
 ):string{
  if(format!=='json'&&format!=='markdown')throw new Error('Invalid report format');
- requireOwnDataFields(report,['validationLevel','totalItems','items','pageUrl'],'batch');
- if(!report||report.validationLevel!=='dom-only'||!Number.isSafeInteger(report.totalItems)||
-  report.totalItems<0||report.totalItems>1000||!Array.isArray(report.items)||
-  report.items.length!==report.totalItems)throw new Error('Invalid DOM diagnosis batch');
+ const batch=requireOwnDataFields(report,['validationLevel','totalItems','items','pageUrl'],'batch');
+ const totalItems=batch.totalItems;
+ let items:BatchDomResult['items'];
+ let itemCount:unknown;
+ try{
+  if(!Array.isArray(batch.items))throw new Error('Invalid');
+  items=batch.items as BatchDomResult['items'];
+  itemCount=requireOwnDataFields(items,['length'],'items').length;
+ }catch{throw new Error('Invalid DOM diagnosis items');}
+ if(batch.validationLevel!=='dom-only'||typeof totalItems!=='number'||!Number.isSafeInteger(totalItems)||
+  totalItems<0||totalItems>1000||itemCount!==totalItems)
+  throw new Error('Invalid DOM diagnosis batch');
  if(typeof createdAt!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(createdAt)||
   Number.isNaN(Date.parse(createdAt)))throw new Error('Invalid diagnosis report timestamp');
  // Date.parse normalizes impossible calendar dates (e.g. February 30);
@@ -49,26 +71,27 @@ export function serializeDomBatchReport(
  // Fail closed BEFORE WHATWG URL parsing: it strips tabs/newlines and
  // percent-encodes raw controls, laundering malformed page identities.
  // The report contains only the validated origin, never a full page URL.
- if(typeof report.pageUrl!=='string'||report.pageUrl.length<1||
-    report.pageUrl.length>4096||report.pageUrl!==report.pageUrl.trim()||
-    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(report.pageUrl))
+ if(typeof batch.pageUrl!=='string'||batch.pageUrl.length<1||
+    batch.pageUrl.length>4096||batch.pageUrl!==batch.pageUrl.trim()||
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(batch.pageUrl))
   throw new Error('Invalid DOM diagnosis origin');
  let url:URL;
- try{url=new URL(report.pageUrl);}catch{throw new Error('Invalid page URL');}
+ try{url=new URL(batch.pageUrl as string);}catch{throw new Error('Invalid page URL');}
  if(!['http:','https:'].includes(url.protocol)||!url.hostname||
     url.username||url.password)
   throw new Error('Invalid DOM diagnosis origin');
  // Array.map skips holes and invokes overridden methods/accessors. Audit
  // processedCount must describe exactly the number of validated own rows.
- const entries=Array.from({length:report.totalItems},(_,index)=>{
-  const itemDescriptor=Object.getOwnPropertyDescriptor(report.items,index);
+ const entries=Array.from({length:totalItems},(_,index)=>{
+  let itemDescriptor:PropertyDescriptor|undefined;
+  try{itemDescriptor=Object.getOwnPropertyDescriptor(items,index);}
+  catch{throw new Error('Invalid DOM diagnosis row');}
   if(!itemDescriptor||!Object.hasOwn(itemDescriptor,'value'))
    throw new Error('Invalid DOM diagnosis row');
-  const row=itemDescriptor.value as BatchDomResult['items'][number];
-  requireOwnDataFields(row,[
+  const row=requireOwnDataFields(itemDescriptor.value,[
    'index','scriptId','path','status','checked','found','missing',
    'needsReview','verification',
-  ],'row');
+  ],'row') as unknown as BatchDomResult['items'][number];
   if(!row||!Number.isSafeInteger(row.index)||row.index!==index||
    typeof row.path!=='string'||row.path.length>4096||
    row.scriptId!==null&&(typeof row.scriptId!=='string'||row.scriptId.length>128)||
@@ -91,11 +114,10 @@ export function serializeDomBatchReport(
    row.status==='needs-review'?row.needsReview>0&&row.missing===0:
    ordinaryZero;
   if(!statusValid)throw new Error('Contradictory DOM diagnosis status and counters');
-  const v=row.verification;
-  requireOwnDataFields(v,[
+  const v=requireOwnDataFields(row.verification,[
    'V0','V1','V2','V3','V4','highestVerified',
    'functionalVerified','managerVerified',
-  ],'verification');
+  ],'verification') as unknown as BatchDomResult['items'][number]['verification'];
   if(!v||!validationStates.has(v.V0)||!validationStates.has(v.V1)||
    v.V2!=='blocked'||v.V3!=='not-configured'||v.V4!=='not-configured'||
    v.functionalVerified!==false||v.managerVerified!==false)
