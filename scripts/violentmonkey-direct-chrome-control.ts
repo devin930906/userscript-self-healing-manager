@@ -25,12 +25,8 @@ function requireDirectControlUrl(input:string):string{
  * The direct userScript controls the browser API path independently of VM's
  * internal GetInjected and content bridge. This is a *post-blocker* experiment.
  */
-export function buildDirectChromeUserScriptRegistration(controlUrl:string):string{
- const url=requireDirectControlUrl(controlUrl);
- // Chrome match patterns do not include a dynamic localhost port. The script
- // itself enforces the FULL pinned URL before touching the DOM.
- const match='http://127.0.0.1/rg05-direct-control';
- const script=`(()=>{
+function buildDirectControlSource(url:string):string{
+ return `(()=>{
   if(location.href!==${JSON.stringify(url)})return;
   const root=document.documentElement;
   if(!root)return;
@@ -58,6 +54,14 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
     Promise.resolve(request).then(accept).catch(()=>{});
   }catch{}
  })();`;
+}
+
+export function buildDirectChromeUserScriptRegistration(controlUrl:string):string{
+ const url=requireDirectControlUrl(controlUrl);
+ // Chrome match patterns do not include a dynamic localhost port. The script
+ // itself enforces the FULL pinned URL before touching the DOM.
+ const match='http://127.0.0.1/rg05-direct-control';
+ const script=buildDirectControlSource(url);
  return `(async()=>{
   let created=false,worldConfigured=false,accepted=false;
   try{
@@ -133,6 +137,73 @@ export function buildDirectChromeUserScriptRemoval():string{
  })()`;
 }
 
+export const DEFAULT_CONTROL_ID='usshm-rg05-disposable-default-control-v1';
+/**
+ * Only AFTER the immutable official GM blocker: compare the official DEFAULT
+ * USER_SCRIPT world with the already-proven dedicated-world control. This
+ * registers exactly one synthetic script but NEVER calls configureWorld or
+ * resetWorldConfiguration on the manager's default world.
+ */
+export function buildDirectChromeDefaultWorldRegistration(controlUrl:string):string{
+ const url=requireDirectControlUrl(controlUrl);
+ const match='http://127.0.0.1/rg05-direct-control';
+ const script=buildDirectControlSource(url);
+ return `(async()=>{
+  let registered=false,accepted=false;
+  try{
+   if(location.href!==${JSON.stringify(OPTIONS_URL)}||
+      chrome.runtime?.id!==${JSON.stringify(EXTENSION_ID)})return 'unavailable';
+   const api=chrome.userScripts;
+   if(typeof api?.getWorldConfigurations!=='function'||
+      typeof api?.getScripts!=='function'||typeof api.register!=='function'||
+      typeof api.unregister!=='function')return 'unavailable';
+   const prior=await api.getScripts({ids:[${JSON.stringify(DEFAULT_CONTROL_ID)}]});
+   if(!Array.isArray(prior)||prior.length!==0)return 'unavailable';
+   const worlds=await api.getWorldConfigurations();
+   if(!Array.isArray(worlds))return 'unavailable';
+   const defaults=worlds.filter(item=>item&&typeof item==='object'&&
+     (item.worldId===''||item.worldId===undefined));
+   if(defaults.length!==1||defaults[0].messaging!==true)return 'unavailable';
+   await api.register([{id:${JSON.stringify(DEFAULT_CONTROL_ID)},
+    matches:[${JSON.stringify(match)}],js:[{code:${JSON.stringify(script)}}],
+    world:'USER_SCRIPT',runAt:'document_idle',allFrames:false}]);
+   registered=true;
+   const check=await api.getScripts({ids:[${JSON.stringify(DEFAULT_CONTROL_ID)}]});
+   const valid=Array.isArray(check)&&check.length===1&&
+    check[0]?.id===${JSON.stringify(DEFAULT_CONTROL_ID)}&&
+    check[0]?.world==='USER_SCRIPT'&&
+    (check[0]?.worldId===''||check[0]?.worldId===undefined)&&
+    check[0]?.runAt==='document_idle'&&check[0]?.allFrames!==true&&
+    Array.isArray(check[0]?.js)&&check[0].js.length===1&&
+    check[0].js[0]?.code===${JSON.stringify(script)}&&
+    Array.isArray(check[0]?.matches)&&check[0].matches.length===1&&
+    check[0].matches[0]===${JSON.stringify(match)};
+   if(valid){accepted=true;return 'registered';}
+   return 'unavailable';
+  }catch{return 'unavailable';}
+  finally{
+   if(registered&&!accepted){
+    try{await chrome.userScripts?.unregister({ids:[${JSON.stringify(DEFAULT_CONTROL_ID)}]});}catch{}
+   }
+  }
+ })()`;
+}
+
+/** Never touch manager-owned default world or unrelated installed scripts. */
+export function buildDirectChromeDefaultWorldRemoval():string{
+ return `(async()=>{
+  try{
+   if(location.href!==${JSON.stringify(OPTIONS_URL)}||
+      chrome.runtime?.id!==${JSON.stringify(EXTENSION_ID)})return 'unavailable';
+   const api=chrome.userScripts;
+   if(typeof api?.unregister!=='function'||typeof api.getScripts!=='function')
+    return 'unavailable';
+   await api.unregister({ids:[${JSON.stringify(DEFAULT_CONTROL_ID)}]});
+   const after=await api.getScripts({ids:[${JSON.stringify(DEFAULT_CONTROL_ID)}]});
+   return Array.isArray(after)&&after.length===0?'removed':'unavailable';
+  }catch{return 'unavailable';}
+ })()`;
+}
 /**
  * RG-05 post-blocker only: attach one fixed receiver in the isolated pinned
  * manager options page. Do not configureWorld(), call GetInjected, read
