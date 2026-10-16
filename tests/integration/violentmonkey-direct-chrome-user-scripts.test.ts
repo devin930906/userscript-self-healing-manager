@@ -22,7 +22,7 @@ test('RG-05 direct Chrome userScripts control registers only fixed loopback scri
    assert.deepEqual(JSON.parse(JSON.stringify(scripts[0].matches)),['http://127.0.0.1/rg05-direct-control']);
    assert.ok(scripts[0].js[0].code.includes(site),'injected source must fence the exact port and path');
    assert.equal(scripts[0].world,'USER_SCRIPT');
-   assert.equal(scripts[0].runAt,'document_start');
+   assert.equal(scripts[0].runAt,'document_idle');
    assert.equal(scripts[0].js.length,1);
    assert.equal(typeof scripts[0].js[0].code,'string');
    assert.match(scripts[0].js[0].code,/data-usshm-rg05-direct-control/);
