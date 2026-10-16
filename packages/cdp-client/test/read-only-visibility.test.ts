@@ -232,3 +232,16 @@ test('RG-01 falsy CDP error envelopes cannot fabricate visible boxes or enabled-
   }
  }
 });
+
+test('RG-01 malformed opacity evidence cannot fabricate a definitive hidden observation',async()=>{
+ for(const opacity of ['', ' ', '0x0', 'NaN', 'Infinity', '-0', '0e0']){
+  const s=socket(styles('block','visible',opacity));
+  const result=await inspectReadOnlyElementVisibility(target,locator,{socketFactory:()=>s});
+  assert.equal(result.status,'unknown','invalid computed opacity is not visibility evidence');
+  assert.equal(result.matchCount,1);
+  assert.equal(result.interactionVerified,false);
+  assert.equal(result.V2,'blocked');
+  assert.ok(!s.sent.some(x=>x.method==='DOM.getBoxModel'),
+   'do not upgrade an invalid CSS receipt with an unrelated box result');
+ }
+});
