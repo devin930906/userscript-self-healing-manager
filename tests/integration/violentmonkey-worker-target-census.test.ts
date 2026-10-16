@@ -112,7 +112,7 @@ test('RG-05 post-blocker worker connect probe is exact-extension, payload-free, 
  const expression=(builder as ()=>string)();
  assert.equal(typeof expression,'string');
  assert.ok(expression.length<1800,'only one bounded fixed diagnostic expression is permitted');
- assert.doesNotMatch(expression,/GM_getValue|GM_setValue|GetInjected|eval\\(|postMessage|chrome\\.tabs|chrome\\.scripting|register\\(|unregister\\(|configureWorld|resetWorldConfiguration/,
+ assert.doesNotMatch(expression,/GM_getValue|GM_setValue|GetInjected|eval\(|postMessage|chrome\.tabs|chrome\.scripting|register\(|unregister\(|configureWorld|resetWorldConfiguration/,
   'the probe cannot run userscripts, carry messages or modify manager configuration');
  const prefix='chrome-extension://jinjaccalgkegednnccohejagnlnfdag/options/index.html#settings';
  let opened=0,closed=0;
@@ -135,6 +135,11 @@ test('RG-05 post-blocker worker connect probe is exact-extension, payload-free, 
   const denied=JSON.parse(await evaluate(context.href,context.chrome));
   assert.deepEqual(denied,{pinnedContext:false,portOpened:false,portDisconnected:false});
  }
+ const aborted=JSON.parse(await evaluate(prefix,{runtime:{id:official,connect(){
+  return {disconnect(){throw new Error('PRIVATE_DISCONNECT_EXCEPTION');}};
+ }}}));
+ assert.deepEqual(aborted,{pinnedContext:true,portOpened:true,portDisconnected:false},
+  'a failed disconnect must be fixed-status only; no private exception text escapes');
  assert.equal(opened,1,'no other context may open a runtime port');
 });
 
@@ -146,6 +151,6 @@ test('RG-05 worker wake-only experiment runs strictly after immutable official G
  assert.ok(blocked>=0&&wake>blocked&&extensionReload>wake,
   'a post-blocker connection must not prewarm GM or change the upstream release verdict');
  assert.match(script,/buildOfficialManagerPostBlockerWorkerWakeExpression/);
- assert.match(script,/readOfficialWorkerCensus\\(browserCdp\\)/);
- assert.match(script,/assertOfficialViolentmonkeyReleaseGate\\(blocked.status\\)/);
+ assert.match(script,/readOfficialWorkerCensus\(browserCdp\)/);
+ assert.match(script,/assertOfficialViolentmonkeyReleaseGate\(blocked.status\)/);
 });
