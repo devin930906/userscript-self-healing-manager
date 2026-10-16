@@ -229,6 +229,8 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
   let offset=0,totalUncompressedBytes=0;
   const seenExtractionPaths=new Set();
   const entryNames=[];
+  // Two central entries must never alias the same local header or data bytes.
+  const localMemberRegions=[];
   for(let index=0;index<count;index++){
    if(offset+46>size||central.readUInt32LE(offset)!==0x02014b50)
     throw new Error('Invalid ZIP central-directory entry');
@@ -318,10 +320,18 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
        local.readUInt32LE(18)!==compressedBytes||
        local.readUInt32LE(22)!==uncompressedBytes))
      throw new Error('ZIP local header CRC or size mismatch');
+    localMemberRegions.push({start:localOffset,end:dataStart+compressedBytes});
    }
    offset+=46+nameLength+extraLength+commentLength;
   }
   if(offset!==size)throw new Error('ZIP central-directory count or length mismatch');
+  if(verifyLocalHeaders){
+   localMemberRegions.sort((a,b)=>a.start-b.start);
+   for(let i=1;i<localMemberRegions.length;i++){
+    if(localMemberRegions[i].start<localMemberRegions[i-1].end)
+     throw new Error('Overlapping release ZIP local member regions');
+   }
+  }
   return Object.freeze({entryCount:count,totalUncompressedBytes,entryNames:Object.freeze(entryNames)});
  }finally{await handle.close();}
 }
