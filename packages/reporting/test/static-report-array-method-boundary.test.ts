@@ -141,3 +141,35 @@ test('RG-07 static report redacts throwing row descriptor traps',()=>{
  }
  assert.equal(attempted,2);
 });
+
+
+test('RG-07 report projection never invokes post-validation Proxy value getters',()=>{
+ let rootReads=0;
+ const root=new Proxy(fixture,{
+  get(target,key,receiver){
+   if(key==='items'){rootReads++;throw new Error(secret);}
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ for(const format of ['json','markdown'] as const){
+  assert.throws(()=>serializeStaticReport(root,format),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Invalid static report input');
+   return true;
+  });
+ }
+ assert.equal(rootReads,0,'root values must come from validated data descriptors');
+
+ let rowReads=0;
+ const row=new Proxy(fixture.items[0]!,{
+  get(target,key,receiver){
+   if(key==='status'){rowReads++;throw new Error(secret);}
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ for(const format of ['json','markdown'] as const){
+  const jsonOrMarkdown=serializeStaticReport({...fixture,items:[row]},format);
+  assert.ok(jsonOrMarkdown.includes('ok.user.js'));
+ }
+ assert.equal(rowReads,0,'validated rows must not be read again through their untrusted proxies');
+});
