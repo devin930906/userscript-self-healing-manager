@@ -30,7 +30,13 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // must not invoke an untrusted accessor or export its thrown message.
  for(const key of ['items','scanMode','createdAt','requestedCount',
                     'enumeratedCount','processedCount','passedCount','errorCount']){
-  const descriptor=Object.getOwnPropertyDescriptor(report,key);
+  let descriptor:PropertyDescriptor|undefined;
+  // Proxy descriptor traps may throw private exception text. The export
+  // boundary reports only its fixed validation error, never that text.
+  try{descriptor=Object.getOwnPropertyDescriptor(report,key);}
+  catch{throw new Error(key==='items'?'Invalid static report input':
+    key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
+    'Invalid static report count');}
   if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
    throw new Error(key==='items'?'Invalid static report input':
     key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
@@ -55,6 +61,8 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
  const validItems=():boolean=>{
+  // Reject throwing Proxy own-property traps without leaking their errors.
+  try{
   if(!hasNativeArrayPrototype(report.items))return false;
   // Later serialization uses these native Array methods. Reject own
   // overrides without accessing them, before any untrusted method call.
@@ -87,6 +95,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
    }
   }
   return true;
+  }catch{return false;}
  };
  if(!validItems())throw new Error('Invalid static report item');
  // The TypeScript union cannot authenticate an object crossing a runtime
