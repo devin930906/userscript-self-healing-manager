@@ -625,3 +625,29 @@ test('RG-05 captures the failed first Chrome document fault before its one bound
   'fresh second-document diagnosis must not replace or bypass the strict GM refusal');
  assert.doesNotMatch(source,/Debugger.getScriptSource|Debugger.evaluateOnCallFrame/);
 });
+
+
+test('RG-05 does not merge two separate document fault signatures into a fake mixed restart cause',async()=>{
+ const {createPinnedOfficialInjectorExceptionAttribution}=await import('../../scripts/violentmonkey-script-parse-evidence.ts');
+ const e=createPinnedOfficialInjectorExceptionAttribution(frame,extension);
+ const enter=(ctx:number,scriptId:string)=>{
+  e.observe('Runtime.executionContextCreated',{context:{id:ctx,auxData:{frameId:frame,isDefault:false}}});
+  e.observe('Debugger.scriptParsed',{...parsed('chrome-extension://'+extension+'/injected.js'),executionContextId:ctx,scriptId});
+ };
+ enter(41,'first');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'first',executionContextId:41,exception:{className:'TypeError',
+   description:"TypeError: Cannot read properties of undefined (reading 'addListener')"},
+ }});
+ assert.equal(e.injectedFailureSignature(),'missing-runtime-onmessage-addlistener');
+ e.observe('Runtime.executionContextsCleared',{});
+ enter(42,'second');
+ e.observe('Runtime.exceptionThrown',{exceptionDetails:{
+  scriptId:'second',executionContextId:42,exception:{className:'ReferenceError',
+   description:'PRIVATE_SECOND_DOCUMENT_STACK'},
+ }});
+ assert.equal(e.injectedFailureSignature(),'unknown',
+  'reload-only error must not be merged with first-document TypeError');
+ assert.equal(e.injectedExceptionClass(),'ReferenceError');
+ assert.doesNotMatch(e.injectedFailureSignature()+JSON.stringify(e.snapshot()),/PRIVATE_SECOND_DOCUMENT_STACK/);
+});
