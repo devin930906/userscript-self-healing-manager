@@ -35,8 +35,10 @@ const safeId=/^[0-9a-f]{64}$/;
  * proof objects. Inherited properties and accessors cannot authorize a
  * potentially-ready product control or execute adapter-owned getters. */
 function ownData(value:unknown,key:string):unknown{
- if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
  try{
+  // Even Array.isArray throws for a revoked Proxy. Untrusted adapter packets
+  // must not execute or escape via this structural check.
+  if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
   const descriptor=Object.getOwnPropertyDescriptor(value,key);
   return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
  }catch{return undefined;}
@@ -46,9 +48,9 @@ function fingerprint(probe:LocatorProbeResult,target:ChromeTarget,locator:Litera
     ownData(probe,'targetId')!==target.id||
     ownData(probe,'url')!==target.url)return null;
  const checks=ownData(probe,'checks');
- if(!Array.isArray(checks)||checks.length!==1)return null;
  let check:unknown;
  try{
+  if(!Array.isArray(checks)||checks.length!==1)return null;
   const entry=Object.getOwnPropertyDescriptor(checks,'0');
   if(!entry||!Object.hasOwn(entry,'value'))return null;
   check=entry.value;
@@ -263,12 +265,12 @@ export async function runReadOnlyVisibilityWait({
   // the eventual fingerprint check would reject that same evidence.
   const checks=ownData(pre,'checks');
   let observed:unknown;
-  if(Array.isArray(checks)&&checks.length===1){
-   try{
+  try{
+   if(Array.isArray(checks)&&checks.length===1){
     const entry=Object.getOwnPropertyDescriptor(checks,'0');
     if(entry&&Object.hasOwn(entry,'value'))observed=entry.value;
-   }catch{/* No trusted check: fail closed below. */}
-  }
+   }
+  }catch{/* Revoked or forged arrays cannot provide trusted evidence. */}
   if(ownData(pre,'validationLevel')!=='dom-only'||
      ownData(pre,'targetId')!==target.id||
      ownData(pre,'url')!==target.url||
