@@ -191,3 +191,14 @@ test('RG-05 Developer Mode readiness has a strict upper bound and never accepts 
  },async()=>{}),/Developer Mode|disposable/i);
  assert.ok(attempts>=2&&attempts<=20,'no unlimited settings retries');
 });
+
+test('RG-05 CDP target URL precedes chrome extensions page context and may safely settle within bounded probes',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ const stages=['page-context','enabled'];
+ const calls:number[]=[];
+ await api.enableDisposableProfileDeveloperMode(async()=>{
+  calls.push(calls.length);
+  return {result:{value:stages.shift()}};
+ },async(ms:number)=>{assert.equal(ms,150);});
+ assert.equal(calls.length,2,'only a new trusted WebUI context can enable its isolated profile');
+});
