@@ -103,3 +103,49 @@ test('RG-05 official worker census is passive post-GM only and never substitutes
    script.indexOf('if(startupInjectionBlocked){'));
  assert.ok(script.includes('assertOfficialViolentmonkeyReleaseGate(blocked.status)'));
 });
+
+test('RG-05 post-blocker worker connect probe is exact-extension, payload-free, and never a GM receipt',async()=>{
+ const {runInNewContext}=await import('node:vm');
+ const module=await import('../../scripts/violentmonkey-worker-target-evidence.ts');
+ const builder=(module as Record<string,unknown>).buildOfficialManagerPostBlockerWorkerWakeExpression;
+ assert.equal(typeof builder,'function','post-blocker worker wake expression must be available');
+ const expression=(builder as ()=>string)();
+ assert.equal(typeof expression,'string');
+ assert.ok(expression.length<1800,'only one bounded fixed diagnostic expression is permitted');
+ assert.doesNotMatch(expression,/GM_getValue|GM_setValue|GetInjected|eval\\(|postMessage|chrome\\.tabs|chrome\\.scripting|register\\(|unregister\\(|configureWorld|resetWorldConfiguration/,
+  'the probe cannot run userscripts, carry messages or modify manager configuration');
+ const prefix='chrome-extension://jinjaccalgkegednnccohejagnlnfdag/options/index.html#settings';
+ let opened=0,closed=0;
+ const chrome={runtime:{id:official,connect(options:{name:string}){
+  opened++;
+  assert.equal(options.name,'usshm-rg05-worker-wake-only-v1');
+  assert.deepEqual(Object.keys(options),['name']);
+  return {disconnect(){closed++;}};
+ }}};
+ const evaluate=(href:string,providedChrome:unknown)=>
+  runInNewContext(expression,{location:{href},chrome:providedChrome});
+ const authorized=JSON.parse(await evaluate(prefix,chrome));
+ assert.deepEqual(authorized,{pinnedContext:true,portOpened:true,portDisconnected:true});
+ assert.equal(opened,1);assert.equal(closed,1);
+ for(const context of [
+  {href:'https://example.invalid/',chrome},
+  {href:prefix,chrome:{runtime:{...chrome.runtime,id:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}}},
+  {href:prefix,chrome:{runtime:{id:official}}},
+ ]){
+  const denied=JSON.parse(await evaluate(context.href,context.chrome));
+  assert.deepEqual(denied,{pinnedContext:false,portOpened:false,portDisconnected:false});
+ }
+ assert.equal(opened,1,'no other context may open a runtime port');
+});
+
+test('RG-05 worker wake-only experiment runs strictly after immutable official GM blocker',async()=>{
+ const script=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ const blocked=script.indexOf('assert.equal(blocked.productionEligible,false)');
+ const wake=script.indexOf('RG-05 post-blocker worker wake-only diagnostic:');
+ const extensionReload=script.indexOf('runPostBlockerExtensionReloadDiagnostic({');
+ assert.ok(blocked>=0&&wake>blocked&&extensionReload>wake,
+  'a post-blocker connection must not prewarm GM or change the upstream release verdict');
+ assert.match(script,/buildOfficialManagerPostBlockerWorkerWakeExpression/);
+ assert.match(script,/readOfficialWorkerCensus\\(browserCdp\\)/);
+ assert.match(script,/assertOfficialViolentmonkeyReleaseGate\\(blocked.status\\)/);
+});
