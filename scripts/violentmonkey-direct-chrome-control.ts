@@ -54,7 +54,7 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
    if(!Array.isArray(prior)||prior.length!==0)return 'unavailable';
    await api.register([{id:${JSON.stringify(DIRECT_CONTROL_ID)},
     matches:[${JSON.stringify(match)}],js:[{code:${JSON.stringify(script)}}],
-    world:'USER_SCRIPT',runAt:'document_start',allFrames:false}]);
+    world:'USER_SCRIPT',runAt:'document_idle',allFrames:false}]);
    const check=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
    return Array.isArray(check)&&check.length===1&&
     check[0]?.id===${JSON.stringify(DIRECT_CONTROL_ID)}&&
