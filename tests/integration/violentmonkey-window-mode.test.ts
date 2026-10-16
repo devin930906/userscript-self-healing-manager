@@ -45,6 +45,7 @@ test('RG-05 background-networking A/B preserves default and proxy-isolated exper
  assert.match(smoke,/pinnedViolentmonkeyBackgroundNetworkFlags\(process\.env\.USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE\)/);
  assert.match(smoke,/--proxy-server=http:\/\/127\.0\.0\.1:9/);
  assert.match(smoke,/--host-resolver-rules=MAP \* ~NOTFOUND/);
+ assert.doesNotMatch(smoke,/--proxy-bypass-list=\\\*/);
  assert.doesNotMatch(smoke,/--no-sandbox/);
  assert.match(workflow,/USSHM_RG05_CFT_BACKGROUND_NETWORK_MODE:\s*'proxy-isolated'/);
  assert.match(smoke,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
