@@ -152,3 +152,55 @@ test('FR-025 visibility wait does not invoke accessor-backed missing result fiel
  assert.equal(result.status,'needs-review');
  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_VISIBLE_STATUS/);
 });
+
+
+// A revoked Proxy throws from Array.isArray itself. Untrusted CDP adapter
+// receipts must remain inconclusive, never crash the bounded V1 observation.
+function revoked<T extends object>(value:T):T{
+ const revocable=Proxy.revocable(value,{});
+ revocable.revoke();
+ return revocable.proxy;
+}
+
+test('FR-025 revoked probe packets and check arrays are inconclusive without exception',async()=>{
+ for(const forged of [
+  revoked(probe()),
+  {...probe(),checks:revoked([node()])},
+  {...probe(),checks:[revoked(node())]},
+ ]){
+  const x=execute({probe:forged});
+  const result=await x.result;
+  assert.equal(result.status,'needs-review');
+  assert.equal(result.samples,1);
+  assert.equal(result.interactionVerified,false);
+  assert.equal(x.calls.visibility,0);
+ }
+});
+
+test('FR-025 revoked CSS and listener receipts never authorize readiness',async()=>{
+ for(const source of [
+  {visibility:revoked(visibility())},
+  {listeners:revoked(listeners())},
+ ]){
+  const x=execute(source);
+  const result=await x.result;
+  assert.equal(result.status,'needs-review');
+  assert.equal(result.directClickListeners,null);
+  assert.equal(result.V2,'blocked');
+  assert.equal(result.managerVerified,false);
+ }
+});
+
+test('FR-025 visibility wait treats revoked probe and nested checks as needs-review',async()=>{
+ for(const forged of [
+  revoked(probe()),
+  {...probe(),checks:revoked([node()])},
+  {...probe(),checks:[revoked(node())]},
+ ]){
+  const result=await executeVisibilityWait(forged);
+  assert.equal(result.status,'needs-review');
+  assert.equal(result.samples,1);
+  assert.equal(result.V2,'blocked');
+  assert.equal(result.managerVerified,false);
+ }
+});
