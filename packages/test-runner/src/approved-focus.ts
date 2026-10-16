@@ -21,8 +21,10 @@ type CdpResult={id:number;result?:Record<string,any>;error?:unknown};
  * userscript provenance, business effect or V3/V4 from focus.
  * Only a uniquely pinned <button type="button"> is allowed.
  */
-export async function runApprovedControlFocus({approved,target,locator,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
+export async function runApprovedControlFocus({approved,target,locator,approvedDocument,confirm,assertAuthorizedBeforeAction,socketFactory,timeoutMs=5000}:{
  approved:boolean;target:ChromeTarget;locator:LiteralLocator;
+ /** Exact document identity observed by trusted Main immediately after native consent. */
+ approvedDocument:ConfirmedPageIdentity;
  confirm:(target:ChromeTarget)=>Promise<ConfirmedPageIdentity>;
  /** Trusted Main-owned synchronous revocation check at the last action boundary. */
  assertAuthorizedBeforeAction?:()=>void;
@@ -41,6 +43,9 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
  if(!css||css.length>2048)throw new Error('Unsupported focus selector');
  if(typeof confirm!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>10000)
   throw new Error('Invalid focus identity or time budget');
+ if(!approvedDocument||approvedDocument.targetId!==target.id||
+    approvedDocument.confirmedUrl!==target.url||!approvedDocument.frameId||!approvedDocument.loaderId)
+  throw new Error('Native-approved focus document identity required');
  // The approval budget starts BEFORE the first awaited identity check.
  // An unresponsive CDP frame must not extend consent by delaying setup.
  const deadline=performance.now()+timeoutMs;
@@ -61,6 +66,9 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
  if(identity.targetId!==target.id||identity.confirmedUrl!==target.url||
     !identity.frameId||!identity.loaderId)
   throw new Error('Unverified focus main-frame identity');
+ // Never establish a new baseline after a same-URL reload during approval.
+ // Preserve the current bounded initial identity timeout and later rechecks.
+ assertStablePageDocument(approvedDocument,identity);
  if(performance.now()>=deadline)throw new Error('Approved focus timed out');
  const guard=async()=>{
   const remaining=deadline-performance.now();
@@ -236,6 +244,11 @@ export async function runApprovedControlFocus({approved,target,locator,confirm,a
      finalAttributes.length!==attributes.length||
      finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
    throw error('Approved button attributes changed before focus');
+  // A same-URL navigation may occur while the final DOM attribute command
+  // is pending. Reconfirm the originally approved loader AFTER that reply,
+  // immediately before authorization and the observable DOM.focus dispatch.
+  // This narrows the cross-process race; it is not an atomic browser lock.
+  await guard();
   // A scan or directory approval may be revoked while the CDP preflight yields.
   // Production Main owns the check; it runs synchronously, just before focus.
   assertAuthorizedBeforeAction?.();

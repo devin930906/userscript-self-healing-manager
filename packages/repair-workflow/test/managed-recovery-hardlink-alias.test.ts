@@ -54,3 +54,15 @@ test('RG-06 managed recovery verification rejects hardlink-aliased manifest and 
  await unlink(snapshotAlias);
  assert.deepEqual(await verifyManagedRecovery({snapshotDirectory:destination}),expected);
 }));
+
+test('RG-06 recovery export verifies newly written files using bounded pinned descriptors',async()=>{
+ const production=await readFile(new URL('../src/managed-export.ts',import.meta.url),'utf8');
+ // The output directory is shared with external processes. An unbounded,
+ // path-only read can follow a substituted symlink before the final audit.
+ assert.doesNotMatch(production,/await\s+readFile\(destinationFile\)/,
+  'never reopen an untrusted output pathname with an unbounded readFile');
+ assert.match(production,/readPinnedRegularFile\(destinationFile\s*,\s*\{[\s\S]{0,200}maxBytes\s*:\s*LIMIT_EACH/,
+  'verify the output via the established O_NOFOLLOW bounded pinned reader');
+ assert.match(production,/expectedNative\s*:\s*await\s+lstat\(destinationFile\s*,\s*\{bigint\s*:\s*true\}\)/,
+  'bind the verification read to a precise native inode snapshot');
+});

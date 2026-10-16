@@ -274,13 +274,13 @@ try{
  // FR-024: this REAL Chrome action is limited to a fixed button on our
  // disposable 127.0.0.1 fixture. It proves one focus transition only.
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target:selected,
+  approved:true,target:selected,approvedDocument:await confirmPageIdentity(selected),
   locator:{method:'querySelector',expression:'#hidden-focus',runtimeRequired:false},
   confirm:confirmPageIdentity,timeoutMs:7000,
  }),/invisible|visibility|layout|focus/i);
  console.log('PASS real Chrome FR-024 hidden control blocked before any approved DOM.focus; no V2 credit.');
  const focusReceipt=await runApprovedControlFocus({
-  approved:true,target:selected,
+  approved:true,target:selected,approvedDocument:await confirmPageIdentity(selected),
   locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
   confirm:confirmPageIdentity,timeoutMs:7000,
  });
@@ -292,7 +292,7 @@ try{
  assert.equal(focusReceipt.V4,'not-configured');
  console.log('PASS real Chrome FR-024 approved local button focus and :focus postcondition; no real userscript or named V3 proof.');
  await assert.rejects(runApprovedControlFocus({
-  approved:true,target:selected,
+  approved:true,target:selected,approvedDocument:await confirmPageIdentity(selected),
   locator:{method:'querySelector',expression:'#safe-focus',runtimeRequired:false},
   confirm:confirmPageIdentity,timeoutMs:7000,
  }),/already focused|no verifiable new focus transition/i);
