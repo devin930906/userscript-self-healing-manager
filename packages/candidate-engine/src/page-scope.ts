@@ -51,13 +51,46 @@ function includePattern(pattern:string,url:URL):boolean|null {
  const canonicalPattern=parts[1]!.toLowerCase()+parts[2]!.toLowerCase()+parts[3]!;
  return wildcardMatch(canonicalPattern,url.href);
 }
+/**
+ * Do not execute getters supplied by hostile metadata or array elements while
+ * deciding whether a page falls within a userscript's declared scope.
+ * Snapshot own data properties only; inherited deny lists fail closed.
+ */
+function readScopeRules(source:object,key:string,optional=false):string[]|null{
+ const field=Object.getOwnPropertyDescriptor(source,key);
+ if(!field)return optional&&!(key in source)?[]:null;
+ if(!Object.hasOwn(field,'value')||!Array.isArray(field.value))return null;
+ const values=field.value as unknown[];
+ if(values.length>256)return null;
+ const rules:string[]=[];
+ for(let i=0;i<values.length;i++){
+  const item=Object.getOwnPropertyDescriptor(values,String(i));
+  if(!item||!Object.hasOwn(item,'value')||typeof item.value!=='string')return null;
+  rules.push(item.value);
+ }
+ return rules;
+}
 export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:string):PageScopeResult {
  // Treat userscript metadata as hostile input, not a bounded trusted list.
  // Enforce the aggregate cap BEFORE accepting even the first @match: a huge
  // trailing deny/include list must not bypass full activation-scope review.
  const unverified={status:'unknown' as const,reason:'Userscript page-scope rules exceed the safe evaluation budget or are malformed'};
- if(!meta||!meta.raw||typeof meta.raw!=='object'||Array.isArray(meta.raw))return unverified;
- const groups=[meta.match,meta.include,meta.raw['exclude-match']??[],meta.raw.exclude??[]];
+ let matchRules:string[],includeRules:string[],excludeMatchRules:string[],excludeRules:string[];
+ try{
+  if(!meta||typeof meta!=='object'||Array.isArray(meta))return unverified;
+  const rawField=Object.getOwnPropertyDescriptor(meta,'raw');
+  if(!rawField||!Object.hasOwn(rawField,'value'))return unverified;
+  const raw=rawField.value;
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return unverified;
+  const match=readScopeRules(meta,'match');
+  const include=readScopeRules(meta,'include');
+  const excludeMatch=readScopeRules(raw,'exclude-match',true);
+  const exclude=readScopeRules(raw,'exclude',true);
+  if(!match||!include||!excludeMatch||!exclude)return unverified;
+  matchRules=match;includeRules=include;
+  excludeMatchRules=excludeMatch;excludeRules=exclude;
+ }catch{return unverified;}
+ const groups=[matchRules,includeRules,excludeMatchRules,excludeRules];
  let patternCount=0,totalCharacters=0;
  for(const patterns of groups){
   if(!Array.isArray(patterns))return unverified;
@@ -75,17 +108,17 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
  // Credential-bearing URL authorities are sensitive and cannot be treated as ordinary page scope.
  if(url.username||url.password)return {status:'blocked',reason:'Credentialed CDP page URLs are not supported'};
  // An unsupported deny rule must not silently permit a matching allow rule.
- for(const p of meta.raw['exclude-match']??[]){
+ for(const p of excludeMatchRules){
   const excluded=matchPattern(p,url);
   if(excluded===true)return {status:'blocked',reason:'Page matches @exclude-match'};
   if(excluded===null)return {status:'unknown',reason:'Unsupported @exclude-match prevents safe scope confirmation'};
  }
- for(const p of meta.raw.exclude??[]){
+ for(const p of excludeRules){
   const excluded=includePattern(p,url);
   if(excluded===true)return {status:'blocked',reason:'Page matches @exclude'};
   if(excluded===null)return {status:'unknown',reason:'Unsupported @exclude prevents safe scope confirmation'};
  }
- const matches=meta.match.map(p=>matchPattern(p,url)),includes=meta.include.map(p=>includePattern(p,url));
+ const matches=matchRules.map(p=>matchPattern(p,url)),includes=includeRules.map(p=>includePattern(p,url));
  if(matches.some(v=>v===true)||includes.some(v=>v===true))return {status:'allowed',reason:'Page matches a userscript activation rule'};
  if(matches.length===0&&includes.length===0||[...matches,...includes].some(v=>v===null))return {status:'unknown',reason:'Missing or unsupported @match/@include rule'};
  return {status:'blocked',reason:'Selected page is not covered by @match/@include'};
