@@ -26,7 +26,7 @@ export class ProposalApprovalGate{
  }
  private expired(created:number,time:number):boolean{
   // Wall-clock rollback is not evidence that the approval remains valid.
-  return time<created||time-created>this.ttlMs;
+  return time<created||time-created>=this.ttlMs;
  }
  private purge(time:number):void{
   for(const [key,value] of this.pending){
