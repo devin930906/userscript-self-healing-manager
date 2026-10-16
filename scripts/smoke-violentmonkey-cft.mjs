@@ -16,7 +16,9 @@ import {
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {readPinnedRegularFile} from '../packages/runtime-paths/src/pinned-file.ts';
 import {mapPinnedOfficialFaultSite} from './violentmonkey-public-fault-ast.ts';
-import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemoval} from './violentmonkey-direct-chrome-control.ts';
+import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemoval,
+ buildDirectChromeUserScriptListenerInstallation,buildDirectChromeUserScriptListenerRemoval,
+} from './violentmonkey-direct-chrome-control.ts';
 import {readVerifiedOfficialManagerCdpReply} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
@@ -413,10 +415,11 @@ async function runDirectChromeUserScriptDiagnostic({
  browserCdp,optionsCdp,controlUrl,hasExited,
 }){
  let targetId,pageCdp,registered=false,cleanupVerified=false;
- let marker='not-observed';
+ let listenerAttached=false,listenerRemoved=false;
+ let marker='not-observed',roundtrip='unavailable';
  const markers=['none','send-only','onmessage-only','send-onmessage','unavailable'];
  try{
-  if(hasExited())return {registered:false,marker,cleanupVerified:false};
+  if(hasExited())return {registered:false,marker,roundtrip,listenerRemoved:false,cleanupVerified:false};
   const receipt=await optionsCdp.send('Runtime.evaluate',{
    expression:buildDirectChromeUserScriptRegistration(controlUrl),
    awaitPromise:true,returnByValue:true,
@@ -424,6 +427,19 @@ async function runDirectChromeUserScriptDiagnostic({
   if(receipt?.exceptionDetails||receipt?.result?.value!=='registered')
    return {registered:false,marker,cleanupVerified:false};
   registered=true;
+  // The response listener lives only in this disposable options page and is
+  // attached before creating a new synthetic document. A failed attach must
+  // not turn missing messaging into a false positive.
+  try{
+   const listener=await optionsCdp.send('Runtime.evaluate',{
+    expression:buildDirectChromeUserScriptListenerInstallation(controlUrl),
+    returnByValue:true,
+   });
+   listenerAttached=!!listener&&
+    !Object.hasOwn(listener,'error')&&!Object.hasOwn(listener,'exceptionDetails')&&
+    listener.result?.value==='attached';
+   if(listenerAttached)roundtrip='missing';
+  }catch{}
   const created=await browserCdp.send('Target.createTarget',{url:controlUrl});
   targetId=created?.targetId;
   if(typeof targetId!=='string'||!targetId)
@@ -449,10 +465,25 @@ async function runDirectChromeUserScriptDiagnostic({
       current?.url!==controlUrl)throw new Error('Direct Chrome diagnostic document changed');
    if(value?.exceptionDetails)
     throw new Error('Direct Chrome diagnostic evaluation failed');
-   if(markers.includes(value?.result?.value)){
-    marker=value.result.value;
+   if(markers.includes(value?.result?.value))marker=value.result.value;
+   // API presence alone was the old control. A true USER_SCRIPT -> extension
+   // onUserScriptMessage -> USER_SCRIPT reply proves actual messaging in this
+   // post-blocker disposable fixture, and never substitutes for official GM.
+   const response=await pageCdp.send('Runtime.evaluate',{
+    expression:"document.documentElement?.getAttribute('data-usshm-rg05-direct-roundtrip') ?? null",
+    returnByValue:true,
+   });
+   const final=await pageCdp.send('Page.getFrameTree');
+   const afterReply=final?.frameTree?.frame;
+   if(afterReply?.id!==identity.frameId||afterReply?.loaderId!==identity.loaderId||
+      afterReply?.url!==controlUrl||!response||
+      Object.hasOwn(response,'error')||Object.hasOwn(response,'exceptionDetails'))
+    throw new Error('Direct Chrome messaging document or receipt changed');
+   if(listenerAttached&&response.result?.value==='verified'){
+    roundtrip='verified';
     break;
    }
+   if(marker!=='not-observed'&&!listenerAttached)break;
    if(attempt<23)await delay(200);
   }
  }catch{
@@ -461,6 +492,16 @@ async function runDirectChromeUserScriptDiagnostic({
   pageCdp?.close();
   if(targetId){
    try{await browserCdp.send('Target.closeTarget',{targetId});}catch{}
+  }
+  if(listenerAttached){
+   try{
+    const removed=await optionsCdp.send('Runtime.evaluate',{
+     expression:buildDirectChromeUserScriptListenerRemoval(),
+     returnByValue:true,
+    });
+    listenerRemoved=!!removed&&!Object.hasOwn(removed,'error')&&
+     !Object.hasOwn(removed,'exceptionDetails')&&removed.result?.value==='removed';
+   }catch{}
   }
   if(registered){
    try{
@@ -472,7 +513,7 @@ async function runDirectChromeUserScriptDiagnostic({
    }catch{}
   }
  }
- return {registered,marker,cleanupVerified};
+ return {registered,marker,roundtrip,listenerRemoved,cleanupVerified};
 }
 
 const POST_BLOCKER_RELOAD_STAGES=Object.freeze([
