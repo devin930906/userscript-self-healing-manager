@@ -137,16 +137,24 @@ test('FR-014 public scene review and removal refuse accessor-backed records with
   dataRoot:root,scriptId,caseId:saved.id,expected:unsafe,approved:true,
  }),/record|invalid|unsafe|consent/i);
  assert.equal(getterCalls,0,'read-only validation and native-approved removal must not evaluate scene getters');
- let proxyReads=0;
+ let proxyReads=0,reflectTraps=0;
  const spoof=new Proxy(saved,{
   get(target,key,receiver){
-   if(key==='url'){proxyReads++;return 'https://example.invalid/app/forged';}
+   proxyReads++;
    return Reflect.get(target,key,receiver);
+  },
+  ownKeys(target){reflectTraps++;return Reflect.ownKeys(target);},
+  getOwnPropertyDescriptor(target,key){
+   reflectTraps++;return Reflect.getOwnPropertyDescriptor(target,key);
   },
  });
  assert.equal(verifySiteTestCaseSelection({
   entry:spoof,selectedUrl:saved.url,metadata:meta,
- }).status,'matched','scene policy must use one own-data snapshot, not Proxy get traps');
- assert.equal(proxyReads,0);
+ }).status,'scope-blocked','a Proxy cannot authenticate saved scenario identity');
+ await assert.rejects(removeSiteTestCase({
+  dataRoot:root,scriptId,caseId:saved.id,expected:spoof,approved:true,
+ }),/record|invalid|unsafe|consent/i);
+ assert.equal(proxyReads,0,'Proxy get trap must not run');
+ assert.equal(reflectTraps,0,'Proxy reflection traps must not run');
  assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[saved]);
 }));
