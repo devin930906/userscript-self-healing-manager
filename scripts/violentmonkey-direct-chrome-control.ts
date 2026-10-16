@@ -133,10 +133,12 @@ export function buildDirectChromeUserScriptListenerInstallation(controlUrl:strin
    const state={received:false,sourceMatched:false,replied:false};
    const listener=(message,sender,sendResponse)=>{
     try{
-     state.received=true;
+     // Other manager USER_SCRIPT messages are not our control evidence.
      if(!message||typeof message!=='object'||Array.isArray(message)||
-        Object.getOwnPropertyDescriptor(message,'kind')?.value!=='usshm-rg05-direct-v1'||
-        !sender||sender.id!==${JSON.stringify(EXTENSION_ID)}||
+        Object.getOwnPropertyDescriptor(message,'kind')?.value!=='usshm-rg05-direct-v1')
+      return;
+     state.received=true;
+     if(!sender||sender.id!==${JSON.stringify(EXTENSION_ID)}||
         sender.url!==${JSON.stringify(url)}||
         typeof sendResponse!=='function')return;
      state.sourceMatched=true;
