@@ -85,6 +85,7 @@ test('RG-09 accepts signed and unsigned valid ZIP data descriptors',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'usshm-zip-descriptor-valid-'));
  try{
   const name='resources/app.asar',payload=Buffer.from('xyz');
+  const crc32=0xeb8eba67; // CRC-32 of the fixed synthetic 'xyz' payload
   for(const signed of [true,false]){
    const local=localStoredMember(name,payload);
    local.writeUInt16LE(8,6);
@@ -93,7 +94,7 @@ test('RG-09 accepts signed and unsigned valid ZIP data descriptors',async()=>{
    const descriptor=Buffer.alloc(signed?16:12);
    const at=signed?4:0;
    if(signed)descriptor.writeUInt32LE(0x08074b50,0);
-   descriptor.writeUInt32LE(0,at); // CRC32: arbitrary zero also in central
+   descriptor.writeUInt32LE(crc32,at);
    descriptor.writeUInt32LE(payload.length,at+4);
    descriptor.writeUInt32LE(payload.length,at+8);
    const file=join(dir,signed?'signed.zip':'unsigned.zip');
@@ -102,6 +103,7 @@ test('RG-09 accepts signed and unsigned valid ZIP data descriptors',async()=>{
    ]);
    const centralOffset=local.length+descriptor.length;
    data.writeUInt16LE(8,centralOffset+8);
+   data.writeUInt32LE(crc32,centralOffset+16);
    await writeFile(file,data);
    assert.equal((await inspectReleaseZipEntryTypes(file,{verifyLocalHeaders:true})).entryCount,1);
   }
@@ -112,6 +114,7 @@ test('RG-09 rejects a bit-3 ZIP member with missing or forged local data descrip
  const dir=await mkdtemp(join(tmpdir(),'usshm-zip-descriptor-forged-'));
  try{
   const name='resources/app.asar',payload=Buffer.from('xyz');
+  const crc32=0xeb8eba67;
   const local=localStoredMember(name,payload);
   local.writeUInt16LE(8,6);
   local.writeUInt32LE(0,18);local.writeUInt32LE(0,22);
@@ -119,6 +122,7 @@ test('RG-09 rejects a bit-3 ZIP member with missing or forged local data descrip
   // extractors can disagree about whether this member was complete.
   const absent=finishZip(local,[{name,localOffset:0,payloadBytes:payload.length}]);
   absent.writeUInt16LE(8,local.length+8);
+  absent.writeUInt32LE(crc32,local.length+16);
   const absentFile=join(dir,'missing.zip');
   await writeFile(absentFile,absent);
   await assert.rejects(inspectReleaseZipEntryTypes(absentFile,{verifyLocalHeaders:true}),
@@ -126,13 +130,14 @@ test('RG-09 rejects a bit-3 ZIP member with missing or forged local data descrip
   // Now include a 16-byte descriptor, but lie about compressed byte count.
   const malformed=Buffer.alloc(16);
   malformed.writeUInt32LE(0x08074b50,0);
-  malformed.writeUInt32LE(0,4);
+  malformed.writeUInt32LE(crc32,4);
   malformed.writeUInt32LE(payload.length+1,8);
   malformed.writeUInt32LE(payload.length,12);
   const bad=finishZip(Buffer.concat([local,malformed]),[
    {name,localOffset:0,payloadBytes:payload.length},
   ]);
   bad.writeUInt16LE(8,local.length+malformed.length+8);
+  bad.writeUInt32LE(crc32,local.length+malformed.length+16);
   const badFile=join(dir,'forged.zip');
   await writeFile(badFile,bad);
   await assert.rejects(inspectReleaseZipEntryTypes(badFile,{verifyLocalHeaders:true}),
