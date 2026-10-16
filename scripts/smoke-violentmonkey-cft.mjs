@@ -10,6 +10,7 @@ import {access,lstat,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {basename,join,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {pinnedViolentmonkeyWindowFlags} from './violentmonkey-window-mode.ts';
 import {
  assertChromeDebuggerPortFree,buildChromeLaunchArgs,getVerifiedChromeStatus,getChromeStatus,
 } from '../packages/cdp-client/src/index.ts';
@@ -789,7 +790,8 @@ try{
  const optionsUrl=`chrome-extension://${extensionId}/options/index.html#settings`;
  const pinnedLaunchArgs=[
   ...buildChromeLaunchArgs(9223,{isolatedProfileDir:profile}),
-  '--headless=new','--no-first-run','--no-default-browser-check',
+  ...pinnedViolentmonkeyWindowFlags(process.env.USSHM_RG05_CFT_WINDOW_MODE),
+  '--no-first-run','--no-default-browser-check',
   '--disable-background-networking','--disable-sync','--disable-gpu',
   // A dead local proxy blocks non-loopback HTTP(S); Chrome bypasses proxies
   // for loopback, which is the only network target granted by the fixture.
