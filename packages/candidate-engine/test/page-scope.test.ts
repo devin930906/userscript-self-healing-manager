@@ -157,3 +157,59 @@ test('RG-01 exclusion rule budget cannot be truncated by spoofing array length',
  const scope=meta(['https://example.org/*'],[],{exclude:rules});
  assert.equal(checkUserscriptPageScope(scope,'https://example.org/home').status,'unknown');
 });
+
+test('RG-01 rejects forged own-length descriptors that omit a real exclusion',()=>{
+ for(const key of ['exclude','exclude-match'] as const){
+  const rule='https://example.org/private/*';
+  const rules=new Proxy([rule],{
+   getOwnPropertyDescriptor(target,property){
+    const descriptor=Reflect.getOwnPropertyDescriptor(target,property);
+    return property==='length'&&descriptor?{...descriptor,value:0}:descriptor;
+   },
+  });
+  const verdict=checkUserscriptPageScope(
+   meta(['https://example.org/*'],[],{[key]:rules}),
+   'https://example.org/private/account',
+  );
+  assert.equal(verdict.status,'unknown',
+   'a forged length descriptor cannot erase a real '+key+' rule');
+ }
+});
+
+test('RG-01 never grants a page on coherently forged Proxy length and ownKeys',()=>{
+ let indexGetterCalls=0;
+ const rules=new Proxy(['https://example.org/private/*'],{
+  getOwnPropertyDescriptor(target,key){
+   const own=Reflect.getOwnPropertyDescriptor(target,key);
+   if(key==='length'&&own)return {...own,value:0};
+   return own;
+  },
+  ownKeys(){return ['length'];},
+  get(target,key,receiver){
+   if(key==='0')indexGetterCalls++;
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ const verdict=checkUserscriptPageScope(
+  meta(['https://example.org/*'],[],{exclude:rules}),
+  'https://example.org/private/account',
+ );
+ assert.equal(verdict.status,'unknown',
+  'a forged descriptor and hidden configurable indices must fail closed');
+ assert.equal(indexGetterCalls,0,'private rule values must not be read through Proxy get traps');
+});
+
+test('RG-01 refuses extra accessor keys before deep-cloning exclusion arrays',()=>{
+ let secretReads=0;
+ const rules=['https://example.org/private/*'];
+ Object.defineProperty(rules,'privateMarker',{enumerable:true,get(){
+  secretReads++;throw new Error('PRIVATE_SCOPE_EXTRA_GETTER');
+ }});
+ const verdict=checkUserscriptPageScope(
+  meta(['https://example.org/*'],[],{exclude:rules}),
+  'https://example.org/private/account',
+ );
+ assert.equal(verdict.status,'unknown');
+ assert.equal(secretReads,0,'no unexpected metadata getter may run in safety validation');
+ assert.doesNotMatch(JSON.stringify(verdict),/PRIVATE_SCOPE_EXTRA_GETTER/);
+});
