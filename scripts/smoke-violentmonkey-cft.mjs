@@ -33,6 +33,7 @@ import {
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
  buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
  readViolentmonkeyPreReloadAccess,buildViolentmonkeyProfileDeveloperModeExpression,
+ enableDisposableProfileDeveloperMode,
  enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
@@ -814,15 +815,23 @@ try{
  };
  const initiallyAvailable=await probeAccess();
  console.log('Isolated Violentmonkey userScripts capability before setup: '+initiallyAvailable);
- if(!initiallyAvailable){
-  const extensionsUrl='chrome://extensions/';
-  const createdExtensions=await browserCdp.send('Target.createTarget',{url:extensionsUrl});
-  if(typeof createdExtensions.targetId!=='string'||!createdExtensions.targetId)
-   throw new Error('Isolated Chrome extension settings target could not be created');
+ // One isolated Chrome profile per run: set Developer Mode before the FIRST
+ // real manager fixture, not as a post-failure reload or a GM bypass.
+ // This is a controlled compatibility condition for the disposable test-only
+ // unpacked official extension; never touch a normal user Chrome profile.
+ const extensionsUrl='chrome://extensions/';
+ const createdExtensions=await browserCdp.send('Target.createTarget',{url:extensionsUrl});
+ if(typeof createdExtensions.targetId!=='string'||!createdExtensions.targetId)
+  throw new Error('Isolated Chrome extension settings target could not be created');
+ try{
   const extensionsPage=await waitForPage(createdExtensions.targetId,extensionsUrl,()=>exited);
   extensionsCdp=await openCdp(extensionsPage.webSocketDebuggerUrl);
-  await enableViolentmonkeyUserScriptsAccess(extensionsCdp.send);
-  extensionsCdp.close();extensionsCdp=undefined;
+  await extensionsCdp.send('Runtime.enable');
+  await enableDisposableProfileDeveloperMode(extensionsCdp.send);
+  if(!initiallyAvailable)
+   await enableViolentmonkeyUserScriptsAccess(extensionsCdp.send);
+ }finally{
+  extensionsCdp?.close();extensionsCdp=undefined;
   await browserCdp.send('Target.closeTarget',{targetId:createdExtensions.targetId});
  }
  if(!await probeAccess())throw new Error('Pinned manager userScripts API remains unavailable after isolated permission setup');
