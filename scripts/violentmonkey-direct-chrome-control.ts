@@ -127,17 +127,23 @@ export function buildDirectChromeUserScriptListenerInstallation(controlUrl:strin
     return 'unavailable';
    const key='__usshm_rg05_direct_message_receiver_v1__';
    if(Object.getOwnPropertyDescriptor(window,key))return 'unavailable';
+   const state={received:false,sourceMatched:false,replied:false};
    const listener=(message,sender,sendResponse)=>{
     try{
+     state.received=true;
      if(!message||typeof message!=='object'||Array.isArray(message)||
         Object.getOwnPropertyDescriptor(message,'kind')?.value!=='usshm-rg05-direct-v1'||
         !sender||sender.id!==${JSON.stringify(EXTENSION_ID)}||
         sender.url!==${JSON.stringify(url)}||
         typeof sendResponse!=='function')return;
+     state.sourceMatched=true;
      sendResponse({kind:'usshm-rg05-direct-v1-response'});
+     state.replied=true;
      return true;
     }catch{return;}
    };
+   // Only fixed booleans may leave this exact synthetic options context.
+   Object.defineProperty(listener,'__usshmRg05Receipt',{value:state});
    try{
     channel.addListener(listener);
     Object.defineProperty(window,key,{value:listener,configurable:true});
@@ -166,5 +172,23 @@ export function buildDirectChromeUserScriptListenerRemoval():string{
    if(!delete window[key])return 'unavailable';
    return 'removed';
   }catch{return 'unavailable';}
+ })()`;
+}
+
+/** Passive, fixed-size post-blocker listener state; never emits sender data. */
+export function buildDirectChromeUserScriptListenerObservation():string{
+ return `(()=>{
+  const empty=()=>JSON.stringify({received:false,sourceMatched:false,replied:false});
+  try{
+   if(location.href!==${JSON.stringify(OPTIONS_URL)}||
+      chrome.runtime?.id!==${JSON.stringify(EXTENSION_ID)})return empty();
+   const listener=Object.getOwnPropertyDescriptor(
+    window,'__usshm_rg05_direct_message_receiver_v1__')?.value;
+   if(typeof listener!=='function')return empty();
+   const receipt=Object.getOwnPropertyDescriptor(listener,'__usshmRg05Receipt')?.value;
+   if(!receipt||typeof receipt!=='object')return empty();
+   return JSON.stringify({received:receipt.received===true,
+    sourceMatched:receipt.sourceMatched===true,replied:receipt.replied===true});
+  }catch{return empty();}
  })()`;
 }
