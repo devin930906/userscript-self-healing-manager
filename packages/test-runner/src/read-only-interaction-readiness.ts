@@ -258,12 +258,24 @@ export async function runReadOnlyVisibilityWait({
   try{pre=await deps.probe(target,[locator]);}
   catch{await guard();return result('needs-review',samples,'DOM observation unavailable');}
   await guard();
-  if(!pre||pre.validationLevel!=='dom-only'||pre.targetId!==target.id||
-     pre.url!==target.url||!Array.isArray(pre.checks)||pre.checks.length!==1||
-     pre.checks[0]?.method!==locator.method||pre.checks[0]?.expression!==locator.expression)
+  // The wait path must not dereference untrusted CDP adapter properties:
+  // accessor-backed/inherited evidence can run hostile getters, even when
+  // the eventual fingerprint check would reject that same evidence.
+  const checks=ownData(pre,'checks');
+  let observed:unknown;
+  if(Array.isArray(checks)&&checks.length===1){
+   try{
+    const entry=Object.getOwnPropertyDescriptor(checks,'0');
+    if(entry&&Object.hasOwn(entry,'value'))observed=entry.value;
+   }catch{/* No trusted check: fail closed below. */}
+  }
+  if(ownData(pre,'validationLevel')!=='dom-only'||
+     ownData(pre,'targetId')!==target.id||
+     ownData(pre,'url')!==target.url||
+     ownData(observed,'method')!==locator.method||
+     ownData(observed,'expression')!==locator.expression)
    return result('needs-review',samples,'Inconsistent DOM visibility wait evidence');
-  const observed=pre.checks[0]!;
-  if(observed.status==='missing'&&observed.matchCount===0){
+  if(ownData(observed,'status')==='missing'&&ownData(observed,'matchCount')===0){
    prior=null;consecutive=0;
   }else{
    const key=fingerprint(pre,target,locator);
