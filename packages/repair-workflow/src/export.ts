@@ -15,12 +15,14 @@ type ExportChunkWriter=(file:FileHandle,chunk:Uint8Array,position:number)=>Promi
  * A failed or crashed staging write cannot create an incomplete final output.
  * No automatic fallback to rename/copy (which may overwrite a competing file).
  */
-export async function publishExclusiveExport({destinationPath,bytes,writeChunk,beforePublish}:{
+export async function publishExclusiveExport({destinationPath,bytes,writeChunk,beforePublish,afterLink}:{
  destinationPath:string;bytes:Uint8Array;
  /** File fault simulation for deterministic recovery tests; never exposed via IPC. */
  writeChunk?:ExportChunkWriter;
  /** Deterministic late destination collision injection, used only in tests. */
  beforePublish?:()=>Promise<void>;
+ /** Synthetic fault injection after link publication; never passed through desktop IPC. */
+ afterLink?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof destinationPath!=='string'||!isAbsolute(destinationPath)||
     !/\.user\.js$/i.test(destinationPath)||
@@ -83,6 +85,7 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
    throw error;
   }
   linked=true;
+  if(afterLink)await afterLink();
   publishedStage=await lstat(destinationPath,{bigint:true});
   if(!approvedStage||!sameObject(approvedStage,publishedStage)||
      approvedStage.size!==publishedStage.size||
@@ -91,12 +94,13 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
   await validate(destinationPath);
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
- // If verification fails after link(), withdraw only our linked final file;
- // never unlink a pathname another writer subsequently replaced.
- if(failure!==undefined&&linked&&publishedStage){
+ // The first destination stat can fail, or observe a *different writer's*
+ // replacement. A failed publication may withdraw only the original staged
+ // descriptor we linked, never an unrelated file seen at that pathname.
+ if(failure!==undefined&&linked&&approvedStage){
   try{
    const current=await lstat(destinationPath,{bigint:true});
-   if(sameObject(publishedStage,current))await unlink(destinationPath);
+   if(sameObject(approvedStage,current))await unlink(destinationPath);
   }catch(error){
    if((error as NodeJS.ErrnoException).code!=='ENOENT')
     failure=new AggregateError([failure,error],'Export publication rollback failed');
