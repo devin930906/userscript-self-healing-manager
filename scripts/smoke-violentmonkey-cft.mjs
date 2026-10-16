@@ -24,7 +24,7 @@ import {buildDirectChromeUserScriptRegistration,buildDirectChromeUserScriptRemov
 } from './violentmonkey-direct-chrome-control.ts';
 import {readVerifiedOfficialManagerCdpReply,readVerifiedDirectChromeControlValue} from './violentmonkey-cdp-transport-reply.ts';
 import {waitForPinnedFixtureFrame} from './violentmonkey-frame-ready.ts';
-import {summarizeOfficialManagerWorkerTargets} from './violentmonkey-worker-target-evidence.ts';
+import {summarizeOfficialManagerWorkerTargets,buildOfficialManagerPostBlockerWorkerWakeExpression} from './violentmonkey-worker-target-evidence.ts';
 import {createIsolatedFixtureFrameContextEvidence} from './violentmonkey-frame-context-evidence.ts';
 import {createOfficialManagerScriptEvidence,createPinnedOfficialInjectorExceptionAttribution} from './violentmonkey-script-parse-evidence.ts';
 import {createPinnedBootstrapMarkerEvidence,createPinnedIsolatedRuntimeExceptionEvidence} from './violentmonkey-bootstrap-marker-evidence.ts';
@@ -350,6 +350,33 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
   throw new Error('RG-05 official bridge diagnostic receipt invalid');
  if(hasExited())throw new Error('RG-05 bridge diagnostic browser exited');
  return receipt;
+}
+
+/**
+ * Post-blocker only: one extension-local no-payload runtime Port attempt.
+ * This does not activate a page, change browser settings, or establish
+ * a manager GM receipt / worker health proof.
+ */
+async function readPostBlockerWorkerWakeDiagnostic(optionsCdp,hasExited){
+ const unavailable=()=>Object.freeze({pinnedContext:false,
+  portOpened:false,portDisconnected:false});
+ if(hasExited())return unavailable();
+ try{
+  const response=await optionsCdp.send('Runtime.evaluate',{
+   expression:buildOfficialManagerPostBlockerWorkerWakeExpression(),
+   awaitPromise:true,returnByValue:true,
+  });
+  const value=readViolentmonkeyManagerDiagnosticCdpValue(response,160);
+  if(typeof value!=='string'||value.length>160)return unavailable();
+  const receipt=JSON.parse(value);
+  if(!receipt||typeof receipt!=='object'||Array.isArray(receipt)||
+     Object.keys(receipt).sort().join(',')!=='pinnedContext,portDisconnected,portOpened'||
+     !Object.values(receipt).every(x=>typeof x==='boolean')||
+     (!receipt.pinnedContext&&(receipt.portOpened||receipt.portDisconnected))||
+     (receipt.portDisconnected&&!receipt.portOpened)||hasExited())
+   return unavailable();
+  return Object.freeze(receipt);
+ }catch{return unavailable();}
 }
 
 /** Parse-only CDP inventory of two EXACT official injector assets in the
@@ -1306,6 +1333,19 @@ try{
   assert.equal(blocked.status,'fixture-restart-blocked');
   assert.equal(blocked.productionEligible,false);
   console.log('BLOCKED RG-05 official VM 2.49.0 Chrome process restart: installed script and permission retained, but GM injection absent after first visit and one isolated reload. Product V4 not-configured.');
+
+  // One worker-port differential, ONLY AFTER the official GM blocker is
+  // immutable. A changed target census or bridge is NOT an actual GM receipt.
+  const workerBeforeWake=await readOfficialWorkerCensus(browserCdp);
+  const wakeOnly=await readPostBlockerWorkerWakeDiagnostic(optionsCdp,()=>exited);
+  const workerAfterWake=await readOfficialWorkerCensus(browserCdp);
+  let bridgeAfterWake={targetFound:false,bridgeResponded:false};
+  try{bridgeAfterWake=await readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl,()=>exited);}
+  catch{/* Expose only fixed booleans, never private Chrome errors. */}
+  console.log('RG-05 post-blocker worker wake-only diagnostic: '+JSON.stringify({
+   wake:wakeOnly,workerBefore:workerBeforeWake,workerAfter:workerAfterWake,
+   bridgeAfter:bridgeAfterWake,
+  })+'; no message payload, no manager GM receipt or V4 proof.');
 
   // Real Chrome direct userScripts control on a DIFFERENT disposable page.
   // This only runs after the official GM cold-start blocker is immutable.
