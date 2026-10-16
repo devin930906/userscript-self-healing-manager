@@ -102,7 +102,7 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
   }catch{return 'unavailable';}
   finally{
    if(!accepted){
-    if(created){try{await chrome.userScripts?.unregister({ids:${JSON.stringify(DIRECT_CONTROL_ID)}});}catch{}}
+    if(created){try{await chrome.userScripts?.unregister({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});}catch{}}
     if(worldConfigured){
      try{await chrome.userScripts?.resetWorldConfiguration(${JSON.stringify(DIRECT_CONTROL_WORLD_ID)});}catch{}
     }
