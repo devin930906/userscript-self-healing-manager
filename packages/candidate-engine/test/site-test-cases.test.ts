@@ -120,3 +120,33 @@ test('FR-014 rejects malformed or forged selected scenario records before claimi
   assert.equal(receipt.V4,'not-configured');
  }
 }));
+
+test('FR-014 public scene review and removal refuse accessor-backed records without executing private getters',async()=>temp(async root=>{
+ const saved=await createSiteTestCase({dataRoot:root,scriptId,
+  url:'https://example.invalid/app/dashboard',label:'Dashboard',stateId:'logged-out',metadata:meta});
+ let getterCalls=0;
+ const unsafe={...saved};
+ Object.defineProperty(unsafe,'url',{enumerable:true,configurable:true,
+  get(){getterCalls++;throw new Error('PRIVATE_SCENE_GETTER_EXECUTED');}});
+ const verdict=verifySiteTestCaseSelection({
+  entry:unsafe,selectedUrl:saved.url,metadata:meta,
+ });
+ assert.equal(verdict.status,'scope-blocked');
+ assert.equal(verdict.functionalVerified,false);
+ await assert.rejects(removeSiteTestCase({
+  dataRoot:root,scriptId,caseId:saved.id,expected:unsafe,approved:true,
+ }),/record|invalid|unsafe|consent/i);
+ assert.equal(getterCalls,0,'read-only validation and native-approved removal must not evaluate scene getters');
+ let proxyReads=0;
+ const spoof=new Proxy(saved,{
+  get(target,key,receiver){
+   if(key==='url'){proxyReads++;return 'https://example.invalid/app/forged';}
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ assert.equal(verifySiteTestCaseSelection({
+  entry:spoof,selectedUrl:saved.url,metadata:meta,
+ }).status,'matched','scene policy must use one own-data snapshot, not Proxy get traps');
+ assert.equal(proxyReads,0);
+ assert.deepEqual(await listSiteTestCases({dataRoot:root,scriptId}),[saved]);
+}));
