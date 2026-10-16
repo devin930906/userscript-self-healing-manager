@@ -20,6 +20,14 @@ test('RG-05 distinguish userScript message arrival, trusted sender match and syn
  assert.equal(vm.runInNewContext(api.buildDirectChromeUserScriptListenerInstallation(site),context),'attached');
  const initial=JSON.parse(vm.runInNewContext(observe,context));
  assert.deepEqual(initial,{received:false,sourceMatched:false,replied:false});
+ // Official manager may send unrelated USER_SCRIPT messages in this context.
+ // They must NOT be attributed to our isolated synthetic control.
+ context.listener({kind:'official-manager-unrelated'},{
+  id:extension,url:site,
+ },()=>{throw Error('An unrelated message must never receive a diagnostic reply');});
+ assert.deepEqual(JSON.parse(vm.runInNewContext(observe,context)),{
+  received:false,sourceMatched:false,replied:false,
+ },'unrelated manager message is not evidence our fixed synthetic request arrived');
  let unexpected=false;
  context.listener({kind:'usshm-rg05-direct-v1'},{
   id:extension,url:'https://untrusted.invalid/rg05-direct-control',
