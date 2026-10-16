@@ -36,6 +36,7 @@ import {
  buildViolentmonkeyUserScriptsProbeExpression,buildViolentmonkeyUserScriptsAccessStatusExpression,
  buildViolentmonkeyUserScriptsAccessReasonExpression,buildViolentmonkeyUserScriptsCapabilityStatusExpression,
  readViolentmonkeyPreReloadAccess,buildViolentmonkeyProfileDeveloperModeExpression,
+ buildViolentmonkeyDisposableDeveloperModeExpression,
  enableViolentmonkeyUserScriptsAccess,
  buildViolentmonkeyFixtureRuntimeConfigurationExpression,
  buildViolentmonkeyManagerInjectionOptionsExpression,
@@ -755,6 +756,14 @@ async function collectOfficialManagerScriptEvidence(cdp,frameId,hasExited){
  }
 }
 
+// No real Chrome profile or global preference may be changed. Only this
+// process-owned, newly created disposable profile is eligible for the opt-in
+// unpacked-extension lifecycle differential.
+if(process.env.USSHM_RG05_DISPOSABLE_DEV_MODE!==undefined&&
+   process.env.USSHM_RG05_DISPOSABLE_DEV_MODE!=='enabled'&&
+   process.env.USSHM_RG05_DISPOSABLE_DEV_MODE!=='disabled')
+ throw new Error('Invalid isolated developer-mode differential selector');
+const useDisposableDeveloperMode=process.env.USSHM_RG05_DISPOSABLE_DEV_MODE==='enabled';
 const profile=await mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'));
 const requests=[];
 const server=createServer((request,response)=>{
@@ -843,6 +852,20 @@ try{
    throw new Error('Isolated Chrome extension settings target could not be created');
   const extensionsPage=await waitForPage(createdExtensions.targetId,extensionsUrl,()=>exited);
   extensionsCdp=await openCdp(extensionsPage.webSocketDebuggerUrl);
+  if(useDisposableDeveloperMode){
+   // This is the exact Chrome internal WebUI of the newly created profile.
+   // Never modify the user's browser, official extension bits or the manager
+   // default USER_SCRIPT world. Only fixed literal/readback status escapes.
+   const answer=await extensionsCdp.send('Runtime.evaluate',{
+    expression:buildViolentmonkeyDisposableDeveloperModeExpression(),
+    awaitPromise:true,returnByValue:true,
+   });
+   if(!answer||typeof answer!=='object'||'error' in answer||
+      'exceptionDetails' in answer||
+      answer.result?.value!=='enabled')
+    throw new Error('Disposable CFT Developer Mode verification failed');
+   console.log('RG-05 isolated unpacked Developer Mode enabled and read back in disposable Chrome profile; NOT a GM receipt.');
+  }
   await enableViolentmonkeyUserScriptsAccess(extensionsCdp.send);
   extensionsCdp.close();extensionsCdp=undefined;
   await browserCdp.send('Target.closeTarget',{targetId:createdExtensions.targetId});
