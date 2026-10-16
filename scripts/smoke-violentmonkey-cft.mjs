@@ -1139,6 +1139,13 @@ try{
    console.log('RG-05 official Chrome registration after missing cold-start GM receipt: '+JSON.stringify(coldMissingRegistration));
    startupWarmup=true;
   console.log('RG-05 cold-start injection was absent; one isolated loopback reload required (not immediate GM injection).');
+  // Preserve only a public-bundle, allowlisted failure category for the FIRST
+  // failed Chrome document. The passive observer resets its document evidence
+  // on Runtime.executionContextsCleared, preventing stale evidence from being
+  // incorrectly attributed to the new document after this authorized reload.
+  console.log('RG-05 first failed Chrome document official injected.js signature: '+
+   restartedInjectorExceptions.injectedFailureSignature()+
+   '; no GM or product V4 proof.');
   await pageCdp.send('Page.reload',{ignoreCache:true});
   try{
    third=await readViolentmonkeyFixtureObservation({
