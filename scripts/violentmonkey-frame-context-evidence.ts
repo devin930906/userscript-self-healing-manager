@@ -1,26 +1,53 @@
 /**
- * RG-05 TEST ONLY. Record bounded Runtime.executionContextCreated data from
- * the exact isolated loopback frame. Never retain extension origins, script
- * names, private URL strings or the raw event. World presence != GM success.
+ * RG-05 TEST ONLY. Observe LIVE, bounded Runtime.executionContextCreated IDs
+ * in the pinned isolated loopback frame; remove destroyed/cleared contexts.
+ * Never retain extension origins, script names, private URLs or raw events.
+ * Context presence does NOT imply script execution or GM V4 success.
  */
+/** Only bounded, own data fields from decoded CDP JSON can be evidence.
+ * Accessors, inherited metadata and hostile proxy traps are not receipts. */
+function ownData(value:unknown,key:string):unknown{
+ if(!value||typeof value!=='object')return undefined;
+ try{
+  if(Array.isArray(value))return undefined;
+  const entry=Object.getOwnPropertyDescriptor(value,key);
+  return entry&&Object.hasOwn(entry,'value')?entry.value:undefined;
+ }catch{return undefined;}
+}
+
 export function createIsolatedFixtureFrameContextEvidence(frameId:string){
  if(typeof frameId!=='string'||frameId.length===0||frameId.length>256)
   throw new Error('Invalid isolated fixture frame identity');
- let defaultContextObserved=false,isolatedContextObserved=false;
+ // Context IDs are process/document-local, never stable after Page.reload.
+ // Preserve only the fixed default/isolated bit, not context metadata.
+ const contexts=new Map<number,boolean>();
  return {
   observe(method:string,params:unknown):void{
-   if(method!=='Runtime.executionContextCreated'||!params||
-      typeof params!=='object'||Array.isArray(params))return;
-   const context=(params as {context?:unknown}).context;
-   if(!context||typeof context!=='object'||Array.isArray(context))return;
-   const aux=(context as {auxData?:unknown}).auxData;
-   if(!aux||typeof aux!=='object'||Array.isArray(aux))return;
-   const {frameId:id,isDefault}=aux as {frameId?:unknown;isDefault?:unknown};
-   if(id!==frameId||typeof isDefault!=='boolean')return;
-   if(isDefault)defaultContextObserved=true;
-   else isolatedContextObserved=true;
+   if(method==='Runtime.executionContextsCleared'){
+    contexts.clear();return;
+   }
+   if(method==='Runtime.executionContextDestroyed'){
+    const id=ownData(params,'executionContextId');
+    if(Number.isSafeInteger(id))contexts.delete(id as number);
+    return;
+   }
+   if(method!=='Runtime.executionContextCreated')return;
+   const context=ownData(params,'context');
+   const aux=ownData(context,'auxData');
+   const id=ownData(aux,'frameId');
+   const isDefault=ownData(aux,'isDefault');
+   const contextId=ownData(context,'id');
+   if(id!==frameId||typeof isDefault!=='boolean'||
+      !Number.isSafeInteger(contextId)||(contextId as number)<1)return;
+   if(contexts.size>=8&&!contexts.has(contextId as number))return;
+   contexts.set(contextId as number,isDefault);
   },
   snapshot():{defaultContextObserved:boolean;isolatedContextObserved:boolean}{
+   let defaultContextObserved=false,isolatedContextObserved=false;
+   for(const isDefault of contexts.values()){
+    if(isDefault)defaultContextObserved=true;
+    else isolatedContextObserved=true;
+   }
    return {defaultContextObserved,isolatedContextObserved};
   },
  };

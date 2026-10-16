@@ -99,3 +99,123 @@ test('settings context retries are bounded and identity or permission failures n
   JSON.stringify({available:false,reason:'private browser sentinel'})}}),async()=>{}).catch((e:any)=>e);
  assert.match(error.message,/invalid-receipt/);assert.doesNotMatch(error.message,/private browser sentinel/);
 });
+
+
+test('read-only userScripts access status distinguishes enabled from active without mutating Chrome settings',async()=>{
+ assert.equal(typeof api.buildViolentmonkeyUserScriptsAccessStatusExpression,'function');
+ const expression=api.buildViolentmonkeyUserScriptsAccessStatusExpression();
+ const id=contract.VIOLENTMONKEY_CFT_RELEASE.extensionId;
+ let writes=0;
+ const run=async(active:boolean,enabled=true)=>vm.runInNewContext(expression,{
+  location:{href:'chrome://extensions/'},JSON,
+  chrome:{developerPrivate:{
+   async getExtensionInfo(requested:string){
+    assert.equal(requested,id);
+    return {id,version:'2.49.0',state:'ENABLED',location:'UNPACKED',
+     userScriptsAccess:{isEnabled:enabled,isActive:active},
+     name:'PRIVATE_NAME',path:'PRIVATE_PATH'};
+   },
+   async updateExtensionConfiguration(){writes++;throw Error('must remain read-only');},
+  }},
+ });
+ assert.equal(await run(true),JSON.stringify({matched:true,enabled:true,active:true}));
+ assert.equal(await run(false),JSON.stringify({matched:true,enabled:true,active:false}));
+ assert.equal(await run(false,false),JSON.stringify({matched:true,enabled:false,active:false}));
+ assert.equal(writes,0);
+});
+
+test('read-only userScripts access status fails closed for wrong context or pinned identity without leaking metadata',async()=>{
+ const expression=api.buildViolentmonkeyUserScriptsAccessStatusExpression();
+ const id=contract.VIOLENTMONKEY_CFT_RELEASE.extensionId;
+ const empty=JSON.stringify({matched:false,enabled:false,active:false});
+ assert.equal(await vm.runInNewContext(expression,{location:{href:'https://private.example/'},chrome:{},JSON}),empty);
+ for(const patch of [
+  {id:'other'},{version:'2.48.0'},{state:'DISABLED'},{location:'FROM_STORE'},
+ ]){
+  const value=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
+   chrome:{developerPrivate:{async getExtensionInfo(){
+    return {id,version:'2.49.0',state:'ENABLED',location:'UNPACKED',
+     userScriptsAccess:{isEnabled:true,isActive:true},name:'PRIVATE_NAME',path:'PRIVATE_PATH',...patch};
+   }}}});
+  assert.equal(value,empty);
+  assert.doesNotMatch(value,/PRIVATE|path|name|other|2\.48/);
+ }
+});
+
+
+test('read-only userScripts capability status distinguishes missing API from rejected query without leaking details',async()=>{
+ assert.equal(typeof api.buildViolentmonkeyUserScriptsCapabilityStatusExpression,'function');
+ const expression=api.buildViolentmonkeyUserScriptsCapabilityStatusExpression();
+ const missing=await vm.runInNewContext(expression,{chrome:{},JSON});
+ assert.equal(missing,JSON.stringify({apiPresent:false,querySucceeded:false}));
+ const rejected=await vm.runInNewContext(expression,{JSON,chrome:{userScripts:{
+  async getScripts(){throw Error('PRIVATE_SENTINEL');},
+ }}});
+ assert.equal(rejected,JSON.stringify({apiPresent:true,querySucceeded:false}));
+ assert.doesNotMatch(rejected,/PRIVATE_SENTINEL/);
+ const success=await vm.runInNewContext(expression,{JSON,chrome:{userScripts:{
+  async getScripts(){return [{id:'PRIVATE_ID',js:[{code:'PRIVATE_SOURCE'}]}];},
+ }}});
+ assert.equal(success,JSON.stringify({apiPresent:true,querySucceeded:true}));
+ assert.doesNotMatch(success,/PRIVATE_ID|PRIVATE_SOURCE/);
+});
+
+
+test('read-only userScripts access reason is allowlisted and never exposes extension metadata',async()=>{
+ assert.equal(typeof api.buildViolentmonkeyUserScriptsAccessReasonExpression,'function');
+ const expression=api.buildViolentmonkeyUserScriptsAccessReasonExpression();
+ const id=contract.VIOLENTMONKEY_CFT_RELEASE.extensionId;
+ const valid={id,version:'2.49.0',state:'ENABLED',location:'UNPACKED',
+  userScriptsAccess:{isEnabled:true,isActive:true},name:'PRIVATE_NAME',path:'PRIVATE_PATH'};
+ const run=async(patch:any={})=>{
+  let writes=0;
+  const value=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
+   chrome:{developerPrivate:{
+    async getExtensionInfo(){return {...valid,...patch};},
+    async updateExtensionConfiguration(){writes++;throw Error('must remain read-only');},
+   }}});
+  assert.equal(writes,0);
+  assert.doesNotMatch(value,/PRIVATE_NAME|PRIVATE_PATH/);
+  return value;
+ };
+ assert.equal(await run(),JSON.stringify({reason:'active'}));
+ assert.equal(await run({userScriptsAccess:{isEnabled:true,isActive:false}}),
+  JSON.stringify({reason:'toggle-inactive'}));
+ assert.equal(await run({userScriptsAccess:{isEnabled:false,isActive:false}}),
+  JSON.stringify({reason:'toggle-disabled'}));
+ const disabled=async(flag:string,value:any=true)=>run({
+  state:'DISABLED',disableReasons:{[flag]:value},
+ });
+ assert.equal(await disabled('reloading'),JSON.stringify({reason:'state-disabled-reloading'}));
+ assert.equal(await disabled('unsupportedDeveloperExtension'),
+  JSON.stringify({reason:'state-disabled-unsupported-developer'}));
+ assert.equal(await disabled('unsupportedManifestVersion'),
+  JSON.stringify({reason:'state-disabled-unsupported-manifest'}));
+ assert.equal(await disabled('corruptInstall'),JSON.stringify({reason:'state-disabled-corrupt'}));
+ assert.equal(await disabled('suspiciousInstall'),JSON.stringify({reason:'state-disabled-suspicious'}));
+ assert.equal(await disabled('updateRequired'),JSON.stringify({reason:'state-disabled-update'}));
+ assert.equal(await disabled('publishedInStoreRequired'),JSON.stringify({reason:'state-disabled-store'}));
+ assert.equal(await disabled('blockedByPolicy'),JSON.stringify({reason:'state-disabled-policy'}));
+ assert.equal(await disabled('custodianApprovalRequired'),JSON.stringify({reason:'state-disabled-custodian'}));
+ assert.equal(await disabled('parentDisabledPermissions'),JSON.stringify({reason:'state-disabled-parent'}));
+ assert.equal(await disabled('disabledByAnotherExtension'),
+  JSON.stringify({reason:'state-disabled-other-extension'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{}}),
+  JSON.stringify({reason:'state-disabled-none'}));
+ assert.equal(await run({state:'DISABLED',disableReasons:{reloading:true,corruptInstall:true}}),
+  JSON.stringify({reason:'state-disabled-multiple'}));
+ assert.equal(await disabled('reloading','PRIVATE_VALUE'),
+  JSON.stringify({reason:'state-disabled-none'}));
+ assert.equal(await run({state:'TERMINATED'}),JSON.stringify({reason:'state-terminated'}));
+ assert.equal(await run({state:'BLOCKLISTED'}),JSON.stringify({reason:'state-blocklisted'}));
+ assert.equal(await run({state:'PRIVATE_STATE'}),JSON.stringify({reason:'state-other'}));
+ assert.equal(await run({location:'FROM_STORE'}),JSON.stringify({reason:'installation'}));
+ const wrongPage=await vm.runInNewContext(expression,{location:{href:'https://private.example/'},chrome:{},JSON});
+ assert.equal(wrongPage,JSON.stringify({reason:'page-context'}));
+ const missingApi=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},chrome:{},JSON});
+ assert.equal(missingApi,JSON.stringify({reason:'settings-api'}));
+ const rejected=await vm.runInNewContext(expression,{location:{href:'chrome://extensions/'},JSON,
+  chrome:{developerPrivate:{async getExtensionInfo(){throw Error('PRIVATE_SENTINEL');}}}});
+ assert.equal(rejected,JSON.stringify({reason:'settings-error'}));
+ assert.doesNotMatch(rejected,/PRIVATE_SENTINEL/);
+});
