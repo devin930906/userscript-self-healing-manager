@@ -9,7 +9,8 @@ export function readVerifiedOfficialManagerCdpReply(reply:unknown):Record<string
    throw new Error('invalid');
   const result=Object.getOwnPropertyDescriptor(reply,'result');
   if(!result||!Object.hasOwn(result,'value')||
-     !result.value||typeof result.value!=='object'||Array.isArray(result.value))
+     !result.value||typeof result.value!=='object'||Array.isArray(result.value)||
+     'error' in result.value||'exceptionDetails' in result.value)
    throw new Error('invalid');
   return result.value as Record<string,unknown>;
  }catch{
