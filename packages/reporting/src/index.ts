@@ -25,6 +25,9 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
   throw new Error('Invalid static report format');
  if(!report||typeof report!=='object'||Array.isArray(report))
   throw new Error('Invalid static report input');
+ // Snapshot validated own data descriptors. Do not re-read an untrusted
+ // Proxy's get traps after validation, even when descriptors are ordinary.
+ const verifiedRoot:Record<string,unknown>=Object.create(null);
  // Validate all incoming root descriptors before accessing any value.
  // In particular, Array.isArray(report.items) and numeric count checks
  // must not invoke an untrusted accessor or export its thrown message.
@@ -41,7 +44,9 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
    throw new Error(key==='items'?'Invalid static report input':
     key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
     'Invalid static report count');
+  verifiedRoot[key]=descriptor.value;
  }
+ report=verifiedRoot as unknown as ScanBatchResult;
  if(!Array.isArray(report.items))throw new Error('Invalid static report input');
  // JSON-like report arrays must use native Array.prototype. A hostile custom
  // prototype can supply inherited .every/.filter/.map getters, which the
@@ -63,6 +68,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  const validItems=():boolean=>{
   // Reject throwing Proxy own-property traps without leaking their errors.
   try{
+  const safeItems:ScanBatchResult['items']=[];
   if(!hasNativeArrayPrototype(report.items))return false;
   // Later serialization uses these native Array methods. Reject own
   // overrides without accessing them, before any untrusted method call.
@@ -88,12 +94,24 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
     return false;
    // for..of invokes accessor-backed array elements, including malicious
    // getters containing private error text. Inspect only owned data slots.
+   const safeDiagnostics:string[]=[];
    for(let index=0;index<values.diagnostics.length;index++){
     const descriptor=Object.getOwnPropertyDescriptor(values.diagnostics,String(index));
     if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value')||
        typeof descriptor.value!=='string')return false;
+    safeDiagnostics.push(descriptor.value);
    }
+   // Never use status/count/path reads or .map on the original row Proxy
+   // after descriptor validation. Output is computed from a trusted copy.
+   safeItems.push({
+    path:values.path as string,
+    status:values.status as ScanBatchResult['items'][number]['status'],
+    selectorCount:values.selectorCount as number,
+    runtimeRequiredCount:values.runtimeRequiredCount as number,
+    diagnostics:safeDiagnostics,
+   });
   }
+  report.items=safeItems;
   return true;
   }catch{return false;}
  };

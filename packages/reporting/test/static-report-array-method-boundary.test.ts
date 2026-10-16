@@ -152,11 +152,8 @@ test('RG-07 report projection never invokes post-validation Proxy value getters'
   },
  });
  for(const format of ['json','markdown'] as const){
-  assert.throws(()=>serializeStaticReport(root,format),error=>{
-   assert.ok(error instanceof Error);
-   assert.equal(error.message,'Invalid static report input');
-   return true;
-  });
+  const safe=serializeStaticReport(root,format);
+  assert.ok(safe.includes('ok.user.js'));
  }
  assert.equal(rootReads,0,'root values must come from validated data descriptors');
 
