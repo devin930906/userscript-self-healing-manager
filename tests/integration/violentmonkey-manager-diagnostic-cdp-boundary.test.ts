@@ -111,7 +111,9 @@ test('RG-05 real Chrome restart configuration audit refuses unchecked CDP succes
 
 
 test('RG-05 official content bridge transport does not accept unchecked protocol error envelopes',async()=>{
- const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
+ // GitHub Windows checkout uses CRLF; the bounded source slice must use
+ // the same normalized newline convention on Linux and Windows.
+ const source=(await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8')).replace(/\r\n?/g,'\n');
  const begin=source.indexOf('async function readOfficialContentBridgeDiagnostic(');
  const end=source.indexOf('\n}\n',begin+1)+3;
  assert.ok(begin>=0&&end>begin,'find the bounded official bridge transport adapter');
