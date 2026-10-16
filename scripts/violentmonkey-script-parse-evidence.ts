@@ -70,22 +70,20 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
     contexts.clear();sources.clear();return;
    }
    if(method==='Runtime.executionContextDestroyed'){
-    const id=(params as {executionContextId?:unknown}|null)?.executionContextId;
+    const id=ownData(params,'executionContextId');
     if(!Number.isSafeInteger(id))return;
     contexts.delete(id as number);
     for(const [key,value] of sources)if(value.contextId===id)sources.delete(key);
     return;
    }
    if(method==='Runtime.executionContextCreated'){
-    const context=(params as {context?:unknown}|null)?.context;
-    if(!context||typeof context!=='object'||Array.isArray(context))return;
-    const obj=context as {id?:unknown;auxData?:unknown};
-    const aux=obj.auxData;
-    if(!aux||typeof aux!=='object'||Array.isArray(aux)||
-       (aux as {frameId?:unknown;isDefault?:unknown}).frameId!==frameId||
-       (aux as {isDefault?:unknown}).isDefault!==false||
-       !Number.isSafeInteger(obj.id)||(obj.id as number)<1)return;
-    if(contexts.size<8)contexts.add(obj.id as number);
+    const context=ownData(params,'context');
+    const aux=ownData(context,'auxData');
+    const id=ownData(context,'id');
+    if(ownData(aux,'frameId')!==frameId||
+       ownData(aux,'isDefault')!==false||
+       !Number.isSafeInteger(id)||(id as number)<1)return;
+    if(contexts.size<8)contexts.add(id as number);
     return;
    }
    if(method==='Debugger.scriptParsed'){
@@ -109,19 +107,18 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
     return;
    }
    if(method!=='Runtime.exceptionThrown')return;
-   const details=(params as {exceptionDetails?:unknown}|null)?.exceptionDetails;
-   if(!details||typeof details!=='object'||Array.isArray(details))return;
-   const event=details as {scriptId?:unknown;executionContextId?:unknown};
-   if(!Number.isSafeInteger(event.executionContextId)||
-      !contexts.has(event.executionContextId as number))return;
-   const source=typeof event.scriptId==='string'?sources.get(event.scriptId):undefined;
-   if(source&&source.contextId===event.executionContextId){
+   const details=ownData(params,'exceptionDetails');
+   const contextId=ownData(details,'executionContextId');
+   const scriptId=ownData(details,'scriptId');
+   if(!Number.isSafeInteger(contextId)||
+      !contexts.has(contextId as number))return;
+   const source=typeof scriptId==='string'?sources.get(scriptId):undefined;
+   if(source&&source.contextId===contextId){
     if(source.kind==='web')web=true;
     else{
      injected=true;
-     const exception=(event as {exception?:unknown}).exception;
-     const cls=exception&&typeof exception==='object'&&!Array.isArray(exception)
-      ?(exception as {className?:unknown}).className:undefined;
+     const exception=ownData(details,'exception');
+     const cls=ownData(exception,'className');
      const allow=['TypeError','ReferenceError','SyntaxError','RangeError','Error'];
      const next:typeof injectedClass=typeof cls==='string'&&allow.includes(cls)
       ?cls as typeof injectedClass:'unknown';
@@ -132,8 +129,8 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
      // coordinates index that PUBLIC bundled asset, not any user script.
      // Malformed/huge sites fail closed; distinct sites never yield a
      // misleading single-site diagnosis. This is NOT execution/GM proof.
-     const line=(event as {lineNumber?:unknown}).lineNumber;
-     const column=(event as {columnNumber?:unknown}).columnNumber;
+     const line=ownData(details,'lineNumber');
+     const column=ownData(details,'columnNumber');
      const site=typeof line==='number'&&Number.isSafeInteger(line)&&
       line>=0&&line<=100000&&typeof column==='number'&&
       Number.isSafeInteger(column)&&column>=0&&column<=10000000
@@ -144,8 +141,7 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
      // injected.js asset in the pinned disposable frame may be classified.
      // Compare fixed upstream source's data.info nullish-failure prefix
      // locally; neither the description nor any tail/stack is exported.
-     const description=exception&&typeof exception==='object'&&!Array.isArray(exception)
-      ?(exception as {description?:unknown}).description:undefined;
+     const description=ownData(exception,'description');
      const matchesFixedPrefix=(prefixes:readonly string[]):boolean=>
       next==='TypeError'&&typeof description==='string'&&description.length<=4096&&
       prefixes.some(prefix=>description===prefix||
