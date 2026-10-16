@@ -336,8 +336,7 @@ async function readOfficialContentBridgeDiagnostic(cdp,fixtureUrl,hasExited){
    expression:buildViolentmonkeyContentBridgeDiagnosticExpression(fixtureUrl),
    awaitPromise:true,returnByValue:true,
   });
-  if(answer.exceptionDetails||answer.result?.exceptionDetails)throw Error('invalid');
-  value=answer.result?.value;
+  value=readViolentmonkeyManagerDiagnosticCdpValue(answer,120);
  }catch{throw new Error('RG-05 official bridge diagnostic transport failed');}
  if(typeof value!=='string'||value.length>120)
   throw new Error('RG-05 official bridge diagnostic receipt invalid');
