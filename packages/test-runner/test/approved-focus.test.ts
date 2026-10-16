@@ -365,3 +365,31 @@ test('FR-024 trusted Main must pass the post-dialog approved document to focus e
  assert.match(section,/approvedDocument:afterPrompt/,
   'native-approved identity must not be replaced by the first post-modal CDP response');
 });
+
+test('FR-024 late same-URL navigation after final attribute receipt cannot dispatch DOM.focus',async()=>{
+ let reloaded=false,finalAttributeReceipts=0,identityChecks=0;
+ class LateNavigationSocket extends FocusSocket{
+  override send(raw:string){
+   const msg=JSON.parse(raw) as {method:string};
+   if(msg.method==='DOM.getAttributes'){
+    finalAttributeReceipts++;
+    if(finalAttributeReceipts===2)reloaded=true;
+   }
+   super.send(raw);
+  }
+ }
+ const socket=new LateNavigationSocket();
+ await assert.rejects(runApprovedControlFocus({
+  approved:true,target,locator,approvedDocument:frame,timeoutMs:2000,
+  socketFactory:()=>socket,
+  confirm:async()=>{
+   identityChecks++;
+   return reloaded?{...frame,loaderId:'reloaded-same-url-document'}:frame;
+  },
+ }),/document|identity|navigation|reload|changed/i,
+ 'the final attributes cannot authorize focus in a newly navigated document');
+ assert.equal(finalAttributeReceipts,2,'the page actually navigated at the final CDP attribute boundary');
+ assert.ok(identityChecks>=3,'fresh identity must be checked after final attribute receipt');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'an expired document approval must not dispatch the observable focus action');
+});
