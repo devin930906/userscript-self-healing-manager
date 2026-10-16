@@ -1339,13 +1339,12 @@ try{
   const workerBeforeWake=await readOfficialWorkerCensus(browserCdp);
   const wakeOnly=await readPostBlockerWorkerWakeDiagnostic(optionsCdp,()=>exited);
   const workerAfterWake=await readOfficialWorkerCensus(browserCdp);
-  let bridgeAfterWake={targetFound:false,bridgeResponded:false};
-  try{bridgeAfterWake=await readOfficialContentBridgeDiagnostic(optionsCdp,fixtureUrl,()=>exited);}
-  catch{/* Expose only fixed booleans, never private Chrome errors. */}
+  // The official content bridge has an existing two-observation budget:
+  // original-process true control and one post-blocker false receipt.
+  // Do NOT add a third bridge probe or imply that target changes prove health.
   console.log('RG-05 post-blocker worker wake-only diagnostic: '+JSON.stringify({
    wake:wakeOnly,workerBefore:workerBeforeWake,workerAfter:workerAfterWake,
-   bridgeAfter:bridgeAfterWake,
-  })+'; no message payload, no manager GM receipt or V4 proof.');
+  })+'; no payload, no extra bridge probe, no manager GM or V4 proof.');
 
   // Real Chrome direct userScripts control on a DIFFERENT disposable page.
   // This only runs after the official GM cold-start blocker is immutable.
