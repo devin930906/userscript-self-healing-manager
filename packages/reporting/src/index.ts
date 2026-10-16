@@ -65,11 +65,21 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // Array.every() skips holes; a sparse row/diagnostic array would otherwise
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
+ // Array Proxy get traps can lie about .length without touching own indices,
+ // hiding report rows or diagnostics. Read the non-accessor own length
+ // descriptor and use it consistently while building trusted snapshots.
+ const descriptorArrayLength=(items:unknown[]):number|null=>{
+  const length=Object.getOwnPropertyDescriptor(items,'length');
+  return length&&Object.hasOwn(length,'value')&&
+   Number.isSafeInteger(length.value)&&length.value>=0?length.value:null;
+ };
  const validItems=():boolean=>{
   // Reject throwing Proxy own-property traps without leaking their errors.
   try{
   const safeItems:ScanBatchResult['items']=[];
   if(!hasNativeArrayPrototype(report.items))return false;
+  const itemCount=descriptorArrayLength(report.items);
+  if(itemCount===null)return false;
   // Later serialization uses these native Array methods. Reject own
   // overrides without accessing them, before any untrusted method call.
   if(['every','filter','map'].some(method=>Object.hasOwn(report.items,method)))
@@ -77,7 +87,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
   // Runtime input must not execute an accessor while a supposedly static
   // report is being inspected. Validate own enumerable data descriptors
   // before downstream status/count projections read any row property.
-  for(let index=0;index<report.items.length;index++){
+  for(let index=0;index<itemCount;index++){
    const slot=Object.getOwnPropertyDescriptor(report.items,String(index));
    if(!slot||!slot.enumerable||!Object.hasOwn(slot,'value'))return false;
    const item=slot.value;
@@ -95,7 +105,9 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
    // for..of invokes accessor-backed array elements, including malicious
    // getters containing private error text. Inspect only owned data slots.
    const safeDiagnostics:string[]=[];
-   for(let index=0;index<values.diagnostics.length;index++){
+   const diagnosticCount=descriptorArrayLength(values.diagnostics);
+   if(diagnosticCount===null)return false;
+   for(let index=0;index<diagnosticCount;index++){
     const descriptor=Object.getOwnPropertyDescriptor(values.diagnostics,String(index));
     if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value')||
        typeof descriptor.value!=='string')return false;
