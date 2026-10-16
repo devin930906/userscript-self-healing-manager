@@ -1,6 +1,7 @@
 import {createHmac,randomBytes} from 'node:crypto';
 import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
+import {assertCredentialFreePageUrl} from './page-url-safety.ts';
 import type {SocketLike} from './snapshot.ts';
 
 export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number;frameId?:string;loaderId?:string;
@@ -79,7 +80,7 @@ export async function confirmPageIdentity(
  let expectedUrl:string;
  try{
   expectedUrl=target.url;
-  if(typeof expectedUrl!=='string'||expectedUrl.length<1||expectedUrl.length>8192)throw new Error('Invalid URL');
+  assertCredentialFreePageUrl(expectedUrl);
   expected=new URL(expectedUrl);
  }catch{throw new Error('Invalid expected page URL');}
  if(!['http:','https:'].includes(expected.protocol))throw new Error('Only HTTP(S) page identity checks are supported');
@@ -118,8 +119,6 @@ export async function confirmPageIdentity(
      if(!node||!node.frame||typeof node.frame.id!=='string'||
         (index>0&&!validIdentityToken(node.frame.id)))
       throw new Error('Invalid nested CDP frame tree');
-     // A forged frame tree cannot grant a child scope using the main-frame ID
-     // or another child's ID. Keep the check bounded by the frame-count cap.
      if(observedFrameIds.has(node.frame.id))
       throw new Error('Invalid nested CDP frame tree');
      observedFrameIds.add(node.frame.id);
@@ -147,7 +146,9 @@ export async function confirmPageIdentity(
         typeof childUrl==='string'&&childUrl.length<=8192){
       try{
        const parsedChild=new URL(childUrl);
-       if(['http:','https:'].includes(parsedChild.protocol)&&parsedChild.origin===expected.origin)
+       if(['http:','https:'].includes(parsedChild.protocol)&&
+          parsedChild.username===''&&parsedChild.password===''&&
+          parsedChild.origin===expected.origin)
         soleSameOriginSubframe={frameId:childId,loaderId:childLoader,
          urlFingerprint:createHmac('sha256',CHILD_URL_KEY)
           .update('usshm-iframe-url-v1:').update(childUrl).digest('hex')};
