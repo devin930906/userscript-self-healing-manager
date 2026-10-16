@@ -1,4 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
+import {types as nodeTypes} from 'node:util';
 import type {BigIntStats} from 'node:fs';
 import {link,lstat,mkdir,open,readFile,rename,rmdir,unlink} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
@@ -99,7 +100,10 @@ function validateState(value:unknown):Saved{
  * library entrypoints independently of their callers.
  */
 function snapshotSceneRecord(input:unknown):SiteTestCase{
- if(!input||typeof input!=='object'||Array.isArray(input))
+ // Node's native proxy detection rejects even revoked Proxies without
+ // invoking ownKeys/getOwnPropertyDescriptor/get traps. Descriptor checks
+ // alone would execute attacker-owned Proxy reflection callbacks.
+ if(!input||typeof input!=='object'||Array.isArray(input)||nodeTypes.isProxy(input))
   throw new Error('Invalid site test case record');
  let own:PropertyDescriptorMap;
  try{own=Object.getOwnPropertyDescriptors(input);}
