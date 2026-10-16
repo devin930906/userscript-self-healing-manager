@@ -244,6 +244,11 @@ export async function runApprovedControlFocus({approved,target,locator,approvedD
      finalAttributes.length!==attributes.length||
      finalAttributes.some((value:unknown,index:number)=>value!==attributes[index]))
    throw error('Approved button attributes changed before focus');
+  // A same-URL navigation may occur while the final DOM attribute command
+  // is pending. Reconfirm the originally approved loader AFTER that reply,
+  // immediately before authorization and the observable DOM.focus dispatch.
+  // This narrows the cross-process race; it is not an atomic browser lock.
+  await guard();
   // A scan or directory approval may be revoked while the CDP preflight yields.
   // Production Main owns the check; it runs synchronously, just before focus.
   assertAuthorizedBeforeAction?.();
