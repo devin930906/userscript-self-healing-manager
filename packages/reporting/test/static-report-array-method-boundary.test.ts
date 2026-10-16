@@ -56,3 +56,48 @@ test('RG-07 ordinary item and diagnostic array methods remain compatible',()=>{
  assert.deepEqual(json.items[0].diagnostics,['STATIC_DIAGNOSTIC_REDACTED']);
  assert.match(serializeStaticReport(fixture,'markdown'),/ok\.user\.js/);
 });
+
+test('RG-07 static report rejects inherited item-array method accessors without evaluating attacker code',()=>{
+ for(const method of ['every','filter','map']){
+  const items=[fixture.items[0]!];
+  let invoked=0;
+  const inherited=Object.create(Array.prototype);
+  Object.defineProperty(inherited,method,{configurable:true,get(){
+   invoked++;
+   throw new Error(secret);
+  }});
+  Object.setPrototypeOf(items,inherited);
+  assert.equal(Object.hasOwn(items,method),false,'regression must involve only inherited override');
+  for(const format of ['json','markdown'] as const){
+   assert.throws(()=>serializeStaticReport({...fixture,items},format),error=>{
+    assert.ok(error instanceof Error);
+    assert.equal(error.message,'Invalid static report item');
+    assert.doesNotMatch(error.message,/PRIVATE_ARRAY_METHOD_GETTER_MUST_NOT_LEAK/);
+    return true;
+   });
+  }
+  assert.equal(invoked,0,'must never invoke inherited '+method+' getter');
+ }
+});
+
+test('RG-07 static report refuses inherited diagnostic map getter without export-time side effects',()=>{
+ const diagnostics=['fixed diagnostic'];
+ let invoked=0;
+ const inherited=Object.create(Array.prototype);
+ Object.defineProperty(inherited,'map',{configurable:true,get(){
+  invoked++;
+  throw new Error(secret);
+ }});
+ Object.setPrototypeOf(diagnostics,inherited);
+ assert.equal(Object.hasOwn(diagnostics,'map'),false);
+ const forged:ScanBatchResult={...fixture,items:[{...fixture.items[0]!,diagnostics}]};
+ for(const format of ['json','markdown'] as const){
+  assert.throws(()=>serializeStaticReport(forged,format),error=>{
+   assert.ok(error instanceof Error);
+   assert.equal(error.message,'Invalid static report item');
+   assert.doesNotMatch(error.message,/PRIVATE_ARRAY_METHOD_GETTER_MUST_NOT_LEAK/);
+   return true;
+  });
+ }
+ assert.equal(invoked,0,'inherited diagnostics.map getter cannot run');
+});
