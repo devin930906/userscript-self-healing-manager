@@ -10,3 +10,15 @@ export function pinnedViolentmonkeyWindowFlags(mode:unknown):string[]{
  if(mode==='headed')return [];
  throw new Error('Invalid isolated Chrome window mode');
 }
+
+/**
+ * RG-05 test-only CFT differential. "proxy-isolated" removes ONLY Chrome's
+ * background-network disable switch. The calling smoke fixture still blocks
+ * non-loopback networking with a dead proxy and DNS resolver, never a
+ * production browser setting or evidence of real manager GM success.
+ */
+export function pinnedViolentmonkeyBackgroundNetworkFlags(mode:unknown):string[]{
+ if(mode===undefined||mode==='disabled')return ['--disable-background-networking'];
+ if(mode==='proxy-isolated')return [];
+ throw new Error('Invalid isolated Chrome background-network mode');
+}
