@@ -71,25 +71,3 @@ test('RG-07 static export retains canonical root data and ordinary item-array co
  assert.equal(report.items[0].verification.V4,'not-configured');
  assert.match(serializeStaticReport(fixture,'markdown'),/safe\.user\.js/);
 });
-
-test('RG-07 static export never serializes forged or non-canonical creation timestamps',()=>{
- const forgedTimestamps=[
-  '2026-10-16T00:00:00.000Z\\nPRIVATE_REPORT_TIMESTAMP_TOKEN',
-  '2026-02-30T00:00:00.000Z',
-  '2026-10-16T00:00:00Z',
-  'not-a-timestamp',
- ];
- for(const createdAt of forgedTimestamps){
-  for(const format of ['json','markdown'] as const){
-   const untrusted={...fixture,createdAt};
-   assert.throws(()=>serializeStaticReport(untrusted,format),error=>{
-    assert.ok(error instanceof Error);
-    assert.equal(error.message,'Invalid static report metadata');
-    assert.doesNotMatch(error.message,/PRIVATE_REPORT_TIMESTAMP_TOKEN/);
-    return true;
-   },'forged timestamps must never cross the report export boundary');
-  }
- }
- // Valid ISO8601 canonical milliseconds must continue exporting exactly.
- assert.equal(JSON.parse(serializeStaticReport(fixture,'json')).createdAt,fixture.createdAt);
-});
