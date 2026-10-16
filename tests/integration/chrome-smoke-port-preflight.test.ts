@@ -32,3 +32,11 @@ test('occupied loopback debugger refuses startup even when the listener is not C
   await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
  }
 });
+
+test('QA-004 real Chrome startup failures never echo raw stderr or private CDP errors',async()=>{
+ const source=await readFile('scripts/smoke-chrome.mjs','utf8');
+ assert.doesNotMatch(source,/lastStatusError|lastIdentityError|diagnostics\s*\+\s*String\(chunk\)/,
+  'a failing hosted-runner Chrome startup must not reveal private stderr or CDP exceptions');
+ assert.match(source,/classifyChromeSmokeStartupFailure\(startupObservation\)/,
+  'record only bounded fixed startup-state diagnostics');
+});
