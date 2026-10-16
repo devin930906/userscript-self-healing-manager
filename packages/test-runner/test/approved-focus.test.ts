@@ -339,3 +339,27 @@ test('FR-024 rejects any CDP error envelope even when its error value is falsy',
   }
  }
 });
+
+test('FR-024 a same-URL document changed after native consent cannot establish a fresh focus baseline',async()=>{
+ const nativeApproved={...frame,loaderId:'native-approved-before-reload'};
+ const socket=new FocusSocket();
+ const args={
+  approved:true,target,locator,approvedDocument:nativeApproved,
+  confirm:async()=>frame,socketFactory:()=>socket,timeoutMs:2000,
+ } as Parameters<typeof runApprovedControlFocus>[0];
+ await assert.rejects(runApprovedControlFocus(args),/document|identity|navigation|reload|changed/i,
+  'the first post-consent identity must be compared against the native approved document');
+ assert.equal(socket.methods.includes('DOM.focus'),false,
+  'a same-URL reload may not inherit prior native consent');
+});
+
+test('FR-024 trusted Main must pass the post-dialog approved document to focus execution',async()=>{
+ const main=await readFile(new URL('../../../apps/desktop/src/main/index.ts',import.meta.url),'utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:approved-control-focus'");
+ const end=main.indexOf("ipcMain.handle('usshm:product-action-review'",start);
+ assert.ok(start>=0&&end>start);
+ const section=main.slice(start,end);
+ assert.match(section,/assertStablePageDocument\(beforePrompt,afterPrompt\)/);
+ assert.match(section,/approvedDocument:afterPrompt/,
+  'native-approved identity must not be replaced by the first post-modal CDP response');
+});
