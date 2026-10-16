@@ -58,9 +58,14 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
     world:'USER_SCRIPT',runAt:'document_idle',allFrames:false}]);
    created=true;
    const check=await api.getScripts({ids:[${JSON.stringify(DIRECT_CONTROL_ID)}]});
+   // The fixed ID and match alone cannot prove our own code, stage or frame scope.
    const valid=Array.isArray(check)&&check.length===1&&
     check[0]?.id===${JSON.stringify(DIRECT_CONTROL_ID)}&&
     check[0]?.world==='USER_SCRIPT'&&
+    check[0]?.runAt==='document_idle'&&
+    check[0]?.allFrames!==true&&
+    Array.isArray(check[0]?.js)&&check[0].js.length===1&&
+    check[0].js[0]?.code===${JSON.stringify(script)}&&
     Array.isArray(check[0]?.matches)&&check[0].matches.length===1&&
     check[0].matches[0]===${JSON.stringify(match)};
    if(valid)return 'registered';
