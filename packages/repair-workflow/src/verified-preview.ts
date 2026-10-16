@@ -47,13 +47,25 @@ export async function prepareVerifiedRepairPreview({approved,target,locator,sour
  deps:VerifiedPreviewDeps;
 }):Promise<VerifiedPreviewResult>{
  if(approved!==true)throw new Error('Explicit candidate preview consent is required');
- if(!target||typeof target.id!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(target.id)||
-    typeof target.url!=='string')
-  throw new Error('Invalid selected CDP target');
- // Never contact an untrusted page even for read-only inspection before the
- // selected URL has passed the same credential-free boundary as CDP identity.
- try{assertCredentialFreePageUrl(target.url);}
- catch{throw new Error('Invalid selected CDP target');}
+ // Browser target metadata may be a revoked Proxy, accessor-backed object
+ // or inherited identity. Only fixed own-data strings can authorize CDP.
+ // Freeze the two primitive identities here: do not access the raw object
+ // again after validation, and never surface a Proxy trap exception.
+ let selectedId:string,selectedUrl:string;
+ try{
+  if(!target||typeof target!=='object'||Array.isArray(target))
+   throw new Error('Invalid');
+  const id=Object.getOwnPropertyDescriptor(target,'id');
+  const url=Object.getOwnPropertyDescriptor(target,'url');
+  if(!id||!Object.hasOwn(id,'value')||!url||!Object.hasOwn(url,'value')||
+     typeof id.value!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(id.value)||
+     typeof url.value!=='string')
+   throw new Error('Invalid');
+  selectedId=id.value;
+  selectedUrl=url.value;
+  // Reject credential-bearing or malformed URLs before any CDP observation.
+  assertCredentialFreePageUrl(selectedUrl);
+ }catch{throw new Error('Invalid selected CDP target');}
  if(!locator||locator.runtimeRequired||!['querySelector','getElementById',
     'getElementsByName','getElementsByClassName'].includes(locator.method)||
     typeof locator.expression!=='string'||!locator.expression||
@@ -71,7 +83,7 @@ export async function prepareVerifiedRepairPreview({approved,target,locator,sour
   throw new Error('Missing trusted Main candidate preview dependencies');
  const baseline=await deps.confirm();
  const requireIdentity=(identity:ConfirmedPageIdentity)=>{
-  if(!identity||identity.targetId!==target.id||identity.confirmedUrl!==target.url||
+  if(!identity||identity.targetId!==selectedId||identity.confirmedUrl!==selectedUrl||
      !identity.frameId||!identity.loaderId||
      identity.frameId.length>256||identity.loaderId.length>256)
    throw new Error('Candidate document identity cannot be verified');
