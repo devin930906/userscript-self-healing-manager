@@ -23,8 +23,20 @@ const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
 export function serializeStaticReport(report:ScanBatchResult,format:'json'|'markdown'):string{
  if(format!=='json'&&format!=='markdown')
   throw new Error('Invalid static report format');
- if(!report||typeof report!=='object'||!Array.isArray(report.items))
+ if(!report||typeof report!=='object'||Array.isArray(report))
   throw new Error('Invalid static report input');
+ // Validate all incoming root descriptors before accessing any value.
+ // In particular, Array.isArray(report.items) and numeric count checks
+ // must not invoke an untrusted accessor or export its thrown message.
+ for(const key of ['items','scanMode','createdAt','requestedCount',
+                    'enumeratedCount','processedCount','passedCount','errorCount']){
+  const descriptor=Object.getOwnPropertyDescriptor(report,key);
+  if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+   throw new Error(key==='items'?'Invalid static report input':
+    key==='scanMode'||key==='createdAt'?'Invalid static report metadata':
+    'Invalid static report count');
+ }
+ if(!Array.isArray(report.items))throw new Error('Invalid static report input');
  // Never relabel runtime/manager evidence as a static scan; reject malformed
  // timestamps before Markdown escaping or JSON serialization can inspect them.
  if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
@@ -35,11 +47,35 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  // become null placeholders in JSON without counting as validated evidence.
  // for..of visits holes as undefined, so malformed input fails closed.
  const validItems=():boolean=>{
-  for(const item of report.items){
-   if(!item||typeof item!=='object'||typeof item.path!=='string'||
-      !Array.isArray(item.diagnostics))return false;
-   for(const message of item.diagnostics)
-    if(typeof message!=='string')return false;
+  // Later serialization uses these native Array methods. Reject own
+  // overrides without accessing them, before any untrusted method call.
+  if(['every','filter','map'].some(method=>Object.hasOwn(report.items,method)))
+   return false;
+  // Runtime input must not execute an accessor while a supposedly static
+  // report is being inspected. Validate own enumerable data descriptors
+  // before downstream status/count projections read any row property.
+  for(let index=0;index<report.items.length;index++){
+   const slot=Object.getOwnPropertyDescriptor(report.items,String(index));
+   if(!slot||!slot.enumerable||!Object.hasOwn(slot,'value'))return false;
+   const item=slot.value;
+   if(!item||typeof item!=='object'||Array.isArray(item))return false;
+   const values:Record<string,unknown>=Object.create(null);
+   for(const key of ['path','status','selectorCount','runtimeRequiredCount','diagnostics']){
+    const descriptor=Object.getOwnPropertyDescriptor(item,key);
+    if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))
+     return false;
+    values[key]=descriptor.value;
+   }
+   if(typeof values.path!=='string'||!Array.isArray(values.diagnostics)||
+      Object.hasOwn(values.diagnostics,'map'))
+    return false;
+   // for..of invokes accessor-backed array elements, including malicious
+   // getters containing private error text. Inspect only owned data slots.
+   for(let index=0;index<values.diagnostics.length;index++){
+    const descriptor=Object.getOwnPropertyDescriptor(values.diagnostics,String(index));
+    if(!descriptor||!descriptor.enumerable||!Object.hasOwn(descriptor,'value')||
+       typeof descriptor.value!=='string')return false;
+   }
   }
   return true;
  };
