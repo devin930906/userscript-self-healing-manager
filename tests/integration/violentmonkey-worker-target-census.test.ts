@@ -21,7 +21,7 @@ test('RG-05 counts ONLY pinned official service workers and background pages wit
   {type:'service_worker',url:'http://127.0.0.1:1234/fixture'},
  ]});
  assert.deepEqual(data,{status:'observed',serviceWorkers:1,backgroundPages:1});
- assert.doesNotMatch(JSON.stringify(data),/chrome-extension|127\\.0\\.0\\.1|jinjacc|background\\.js/);
+ assert.doesNotMatch(JSON.stringify(data),/chrome-extension|127|jinjacc|background/);
  assert.equal(Object.isFrozen(data),true);
 });
 
@@ -59,7 +59,7 @@ test('RG-05 accessor-backed target type/url cannot run getters and malformed tar
 test('RG-05 official worker census is passive post-GM only and never substitutes for manager gate',async()=>{
  const script=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  assert.match(script,/summarizeOfficialManagerWorkerTargets/);
- assert.match(script,/Target\\.getTargets/);
+ assert.ok(script.includes('Target.getTargets'));
  assert.match(script,/RG-05 official worker targets after two REAL GM receipts:/);
  assert.match(script,/RG-05 official worker targets after first missing cold-start GM receipt:/);
  assert.match(script,/RG-05 official worker targets after two absent GM receipts:/);
@@ -69,5 +69,5 @@ test('RG-05 official worker census is passive post-GM only and never substitutes
    script.indexOf('if(!(error instanceof Error)||'));
  assert.ok(script.indexOf('RG-05 official worker targets after two absent GM receipts:')>
    script.indexOf('if(startupInjectionBlocked){'));
- assert.match(script,/assertOfficialViolentmonkeyReleaseGate\\(blocked.status\\)/);
+ assert.ok(script.includes('assertOfficialViolentmonkeyReleaseGate(blocked.status)'));
 });
