@@ -42,7 +42,7 @@ export async function captureDomSummary(target:ChromeTarget,options:{socketFacto
    try{
     if(typeof event.data!=='string'||event.data.length>MAX_SNAPSHOT_BYTES)throw new Error('CDP DOM snapshot payload limit exceeded');
     const message=JSON.parse(event.data);if(message.id!==1)return;
-    if(message.error)throw new Error('CDP snapshot failed');
+    if(Object.hasOwn(message,'error'))throw new Error('CDP snapshot failed');
     const documents=message.result?.documents;
     if(!Array.isArray(documents)||documents.length===0)throw new Error('Invalid DOM snapshot response');
     if(documents.length>MAX_SNAPSHOT_DOCUMENTS)throw new Error('CDP DOM snapshot document count limit exceeded');

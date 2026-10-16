@@ -1,5 +1,6 @@
 import {randomUUID,createHash} from 'node:crypto';
-import {isAbsolute} from 'node:path';
+import {dirname,isAbsolute,resolve} from 'node:path';
+import {lstatSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {backupVerifiedSqliteSnapshot} from '../../persistence/src/index.ts';
 import type {PaginatedDomPage} from '../../scan-service/src/paginated-dom.ts';
@@ -97,9 +98,41 @@ export function assertJournalSchemaSafety(db:DatabaseSync):void{
  const trigger=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('journal_runs','journal_items') LIMIT 1").get();
  if(trigger)throw new Error('Unsafe diagnosis journal schema: unrecognized trigger');
 }
+/** No path-only identity preflight can substitute for native Win32 handle
+ * pinning against concurrent malicious changes. Still, reject existing
+ * aliases before SQLite initializes or marks old runs interrupted.
+ * In particular, SQLite may open neighboring WAL/SHM/rollback paths.
+ */
+function assertSafeDiagnosisJournalPath(file:string):void{
+ if(typeof file!=='string'||!isAbsolute(file)||file.length>4096||
+    file.split(/[\\/]/).includes('..'))
+  throw new Error('Invalid or unsafe diagnosis SQLite journal path');
+ const parents:string[]=[];
+ for(let current=dirname(resolve(file));;){
+  parents.push(current);
+  const above=dirname(current);
+  if(above===current)break;
+  current=above;
+ }
+ for(const parent of parents.reverse()){
+  const info=lstatSync(parent);
+  if(!info.isDirectory()||info.isSymbolicLink())
+   throw new Error('Unsafe diagnosis SQLite journal directory: linked ancestor');
+ }
+ for(const name of [file,file+'-wal',file+'-shm',file+'-journal']){
+  try{
+   const info=lstatSync(name);
+   if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
+      !Number.isSafeInteger(info.size)||info.size<0)
+    throw new Error('Unsafe diagnosis SQLite journal file or sidecar: linked or invalid file');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
+ }
+}
 /** Opens a separate, local-only database; never mutates the script registry database. */
 export function openDiagnosisJournal(file:string){
- if(!isAbsolute(file))throw new Error('Diagnosis journal path must be absolute');
+ assertSafeDiagnosisJournalPath(file);
  const db=new DatabaseSync(file);
  try{
   const v=(db.prepare('PRAGMA user_version').get() as {user_version:number}).user_version;

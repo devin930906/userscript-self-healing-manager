@@ -1,3 +1,4 @@
+import {types as nodeTypes} from 'node:util';
 /** Reject CDP redirects to unrelated services on the same computer. */
 function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
  if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid CDP port');
@@ -14,16 +15,27 @@ function assertLocalDebuggerSocket(endpoint:string,port:number):URL {
  return parsed;
 }
 export function validateCdpPageSocket(target:{id:string;webSocketDebuggerUrl?:string|undefined},port=9223):string{
- if(!target||typeof target!=='object')throw new Error('CDP page target identity mismatch');
- let endpoint:string|undefined;
- try { endpoint=target.webSocketDebuggerUrl; }
- catch { throw new Error('Invalid CDP debugger socket length'); }
+ if(!target||typeof target!=='object'||Array.isArray(target)||nodeTypes.isProxy(target))
+  throw new Error('CDP page target identity mismatch');
+ // CDP /json/list is a JSON own-data object. Never invoke accessors or
+ // authenticate inherited fields from a forged target before opening a socket.
+ let id:unknown;
+ try {
+  const field=Object.getOwnPropertyDescriptor(target,'id');
+  if(!field||!field.enumerable||!Object.hasOwn(field,'value'))
+   throw new Error('Missing own page identity');
+  id=field.value;
+ }catch{throw new Error('CDP page target identity mismatch');}
+ let endpoint:unknown;
+ try {
+  const field=Object.getOwnPropertyDescriptor(target,'webSocketDebuggerUrl');
+  if(field&&(!field.enumerable||!Object.hasOwn(field,'value')))
+   throw new Error('Invalid own debugger socket');
+  endpoint=field?.value;
+ }catch{throw new Error('Invalid CDP debugger socket length');}
  if(endpoint===undefined||endpoint===null||endpoint==='')throw new Error('CDP page target has no debugger socket');
  if(typeof endpoint!=='string')throw new Error('Invalid CDP debugger socket length');
  const parsed=assertLocalDebuggerSocket(endpoint,port);
- let id:string;
- try { id=target.id; }
- catch { throw new Error('CDP page target identity mismatch'); }
  if(typeof id!=='string'||id.length>128||!/^[A-Za-z0-9_-]+$/.test(id)||parsed.pathname!=='/devtools/page/'+id)throw new Error('CDP page target identity mismatch');
  return endpoint;
 }

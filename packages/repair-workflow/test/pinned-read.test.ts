@@ -241,3 +241,26 @@ test('RG-06 optionally binds a pinned read to the approved SHA-256 bytes',async(
  }
  assert.deepEqual(await readFile(path),replacement);
 }));
+
+test('RG-06 rejects untrustworthy numeric file identity metadata before approved reads',async()=>fixture(async dir=>{
+ const path=join(dir,'invalid-metadata.user.js');
+ const original=Buffer.from('SYNTHETIC_PINNED_METADATA');
+ await writeFile(path,original);
+ const approved=await lstat(path),precise=await lstat(path,{bigint:true});
+ for(const [field,value] of [
+  ['nlink',0],['nlink',Number.NaN],['birthtimeMs',Number.NaN],
+  ['mtimeMs',Number.POSITIVE_INFINITY],['ctimeMs',Number.NaN],
+ ] as const){
+  const invalid=Object.create(approved) as typeof approved;
+  Object.defineProperty(invalid,field,{value});
+  await assert.rejects(
+   readPinnedRegularFile(path,{maxBytes:512*1024,expected:invalid,expectedNative:precise}),
+   /identity|snapshot|replaced|changed|unsafe/i,
+   field+' must not be accepted as an approved identity',
+  );
+  assert.deepEqual(await readFile(path),original);
+ }
+ assert.deepEqual(await readPinnedRegularFile(path,{
+  maxBytes:512*1024,expected:approved,expectedNative:precise,
+ }),original);
+}));

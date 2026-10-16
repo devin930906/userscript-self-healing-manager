@@ -488,8 +488,29 @@ export async function enableViolentmonkeyUserScriptsAccess(
    });
   }catch{throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');}
   let receipt;
-  const text=answer?.result?.value;
-  if(!answer?.exceptionDetails&&typeof text==='string'&&text.length<=256){
+  let text:unknown;
+  try{
+   // A CDP error anywhere in the envelope must fail closed, including
+   // inherited fault indicators beside a forged success value. The `in`
+   // checks never read getters; payload members use own data descriptors.
+   const descriptor=(value:unknown,key:string):PropertyDescriptor|undefined=>{
+    if(!value||typeof value!=='object'||Array.isArray(value))
+     throw new Error('Malformed CDP evaluation envelope');
+    return Object.getOwnPropertyDescriptor(value,key);
+   };
+   if('error' in answer||'exceptionDetails' in answer)
+    throw new Error('CDP evaluation error');
+   const result=descriptor(answer,'result');
+   if(!result||!Object.hasOwn(result,'value'))throw new Error('Invalid CDP result');
+   if('error' in result.value||'exceptionDetails' in result.value)
+    throw new Error('Nested CDP evaluation error');
+   const value=descriptor(result.value,'value');
+   if(!value||!Object.hasOwn(value,'value'))throw new Error('Invalid CDP value');
+   text=value.value;
+  }catch{
+   throw new Error('Pinned unpacked manager Allow User Scripts CDP evaluation failed');
+  }
+  if(typeof text==='string'&&text.length<=256){
    try{receipt=JSON.parse(text);}catch{}
   }
   if(receipt?.available===true&&Object.keys(receipt).length===1)return;
@@ -579,11 +600,28 @@ export async function readViolentmonkeyFixtureObservation(input:{
   let answer;
   try{answer=await input.send('Page.getFrameTree');}
   catch{throw new Error('Isolated fixture frame inspection failed');}
-  const frame=answer?.frameTree?.frame;
-  if(frame?.id!==input.frameId||frame.url!==input.url||typeof frame.loaderId!=='string'||
-     !frame.loaderId||frame.loaderId.length>128)
+  let frameId:unknown,pageUrl:unknown,loaderId:unknown;
+  try{
+   // CDP protocol faults, inherited fields and getters can never authenticate
+   // the loopback frame or expose private transport error details.
+   const ownData=(candidate:unknown,key:string):unknown=>{
+    if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+       'error' in candidate||'exceptionDetails' in candidate)
+     throw new Error('Invalid isolated frame CDP envelope');
+    const field=Object.getOwnPropertyDescriptor(candidate,key);
+    if(!field||!Object.hasOwn(field,'value'))
+     throw new Error('Invalid isolated frame CDP data');
+    return field.value;
+   };
+   const frame=ownData(ownData(answer,'frameTree'),'frame');
+   frameId=ownData(frame,'id');
+   pageUrl=ownData(frame,'url');
+   loaderId=ownData(frame,'loaderId');
+  }catch{throw new Error('Isolated fixture frame inspection failed');}
+  if(frameId!==input.frameId||pageUrl!==input.url||typeof loaderId!=='string'||
+     !loaderId||loaderId.length>128)
    throw new Error('Isolated fixture document identity changed');
-  return frame.loaderId as string;
+  return loaderId;
  };
  let observedFreshDocument=false;
  for(let attempt=0;attempt<72;attempt++){
@@ -598,13 +636,27 @@ export async function readViolentmonkeyFixtureObservation(input:{
      returnByValue:true,
     });
    }catch{throw new Error('Isolated GM fixture evaluation failed');}
-   if(answer?.exceptionDetails)throw new Error('Isolated GM fixture evaluation failed');
+   // Accept only CDP own-data response fields. An inherited protocol error
+   // or an accessor must not turn a forged fixture result into GM evidence,
+   // execute a hostile getter, or leak exception text.
+   let value:unknown;
+   try{
+    const ownData=(candidate:unknown,key:string):unknown=>{
+     if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+        'error' in candidate||'exceptionDetails' in candidate)
+      throw new Error('Invalid CDP evaluation envelope');
+     const field=Object.getOwnPropertyDescriptor(candidate,key);
+     if(!field||!Object.hasOwn(field,'value'))
+      throw new Error('Invalid CDP evaluation field');
+     return field.value;
+    };
+    value=ownData(ownData(answer,'result'),'value');
+   }catch{throw new Error('Isolated GM fixture evaluation failed');}
    const after=await currentFrame();
    if(after!==before)throw new Error('Isolated fixture document identity changed');
    // A valid-looking CDP reply is not evidence from a live manager if CFT
    // exited during the evaluation or its final pinned-document check.
    if(input.hasExited())throw new Error('Isolated CFT exited during GM fixture observation');
-   const value=answer?.result?.value;
    if(value!==undefined&&value!==null){
     if(typeof value!=='string'||value.length>1024)throw new Error('Invalid bounded GM fixture receipt');
     let receipt;

@@ -25,3 +25,22 @@ test('RG-07 CDP page URL rejects parser-normalized whitespace and raw controls',
   assert.throws(()=>assertCredentialFreePageUrl(input),/invalid|credential/i);
  }
 });
+
+test('RG-07 CDP page URL rejects raw C1 controls before WHATWG normalization',()=>{
+ const base='https://fixture.example.invalid/editor?view=review';
+ for(const control of ['\\u0080','\\u0085','\\u009f']){
+  const raw=JSON.parse('"'+control+'"') as string;
+  for(const input of [
+   'https://fixture.example.invalid/edit'+raw+'or?view=review',
+   base+'&label='+raw+'hidden',
+  ]){
+   assert.throws(()=>assertCredentialFreePageUrl(input),/invalid|credential/i,
+    'raw C1 controls must not be accepted as selected CDP page identities');
+  }
+ }
+ // Encoded data are legitimate literal URL bytes, not raw control characters.
+ assert.doesNotThrow(()=>assertCredentialFreePageUrl(
+  'https://fixture.example.invalid/editor?label=%C2%85&view=review'));
+ assert.doesNotThrow(()=>assertCredentialFreePageUrl(
+  'https://fixture.example.invalid/%E6%B5%8B%E8%AF%95?view=review'));
+});

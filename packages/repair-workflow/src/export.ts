@@ -1,4 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
+import type {BigIntStats} from 'node:fs';
 import {join,isAbsolute,relative,dirname,basename,sep} from 'node:path';
 import {lstat,realpath,open,link,unlink,mkdir,rmdir,type FileHandle} from 'node:fs/promises';
 import {readPinnedRegularFile} from '../../runtime-paths/src/pinned-file.ts';
@@ -14,12 +15,16 @@ type ExportChunkWriter=(file:FileHandle,chunk:Uint8Array,position:number)=>Promi
  * A failed or crashed staging write cannot create an incomplete final output.
  * No automatic fallback to rename/copy (which may overwrite a competing file).
  */
-export async function publishExclusiveExport({destinationPath,bytes,writeChunk,beforePublish}:{
+export async function publishExclusiveExport({destinationPath,bytes,writeChunk,beforePublish,afterLink,afterPublishedStat}:{
  destinationPath:string;bytes:Uint8Array;
  /** File fault simulation for deterministic recovery tests; never exposed via IPC. */
  writeChunk?:ExportChunkWriter;
  /** Deterministic late destination collision injection, used only in tests. */
  beforePublish?:()=>Promise<void>;
+ /** Synthetic fault injection after link publication; never passed through desktop IPC. */
+ afterLink?:()=>Promise<void>;
+ /** Test-only race injection after the first destination inode check. */
+ afterPublishedStat?:()=>Promise<void>;
 }):Promise<void>{
  if(typeof destinationPath!=='string'||!isAbsolute(destinationPath)||
     !/\.user\.js$/i.test(destinationPath)||
@@ -27,17 +32,34 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
   throw new Error('Invalid exclusive export destination or byte budget');
  const expectedHash=createHash('sha256').update(bytes).digest('hex');
  const stage=join(dirname(destinationPath),'.'+basename(destinationPath)+'.staging-'+randomUUID()+'.tmp');
- const validate=async(path:string)=>{
+ // A staging pathname is not an identity: another process may rename it
+ // after verification and create a different file under the same name.
+ // Bind publication to the descriptor we exclusively created, not just hash.
+ const sameObject=(a:BigIntStats,b:BigIntStats):boolean=>
+  a.isFile()&&!a.isSymbolicLink()&&b.isFile()&&!b.isSymbolicLink()&&
+  a.dev===b.dev&&a.ino===b.ino&&a.birthtimeNs===b.birthtimeNs&&
+  a.mode===b.mode;
+ const validate=async(path:string,approved?:BigIntStats)=>{
   const info=await lstat(path);
-  if(!info.isFile()||info.isSymbolicLink())throw new Error('Unsafe exported file');
-  const actual=await readPinnedRegularFile(path,{maxBytes:512*1024,expected:info,expectedNative:await lstat(path,{bigint:true})});
-  if(createHash('sha256').update(actual).digest('hex')!==expectedHash)
-   throw new Error('Exported userscript verification hash mismatch');
+  const native=await lstat(path,{bigint:true});
+  if(!info.isFile()||info.isSymbolicLink()||
+     (approved&&(!sameObject(approved,native)||native.nlink!==1n||
+      approved.size!==native.size||approved.mtimeNs!==native.mtimeNs||
+      approved.ctimeNs!==native.ctimeNs)))
+   throw new Error('Unsafe or replaced export staging file identity');
+  await readPinnedRegularFile(path,{
+   maxBytes:512*1024,expected:info,expectedNative:native,expectedSha256:expectedHash,
+  });
  };
  let file:FileHandle|undefined;
+ let createdStage:BigIntStats|undefined;
+ let approvedStage:BigIntStats|undefined;
+ let publishedStage:BigIntStats|undefined;
+ let linked=false;
  let failure:unknown;
  try{
   file=await open(stage,'wx',0o600);
+  createdStage=await file.stat({bigint:true});
   let position=0;
   const write:ExportChunkWriter=writeChunk??(async(handle,chunk,offset)=>
    (await handle.write(chunk,0,chunk.length,offset)).bytesWritten);
@@ -49,9 +71,12 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
    position+=wrote;
   }
   await file.sync();
+  approvedStage=await file.stat({bigint:true});
   await file.close();file=undefined;
-  await validate(stage);
+  await validate(stage,approvedStage);
   if(beforePublish)await beforePublish();
+  // A hook or concurrent writer may have replaced the once-verified path.
+  await validate(stage,approvedStage);
   try{await link(stage,destinationPath);}
   catch(error){
    const code=(error as NodeJS.ErrnoException).code;
@@ -61,14 +86,51 @@ export async function publishExclusiveExport({destinationPath,bytes,writeChunk,b
     throw new Error('Destination filesystem cannot safely publish an exclusive userscript export (hard links required)',{cause:error});
    throw error;
   }
+  linked=true;
+  if(afterLink)await afterLink();
+  publishedStage=await lstat(destinationPath,{bigint:true});
+  if(!approvedStage||!sameObject(approvedStage,publishedStage)||
+     approvedStage.size!==publishedStage.size||
+     approvedStage.mtimeNs!==publishedStage.mtimeNs||
+     // One staging name and one final name are the only authorized hardlinks.
+     // A third alias means an independent writer retained a pathname.
+     publishedStage.nlink!==2n)
+   throw new Error('Exported userscript publication identity changed');
+  if(afterPublishedStat)await afterPublishedStat();
   await validate(destinationPath);
+  // Content equality cannot establish ownership: a competing writer can
+  // replace the final pathname with byte-identical content during the read.
+  // Fence the validated bytes to the previously observed linked inode.
+  const finalStage=await lstat(destinationPath,{bigint:true});
+  if(!sameObject(publishedStage,finalStage)||
+     publishedStage.size!==finalStage.size||
+     publishedStage.mtimeNs!==finalStage.mtimeNs||
+     finalStage.nlink!==2n)
+   throw new Error('Exported userscript publication identity changed after validation');
  }catch(error){failure=error;}
  if(file){try{await file.close();}catch(error){failure??=error;}}
- try{await unlink(stage);}
- catch(error){
-  if((error as NodeJS.ErrnoException).code!=='ENOENT'){
-   if(failure!==undefined)throw new AggregateError([failure,error],'Export staging cleanup failed');
-   throw error;
+ // The first destination stat can fail, or observe a *different writer's*
+ // replacement. A failed publication may withdraw only the original staged
+ // descriptor we linked, never an unrelated file seen at that pathname.
+ if(failure!==undefined&&linked&&approvedStage){
+  try{
+   const current=await lstat(destinationPath,{bigint:true});
+   if(sameObject(approvedStage,current))await unlink(destinationPath);
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')
+    failure=new AggregateError([failure,error],'Export publication rollback failed');
+  }
+ }
+ // A swapped staging pathname belongs to the other writer. Never delete it.
+ if(createdStage){
+  try{
+   const current=await lstat(stage,{bigint:true});
+   if(sameObject(createdStage,current))await unlink(stage);
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT'){
+    if(failure!==undefined)throw new AggregateError([failure,error],'Export staging cleanup failed');
+    throw error;
+   }
   }
  }
  if(failure!==undefined)throw failure;

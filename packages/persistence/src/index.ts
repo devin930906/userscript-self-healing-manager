@@ -1,8 +1,8 @@
 import {DatabaseSync,backup} from 'node:sqlite';
 import {createHash,randomUUID} from 'node:crypto';
-import {createReadStream} from 'node:fs';
+import {createReadStream,lstatSync} from 'node:fs';
 import {lstat,link,unlink} from 'node:fs/promises';
-import {isAbsolute,dirname,basename,join} from 'node:path';
+import {isAbsolute,dirname,basename,join,resolve} from 'node:path';
 import type {ScriptHealth} from '../../contracts/src/index.ts';
 
 class UnsupportedRegistrySchemaError extends Error {
@@ -45,9 +45,45 @@ export interface ScriptRecord {
   metadataJson:string; createdAt:string;updatedAt:string;
 }
 export type DatabaseHandle=DatabaseSync;
+/** Before SQLite can open writable registry/WAL files, reject extant
+ * symlinks, junction ancestors and hardlinks to separately owned storage.
+ * Deliberately preserve :memory: for isolated module-level tests.
+ * This does not pin Win32 handles against hostile post-check rename races.
+ */
+function assertSafeRegistryDatabasePath(file:string):void{
+ if(file===':memory:')return;
+ if(typeof file!=='string'||!isAbsolute(file)||file.length>4096||
+    file.split(/[\\/]/).includes('..'))
+  throw new Error('Unsafe registry SQLite database path');
+ const directories:string[]=[];
+ for(let current=dirname(resolve(file));;){
+  directories.push(current);
+  const parent=dirname(current);
+  if(current===parent)break;
+  current=parent;
+ }
+ for(const directory of directories.reverse()){
+  const info=lstatSync(directory);
+  if(!info.isDirectory()||info.isSymbolicLink())
+   throw new Error('Unsafe registry SQLite directory: linked ancestor');
+ }
+ for(const entry of [file,file+'-wal',file+'-shm',file+'-journal']){
+  try{
+   const info=lstatSync(entry);
+   if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||
+      !Number.isSafeInteger(info.size)||info.size<0)
+    throw new Error('Unsafe registry SQLite file or sidecar: linked or invalid file');
+  }catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
+ }
+}
 export function openDatabase(path:string):DatabaseHandle{
  let db:DatabaseSync;
- try{db=new DatabaseSync(path);}catch(error){throw classifyDatabaseError(error);}
+ try{
+  assertSafeRegistryDatabasePath(path);
+  db=new DatabaseSync(path);
+ }catch(error){throw classifyDatabaseError(error);}
  try{
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');

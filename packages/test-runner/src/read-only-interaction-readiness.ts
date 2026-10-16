@@ -31,27 +31,51 @@ export interface ReadinessDeps{
 }
 type Sample={fingerprint:string;listenerCount:number};
 const safeId=/^[0-9a-f]{64}$/;
+/** Runtime adapter receipts are untrusted JSON-like values, not JavaScript
+ * proof objects. Inherited properties and accessors cannot authorize a
+ * potentially-ready product control or execute adapter-owned getters. */
+function ownData(value:unknown,key:string):unknown{
+ try{
+  // Even Array.isArray throws for a revoked Proxy. Untrusted adapter packets
+  // must not execute or escape via this structural check.
+  if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+  const descriptor=Object.getOwnPropertyDescriptor(value,key);
+  return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
+ }catch{return undefined;}
+}
 function fingerprint(probe:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):string|null{
- if(!probe||probe.validationLevel!=='dom-only'||probe.targetId!==target.id||
-   probe.url!==target.url||!Array.isArray(probe.checks)||probe.checks.length!==1)return null;
- const check=probe.checks[0];
- return check&&check.method===locator.method&&check.expression===locator.expression&&
-  check.status==='found'&&check.matchCount===1&&
-  typeof check.nodeFingerprint==='string'&&safeId.test(check.nodeFingerprint)?
-   check.nodeFingerprint:null;
+ if(ownData(probe,'validationLevel')!=='dom-only'||
+    ownData(probe,'targetId')!==target.id||
+    ownData(probe,'url')!==target.url)return null;
+ const checks=ownData(probe,'checks');
+ let check:unknown;
+ try{
+  if(!Array.isArray(checks)||checks.length!==1)return null;
+  const entry=Object.getOwnPropertyDescriptor(checks,'0');
+  if(!entry||!Object.hasOwn(entry,'value'))return null;
+  check=entry.value;
+ }catch{return null;}
+ const digest=ownData(check,'nodeFingerprint');
+ return ownData(check,'method')===locator.method&&
+  ownData(check,'expression')===locator.expression&&
+  ownData(check,'status')==='found'&&ownData(check,'matchCount')===1&&
+  typeof digest==='string'&&safeId.test(digest)?digest:null;
 }
 function validateVisibility(e:ReadOnlyVisibilityEvidence,target:ChromeTarget):boolean{
- return !!e&&e.targetId===target.id&&e.url===target.url&&
-  e.validationLevel==='css-box-read-only'&&e.V2==='blocked'&&
-  e.V3==='not-configured'&&e.V4==='not-configured'&&
-  e.interactionVerified===false;
+ return ownData(e,'targetId')===target.id&&ownData(e,'url')===target.url&&
+  ownData(e,'validationLevel')==='css-box-read-only'&&
+  ownData(e,'V2')==='blocked'&&ownData(e,'V3')==='not-configured'&&
+  ownData(e,'V4')==='not-configured'&&ownData(e,'interactionVerified')===false&&
+  ownData(e,'status')!==undefined&&ownData(e,'matchCount')!==undefined&&
+  ownData(e,'pointerBlocked')!==undefined&&ownData(e,'controlBlocker')!==undefined;
 }
 function validateListeners(e:ReadOnlyEventListenerEvidence,target:ChromeTarget):boolean{
- return !!e&&e.targetId===target.id&&e.url===target.url&&
-  e.validationLevel==='direct-event-listener-read-only'&&
-  e.eventType==='click'&&e.V2==='blocked'&&
-  e.V3==='not-configured'&&e.V4==='not-configured'&&
-  e.interactionVerified===false;
+ return ownData(e,'targetId')===target.id&&ownData(e,'url')===target.url&&
+  ownData(e,'validationLevel')==='direct-event-listener-read-only'&&
+  ownData(e,'eventType')==='click'&&ownData(e,'V2')==='blocked'&&
+  ownData(e,'V3')==='not-configured'&&ownData(e,'V4')==='not-configured'&&
+  ownData(e,'interactionVerified')===false&&
+  ownData(e,'status')!==undefined&&ownData(e,'listenerCount')!==undefined;
 }
 /**
  * Bounded, two-sample correlation of live DOM node identity, basic CSS control
@@ -236,12 +260,24 @@ export async function runReadOnlyVisibilityWait({
   try{pre=await deps.probe(target,[locator]);}
   catch{await guard();return result('needs-review',samples,'DOM observation unavailable');}
   await guard();
-  if(!pre||pre.validationLevel!=='dom-only'||pre.targetId!==target.id||
-     pre.url!==target.url||!Array.isArray(pre.checks)||pre.checks.length!==1||
-     pre.checks[0]?.method!==locator.method||pre.checks[0]?.expression!==locator.expression)
+  // The wait path must not dereference untrusted CDP adapter properties:
+  // accessor-backed/inherited evidence can run hostile getters, even when
+  // the eventual fingerprint check would reject that same evidence.
+  const checks=ownData(pre,'checks');
+  let observed:unknown;
+  try{
+   if(Array.isArray(checks)&&checks.length===1){
+    const entry=Object.getOwnPropertyDescriptor(checks,'0');
+    if(entry&&Object.hasOwn(entry,'value'))observed=entry.value;
+   }
+  }catch{/* Revoked or forged arrays cannot provide trusted evidence. */}
+  if(ownData(pre,'validationLevel')!=='dom-only'||
+     ownData(pre,'targetId')!==target.id||
+     ownData(pre,'url')!==target.url||
+     ownData(observed,'method')!==locator.method||
+     ownData(observed,'expression')!==locator.expression)
    return result('needs-review',samples,'Inconsistent DOM visibility wait evidence');
-  const observed=pre.checks[0]!;
-  if(observed.status==='missing'&&observed.matchCount===0){
+  if(ownData(observed,'status')==='missing'&&ownData(observed,'matchCount')===0){
    prior=null;consecutive=0;
   }else{
    const key=fingerprint(pre,target,locator);
