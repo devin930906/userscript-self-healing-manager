@@ -26,3 +26,23 @@ test('RG-05 synthetic CFT control checks runtime.onMessage across a real Chrome 
  assert.match(source,/runtime messaging survived process restart/i,
   'control must report the bounded post-restart result without implying GM or V4 success');
 });
+
+test('RG-05 real synthetic MV3 control requires background/content message roundtrip on both browser processes',async()=>{
+ const source=await readFile(new URL('../../scripts/smoke-extension-cft.mjs',import.meta.url),'utf8');
+ assert.match(source,/background\.js/,
+  'a separate MV3 service worker must reply to the actual content script');
+ assert.match(source,/chrome\.runtime\.onMessage\.addListener/,
+  'a genuine extension runtime listener must respond; property checks alone are insufficient');
+ assert.match(source,/chrome\.runtime\.sendMessage/,
+  'content script must initiate runtime message delivery to the background service worker');
+ assert.match(source,/data-usshm-extension-roundtrip/,
+  'only a genuine received reply may publish a successful bounded fixture marker');
+ assert.match(source,/expression:'\[data-usshm-extension-roundtrip="yes"\]'/,
+  'CDP must require a positive roundtrip marker, not only onMessage availability');
+ assert.match(source,/probe\.checks\.length===3/,
+  'both original and restarted document must pass the three independent synthetic checks');
+ assert.match(source,/roundtrip.*survived process restart/i,
+  'stdout must distinguish genuine roundtrip from API availability');
+ assert.doesNotMatch(source,/--no-sandbox|chrome\.userScripts\.register|GetInjected|GM_getValue/,
+  'synthetic control cannot bypass sandbox, prewarm official manager or claim a GM pass');
+});
