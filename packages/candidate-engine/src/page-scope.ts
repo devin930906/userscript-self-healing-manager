@@ -67,12 +67,25 @@ function readScopeRules(source:object,key:string,optional=false):string[]|null{
  const count=ownLength?.value;
  if(!ownLength||!Object.hasOwn(ownLength,'value')||
     !Number.isSafeInteger(count)||count<0||count>256)return null;
+ // Even own property descriptors can be forged by a Proxy while the
+ // underlying array still contains real @exclude entries. Verify every
+ // indexed own key and reject custom fields before cloning; otherwise an
+ // unrelated enumerable accessor could run during structuredClone.
+ const keys=Reflect.ownKeys(values);
+ if(keys.length!==count+1||keys[count]!=='length')return null;
  const rules:string[]=[];
  for(let i=0;i<count;i++){
+  if(keys[i]!==String(i))return null;
   const item=Object.getOwnPropertyDescriptor(values,String(i));
   if(!item||!Object.hasOwn(item,'value')||typeof item.value!=='string')return null;
   rules.push(item.value);
  }
+ // A Proxy can lie consistently about both descriptors and ownKeys.
+ // structuredClone rejects Proxies; after the complete data-slot census it
+ // cannot invoke an unexpected own getter on an ordinary rules array.
+ const cloned=structuredClone(values);
+ if(!Array.isArray(cloned)||cloned.length!==count||
+    cloned.some((rule,index)=>rule!==rules[index]))return null;
  return rules;
 }
 export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:string):PageScopeResult {
