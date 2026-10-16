@@ -105,7 +105,7 @@ test('FR-014 rejects malformed or forged selected scenario records before claimi
  const forged=[
   {...authentic,id:'not-a-canonical-uuid'},
   {...authentic,scriptId:'../other-script'},
-  {...authentic,label:'Danger\\nInjected'},
+  {...authentic,label:'Danger'+String.fromCharCode(10)+'Injected'},
   {...authentic,stateId:'admin-verified'},
   {...authentic,extra:'unreviewed'},
  ];
