@@ -56,6 +56,13 @@ test('RG-05 accessor-backed target type/url cannot run getters and malformed tar
  assert.equal(calls,0);
 });
 
+test('RG-05 revoked target list proxy must fail closed without throwing',async()=>{
+ const hostile=Proxy.revocable([],{});hostile.revoke();
+ assert.deepEqual(await summarize({targetInfos:hostile.proxy}),{
+  status:'unavailable',serviceWorkers:null,backgroundPages:null,
+ });
+});
+
 test('RG-05 official worker census is passive post-GM only and never substitutes for manager gate',async()=>{
  const script=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  assert.match(script,/summarizeOfficialManagerWorkerTargets/);
