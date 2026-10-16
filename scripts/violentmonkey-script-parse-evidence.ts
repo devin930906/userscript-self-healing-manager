@@ -67,7 +67,15 @@ export function createPinnedOfficialInjectorExceptionAttribution(frameId:string,
  return Object.freeze({
   observe(method:string,params:unknown):void{
    if(method==='Runtime.executionContextsCleared'){
-    contexts.clear();sources.clear();return;
+    // Document epoch changed: a prior page's official exception must not
+    // masquerade as the current document's injector root cause. The caller
+    // records a bounded first-document receipt before its approved reload.
+    contexts.clear();sources.clear();
+    web=false;injected=false;unattributed=false;
+    injectedClass='not-observed';
+    injectedSignature='not-observed';
+    injectedSite='not-observed';
+    return;
    }
    if(method==='Runtime.executionContextDestroyed'){
     const id=ownData(params,'executionContextId');
