@@ -90,6 +90,33 @@ function validateState(value:unknown):Saved{
  }
  return {schemaVersion:1,cases};
 }
+/**
+ * Materialize only the five exact own DATA fields at the public scene-object
+ * boundary. A caller-supplied getter must not execute merely because the
+ * user is inspecting or approving removal of a saved scenario. Read each
+ * descriptor once, so Proxy get traps cannot substitute a later URL/state.
+ * Objects from persisted JSON are already plain data; still guard exported
+ * library entrypoints independently of their callers.
+ */
+function snapshotSceneRecord(input:unknown):SiteTestCase{
+ if(!input||typeof input!=='object'||Array.isArray(input))
+  throw new Error('Invalid site test case record');
+ let own:PropertyDescriptorMap;
+ try{own=Object.getOwnPropertyDescriptors(input);}
+ catch{throw new Error('Invalid site test case record');}
+ const keys=Reflect.ownKeys(own);
+ if(keys.length!==5||keys.some(key=>typeof key!=='string')||
+    (keys as string[]).sort().join(',')!=='id,label,scriptId,stateId,url')
+  throw new Error('Invalid site test case record');
+ const row=Object.create(null) as Record<string,unknown>;
+ for(const key of ['id','label','scriptId','stateId','url']){
+  const descriptor=own[key];
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))
+   throw new Error('Invalid accessor-backed site test case record');
+  row[key]=descriptor.value;
+ }
+ return row as unknown as SiteTestCase;
+}
 /** Closed, bounded snapshot schema gate for *non-active* core recovery.
  * Never imports scripts or silently repairs an invalid stored configuration. */
 export function assertSiteTestCaseRegistryBytes(bytes:Uint8Array):void{
@@ -285,7 +312,7 @@ export async function removeSiteTestCase({dataRoot,scriptId,caseId,approved,expe
  // A boolean cannot stand in for consent to whichever record exists later.
  let consent:SiteTestCase;
  try{
-  consent=validateState({schemaVersion:1,cases:[expected]}).cases[0]!;
+  consent=validateState({schemaVersion:1,cases:[snapshotSceneRecord(expected)]}).cases[0]!;
  }catch{throw new Error('Exact native-confirmed expected site test case record required');}
  if(consent.id!==caseId||consent.scriptId!==scriptId)
   throw new Error('Expected site test case does not match removal consent');
@@ -322,7 +349,7 @@ export function verifySiteTestCaseSelection({entry,selectedUrl,metadata}:{
  // field cannot be promoted to a configured-page match.
  let stored:string;
  try{
-  stored=validateState({schemaVersion:1,cases:[entry]}).cases[0]!.url;
+  stored=validateState({schemaVersion:1,cases:[snapshotSceneRecord(entry)]}).cases[0]!.url;
  }catch{return result('scope-blocked');}
  if(checkUserscriptPageScope(metadata,stored).status!=='allowed')
   return result('scope-blocked');
