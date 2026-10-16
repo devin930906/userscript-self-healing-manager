@@ -16,3 +16,20 @@ export function readVerifiedOfficialManagerCdpReply(reply:unknown):Record<string
   throw new Error('CDP command failed');
  }
 }
+
+/**
+ * RG-05 synthetic Chrome USER_SCRIPT controls must not treat a protocol
+ * failure (including falsy or inherited errors), exception, or accessor-backed
+ * value as a successful registration, reply, or cleanup receipt.
+ * This never returns CDP errors or private extension data to diagnostics.
+ */
+export function readVerifiedDirectChromeControlValue(reply:unknown):unknown{
+ try{
+  const result=readVerifiedOfficialManagerCdpReply(reply);
+  const data=Object.getOwnPropertyDescriptor(result,'value');
+  if(!data||!Object.hasOwn(data,'value'))throw new Error('missing');
+  return data.value;
+ }catch{
+  throw new Error('Invalid direct Chrome CDP control receipt');
+ }
+}
