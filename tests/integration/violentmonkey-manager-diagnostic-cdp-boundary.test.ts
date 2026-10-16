@@ -53,14 +53,16 @@ test('RG-07 manager read-only diagnostic never invokes hostile CDP getters',()=>
 test('RG-05 four official manager diagnostics validate protocol envelopes before trusting data',async()=>{
  const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  const sections=[
-  ['readManagerInjectionOptions','readManagerFixtureMatch',160],
-  ['readManagerFixtureMatch','readManagerFixtureRegistration',80],
-  ['readManagerFixtureRegistration','readManagerWorldConfiguration',160],
-  ['readManagerWorldConfiguration','const profile=await mkdtemp',160],
+  ['readManagerInjectionOptions',160],
+  ['readManagerFixtureMatch',80],
+  ['readManagerFixtureRegistration',160],
+  ['readManagerWorldConfiguration',160],
  ] as const;
- for(const [name,next,maxBytes] of sections){
+ for(const [name,maxBytes] of sections){
   const begin=source.indexOf('async function '+name+'(');
-  const end=source.indexOf(next.startsWith('const profile')?next:'async function '+next+'(',begin+1);
+  // Bound each assertion to its own actual function, not subsequent
+  // unrelated diagnostic helpers which may use separate CDP contracts.
+  const end=source.indexOf('\n}\n',begin+1)+3;
   assert.ok(begin>=0&&end>begin,'must find separate '+name+' adapter');
   const segment=source.slice(begin,end);
   assert.ok(segment.includes('readViolentmonkeyManagerDiagnosticCdpValue('),
