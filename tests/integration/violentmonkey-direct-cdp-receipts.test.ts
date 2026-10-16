@@ -19,13 +19,8 @@ test('RG-05 synthetic direct control rejects falsy and inherited CDP errors with
   {error:0,result:{value:'registered'}},
   {error:null,result:{value:'removed'}},
   {exceptionDetails:false,result:{value:'verified'}},
-  {result:{value:'registered',get danger(){throw Error(sentinel);}}},
   {result:{__proto__:null}}, 
  ]){
-  // The extra uninspected result getter in an otherwise valid object does
-  // not automatically poison the trusted descriptor for the fixed value.
-  if(candidate&&typeof candidate==='object'&&!Array.isArray(candidate)&&
-     'result' in candidate&&'danger' in (candidate as any).result)continue;
   assert.throws(()=>readVerifiedDirectChromeControlValue(candidate),error=>{
    assert.ok(error instanceof Error);
    assert.equal(error.message,'Invalid direct Chrome CDP control receipt');
