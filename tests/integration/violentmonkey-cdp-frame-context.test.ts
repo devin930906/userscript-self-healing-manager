@@ -51,3 +51,41 @@ test('RG-05 a destroyed or cleared fixture execution context cannot certify a la
   'missing context identity cannot certify a new isolated execution world');
  assert.doesNotMatch(JSON.stringify(e.snapshot()),/bounded-fixture|41|42|43|PRIVATE/);
 });
+
+test('RG-05 context observer rejects inherited and accessor-backed CDP metadata without evaluating getters',async()=>{
+ const {createIsolatedFixtureFrameContextEvidence}=await import('../../scripts/violentmonkey-frame-context-evidence.ts');
+ const e=createIsolatedFixtureFrameContextEvidence('bounded-fixture');
+ let getters=0;
+ const isolated={id:91,auxData:{frameId:'bounded-fixture',isDefault:false}};
+ const inherited=Object.create({context:isolated});
+ const accessorParams={};
+ Object.defineProperty(accessorParams,'context',{enumerable:true,get(){getters++;return isolated;}});
+ const accessorContext={id:92};
+ Object.defineProperty(accessorContext,'auxData',{enumerable:true,get(){getters++;return isolated.auxData;}});
+ const accessorAux={frameId:'bounded-fixture'};
+ Object.defineProperty(accessorAux,'isDefault',{enumerable:true,get(){getters++;return false;}});
+ for(const event of [
+  inherited,
+  accessorParams,
+  {context:accessorContext},
+  {context:{id:93,auxData:accessorAux}},
+  {context:{id:94,auxData:Object.create({frameId:'bounded-fixture',isDefault:false})}},
+  {context:Object.create({id:95,auxData:isolated.auxData})},
+ ]){
+  assert.doesNotThrow(()=>e.observe('Runtime.executionContextCreated',event));
+  assert.deepEqual(e.snapshot(),{defaultContextObserved:false,isolatedContextObserved:false},
+   'invalid or inherited context receipt must not create a false isolated-world observation');
+ }
+ assert.equal(getters,0,'diagnostic sampling must not execute accessor-backed metadata');
+ e.observe('Runtime.executionContextCreated',{context:{id:96,auxData:{frameId:'bounded-fixture',isDefault:false}}});
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:false,isolatedContextObserved:true});
+ const destroyed={};
+ Object.defineProperty(destroyed,'executionContextId',{enumerable:true,get(){getters++;return 96;}});
+ assert.doesNotThrow(()=>e.observe('Runtime.executionContextDestroyed',destroyed));
+ e.observe('Runtime.executionContextDestroyed',Object.create({executionContextId:96}));
+ assert.equal(getters,0,'destroyed-context metadata accessors must not be invoked');
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:false,isolatedContextObserved:true},
+  'forged destruction must not remove a live context');
+ e.observe('Runtime.executionContextDestroyed',{executionContextId:96});
+ assert.deepEqual(e.snapshot(),{defaultContextObserved:false,isolatedContextObserved:false});
+});
