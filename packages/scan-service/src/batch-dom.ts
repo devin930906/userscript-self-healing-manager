@@ -223,11 +223,13 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   try{
    const context=await deps.summarize(target);
    await checkIdentity();
-   if(context.targetId!==target.id||context.url!==target.url||
-      !Number.isSafeInteger(context.authorShadowTreeNodes)||context.authorShadowTreeNodes<0||
-      context.authorShadowTreeNodes>200_000)
+   const shadowCount=ownProbeData(context,'authorShadowTreeNodes');
+   if(ownProbeData(context,'targetId')!==target.id||
+      ownProbeData(context,'url')!==target.url||
+      !Number.isSafeInteger(shadowCount)||(shadowCount as number)<0||
+      (shadowCount as number)>200_000)
     throw new Error('Invalid Shadow DOM context evidence');
-   shadowContext=context.authorShadowTreeNodes>0?'present':'absent';
+   shadowContext=(shadowCount as number)>0?'present':'absent';
   }catch{
    // Even an unsuccessful snapshot must not disguise a page navigation.
    await checkIdentity();
