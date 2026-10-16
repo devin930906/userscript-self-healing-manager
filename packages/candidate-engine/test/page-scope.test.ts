@@ -236,3 +236,64 @@ test('RG-01 bounds untrusted page URLs before parsing or matching activation rul
  assert.equal(verdict.reason,'Invalid page URL');
  assert.equal(checkUserscriptPageScope(scope,'https://example.org/valid').status,'allowed');
 });
+
+
+test('RG-01 raw Proxy cannot hide an existing exclude by forging absence descriptors',()=>{
+ const deny='https://example.org/private/*';
+ for(const key of ['exclude','exclude-match'] as const){
+  let propertyReads=0;
+  const realRaw:Record<string,string[]>={[key]:[deny]};
+  const forgedRaw=new Proxy(realRaw,{
+   getOwnPropertyDescriptor(target,property){
+    return property===key?undefined:Reflect.getOwnPropertyDescriptor(target,property);
+   },
+   has(target,property){return property===key?false:Reflect.has(target,property);},
+   get(target,property,receiver){
+    propertyReads++;
+    return Reflect.get(target,property,receiver);
+   },
+  });
+  const verdict=checkUserscriptPageScope(
+   meta(['https://example.org/*'],[],forgedRaw),'https://example.org/private/page');
+  assert.equal(verdict.status,'unknown','a forged missing deny rule is not authorization');
+  assert.equal(propertyReads,0,'never execute get traps while validating deny metadata');
+ }
+});
+
+test('RG-01 root Proxy cannot replace genuine raw deny rules with a forged empty descriptor',()=>{
+ const actual=meta(['https://example.org/*'],[],{exclude:['https://example.org/private/*']});
+ let getterReads=0;
+ const forged=new Proxy(actual,{
+  getOwnPropertyDescriptor(target,key){
+   if(key==='raw')return {...Reflect.getOwnPropertyDescriptor(target,key)!,value:{}};
+   return Reflect.getOwnPropertyDescriptor(target,key);
+  },
+  get(target,key,receiver){
+   getterReads++;
+   return Reflect.get(target,key,receiver);
+  },
+ });
+ assert.equal(checkUserscriptPageScope(forged,'https://example.org/private/page').status,'unknown');
+ assert.equal(getterReads,0);
+});
+
+test('RG-01 extra metadata getters are never executed when rejecting unknown fields',()=>{
+ const allowed=meta(['https://example.org/*']);
+ let reads=0;
+ Object.defineProperty(allowed,'irrelevantPrivateField',{enumerable:true,configurable:true,
+  get(){reads++;throw new Error('SENSITIVE_METADATA_GETTER');},
+ });
+ const verdict=checkUserscriptPageScope(allowed,'https://example.org/page');
+ assert.equal(verdict.status,'unknown');
+ assert.equal(reads,0);
+ assert.doesNotMatch(JSON.stringify(verdict),/SENSITIVE_METADATA_GETTER/);
+});
+
+test('RG-01 parsed-shaped plain metadata remains authorized when all scopes are safe',()=>{
+ const allowed={
+  name:'synthetic',match:['https://example.org/*'],include:[],
+  exclude:[],require:[],grant:[],runAt:'document-idle',version:null,
+  diagnostics:[],raw:Object.assign(Object.create(null),{name:['synthetic'],match:['https://example.org/*']}),
+ };
+ assert.equal(checkUserscriptPageScope(allowed,'https://example.org/public').status,'allowed');
+});
