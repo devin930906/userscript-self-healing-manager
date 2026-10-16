@@ -344,48 +344,66 @@ export function buildViolentmonkeyProfileDeveloperModeExpression():string{
  */
 export function buildDisposableProfileDeveloperModeExpression():string{
  return `(async()=>{
+  if(location.href!=='chrome://extensions/')return 'page-context';
   try{
-   if(location.href!=='chrome://extensions/')return 'unavailable';
    const api=chrome.developerPrivate;
    if(typeof api?.getProfileConfiguration!=='function'||
-      typeof api?.updateProfileConfiguration!=='function')return 'unavailable';
-   const before=await api.getProfileConfiguration();
+      typeof api?.updateProfileConfiguration!=='function')return 'settings-api';
+   let before;
+   try{before=await api.getProfileConfiguration();}
+   catch{return 'settings-api';}
    const previous=before&&typeof before==='object'?
     Object.getOwnPropertyDescriptor(before,'inDeveloperMode'):null;
    const policy=before&&typeof before==='object'?
     Object.getOwnPropertyDescriptor(before,'isDeveloperModeControlledByPolicy'):null;
    if(!previous||!Object.hasOwn(previous,'value')||
-      typeof previous.value!=='boolean'||policy?.value===true)return 'unavailable';
-   if(previous.value!==true)
-    await api.updateProfileConfiguration({inDeveloperMode:true});
-   const after=await api.getProfileConfiguration();
+      typeof previous.value!=='boolean')return 'unsupported-state';
+   if(policy?.value===true)return 'policy';
+   if(previous.value!==true){
+    try{await api.updateProfileConfiguration({inDeveloperMode:true});}
+    catch{return 'update-failed';}
+   }
+   let after;
+   try{after=await api.getProfileConfiguration();}
+   catch{return 'readback';}
    const state=after&&typeof after==='object'?
     Object.getOwnPropertyDescriptor(after,'inDeveloperMode'):null;
    const afterPolicy=after&&typeof after==='object'?
     Object.getOwnPropertyDescriptor(after,'isDeveloperModeControlledByPolicy'):null;
    return state&&Object.hasOwn(state,'value')&&state.value===true&&
-    afterPolicy?.value!==true?'enabled':'unavailable';
-  }catch{return 'unavailable';}
+    afterPolicy?.value!==true?'enabled':'readback';
+  }catch{return 'unsupported-state';}
  })()`;
 }
 
 export async function enableDisposableProfileDeveloperMode(
  send:(method:string,params:Record<string,unknown>)=>Promise<unknown>,
+ pause:(milliseconds:number)=>Promise<unknown>=wait,
 ):Promise<void>{
- if(typeof send!=='function')
+ if(typeof send!=='function'||typeof pause!=='function')
   throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
- let value:string;
- try{
-  const response=await send('Runtime.evaluate',{
-   expression:buildDisposableProfileDeveloperModeExpression(),
-   awaitPromise:true,returnByValue:true,
-  });
-  value=readViolentmonkeyManagerDiagnosticCdpValue(response,80);
- }catch{
-  throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
+ // Chrome may expose the chrome://extensions target URL before its trusted
+ // WebUI API is bound. Only that exact missing-API/readiness condition retries.
+ // Wrong page, policy restrictions, failed updates and failed readback STOP.
+ for(let attempt=0;attempt<20;attempt++){
+  let value:string;
+  try{
+   const response=await send('Runtime.evaluate',{
+    expression:buildDisposableProfileDeveloperModeExpression(),
+    awaitPromise:true,returnByValue:true,
+   });
+   value=readViolentmonkeyManagerDiagnosticCdpValue(response,80);
+  }catch{
+   throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
+  }
+  if(value==='enabled')return;
+  if(value!=='settings-api')
+   throw new Error('RG-05 disposable profile Developer Mode readback not enabled ('+
+    (['page-context','policy','update-failed','readback','unsupported-state'].includes(value)?
+      value:'invalid-receipt')+')');
+  if(attempt<19)await pause(150);
  }
- if(value!=='enabled')
-  throw new Error('RG-05 disposable profile Developer Mode readback not enabled');
+ throw new Error('RG-05 disposable profile Developer Mode WebUI not ready in bounded probes');
 }
 
 /**
