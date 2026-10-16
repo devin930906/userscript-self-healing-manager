@@ -116,9 +116,10 @@ jobs:
         continue-on-error: true
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
-          # RG-05 differential: actual visible Windows Chrome, not headless.
-          # Both genuine pre/post-restart GM receipts remain mandatory.
-          USSHM_RG05_CFT_WINDOW_MODE: 'headed'
+          # The default control remains headless; a separately authorized
+          # disposable CFT differential may explicitly select headed mode.
+          # Real official manager GM receipts remain mandatory either way.
+          USSHM_RG05_CFT_WINDOW_MODE: 'headless'
         run: node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs
       # Always fail the job if either test genuinely failed OR was skipped.
       # Per-step continue-on-error only preserves independent diagnostic execution;
