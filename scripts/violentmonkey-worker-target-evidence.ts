@@ -8,8 +8,8 @@ export type OfficialManagerWorkerCensus=Readonly<{
 
 /** Safe, data-only read of a CDP TargetInfo field. Never execute accessors. */
 function ownData(value:unknown,key:string):unknown{
- if(value===null||typeof value!=='object'||Array.isArray(value))return undefined;
  try{
+  if(value===null||typeof value!=='object'||Array.isArray(value))return undefined;
   const descriptor=Object.getOwnPropertyDescriptor(value,key);
   return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
  }catch{return undefined;}
@@ -28,11 +28,11 @@ const unavailable=():OfficialManagerWorkerCensus=>Object.freeze({
  * Hostile/inherited/accessor-backed/incomplete CDP data fails closed.
  */
 export function summarizeOfficialManagerWorkerTargets(response:unknown):OfficialManagerWorkerCensus{
- const infos=ownData(response,'targetInfos');
- if(!Array.isArray(infos)||infos.length>512)return unavailable();
  const prefix='chrome-extension://'+VIOLENTMONKEY_CFT_RELEASE.extensionId+'/';
  let serviceWorkers=0,backgroundPages=0;
  try{
+  const infos=ownData(response,'targetInfos');
+  if(!Array.isArray(infos)||infos.length>512)return unavailable();
   for(let index=0;index<infos.length;index++){
    const entry=Object.getOwnPropertyDescriptor(infos,String(index));
    if(!entry||!Object.hasOwn(entry,'value'))return unavailable();
