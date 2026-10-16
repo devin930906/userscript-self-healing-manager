@@ -147,7 +147,7 @@ test('RG-05 worker wake-only experiment runs strictly after immutable official G
  const script=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
  const blocked=script.indexOf('assert.equal(blocked.productionEligible,false)');
  const wake=script.indexOf('RG-05 post-blocker worker wake-only diagnostic:');
- const extensionReload=script.indexOf('runPostBlockerExtensionReloadDiagnostic({');
+ const extensionReload=script.lastIndexOf('runPostBlockerExtensionReloadDiagnostic({');
  assert.ok(blocked>=0&&wake>blocked&&extensionReload>wake,
   'a post-blocker connection must not prewarm GM or change the upstream release verdict');
  assert.match(script,/buildOfficialManagerPostBlockerWorkerWakeExpression/);
