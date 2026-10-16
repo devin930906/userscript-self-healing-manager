@@ -51,3 +51,29 @@ test('RG-01 rejects accessor-backed status/count receipts instead of crediting f
  }
  assert.equal(getterCalls,0);
 });
+
+
+test('RG-01 revoked CDP summary row remains inconclusive without throwing',()=>{
+ const revoked=Proxy.revocable({status:'found' as const,matchCount:1,method:'querySelector'},{});
+ revoked.revoke();
+ const result=summarizeLiveLocatorCheck([revoked.proxy]);
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.found,0);
+ assert.equal(result.missing,0);
+ assert.equal(result.needsReview,1);
+});
+
+test('RG-01 arbitrary Proxy descriptor traps cannot execute during summary',()=>{
+ let called=0;
+ const row=new Proxy({status:'found' as const,matchCount:1,method:'querySelector'},{
+  getOwnPropertyDescriptor(target,key){
+   called++;
+   throw Error('PRIVATE_CDPSUMMARY_TRAP_'+String(key));
+  },
+ });
+ const result=summarizeLiveLocatorCheck([row]);
+ assert.equal(called,0,'CDP summary must not invoke browser-supplied Proxy traps');
+ assert.equal(result.status,'needs-review');
+ assert.equal(result.found,0);
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_CDPSUMMARY_TRAP/);
+});
