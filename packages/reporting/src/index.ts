@@ -19,6 +19,15 @@ const reportFileName=(path:string):string=>{
  return last.replace(/[\u0000-\u001f\u007f]/g,'_')||'unnamed-script';
 };
 const reportDiagnostic=(_message:string):string=>'STATIC_DIAGNOSTIC_REDACTED';
+// runStaticScan() produces new Date().toISOString(). Accept only that
+// canonical UTC shape: a free-form createdAt could otherwise export private
+// paths/URLs verbatim in JSON while masquerading as report metadata.
+const isCanonicalScanTimestamp=(value:unknown):value is string=>{
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
+  return false;
+ const parsed=Date.parse(value);
+ return Number.isFinite(parsed)&&new Date(parsed).toISOString()===value;
+};
 
 export function serializeStaticReport(report:ScanBatchResult,format:'json'|'markdown'):string{
  if(format!=='json'&&format!=='markdown')
@@ -58,7 +67,7 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  };
  // Never relabel runtime/manager evidence as a static scan; reject malformed
  // timestamps before Markdown escaping or JSON serialization can inspect them.
- if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
+ if(report.scanMode!=='static-only'||!isCanonicalScanTimestamp(report.createdAt))
   throw new Error('Invalid static report metadata');
  // Runtime report rows must be shape-checked before destructuring or
  // serializing diagnostics. Never echo invalid field values in errors.
