@@ -31,6 +31,11 @@ export function summarizeOfficialManagerWorkerTargets(response:unknown):Official
  const prefix='chrome-extension://'+VIOLENTMONKEY_CFT_RELEASE.extensionId+'/';
  let serviceWorkers=0,backgroundPages=0;
  try{
+  // A protocol-error CDP envelope is never target evidence, even if its
+  // error value is falsy and a forged targetInfos payload is also present.
+  // The `in` checks do not invoke getters; hostile Proxy traps fail closed.
+  if(!response||typeof response!=='object'||Array.isArray(response)||
+     'error' in response||'exceptionDetails' in response)return unavailable();
   const infos=ownData(response,'targetInfos');
   if(!Array.isArray(infos)||infos.length>512)return unavailable();
   for(let index=0;index<infos.length;index++){
