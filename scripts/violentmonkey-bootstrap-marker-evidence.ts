@@ -82,17 +82,16 @@ export function createPinnedBootstrapMarkerEvidence(frameId:string){
      });
      if(!response||typeof response!=='object'||Array.isArray(response)||
         Object.hasOwn(response,'error')){incomplete=true;continue;}
-     const packet=response as {result?:{value?:unknown};exceptionDetails?:unknown};
-     if(Object.hasOwn(packet,'exceptionDetails')||
-        !packet.result||typeof packet.result!=='object'||
-        Array.isArray(packet.result)||
-        Object.hasOwn(packet.result,'exceptionDetails')||
-        Object.hasOwn(packet.result,'error')||
-        typeof packet.result.value!=='string'||
-        packet.result.value.length>160){incomplete=true;continue;}
+     const packet=ownCdpData(response,'result');
+     const receipt=ownCdpData(packet,'value');
+     if(Object.hasOwn(response,'exceptionDetails')||
+        !packet||typeof packet!=='object'||Array.isArray(packet)||
+        Object.hasOwn(packet,'exceptionDetails')||
+        Object.hasOwn(packet,'error')||
+        typeof receipt!=='string'||receipt.length>160){incomplete=true;continue;}
      // Never credit a response for a destroyed/replaced page world.
      if(epoch!==pinnedEpoch||!contexts.has(contextId)){incomplete=true;continue;}
-     const parsed:unknown=JSON.parse(packet.result.value);
+     const parsed:unknown=JSON.parse(receipt);
      if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
         Object.keys(parsed).sort().join(',')!=='officialRuntimeId,readyMarker,runtimeOnMessageAvailable,webBootstrap'||
         typeof (parsed as {readyMarker?:unknown}).readyMarker!=='boolean'||
