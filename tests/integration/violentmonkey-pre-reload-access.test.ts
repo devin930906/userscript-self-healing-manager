@@ -1,3 +1,4 @@
+import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
@@ -76,4 +77,128 @@ test('RG-05 pre-reload state evidence is collected only after two genuine GM mis
   'read-only pre-reload sample must never run before the failure is proven or alter cold-start acceptance');
  assert.match(source,/RG-05 access before extension reload:/);
  assert.doesNotMatch(source,/console\.log\([^\n]*preReloadAccess[^\n]*(?:error\.message|stack|path|source)/i);
+});
+
+test('RG-05 disposable Chrome profile Developer Mode is set and read back before the FIRST official fixture',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function',
+  'missing explicit isolated-profile Developer Mode enable-and-readback gate');
+ const calls:Array<{method:string;expression:string}>=[];
+ let developerMode=false;
+ let mutations=0;
+ await api.enableDisposableProfileDeveloperMode(async(method:string,params:any)=>{
+  calls.push({method,expression:params.expression});
+  assert.equal(method,'Runtime.evaluate');
+  assert.equal(params.awaitPromise,true);
+  assert.equal(params.returnByValue,true);
+  const value=await vm.runInNewContext(params.expression,{
+   location:{href:'chrome://extensions/'},
+   chrome:{developerPrivate:{
+    getProfileConfiguration:async()=>({inDeveloperMode:developerMode,isDeveloperModeControlledByPolicy:false}),
+    updateProfileConfiguration:async(value:unknown)=>{
+     assert.deepEqual(JSON.parse(JSON.stringify(value)),{inDeveloperMode:true});
+     mutations++;developerMode=true;
+    },
+   }},
+  });
+  return {result:{value}};
+ });
+ assert.equal(developerMode,true);
+ assert.equal(mutations,1,'configure the disposable profile exactly once');
+ assert.equal(calls.length,1);
+ assert.doesNotMatch(calls[0].expression,/updateExtensionConfiguration|chrome.runtime.reload/);
+ const source=await readFile(new URL('../../scripts/smoke-violentmonkey-cft.mjs',import.meta.url),'utf8');
+ const mktemp=source.indexOf("mkdtemp(join(tmpdir(),'usshm-vm-v4-profile-'))");
+ const dev=source.indexOf('await enableDisposableProfileDeveloperMode(extensionsCdp.send)');
+ const first=source.indexOf("const createdFixture=await browserCdp.send('Target.createTarget'");
+ assert.ok(mktemp>=0&&dev>mktemp&&first>dev,
+  'enable Developer Mode only for a new disposable profile BEFORE first fixture');
+ assert.match(source,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/,
+  'real GM cold restart must remain mandatory');
+});
+
+test('RG-05 Developer Mode gate is a no-op when already enabled and rejects wrong Chrome pages or policy refusal',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ for(const scenario of [
+  {url:'chrome://extensions/',enabled:true,update:0,pass:true},
+  {url:'https://account.invalid/',enabled:false,update:0,pass:false},
+  {url:'chrome://extensions/',enabled:false,policy:true,update:0,pass:false},
+  {url:'chrome://extensions/',enabled:false,refuses:true,update:1,pass:false},
+ ]){
+  let enabled=scenario.enabled,updates=0;
+  const action=api.enableDisposableProfileDeveloperMode(async(_method:string,params:any)=>{
+   const value=await vm.runInNewContext(params.expression,{
+    location:{href:scenario.url},
+    chrome:{developerPrivate:{
+     getProfileConfiguration:async()=>({inDeveloperMode:enabled,
+      isDeveloperModeControlledByPolicy:!!scenario.policy}),
+     updateProfileConfiguration:async()=>{
+      updates++;if(!scenario.refuses)enabled=true;
+     },
+    }},
+   });
+   return {result:{value}};
+  });
+  if(scenario.pass)await action;
+  else await assert.rejects(action,/Developer Mode|disposable|profile/i);
+  assert.equal(updates,scenario.update);
+ }
+});
+
+test('RG-05 Developer Mode gate rejects forged CDP success envelopes and redacts private errors',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ for(const reply of [
+  {error:{message:'PRIVATE_CHROME_TOKEN'},result:{value:'enabled'}},
+  {exceptionDetails:null,result:{value:'enabled'}},
+  {result:{exceptionDetails:false,value:'enabled'}},
+  {result:{value:'unavailable'}},
+  {result:{value:'enabled',error:0}},
+ ]){
+  await assert.rejects(api.enableDisposableProfileDeveloperMode(async()=>reply),
+   (error:unknown)=>{
+    assert.ok(error instanceof Error);
+    assert.doesNotMatch(error.message,/PRIVATE_CHROME_TOKEN/);
+    return true;
+   });
+ }
+});
+
+test('RG-05 disposable Developer Mode tolerates transient Chrome extensions WebUI bootstrap but not trust failure',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ const statuses=['settings-api','enabled'];
+ const probes:string[]=[];
+ const pauses:number[]=[];
+ await api.enableDisposableProfileDeveloperMode(async(method:string,params:any)=>{
+  assert.equal(method,'Runtime.evaluate');
+  probes.push(params.expression);
+  return {result:{value:statuses.shift()}};
+ },async(milliseconds:number)=>{pauses.push(milliseconds);});
+ assert.equal(probes.length,2,'only the initial fixed WebUI readiness check may be retried');
+ assert.deepEqual(pauses,[150]);
+ let malformedCalls=0;
+ await assert.rejects(api.enableDisposableProfileDeveloperMode(async()=>{
+  malformedCalls++;
+  return {result:{value:'policy'}};
+ },async()=>{throw new Error('policy must not retry');}),/Developer Mode|disposable/i);
+ assert.equal(malformedCalls,1,'policy denial is permanent, not an initialization transient');
+});
+
+test('RG-05 Developer Mode readiness has a strict upper bound and never accepts persistent unavailable settings',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ let attempts=0;
+ await assert.rejects(api.enableDisposableProfileDeveloperMode(async()=>{
+  attempts++;
+  return {result:{value:'settings-api'}};
+ },async()=>{}),/Developer Mode|disposable/i);
+ assert.ok(attempts>=2&&attempts<=20,'no unlimited settings retries');
+});
+
+test('RG-05 CDP target URL precedes chrome extensions page context and may safely settle within bounded probes',async()=>{
+ assert.equal(typeof api.enableDisposableProfileDeveloperMode,'function');
+ const stages=['page-context','enabled'];
+ const calls:number[]=[];
+ await api.enableDisposableProfileDeveloperMode(async()=>{
+  calls.push(calls.length);
+  return {result:{value:stages.shift()}};
+ },async(ms:number)=>{assert.equal(ms,150);});
+ assert.equal(calls.length,2,'only a new trusted WebUI context can enable its isolated profile');
 });

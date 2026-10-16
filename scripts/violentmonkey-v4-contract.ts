@@ -336,6 +336,80 @@ export function buildViolentmonkeyProfileDeveloperModeExpression():string{
 }
 
 /**
+ * RG-05 controlled compatibility experiment ONLY. Enable Chrome Extensions
+ * Developer Mode solely in the fresh, disposable CFT155 test profile, with an
+ * exact chrome://extensions WebUI origin and fresh readback. This never alters
+ * the daily Chrome profile, production manager, GM fixture or release gate.
+ * Requiring real GM receipts after a full process restart remains mandatory.
+ */
+export function buildDisposableProfileDeveloperModeExpression():string{
+ return `(async()=>{
+  if(location.href!=='chrome://extensions/')return 'page-context';
+  try{
+   const api=chrome.developerPrivate;
+   if(typeof api?.getProfileConfiguration!=='function'||
+      typeof api?.updateProfileConfiguration!=='function')return 'settings-api';
+   let before;
+   try{before=await api.getProfileConfiguration();}
+   catch{return 'settings-api';}
+   const previous=before&&typeof before==='object'?
+    Object.getOwnPropertyDescriptor(before,'inDeveloperMode'):null;
+   const policy=before&&typeof before==='object'?
+    Object.getOwnPropertyDescriptor(before,'isDeveloperModeControlledByPolicy'):null;
+   if(!previous||!Object.hasOwn(previous,'value')||
+      typeof previous.value!=='boolean')return 'unsupported-state';
+   if(policy?.value===true)return 'policy';
+   if(previous.value!==true){
+    try{await api.updateProfileConfiguration({inDeveloperMode:true});}
+    catch{return 'update-failed';}
+   }
+   let after;
+   try{after=await api.getProfileConfiguration();}
+   catch{return 'readback';}
+   const state=after&&typeof after==='object'?
+    Object.getOwnPropertyDescriptor(after,'inDeveloperMode'):null;
+   const afterPolicy=after&&typeof after==='object'?
+    Object.getOwnPropertyDescriptor(after,'isDeveloperModeControlledByPolicy'):null;
+   return state&&Object.hasOwn(state,'value')&&state.value===true&&
+    afterPolicy?.value!==true?'enabled':'readback';
+  }catch{return 'unsupported-state';}
+ })()`;
+}
+
+export async function enableDisposableProfileDeveloperMode(
+ send:(method:string,params:Record<string,unknown>)=>Promise<unknown>,
+ pause:(milliseconds:number)=>Promise<unknown>=wait,
+):Promise<void>{
+ if(typeof send!=='function'||typeof pause!=='function')
+  throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
+ // Chrome may expose the chrome://extensions target URL before its trusted
+ // WebUI API is bound. Only that exact missing-API/readiness condition retries.
+ // Wrong page, policy restrictions, failed updates and failed readback STOP.
+ for(let attempt=0;attempt<20;attempt++){
+  let value:string;
+  try{
+   const response=await send('Runtime.evaluate',{
+    expression:buildDisposableProfileDeveloperModeExpression(),
+    awaitPromise:true,returnByValue:true,
+   });
+   value=readViolentmonkeyManagerDiagnosticCdpValue(response,80);
+  }catch{
+   throw new Error('RG-05 disposable profile Developer Mode gate unavailable');
+  }
+  if(value==='enabled')return;
+  // A newly created, already URL-pinned chrome://extensions target can
+  // momentarily evaluate in its previous about:blank context. No setting is
+  // modified unless the eventual page href is EXACTLY chrome://extensions/.
+  if(value!=='settings-api'&&value!=='page-context')
+   throw new Error('RG-05 disposable profile Developer Mode readback not enabled ('+
+    (['page-context','policy','update-failed','readback','unsupported-state'].includes(value)?
+      value:'invalid-receipt')+')');
+  if(attempt<19)await pause(150);
+ }
+ throw new Error('RG-05 disposable profile Developer Mode WebUI not ready in bounded probes');
+}
+
+/**
  * RG-05 ISOLATED CFT EXPERIMENT ONLY: an unpacked extension may have a
  * different cross-process lifecycle when the temporary Chrome profile's
  * Developer Mode is off. This opt-in callback can run ONLY in Chrome's
@@ -427,6 +501,66 @@ export async function enableViolentmonkeyUserScriptsAccess(
  throw new Error('Pinned unpacked manager Allow User Scripts permission could not be enabled: '+reason);
 }
 
+export function assertViolentmonkeyRestartPermissionReceipt(response:unknown):true{
+ const fail=():never=>{
+  throw new Error('Pinned manager userScripts permission not retained across process restart');
+ };
+ const data=(candidate:unknown,key:string):unknown=>{
+  if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+     'error' in candidate||'exceptionDetails' in candidate)fail();
+  const field=Object.getOwnPropertyDescriptor(candidate,key);
+  if(!field||!Object.hasOwn(field,'value'))fail();
+  return field.value;
+ };
+ let value:unknown;
+ try{value=data(data(response,'result'),'value');}
+ catch{fail();}
+ if(value!==JSON.stringify({available:true}))fail();
+ return true;
+}
+
+export function assertViolentmonkeyPreflightReceipt(response:unknown):{found:boolean}{
+ const fail=():never=>{
+  throw new Error('Violentmonkey read-only preflight returned an invalid fixed receipt');
+ };
+ const ownData=(object:unknown,key:string):unknown=>{
+  if(!object||typeof object!=='object'||Array.isArray(object)||
+     'error' in object||'exceptionDetails' in object)fail();
+  const descriptor=Object.getOwnPropertyDescriptor(object,key);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))fail();
+  return descriptor.value;
+ };
+ let value:unknown;
+ try{value=ownData(ownData(response,'result'),'value');}
+ catch{fail();}
+ if(typeof value!=='string'||value.length>512)fail();
+ let parsed:unknown;
+ try{parsed=JSON.parse(value);}catch{fail();}
+ if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
+    Object.keys(parsed).length!==1||!Object.hasOwn(parsed,'found')||
+    typeof (parsed as {found?:unknown}).found!=='boolean')fail();
+ return {found:(parsed as {found:boolean}).found};
+}
+
+export function readViolentmonkeyManagerDiagnosticCdpValue(
+ response:unknown,maxBytes:number,
+):string{
+ const fail=():never=>{throw new Error('Isolated manager diagnostic CDP envelope invalid');};
+ if(maxBytes!==80&&maxBytes!==160&&maxBytes!==256)fail();
+ const ownData=(object:unknown,key:string):unknown=>{
+  if(!object||typeof object!=='object'||Array.isArray(object)||
+     'error' in object||'exceptionDetails' in object)fail();
+  const descriptor=Object.getOwnPropertyDescriptor(object,key);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))fail();
+  return descriptor.value;
+ };
+ let value:unknown;
+ try{value=ownData(ownData(response,'result'),'value');}
+ catch{fail();}
+ if(typeof value!=='string'||value.length>maxBytes)fail();
+ return value;
+}
+
 /** TEST ONLY: read a bounded receipt from one fixed loopback fixture document. */
 export async function readViolentmonkeyFixtureObservation(input:{
  send:(method:string,params?:Record<string,unknown>)=>Promise<any>;
@@ -495,7 +629,17 @@ export async function readViolentmonkeyFixtureObservation(input:{
   const answer=await input.send('Runtime.evaluate',{
    expression:"document.documentElement?.getAttribute('data-usshm-vm-v4-stage') ?? null",returnByValue:true,
   });
-  if(stages.includes(answer?.result?.value))stage=answer.result.value;
+  // Diagnostic-only fallback: never invoke an accessor or trust inherited
+  // fields, CDP fault envelopes or non-string stage values. Inconclusive
+  // responses stay "not-observed"; they can never certify GM execution.
+  const ownData=(candidate:unknown,key:string):unknown=>{
+   if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||
+      'error' in candidate||'exceptionDetails' in candidate)return undefined;
+   const field=Object.getOwnPropertyDescriptor(candidate,key);
+   return field&&Object.hasOwn(field,'value')?field.value:undefined;
+  };
+  const observed=ownData(ownData(answer,'result'),'value');
+  if(typeof observed==='string'&&stages.includes(observed))stage=observed;
  }catch{}
  // A late navigation or CFT exit must not allow a stage read from a
  // different document to be reported as the approved loopback fixture.
@@ -529,7 +673,7 @@ function buildViolentmonkeyManagerCommandExpression(
   const onMessage=event=>{
    const packet=event.data;
    if(packet?.id!==${requestId})return;
-   if(packet.err)return finish(JSON.stringify({failed:true}));
+   if(Object.hasOwn(packet,'err')&&packet.err!==undefined)return finish(JSON.stringify({failed:true}));
    const value=packet.res;
    ${responseCode}
   };
@@ -641,7 +785,7 @@ export async function waitForVerifiedViolentmonkeyInjector(input:{
 /** TEST ONLY: initialize the official injector after Chrome grants permission. */
 export function buildViolentmonkeyInjectorReadyExpression():string{
  return buildViolentmonkeyManagerCommandExpression('GetInjectorError',{},0x7ffffffc,`
-   finish(JSON.stringify({ready:value===undefined||value===null}));`);
+   finish(JSON.stringify({ready:Object.hasOwn(packet,'res')&&(value===undefined||value===null)}));`);
 }
 
 /** Return only a boolean for the exact pinned manager's base injector files. */
