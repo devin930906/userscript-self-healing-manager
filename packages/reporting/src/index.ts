@@ -58,7 +58,14 @@ export function serializeStaticReport(report:ScanBatchResult,format:'json'|'mark
  };
  // Never relabel runtime/manager evidence as a static scan; reject malformed
  // timestamps before Markdown escaping or JSON serialization can inspect them.
- if(report.scanMode!=='static-only'||typeof report.createdAt!=='string')
+ // The producer emits canonical UTC milliseconds. An arbitrary string here
+ // could export private input through JSON/Markdown under the guise of time.
+ // Reject malformed/normalized dates rather than trying to redact them later.
+ const createdAt=report.createdAt;
+ if(report.scanMode!=='static-only'||typeof createdAt!=='string'||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(createdAt)||
+    !Number.isFinite(Date.parse(createdAt))||
+    new Date(createdAt).toISOString()!==createdAt)
   throw new Error('Invalid static report metadata');
  // Runtime report rows must be shape-checked before destructuring or
  // serializing diagnostics. Never echo invalid field values in errors.
