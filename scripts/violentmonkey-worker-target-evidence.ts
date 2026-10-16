@@ -52,34 +52,3 @@ export function summarizeOfficialManagerWorkerTargets(response:unknown):Official
  }catch{return unavailable();}
  return Object.freeze({status:'observed',serviceWorkers,backgroundPages});
 }
-
-/**
- * RG-05 DIAGNOSTIC ONLY, AFTER authentic cold-start GM is already BLOCKED:
- * attempt exactly one extension-local runtime Port connection. The extension
- * options page, runtime ID and port name are all pinned to the official VM
- * in the newly created disposable CFT profile.
- *
- * This sends NO payload and never invokes manager code, GM APIs, or browser
- * extension settings. A Port opening is not a service-worker ready receipt.
- * The caller must keep original GM acceptance failed regardless of outcome.
- */
-export function buildOfficialManagerPostBlockerWorkerWakeExpression():string{
- const optionsUrl='chrome-extension://'+VIOLENTMONKEY_CFT_RELEASE.extensionId+
-  '/options/index.html#settings';
- const extensionId=VIOLENTMONKEY_CFT_RELEASE.extensionId;
- return `(async()=>{
-  const fixed=(pinnedContext,portOpened,portDisconnected)=>
-   JSON.stringify({pinnedContext,portOpened,portDisconnected});
-  try{
-   if(location.href!==${JSON.stringify(optionsUrl)}||
-      typeof chrome!=='object'||chrome.runtime?.id!==${JSON.stringify(extensionId)}||
-      typeof chrome.runtime?.connect!=='function')return fixed(false,false,false);
-   let port;
-   try{port=chrome.runtime.connect({name:'usshm-rg05-worker-wake-only-v1'});}
-   catch{return fixed(true,false,false);}
-   if(!port||typeof port.disconnect!=='function')return fixed(true,false,false);
-   try{port.disconnect();return fixed(true,true,true);}
-   catch{return fixed(true,true,false);}
-  }catch{return fixed(false,false,false);}
- })()`;
-}
