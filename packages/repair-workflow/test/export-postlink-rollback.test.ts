@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,writeFile,rename,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rename,readdir,link,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {publishExclusiveExport} from '../src/export.ts';
@@ -90,5 +90,27 @@ test('RG-06 post-verification same-byte destination substitution is not a succes
   'failed export must not delete the competing same-byte destination');
  assert.deepEqual(await readFile(displaced),approved,
   'the original linked bytes were displaced, not automatically deleted');
+ assert.deepEqual((await readdir(root)).filter(name=>name.includes('.staging-')),[]);
+}));
+
+test('RG-06 post-link staging hardlink alias blocks falsely successful export',async()=>withDestination(async(root,destination)=>{
+ const approved=Buffer.from('// synthetic reviewed export must keep one owned final name');
+ const alias=join(root,'other-writer-owned-link.user.js');
+ let aliasCreated=false;
+ await assert.rejects(publishExclusiveExport({
+  destinationPath:destination,bytes:approved,
+  afterLink:async()=>{
+   const names=await readdir(root);
+   const stage=names.find(name=>name.includes('.staging-'));
+   assert.ok(stage,'test must locate only the disposable staging link');
+   await link(join(root,stage),alias);
+   aliasCreated=true;
+  },
+ }),/identity changed|unsafe|hard.?link|link count/i);
+ assert.equal(aliasCreated,true,'test must inject the third hard link');
+ await assert.rejects(readFile(destination),{code:'ENOENT'},
+  'failed export must withdraw its own installable destination');
+ assert.deepEqual(await readFile(alias),approved,
+  'cleanup must never erase the other writer\'s hardlink alias');
  assert.deepEqual((await readdir(root)).filter(name=>name.includes('.staging-')),[]);
 }));
