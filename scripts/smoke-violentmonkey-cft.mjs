@@ -1246,6 +1246,15 @@ try{
   });
   console.log('RG-05 Chrome default USER_SCRIPT after failed official manager cold start: '+
    JSON.stringify(defaultUserScript)+'; diagnostic only, GM acceptance remains blocked.');
+  // A/B/A order removes a time/order or stale-listener explanation for an
+  // apparent default-world failure. Only use a new, disposable synthetic page
+  // after the previous registrations/listeners ran their own finally cleanup.
+  // The official manager's genuine cold GM verdict is already irrevocable.
+  const namedReplayUserScript=await runDirectChromeUserScriptDiagnostic({
+   browserCdp,optionsCdp,controlUrl:directControlUrl,hasExited:()=>exited,
+  });
+  console.log('RG-05 Chrome named replay USER_SCRIPT after failed official manager cold start: '+
+   JSON.stringify(namedReplayUserScript)+'; diagnostic only, GM acceptance remains blocked.');
 
   // Root-cause diagnostic only, after the blocker is already immutable: reload
   // the pinned official extension (not Chrome, not a user profile), then test
