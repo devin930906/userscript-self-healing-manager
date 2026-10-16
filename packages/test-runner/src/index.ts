@@ -29,35 +29,54 @@ export interface ReadOnlyDomContractDeps {
  /** Read-only snapshot of author Shadow Roots, never DOM text or arbitrary JS. */
  summarize?:(target:ChromeTarget)=>Promise<{targetId:string;url:string;authorShadowTreeNodes:number}>;
 }
+/** CDP adapter returns decoded data, not trusted JavaScript objects. A
+ * prototype, getter, sparse array slot or proxy cannot certify a V1 result.
+ * Never include raw site/adapter exception details in a user verdict. */
+function ownEvidenceField(value:unknown,key:string):unknown{
+ if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+ try{
+  const descriptor=Object.getOwnPropertyDescriptor(value,key);
+  return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
+ }catch{return undefined;}
+}
+function readOwnLocatorRow(evidence:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):unknown{
+ if(ownEvidenceField(evidence,'targetId')!==target.id||
+    ownEvidenceField(evidence,'url')!==target.url||
+    ownEvidenceField(evidence,'validationLevel')!=='dom-only')return undefined;
+ const checks=ownEvidenceField(evidence,'checks');
+ if(!Array.isArray(checks)||checks.length!==1)return undefined;
+ let check:unknown;
+ try{
+  const first=Object.getOwnPropertyDescriptor(checks,'0');
+  if(!first||!Object.hasOwn(first,'value'))return undefined;
+  check=first.value;
+ }catch{return undefined;}
+ if(ownEvidenceField(check,'method')!==locator.method||
+    ownEvidenceField(check,'expression')!==locator.expression)return undefined;
+ return check;
+}
 function readCount(evidence:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):number|null{
- if(evidence.targetId!==target.id||evidence.url!==target.url||
-    evidence.validationLevel!=='dom-only'||!Array.isArray(evidence.checks)||
-    evidence.checks.length!==1)return null;
- const check=evidence.checks[0];
- if(!check||check.method!==locator.method||check.expression!==locator.expression)return null;
- if(check.status==='missing'&&check.matchCount===0)return 0;
- if(check.status==='found'&&Number.isSafeInteger(check.matchCount)&&
-    check.matchCount!==null&&check.matchCount>0&&check.matchCount<=5000){
-  // The CDP probe internally uses DOM.querySelectorAll for all supported
-  // locator types. A positive count therefore always has status "found":
-  // "ambiguous" is contradictory evidence, even for collection methods.
-  // A single-element DOM API cannot report two or more matches.
+ const check=readOwnLocatorRow(evidence,target,locator);
+ if(!check)return null;
+ const status=ownEvidenceField(check,'status');
+ const matchCount=ownEvidenceField(check,'matchCount');
+ if(status==='missing'&&matchCount===0)return 0;
+ if(status==='found'&&typeof matchCount==='number'&&
+    Number.isSafeInteger(matchCount)&&matchCount>0&&matchCount<=5000){
+  // CDP collections legitimately have many matches; single-node APIs don't.
   if((locator.method==='querySelector'||locator.method==='getElementById')&&
-     check.matchCount!==1)return null;
-  return check.matchCount;
+     matchCount!==1)return null;
+  return matchCount;
  }
  return null;
 }
-/** A unique count does not identify the same element across two CDP sessions.
- * The opt-in HMAC backendNodeId fingerprint proves single-node continuity
- * without revealing backend IDs or any private page content. */
+/** Two identical counts cannot identify an identical DOM node. Only an OWN
+ * fixed-length HMAC fingerprint can establish two-sample node continuity. */
 function readUniqueIdentity(evidence:LocatorProbeResult,target:ChromeTarget,locator:LiteralLocator):string|null{
- if(evidence.targetId!==target.id||evidence.url!==target.url||
-    evidence.checks.length!==1)return null;
- const check=evidence.checks[0];
- if(!check||check.method!==locator.method||check.expression!==locator.expression||
-    check.status!=='found'||check.matchCount!==1)return null;
- const digest=check.nodeFingerprint;
+ const check=readOwnLocatorRow(evidence,target,locator);
+ if(!check||ownEvidenceField(check,'status')!=='found'||
+    ownEvidenceField(check,'matchCount')!==1)return null;
+ const digest=ownEvidenceField(check,'nodeFingerprint');
  return typeof digest==='string'&&/^[0-9a-f]{64}$/.test(digest)?digest:null;
 }
 /** Match the bounded frame/loader evidence accepted at the batch scan boundary.
@@ -170,10 +189,12 @@ export async function runReadOnlyDomContract({approved,target,caseId,locator,exp
      try{
       const evidence=await deps.summarize(target);
       await guard();
-      if(evidence.targetId===target.id&&evidence.url===target.url&&
-         Number.isSafeInteger(evidence.authorShadowTreeNodes)&&
-         evidence.authorShadowTreeNodes>=0&&evidence.authorShadowTreeNodes<=200000)
-       roots=evidence.authorShadowTreeNodes>0?'present':'absent';
+      const shadowCount=ownEvidenceField(evidence,'authorShadowTreeNodes');
+      if(ownEvidenceField(evidence,'targetId')===target.id&&
+         ownEvidenceField(evidence,'url')===target.url&&
+         typeof shadowCount==='number'&&Number.isSafeInteger(shadowCount)&&
+         shadowCount>=0&&shadowCount<=200000)
+       roots=shadowCount>0?'present':'absent';
      }catch{await guard();}
     }
     if(nestedFramesSeen||roots!=='absent'){
