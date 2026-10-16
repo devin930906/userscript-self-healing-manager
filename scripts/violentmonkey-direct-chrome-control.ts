@@ -46,12 +46,15 @@ export function buildDirectChromeUserScriptRegistration(controlUrl:string):strin
   // Dedicated Chrome USER_SCRIPT messaging must produce a real reply;
   // ordinary onMessage API presence is not a positive roundtrip result.
   try{
-   const request=runtime?.sendMessage?.({kind:'usshm-rg05-direct-v1'});
+   const accept=answer=>{
+    if(answer&&answer.kind==='usshm-rg05-direct-v1-response')
+     root.setAttribute('data-usshm-rg05-direct-roundtrip','verified');
+   };
+   // Chrome's USER_SCRIPT runtime may use callback-style messaging even
+   // when the request is delivered and the extension sends a response.
+   const request=runtime?.sendMessage?.({kind:'usshm-rg05-direct-v1'},accept);
    if(request&&typeof request.then==='function')
-    Promise.resolve(request).then(answer=>{
-     if(answer&&answer.kind==='usshm-rg05-direct-v1-response')
-      root.setAttribute('data-usshm-rg05-direct-roundtrip','verified');
-    }).catch(()=>{});
+    Promise.resolve(request).then(accept).catch(()=>{});
   }catch{}
  })();`;
  return `(async()=>{
