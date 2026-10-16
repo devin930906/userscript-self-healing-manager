@@ -129,3 +129,41 @@ test('RG-01 Shadow DOM context accessor does not execute browser-controlled adap
  assert.equal(result.items[0]?.verification?.V1,'blocked');
  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BROWSER_SHADOW_CONTEXT/);
 });
+
+
+// Hostile adapter objects can be Proxy.revoked or have a trapping 'get'
+// despite valid own-data descriptors. Never dereference raw receipts after
+// their shape is accepted: normalize the trusted fields first.
+function revoked<T extends object>(value:T):T{
+ const revocable=Proxy.revocable(value,{});
+ revocable.revoke();return revocable.proxy;
+}
+
+test('RG-01 revoked CDP packets, arrays and nested checks do not abort unrelated scripts',async()=>{
+ for(const forged of [
+  revoked(normal()),
+  {...normal(),checks:revoked([check()])},
+  {...normal(),checks:[revoked(check())]},
+ ]){
+  const d=deps([forged,normal()]);
+  const result=await diagnoseScriptsOnPage({items:[one,one] as any,target,consent:true,deps:d});
+  assert.equal(d.calls,2);
+  assert.deepEqual(result.items.map(x=>x.status),['error','dom-present']);
+  assert.equal(result.items[0]?.reason,'CDP evidence identity or shape mismatch');
+ }
+});
+
+test('RG-01 uses normalized own-data proof and never runs Proxy get traps after validation',async()=>{
+ let getterCalls=0;
+ const privateMarker='PRIVATE_BATCH_RAW_GET';
+ const trappedRow=new Proxy(check(),{get(){getterCalls++;throw Error(privateMarker);}});
+ const trappedPacket=new Proxy({...normal(),checks:[trappedRow]},{
+  get(){getterCalls++;throw Error(privateMarker);},
+ });
+ const d=deps([trappedPacket,normal()]);
+ const result=await diagnoseScriptsOnPage({items:[one,one] as any,target,consent:true,deps:d});
+ assert.equal(getterCalls,0);
+ assert.equal(d.calls,2);
+ assert.deepEqual(result.items.map(x=>x.status),['dom-present','dom-present']);
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_BATCH_RAW_GET/);
+});
