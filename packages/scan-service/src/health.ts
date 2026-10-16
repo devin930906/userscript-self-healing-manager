@@ -1,5 +1,3 @@
-import {types as nodeTypes} from 'node:util';
-
 /** Live CDP evidence summary; never a proof that a userscript ran correctly. */
 export interface LiveLocatorCheck {
  readonly status:'found'|'missing'|'ambiguous'|'blocked'|'unverified';
@@ -26,16 +24,15 @@ const COLLECTION_PROBE_METHODS=new Set([
 ]);
 
 function classifyCheck(input:unknown):'found'|'missing'|'review'{
- // CDP adapter results must be decoded plain data. A revoked Proxy throws
- // during Array.isArray, while any live Proxy can execute descriptor/has
- // traps even when the apparent fields look valid. Reject before both.
- if(!input||typeof input!=='object'||nodeTypes.isProxy(input)||Array.isArray(input))
-  return 'review';
+ // This is also bundled for a browser sandbox: never import Node-only
+ // Proxy introspection. A revoked Proxy may throw from Array.isArray itself.
+ // Bound descriptor/has traps within the same fail-closed exception guard.
  let status:PropertyDescriptor|undefined;
  let count:PropertyDescriptor|undefined;
  let method:PropertyDescriptor|undefined;
  let inheritedMethod=false;
  try{
+  if(!input||typeof input!=='object'||Array.isArray(input))return 'review';
   status=Object.getOwnPropertyDescriptor(input,'status');
   count=Object.getOwnPropertyDescriptor(input,'matchCount');
   method=Object.getOwnPropertyDescriptor(input,'method');
