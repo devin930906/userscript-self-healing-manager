@@ -45,7 +45,7 @@ export class ProposalApprovalGate{
    throw new Error('Pending repair proposal limit exceeded');
   this.pending.set(proposalId,{scanId,createdAt:time});
  }
- require(proposalId:string,scanId:string):void{
+ require(proposalId:string,scanId:string):Readonly<{checkedAt:number;expiresAt:number}>{
   const stored=this.pending.get(proposalId);
   if(!stored||typeof scanId!=='string'||!scanId||
      stored.scanId!==scanId)
@@ -55,6 +55,7 @@ export class ProposalApprovalGate{
    this.pending.delete(proposalId);
    throw new Error('Repair approval expired: generate and review a fresh preview');
   }
+  return Object.freeze({checkedAt:time,expiresAt:stored.createdAt+this.ttlMs});
  }
  consume(proposalId:string):void{
   this.pending.delete(proposalId);

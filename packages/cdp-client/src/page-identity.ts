@@ -1,6 +1,7 @@
 import {createHmac,randomBytes} from 'node:crypto';
 import type {ChromeTarget} from './index.ts';
 import {validateCdpPageSocket} from './endpoint.ts';
+import {assertCredentialFreePageUrl} from './page-url-safety.ts';
 import type {SocketLike} from './snapshot.ts';
 
 export interface ConfirmedPageIdentity {targetId:string;confirmedUrl:string;subframeCount?:number;frameId?:string;loaderId?:string;
@@ -24,6 +25,16 @@ const SAFE_FRAME_DIAGNOSTICS=new Set([
 /** A URL can stay identical across reloads. Retain main-frame + document loader identity
  * for the duration of one read-only operation; never expose this token in UI reports. */
 export function assertStablePageDocument(before:ConfirmedPageIdentity,after:ConfirmedPageIdentity):void{
+ // Two absent (or invalid) tokens comparing equal is not proof that a
+ // same-URL navigation did not happen. Require the actual live document
+ // identity on both sides before any equality comparison can pass.
+ const pinned=(item:ConfirmedPageIdentity):boolean=>!!item&&
+  typeof item.targetId==='string'&&item.targetId.length>0&&
+  typeof item.confirmedUrl==='string'&&item.confirmedUrl.length>0&&
+  typeof item.frameId==='string'&&item.frameId.length>0&&item.frameId.length<=256&&
+  typeof item.loaderId==='string'&&item.loaderId.length>0&&item.loaderId.length<=256;
+ if(!pinned(before)||!pinned(after))
+  throw new Error('CDP main-frame document identity unavailable during inspection');
  if(before.targetId!==after.targetId||before.confirmedUrl!==after.confirmedUrl||
     before.frameId!==after.frameId||before.loaderId!==after.loaderId||
     before.subframeCount!==after.subframeCount||
@@ -49,7 +60,7 @@ export async function confirmPageIdentity(
  let expectedUrl:string;
  try{
   expectedUrl=target.url;
-  if(typeof expectedUrl!=='string'||expectedUrl.length<1||expectedUrl.length>8192)throw new Error('Invalid URL');
+  assertCredentialFreePageUrl(expectedUrl);
   expected=new URL(expectedUrl);
  }catch{throw new Error('Invalid expected page URL');}
  if(!['http:','https:'].includes(expected.protocol))throw new Error('Only HTTP(S) page identity checks are supported');
@@ -72,7 +83,7 @@ export async function confirmPageIdentity(
     if(typeof event.data!=='string'||event.data.length>256_000)throw new Error('Invalid CDP frame tree response size');
     const response=JSON.parse(event.data);
     if(response.id!==1)return;
-    if(response.error)throw new Error('CDP frame tree rejected');
+    if(Object.hasOwn(response,'error'))throw new Error('CDP frame tree rejected');
     const url=response.result?.frameTree?.frame?.url;
     if(typeof url!=='string'||url.length>8192||!url)throw new Error('Invalid CDP frame tree URL');
     if(url!==expectedUrl)throw new Error('CDP page URL changed or frame identity mismatch');
@@ -96,7 +107,7 @@ export async function confirmPageIdentity(
     const topFrame=frameTree.frame as {id:string;loaderId?:unknown};
     const frameId=topFrame.id;
     const loaderId=topFrame.loaderId;
-    if(frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
+    if(!frameId||frameId.length>256||typeof loaderId!=='string'||!loaderId||loaderId.length>256)
      throw new Error('Invalid main-frame document identity token');
     // A single same-origin child is the only nested scope that can be
     // identified unambiguously without a user-supplied frame selector.
@@ -111,7 +122,9 @@ export async function confirmPageIdentity(
         typeof childUrl==='string'&&childUrl.length<=8192){
       try{
        const parsedChild=new URL(childUrl);
-       if(['http:','https:'].includes(parsedChild.protocol)&&parsedChild.origin===expected.origin)
+       if(['http:','https:'].includes(parsedChild.protocol)&&
+          parsedChild.username===''&&parsedChild.password===''&&
+          parsedChild.origin===expected.origin)
         soleSameOriginSubframe={frameId:childId,loaderId:childLoader,
          urlFingerprint:createHmac('sha256',CHILD_URL_KEY)
           .update('usshm-iframe-url-v1:').update(childUrl).digest('hex')};

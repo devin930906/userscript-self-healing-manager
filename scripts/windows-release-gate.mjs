@@ -229,6 +229,8 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
   let offset=0,totalUncompressedBytes=0;
   const seenExtractionPaths=new Set();
   const entryNames=[];
+  // Two central entries must never alias the same local header or data bytes.
+  const localMemberRegions=[];
   for(let index=0;index<count;index++){
    if(offset+46>size||central.readUInt32LE(offset)!==0x02014b50)
     throw new Error('Invalid ZIP central-directory entry');
@@ -318,10 +320,41 @@ export async function inspectReleaseZipEntryTypes(path,{verifyLocalHeaders=false
        local.readUInt32LE(18)!==compressedBytes||
        local.readUInt32LE(22)!==uncompressedBytes))
      throw new Error('ZIP local header CRC or size mismatch');
+    let regionEnd=dataStart+compressedBytes;
+    if(flags&8){
+     // Bit 3 moves the canonical CRC/sizes after the compressed data.
+     // A missing or contradictory descriptor is ambiguous across ZIP readers
+     // and must never qualify as a final release archive. Both the standard
+     // 12-byte form and 16-byte signature form are supported.
+     if(regionEnd+12>start)throw new Error('Missing ZIP local data descriptor');
+     const prefix=Buffer.alloc(4);
+     if((await handle.read(prefix,0,4,regionEnd)).bytesRead!==4)
+      throw new Error('Incomplete ZIP local data descriptor');
+     const signed=prefix.readUInt32LE(0)===0x08074b50;
+     const length=signed?16:12;
+     if(regionEnd+length>start)throw new Error('ZIP local data descriptor exceeds member bounds');
+     const descriptor=Buffer.alloc(length);
+     if((await handle.read(descriptor,0,length,regionEnd)).bytesRead!==length)
+      throw new Error('Incomplete ZIP local data descriptor');
+     const at=signed?4:0;
+     if(descriptor.readUInt32LE(at)!==central.readUInt32LE(offset+16)||
+        descriptor.readUInt32LE(at+4)!==compressedBytes||
+        descriptor.readUInt32LE(at+8)!==uncompressedBytes)
+      throw new Error('ZIP local data descriptor CRC or size mismatch');
+     regionEnd+=length;
+    }
+    localMemberRegions.push({start:localOffset,end:regionEnd});
    }
    offset+=46+nameLength+extraLength+commentLength;
   }
   if(offset!==size)throw new Error('ZIP central-directory count or length mismatch');
+  if(verifyLocalHeaders){
+   localMemberRegions.sort((a,b)=>a.start-b.start);
+   for(let i=1;i<localMemberRegions.length;i++){
+    if(localMemberRegions[i].start<localMemberRegions[i-1].end)
+     throw new Error('Overlapping release ZIP local member regions');
+   }
+  }
   return Object.freeze({entryCount:count,totalUncompressedBytes,entryNames:Object.freeze(entryNames)});
  }finally{await handle.close();}
 }

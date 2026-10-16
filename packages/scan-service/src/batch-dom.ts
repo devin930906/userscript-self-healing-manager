@@ -61,26 +61,54 @@ function assertPageIdentity(target:ChromeTarget,evidence:{targetId:string;confir
  if(evidence.targetId!==target.id||(evidence.confirmedUrl??evidence.url)!==target.url)
   throw new Error('CDP page identity or live frame URL changed during batch diagnosis');
 }
-/** Protect the batch boundary even if an adapter returns an invalid object
- * instead of throwing. One script's corrupt CDP payload cannot abort others. */
-function matchesProbeShape(value:unknown,target:ChromeTarget,locators:readonly LiteralLocator[]):value is LocatorProbeResult{
- if(!value||typeof value!=='object'||Array.isArray(value))return false;
- const evidence=value as Partial<LocatorProbeResult>;
- return evidence.targetId===target.id&&evidence.url===target.url&&
-  evidence.validationLevel==='dom-only'&&Array.isArray(evidence.checks)&&
-  evidence.checks.length===locators.length&&
-  evidence.checks.every((check:unknown,i)=>{
-   if(!check||typeof check!=='object'||Array.isArray(check))return false;
-   const row=check as {method?:unknown;expression?:unknown;status?:unknown;matchCount?:unknown};
+/** Adapter results are untrusted decoded data: inherited fields, accessors,
+ * and proxy traps cannot assert Chrome page identity or locator evidence. */
+function ownProbeData(value:unknown,key:string):unknown{
+ try{
+  // Revoked proxies throw from Array.isArray itself. Never promote a
+  // malformed adapter object or allow it to escape the per-script boundary.
+  if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+  const descriptor=Object.getOwnPropertyDescriptor(value,key);
+  return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
+ }catch{return undefined;}
+}
+/** Protect each script's batch boundary even when an adapter returns hostile
+ * data instead of throwing. Never allow an inherited check, getter, or array
+ * hole to certify V1, crash the batch, or run code from adapter evidence. */
+function normalizeProbeShape(value:unknown,target:ChromeTarget,locators:readonly LiteralLocator[]):LocatorProbeResult|null{
+ if(ownProbeData(value,'targetId')!==target.id||
+    ownProbeData(value,'url')!==target.url||
+    ownProbeData(value,'validationLevel')!=='dom-only')return null;
+ const checks=ownProbeData(value,'checks');
+ // Never dereference external checks again after normalization: a Proxy
+ // can expose own-data descriptors yet throw or execute code on ordinary get.
+ const normalized:LocatorProbeResult['checks']=[];
+ try{
+  if(!Array.isArray(checks)||checks.length!==locators.length)return null;
+  for(let i=0;i<locators.length;i++){
+   const entry=Object.getOwnPropertyDescriptor(checks,String(i));
+   if(!entry||!Object.hasOwn(entry,'value'))return null;
+   const check=entry.value;
    const locator=locators[i]!;
-   if(row.method!==locator.method||row.expression!==locator.expression)return false;
-   // A syntactically dynamic locator, non-document receiver or method that
-   // the read-only CDP probe cannot represent MUST remain unverified. A
-   // malformed/misbehaving adapter cannot upgrade it to V1 DOM success.
-   if(asCss(locator)===null)
-    return row.status==='unverified'&&row.matchCount===null;
-   return true;
-  });
+   if(ownProbeData(check,'method')!==locator.method||
+      ownProbeData(check,'expression')!==locator.expression)return null;
+   const status=ownProbeData(check,'status');
+   const matchCount=ownProbeData(check,'matchCount');
+   // Absent/accessor-backed fields are structurally invalid, but present
+   // values of an unexpected type must retain the previous needs-review
+   // semantics. Never promote a forged count or leak object properties.
+   if(status===undefined||matchCount===undefined)return null;
+   if(asCss(locator)===null&&(status!=='unverified'||matchCount!==null))return null;
+   const safeStatus=status==='found'||status==='missing'||status==='ambiguous'||
+    status==='blocked'||status==='unverified'?status:'unverified';
+   const safeCount=typeof matchCount==='number'||matchCount===null?matchCount:null;
+   // Only safe primitive copies leave this boundary. Raw adapter getters,
+   // rows and arrays are never read again by the batch/recheck evaluator.
+   normalized.push({method:locator.method,expression:locator.expression,
+    status:safeStatus,matchCount:safeCount});
+  }
+ }catch{return null;}
+ return {targetId:target.id,url:target.url,validationLevel:'dom-only',checks:normalized};
 }
 /**
  * No scripts run and no files are modified. All CDP calls are read-only, bounded,
@@ -161,10 +189,12 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    continue;
   }
   await checkIdentity();
-  if(!matchesProbeShape(evidence,target,locators)){
+  const safeEvidence=normalizeProbeShape(evidence,target,locators);
+  if(!safeEvidence){
    results.push({...common,status:'error',checked:0,found:0,missing:0,needsReview:0,reason:'CDP evidence identity or shape mismatch'});
    continue;
   }
+  evidence=safeEvidence;
   // Modern SPAs may render asynchronously. A single missing sample is not
   // enough to distinguish deferred rendering from a missing selector. Allow
   // one bounded, read-only recheck under the *same* Frame/Loader identity.
@@ -178,13 +208,14 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
    }catch(error){failure=error;}
    // Never conceal navigation, including when the delay or socket failed.
    await checkIdentity();
-   if(failure||!matchesProbeShape(retry,target,locators)){
+   const safeRetry=failure?null:normalizeProbeShape(retry,target,locators);
+   if(!safeRetry){
     results.push({...common,status:'needs-review',checked:locators.length,
      found:0,missing:0,needsReview:locators.length,
      reason:'DOM recheck unverified; cannot certify a locator failure'});
     continue;
    }
-   evidence={...retry,checks:retry.checks.map((check,i)=>{
+   evidence={...safeRetry,checks:safeRetry.checks.map((check,i)=>{
     const first=evidence.checks[i]!;
     // A locator which was present but vanished is unstable, not "broken".
     if(first.status==='found'&&check.status==='missing')
@@ -206,11 +237,13 @@ export async function diagnoseScriptsOnPage({items,target,consent,deps}:{
   try{
    const context=await deps.summarize(target);
    await checkIdentity();
-   if(context.targetId!==target.id||context.url!==target.url||
-      !Number.isSafeInteger(context.authorShadowTreeNodes)||context.authorShadowTreeNodes<0||
-      context.authorShadowTreeNodes>200_000)
+   const shadowCount=ownProbeData(context,'authorShadowTreeNodes');
+   if(ownProbeData(context,'targetId')!==target.id||
+      ownProbeData(context,'url')!==target.url||
+      !Number.isSafeInteger(shadowCount)||(shadowCount as number)<0||
+      (shadowCount as number)>200_000)
     throw new Error('Invalid Shadow DOM context evidence');
-   shadowContext=context.authorShadowTreeNodes>0?'present':'absent';
+   shadowContext=(shadowCount as number)>0?'present':'absent';
   }catch{
    // Even an unsuccessful snapshot must not disguise a page navigation.
    await checkIdentity();

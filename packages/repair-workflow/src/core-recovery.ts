@@ -35,7 +35,14 @@ function hasOnlyKeys(value:unknown,keys:readonly string[]):boolean{
 async function directory(path:string){
  await assertUnlinkedRecoveryDirectory(path);
 }
-async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;bytes:number}>{
+/** Hash only a verified open descriptor; test-only callback models a path
+ * replacement exactly between the pre-open lstat and descriptor open. */
+export async function shaFile(file:string,limit=512*1024*1024,beforeOpen?:()=>Promise<void>):Promise<{sha256:string;bytes:number}>{
+ if(!Number.isSafeInteger(limit)||limit<0||limit>512*1024*1024)
+  throw new Error('Invalid recovery snapshot size budget');
+ // Reject linked or reparse-point parents before taking the approved file snapshot.
+ // Recheck after the injectable race window and again before releasing the hash.
+ await assertUnlinkedRecoveryDirectory(dirname(file));
  const original=await lstat(file);
  const nativeBefore=await lstat(file,{bigint:true});
  if(!original.isFile()||original.isSymbolicLink()||original.size>limit||
@@ -45,7 +52,21 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
  // Hash matching is not sufficient if an independent filename can mutate
  // these supposedly isolated SQLite / manifest recovery files.
  if(original.nlink!==1)throw new Error('Unsafe recovery snapshot hardlink alias');
- const handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
+ if(beforeOpen){
+  if(typeof beforeOpen!=='function')
+   throw new Error('Invalid pinned recovery hash injection dependency');
+  await beforeOpen();
+ }
+ await assertUnlinkedRecoveryDirectory(dirname(file));
+ // O_NOFOLLOW fails with ELOOP when a late source symlink replaces the
+ // approved file. Never leak the raw absolute pathname through this error.
+ let handle;
+ try{handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code==='ELOOP')
+   throw new Error('Unsafe recovery snapshot symlink at descriptor open');
+  throw error;
+ }
  try{
   const opened=await handle.stat();
   const nativeOpened=await handle.stat({bigint:true});
@@ -74,6 +95,7 @@ async function shaFile(file:string,limit=512*1024*1024):Promise<{sha256:string;b
    throw new Error('Recovery snapshot changed during hash verification');
   if(after.nlink!==1||pathAfter.nlink!==1)
    throw new Error('Unsafe recovery snapshot hardlink alias after hash verification');
+  await assertUnlinkedRecoveryDirectory(dirname(file));
   return {sha256:digest.digest('hex'),bytes:count};
  }finally{await handle.close();}
 }

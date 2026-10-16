@@ -3,13 +3,14 @@ import {describe,it} from 'node:test';
 import {parseAuditTrace} from '../src/audit-trace.ts';
 const id=(n:number)=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const hash='a'.repeat(64);
+const revisionHash='b'.repeat(64);
 const good=()=>({
  job:{id:id(1),scriptId:id(2),attemptId:id(3),sourceSha256:hash},
  finding:{id:id(4),jobId:id(1),scriptId:id(2),attemptId:id(3)},
  candidate:{id:id(5),findingId:id(4),jobId:id(1)},
  test:{id:id(6),candidateId:id(5),jobId:id(1),status:'passed'},
  approval:{id:id(7),testId:id(6),candidateId:id(5),jobId:id(1),sourceSha256:hash,expiresAt:'2026-10-12T00:00:00.000Z'},
- revision:{id:id(8),approvalId:id(7),candidateId:id(5),jobId:id(1),scriptId:id(2),sourceSha256:hash}
+ revision:{id:id(8),approvalId:id(7),candidateId:id(5),jobId:id(1),scriptId:id(2),sourceSha256:hash,revisionSha256:revisionHash}
 });
 const now='2026-10-11T08:00:00.000Z';
 describe('FR-041 immutable cross-entity trace contracts',()=>{
@@ -25,6 +26,27 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
    }
   }
  });
+ it('rejects accessor-owned audit stage snapshots without invoking the getter',()=>{
+  const input:any=good();
+  let calls=0;
+  Object.defineProperty(input,'job',{
+   enumerable:true,configurable:true,
+   get(){calls++;return good().job;},
+  });
+  assert.throws(()=>parseAuditTrace(input,now),/Invalid|accessor|data property/i);
+  assert.equal(calls,0,'audit-stage getters must never execute while validating hostile input');
+ });
+ it('rejects accessor-owned audit record fields without invoking the getter',()=>{
+  const input:any=good();
+  let calls=0;
+  Object.defineProperty(input.job,'sourceSha256',{
+   enumerable:true,configurable:true,
+   get(){calls++;return hash;},
+  });
+  assert.throws(()=>parseAuditTrace(input,now),/Invalid|accessor|data property/i);
+  assert.equal(calls,0,'audit-field getters must never execute while validating hostile input');
+ });
+
  it('continues accepting null-prototype input and nested records',()=>{
   const input:any=Object.assign(Object.create(null),good());
   for(const stage of ['job','finding','candidate','test','approval','revision'] as const)
@@ -38,11 +60,54 @@ describe('FR-041 immutable cross-entity trace contracts',()=>{
   assert.throws(()=>parseAuditTrace({...good(),extra:1},now),TypeError);
   const value:any=good();value.test.extra='forged';assert.throws(()=>parseAuditTrace(value,now),TypeError);
  });
+ it('rejects reused entity IDs even when every dependent reference is self-consistent',()=>{
+  const value:any=good();
+  const shared=id(1);
+  for(const stage of ['job','finding','candidate','test','approval','revision'] as const)value[stage].id=shared;
+  value.finding.jobId=shared;
+  value.candidate.findingId=shared;value.candidate.jobId=shared;
+  value.test.candidateId=shared;value.test.jobId=shared;
+  value.approval.testId=shared;value.approval.candidateId=shared;value.approval.jobId=shared;
+  value.revision.approvalId=shared;value.revision.candidateId=shared;value.revision.jobId=shared;
+  assert.throws(()=>parseAuditTrace(value,now),/distinct|duplicate|unique/i,
+   'audit entities must not alias one UUID across multiple stages');
+ });
+
+ it('rejects case-variant aliases of the same UUID across audit entity stages',()=>{
+  const value:any=good();
+  const shared='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  value.job.id=shared;
+  for(const stage of ['finding','candidate','test','approval','revision'] as const)value[stage].jobId=shared;
+  value.finding.id=shared.toUpperCase();
+  value.candidate.findingId=value.finding.id;
+  assert.throws(()=>parseAuditTrace(value,now),/distinct|duplicate|unique/i,
+   'UUID identity must not become distinct merely by changing hex letter case');
+ });
+
+ it('rejects noncanonical uppercase UUID spellings in persisted audit identities',()=>{
+  const value:any=good();
+  const upper='AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
+  value.job.id=upper;
+  for(const stage of ['finding','candidate','test','approval','revision'] as const)value[stage].jobId=upper;
+  assert.throws(()=>parseAuditTrace(value,now),/invalid|uuid|id/i,
+   'audit UUID text must have one canonical lowercase representation');
+ });
+
  it('rejects foreign job, finding, candidate, test or approval references',()=>{
   for(const [stage,key] of [['finding','jobId'],['candidate','findingId'],['candidate','jobId'],['test','candidateId'],['test','jobId'],['approval','testId'],['approval','candidateId'],['revision','approvalId'],['revision','candidateId'],['revision','jobId']] as const){
    const value:any=good();value[stage][key]=id(90);assert.throws(()=>parseAuditTrace(value,now),TypeError,`${stage}.${key}`);
   }
  });
+ it('binds the revision entity to its resulting content hash as well as the pinned source',()=>{
+  const value:any=good();
+  value.revision.revisionSha256=revisionHash;
+  const parsed=parseAuditTrace(value,now);
+  assert.equal(parsed.revision.revisionSha256,revisionHash);
+  assert.equal(parsed.revision.sourceSha256,hash);
+  const malformed:any=good();malformed.revision.revisionSha256='not-a-sha256';
+  assert.throws(()=>parseAuditTrace(malformed,now),/revision|hash|sha/i);
+ });
+
  it('rejects cross-script, cross-attempt and stale source rebinding',()=>{
   for(const [stage,key,value] of [['finding','scriptId',id(90)],['finding','attemptId',id(90)],['revision','scriptId',id(90)],['approval','sourceSha256','b'.repeat(64)],['revision','sourceSha256','b'.repeat(64)]] as const){
    const input:any=good();input[stage][key]=value;assert.throws(()=>parseAuditTrace(input,now),TypeError);

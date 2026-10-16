@@ -15,7 +15,13 @@ function pathModule(path: string) {
   return /^[a-z]:[\\/]/i.test(path) || /^\\\\/.test(path) ? win32 : { join, isAbsolute, parse };
 }
 
+function hasNulPathByte(value: unknown): boolean {
+  return typeof value === 'string' && value.includes(String.fromCharCode(0));
+}
+
 export function resolveDataRoot(input: DataRootInput): string {
+  if ([input?.exeDirectory,input?.osUserDataDirectory,input?.portableExternalDirectory].some(hasNulPathByte))
+    throw new Error('Invalid data root path');
   // Runtime inputs can outlive their TypeScript contract (IPC, migrated settings).
   // Never silently interpret an unknown mode as portable ZIP and relocate Data.
   if (!['installed','portable-exe','portable-zip'].includes(input?.distributionMode)) {
@@ -56,6 +62,8 @@ export function resolveDataRoot(input: DataRootInput): string {
 
 /** Never silently fall back to AppData; even an existing link is disallowed. */
 export async function ensureWritableDataRoot(dataRoot: string): Promise<void> {
+  if (typeof dataRoot !== 'string' || hasNulPathByte(dataRoot))
+    throw new Error('Invalid data root path');
   if (!isAbsolute(dataRoot)) throw new Error('Data root must be an absolute path');
   let current = parse(dataRoot).root;
   const segments = dataRoot.slice(current.length).split(/[\\/]+/).filter(Boolean);
@@ -63,8 +71,8 @@ export async function ensureWritableDataRoot(dataRoot: string): Promise<void> {
     current = join(current, segment);
     try {
       const item = await lstat(current);
-      if (item.isSymbolicLink()) throw new Error(`Data root cannot contain symlinks: ${current}`);
-      if (!item.isDirectory()) throw new Error(`Data path is not a directory: ${current}`);
+      if (item.isSymbolicLink()) throw new Error('Data root cannot contain symlinks');
+      if (!item.isDirectory()) throw new Error('Data path is not a directory');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       await mkdir(current);

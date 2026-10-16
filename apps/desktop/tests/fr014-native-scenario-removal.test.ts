@@ -1,0 +1,83 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {test} from 'node:test';
+
+/** The renderer can forge approved:true. A persistent configuration delete
+ * must be authorized by Main's native OS dialog, not by renderer JavaScript. */
+test('FR-014 P0 scenario deletion requires native Main confirmation and revalidates exact selection',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:site-test-case-remove'");
+ const end=main.indexOf("ipcMain.handle('usshm:site-test-case-verify'",start);
+ assert.ok(start>=0&&end>start,'scenario removal must remain in the Main-only IPC handler');
+ const body=main.slice(start,end);
+ assert.match(body,/dialog\.showMessageBox\(mainWindow/,'Main must own a native confirmation dialog');
+ assert.match(body,/buttons:\['取消','仅删除此场景'\]/,
+  'the default action must be cancellation, not permanent deletion');
+ assert.match(body,/defaultId:0,cancelId:0/);
+ assert.match(body,/decision\.response!==1/);
+ assert.match(body,/return \{deleted:false\}/,'cancellation must be a successful safe no-op');
+ const firstLookup=body.indexOf('await listSiteTestCases(');
+ const dialog=body.indexOf('dialog.showMessageBox(');
+ const decision=body.indexOf('decision.response!==1');
+ const lastLookup=body.lastIndexOf('await listSiteTestCases(');
+ const deleteAt=body.indexOf('await removeSiteTestCase(');
+ assert.ok(firstLookup>=0&&firstLookup<dialog&&dialog<decision&&
+  decision<lastLookup&&lastLookup<deleteAt,
+  'select existing scene, ask native approval, re-read exact case, then delete');
+ assert.match(body,/scanSessions\.assertCurrent\(scanSnapshot\)/,
+  'authorization must still apply after the asynchronous native prompt');
+ assert.match(body,/siteTestRemoveBusy=true/,'prevent concurrent native dialogs for same mutation');
+ assert.match(body,/finally\s*\{\s*siteTestRemoveBusy=false/,'release Main mutex on cancel/error');
+ assert.match(body,/selected\.id===q\.caseId|c\.id===q\.caseId/);
+ assert.match(body,/still\.label!==selected\.label/,'case changed during dialog must be rejected');
+ assert.match(body,/still\.url!==selected\.url/,'do not delete a different page scenario');
+});
+
+test('FR-014 renderer treats cancelled Main-owned deletion as no-op and never reports deleted',async()=>{
+ const app=await readFile('apps/desktop/src/renderer/App.tsx','utf8');
+ const start=app.indexOf("async function manageSiteTestCase(");
+ const end=app.indexOf(' const details=focused===null?',start);
+ assert.ok(start>=0&&end>start);
+ const body=app.slice(start,end);
+ assert.match(body,/const removal=await window\.ussm\.removeSiteTestCase/);
+ assert.match(body,/if\(!removal\.deleted\)return/,'native cancellation must not emit a success notice');
+});
+
+test('FR-014 P0 create rechecks Main scan consent before final registry commit',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:site-test-case-create'");
+ const end=main.indexOf("ipcMain.handle('usshm:site-test-case-remove'",start);
+ assert.ok(start>=0&&end>start,'bounded create handler must exist');
+ const handler=main.slice(start,end);
+ const create=handler.indexOf('return createSiteTestCase(');
+ const beforeFinal=handler.indexOf('beforeFinalWrite:');
+ assert.ok(create>=0&&beforeFinal>create,
+  'asynchronous scenario save needs a Main-owned precommit revocation gate');
+ const precommit=handler.slice(beforeFinal);
+ assert.match(precommit,/scanSessions\.assertCurrent\(scanSnapshot\)/,
+  'revoked scan session must block file publication');
+ assert.match(precommit,/withinAuthorized\(item\.path\)/,
+  'a changed approved script directory must block file publication');
+ const final=handler.slice(handler.indexOf('assertAuthorized:'));
+ assert.match(final,/assertAuthorized:\(\)=>/,'final publication guard must be synchronous');
+ assert.match(final,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(final,/withinAuthorized\(item\.path\)/);
+});
+
+test('FR-014 P0 native removal binds the confirmed record and rechecks scan/source during persistence',async()=>{
+ const main=await readFile('apps/desktop/src/main/index.ts','utf8');
+ const start=main.indexOf("ipcMain.handle('usshm:site-test-case-remove'");
+ const end=main.indexOf("ipcMain.handle('usshm:site-test-case-verify'",start);
+ assert.ok(start>=0&&end>start);
+ const body=main.slice(start,end);
+ const remove=body.slice(body.indexOf('await removeSiteTestCase('));
+ assert.match(remove,/expected:selected/,'persistence must consume the record approved in the native dialog');
+ assert.match(remove,/beforeFinalWrite:async\(\)=>/,'removal needs its own Main-owned final authorization callback');
+ const fence=remove.slice(remove.indexOf('beforeFinalWrite:'));
+ assert.match(fence,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(fence,/withinAuthorized\(item\.path\)/);
+ const final=remove.slice(remove.indexOf('assertAuthorized:'));
+ assert.match(final,/assertAuthorized:\(\)=>/,'no awaited I/O may follow trusted authorization before publication dispatch');
+ assert.match(final,/scanSessions\.assertCurrent\(scanSnapshot\)/);
+ assert.match(final,/withinAuthorized\(item\.path\)/);
+});

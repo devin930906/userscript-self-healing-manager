@@ -9,8 +9,11 @@ import {BatchPauseGate} from '../../../../packages/scan-service/src/pause-gate.t
 import {getRepairInputHint} from './repair-hints.ts';
 import {LatestRequestGate} from './latest-request-gate.ts';
 import {summarizeSafeDesktopError} from './safe-error.ts';
+import {safeDomReportPageOrigin} from './safe-page-origin.ts';
+import type {SiteTestCase,SiteTestSelection,DeclaredPageState} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
+import type {AuditTrace} from '../../../../packages/contracts/src/audit-trace.ts';
 import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -22,6 +25,7 @@ import type {PassivePageExceptionEvidence} from '../../../../packages/cdp-client
 import type {ReadOnlyDomContractResult} from '../../../../packages/test-runner/src/index.ts';
 import type {ManualDomTransitionResult} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import type {ProductAction,ProductActionReview} from '../../../../packages/test-runner/src/product-action-review.ts';
+import type {ApprovedControlFocusResult} from '../../../../packages/test-runner/src/approved-focus.ts';
 import type {RoleDomResult} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 import type {VerifiedCandidate,AdapterScopedRepairsResult} from '../../../../packages/candidate-engine/src/workflow.ts';
 import type {VerifiedPreviewResult} from '../../../../packages/repair-workflow/src/verified-preview.ts';
@@ -44,6 +48,7 @@ const managedHealthDescription:Record<ManagedHealthStatus,string>={
 
 declare global {interface Window{ussm:{
  getAppInfo:()=>Promise<{version:string;distributionMode:string;dataRoot:string;preferredChromePath:string|null}>;
+ getAuditTrace:(input:{revisionId:string})=>Promise<AuditTrace|null>;
  getRepairQueueRecovery:()=>Promise<RepairQueueRecoverySummary>;
  getRepairQueueActivity:()=>Promise<RepairQueueActivitySummary>;
  cancelBatchRepair:(input:{proposalId:string})=>Promise<boolean>;
@@ -62,6 +67,7 @@ declare global {interface Window{ussm:{
  waitUntilElementVisible:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyVisibilityWaitResult>;
  inspectInteractionReadiness:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ReadOnlyInteractionReadinessResult>;
   reviewProductAction:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;action:ProductAction;approved:true})=>Promise<ProductActionReview>;
+  approvedControlFocus:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<ApprovedControlFocusResult>;
  runDomContract:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;expectation:'exists'|'unique'|'count-changed';approved:true})=>Promise<ReadOnlyDomContractResult>;
  observeManualDomTransition:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;phase:'start'|'finish';approved:true})=>Promise<ManualDomTransitionResult>;
  verifyManagedDom:(input:{scanId:string;itemIndex:number;selectorIndex:number;targetId:string;revisionHash:string;approved:true})=>Promise<ReadOnlyDomContractResult&{revisionHash:string;validationLevel:'V1-managed-read-only'}>;
@@ -77,11 +83,16 @@ declare global {interface Window{ussm:{
  applyBatchRepair:(input:{scanId:string;itemIndex:number;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
  applyBatchRepairGuarded:(input:{scanId:string;itemIndex:number;proposalId:string;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;verifiedIndexes:readonly number[];backupPath:string;managedPath:string;activePath:string}>;
  applyRepair:(input:{scanId:string;proposalId:string;approved:true})=>Promise<{backupPath:string;managedPath:string;hash:string;activePath:string}>;
- applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string;activePath:string}>;
+ applyRepairGuarded:(input:{scanId:string;proposalId:string;itemIndex:number;selectorIndex:number;targetId:string;approved:true})=>Promise<{status:'retained-v1'|'rolled-back-v1'|'rollback-blocked';appliedHash:string;activeHash:string|null;backupPath:string;managedPath:string;activePath:string;auditRevisionId:string|null}>;
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
+ getManagedAuditTrace:(input:{scanId:string;itemIndex:number;revisionHash:string})=>Promise<AuditTrace|null>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
+ listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
+ createSiteTestCase:(input:{scanId:string;itemIndex:number;url:string;label:string;stateId:DeclaredPageState;approved:true})=>Promise<SiteTestCase>;
+ removeSiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;approved:true})=>Promise<{deleted:boolean}>;
+ verifySiteTestCase:(input:{scanId:string;itemIndex:number;caseId:string;targetId:string;approved:true})=>Promise<SiteTestSelection>;
  listSiteAdapters:()=>Promise<AdapterLibraryEntry[]>;
  previewSiteAdapterImport:()=>Promise<SiteAdapterPreview|null>;
  approveSiteAdapterImport:(input:{previewId:string;approved:true})=>Promise<AdapterLibraryEntry>;
@@ -149,6 +160,14 @@ function App(){
  const [exceptionBusy,setExceptionBusy]=useState(false);
  const exceptionGeneration=useRef(new LatestRequestGate());
  const [targetId,setTargetId]=useState('');
+ const [siteTestCases,setSiteTestCases]=useState<SiteTestCase[]>([]);
+ const [siteTestUrl,setSiteTestUrl]=useState('');
+ const [siteTestLabel,setSiteTestLabel]=useState('');
+ const [siteTestState,setSiteTestState]=useState<DeclaredPageState>('logged-out');
+ const [siteTestSelectedId,setSiteTestSelectedId]=useState('');
+ const [siteTestResult,setSiteTestResult]=useState<SiteTestSelection|null>(null);
+ const [siteTestBusy,setSiteTestBusy]=useState(false);
+ const siteTestGeneration=useRef(new LatestRequestGate());
  const [batchResult,setBatchResult]=useState<(BatchDomResult&{remainingItems:number})|null>(null);
  const [batchRunning,setBatchRunning]=useState(false);
  const [batchPaused,setBatchPaused]=useState(false);
@@ -187,6 +206,9 @@ function App(){
  const [productActionEvidence,setProductActionEvidence]=useState<{selectorIndex:number;action:ProductAction;result:ProductActionReview}|null>(null);
  const productActionGeneration=useRef(new LatestRequestGate());
  const productActionActive=useRef(false);
+ const [focusEvidence,setFocusEvidence]=useState<{selectorIndex:number;result:ApprovedControlFocusResult}|null>(null);
+ const focusGeneration=useRef(new LatestRequestGate());
+ const focusActive=useRef(false);
  const [repairCandidates,setRepairCandidates]=useState<VerifiedCandidate[]|null>(null);
  const [bulkRepairResults,setBulkRepairResults]=useState<BulkCandidateResult|null>(null);
  const bulkGeneration=useRef(new LatestRequestGate());
@@ -197,11 +219,24 @@ function App(){
  const [batchRepairProposal,setBatchRepairProposal]=useState<{proposalId:string;originalHash:string;baseHash:string;proposedHash:string;changes:readonly {selectorIndex:number;method:string;line:number;column:number;oldSelector:string;newSelector:string}[];preview:string;itemIndex:number;scanId:string}|null>(null);
  const [stagedMultiScriptJobs,setStagedMultiScriptJobs]=useState<{itemIndex:number;scriptId:string;proposalId:string;proposedHash:string}[]>([]);
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
+ const [repairAudit,setRepairAudit]=useState<AuditTrace|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
  useEffect(()=>{managerTargetGeneration.current.invalidate();setManagerTargetReport(null);},[cdp,chromePath]);
  useEffect(()=>{exceptionGeneration.current.invalidate();setExceptionEvidence(null);setExceptionBusy(false);},[targetId,cdp,chromePath]);
+ useEffect(()=>{
+  siteTestGeneration.current.invalidate();
+  setSiteTestCases([]);setSiteTestSelectedId('');setSiteTestResult(null);
+  setSiteTestBusy(false);
+  if(!result||focused===null||!result.items[focused]?.scriptId)return;
+  const ticket=siteTestGeneration.current.begin();
+  void window.ussm.listSiteTestCases({scanId:result.scanId,itemIndex:focused})
+   .then(rows=>siteTestGeneration.current.commit(ticket,()=>setSiteTestCases(rows)))
+   .catch(error=>siteTestGeneration.current.commit(ticket,()=>setError('无法读取测试场景：'+summarizeSafeDesktopError(error))));
+  return ()=>siteTestGeneration.current.invalidate();
+ },[result,focused]);
+ useEffect(()=>{siteTestGeneration.current.invalidate();setSiteTestResult(null);setSiteTestBusy(false);},[targetId]);
  useEffect(()=>{void window.ussm.listSiteAdapters().then(setAdapterLibrary).catch(error=>setError('无法读取本地 SiteAdapter 规则：'+summarizeSafeDesktopError(error)));},[]);
  useEffect(()=>{void Promise.all([window.ussm.getAppInfo(),window.ussm.listScripts()]).then(([info,list])=>{setAppInfo(info);setHistory(list);setChromePath(info.preferredChromePath??'');}).catch(e=>setError(summarizeSafeDesktopError(e)));},[]);
  useEffect(()=>{
@@ -245,6 +280,7 @@ function App(){
  useEffect(()=>{listenerGeneration.current.invalidate();if(listenerActive.current){listenerActive.current=false;setBusy(false);}setListenerEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{readinessGeneration.current.invalidate();if(readinessActive.current){readinessActive.current=false;setBusy(false);}setReadinessEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{productActionGeneration.current.invalidate();if(productActionActive.current){productActionActive.current=false;setBusy(false);}setProductActionEvidence(null);},[focused,targetId,result,repairIndex,productAction]);
+ useEffect(()=>{focusGeneration.current.invalidate();if(focusActive.current){focusActive.current=false;setBusy(false);}setFocusEvidence(null);},[focused,targetId,result,repairIndex]);
  useEffect(()=>{
   if(!watchEnabled||focused===null||!targetId||!result)return;
   const currentScanId=result.scanId;
@@ -687,6 +723,30 @@ function App(){
    if(productActionGeneration.current.isCurrent(token)){productActionActive.current=false;setBusy(false);}
   }
  }
+ async function approvedFocusCurrentControl(){
+  if(focused===null||!result||!targetId||busy)return;
+  const record=result.items[focused]?.analysis?.selectorRecords[repairIndex];
+  if(!record||record.runtimeRequired||record.receiver!=='document')return;
+  const token=focusGeneration.current.begin();
+  const scanId=result.scanId,itemIndex=focused,selectorIndex=repairIndex,target=targetId;
+  focusActive.current=true;setBusy(true);setError('');setFocusEvidence(null);
+  try{
+   const receipt=await window.ussm.approvedControlFocus({
+    scanId,itemIndex,selectorIndex,targetId:target,approved:true,
+   });
+   if(focusGeneration.current.isCurrent(token)){
+    setFocusEvidence({selectorIndex,result:receipt});
+    setMessage(receipt.status==='focus-observed'?
+     '同一个已授权按钮确实获得焦点：只记为单次 V2 聚焦行为，不能证明脚本或业务功能。':
+     '聚焦后的独立焦点证据不足：V2 阻断，未确认业务功能。');
+   }
+  }catch{
+   if(focusGeneration.current.isCurrent(token))
+    setError('受控控件聚焦未获确认：控件、权限或页面身份可能改变。焦点事件可能已发生，不会自动重试。');
+  }finally{
+   if(focusGeneration.current.isCurrent(token)){focusActive.current=false;setBusy(false);}
+  }
+ }
  async function runDomContract(){
   if(focused===null||!result||!targetId||busy)return;
   const selector=result.items[focused]?.analysis?.selectorRecords[repairIndex];
@@ -903,7 +963,7 @@ function App(){
  }
  async function applyRepair(){if(!repairProposal||!result)return;
   setWatchEnabled(false);setBusy(true);setError('');
-  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.activePath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
+  try{const r=await window.ussm.applyRepair({scanId:result.scanId,proposalId:repairProposal.proposalId,approved:true});setRepairAudit(null);setRepairApplied({...r,itemIndex:focused??-1,selectorIndex:repairIndex});setManagedRevisions(null);setManagedActive({hash:r.hash,activePath:r.activePath});setRepairProposal(null);setMessage('受管修复副本已保存；原始脚本没有被覆盖。');}
   catch(e){setError('修复保存失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
  async function applyRepairGuarded(){
@@ -914,17 +974,22 @@ function App(){
     scanId:result.scanId,proposalId:repairProposal.proposalId,
     itemIndex:focused,selectorIndex:repairIndex,targetId,approved:true,
    });
-   setRepairProposal(null);setManagedRevisions(null);
+   setRepairProposal(null);setManagedRevisions(null);setRepairAudit(null);
    if(guarded.status==='retained-v1'){
     setRepairApplied({backupPath:guarded.backupPath,managedPath:guarded.managedPath,
      hash:guarded.appliedHash,itemIndex:focused,selectorIndex:repairIndex});
     setManagedActive(null);
-    setMessage('修订在真实 Chrome V1 双采样中成立，已保留受管副本。V2/V3/V4 未验证；尚不能判定油猴脚本功能成功。');
+    if(!guarded.auditRevisionId)throw new Error('Retained repair audit identity missing');
+    const audit=await window.ussm.getAuditTrace({revisionId:guarded.auditRevisionId});
+    if(!audit||audit.revision.id!==guarded.auditRevisionId||audit.revision.revisionSha256!==guarded.appliedHash)
+     throw new Error('Retained repair audit readback mismatch');
+    setRepairAudit(audit);
+    setMessage('修订在真实 Chrome V1 双采样中成立，已保留受管副本并写入可追溯审计链。V2/V3/V4 未验证；尚不能判定油猴脚本功能成功。');
    }else if(guarded.status==='rolled-back-v1'){
-    setRepairApplied(null);setManagedActive(null);
+    setRepairApplied(null);setManagedActive(null);setRepairAudit(null);
     setMessage('新修订的 V1 证据不成立或无法确认，已自动恢复上一受管修订。V2/V3/V4 未验证，原始脚本未覆盖。');
    }else{
-    setRepairApplied(null);setManagedActive(null);
+    setRepairApplied(null);setManagedActive(null);setRepairAudit(null);
     setError('自动复核后回滚受阻（rollback-blocked）：未确认当前受管版本；请先检查修订历史和外部编辑，原始脚本保持不变。');
    }
   }catch(error){setError('受管补丁安全保存和 V1 自动复核失败：'+summarizeSafeDesktopError(error));}
@@ -954,6 +1019,16 @@ function App(){
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
+ async function showManagedAudit(hash:string){
+  if(focused===null||!result||busy)return;
+  setBusy(true);setError('');setRepairAudit(null);
+  try{
+   const audit=await window.ussm.getManagedAuditTrace({scanId:result.scanId,itemIndex:focused,revisionHash:hash});
+   if(audit){setRepairAudit(audit);setMessage('已从本机审计库回查此受管修订的 FR-041 关联链。');}
+   else setMessage('此受管修订没有可关联的 FR-041 审计链；可能是旧修订、原始备份或非受保护写入路径。');
+  }catch(error){setError('读取受管修订审计链失败：'+summarizeSafeDesktopError(error));}
+  finally{setBusy(false);}
+ }
  async function exportManaged(){if(focused===null||!result)return;
   setBusy(true);setError('');
   try{const exported=await window.ussm.exportManaged({scanId:result.scanId,itemIndex:focused});
@@ -965,6 +1040,35 @@ function App(){
   setBusy(true);setError('');setRepairProposal(null);
   try{const restored=await window.ussm.rollbackManaged({scanId:result.scanId,itemIndex:focused,hash,approved:true});setManagedActive(restored);setMessage('当前受管副本已恢复到所选修订；原始脚本不会被覆盖。仍需自行验收脚本行为。');}
   catch(e){setError('恢复受管副本失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
+ }
+ async function manageSiteTestCase(action:'create'|'remove'|'verify'){
+  if(!result||focused===null||siteTestBusy)return;
+  if(action!=='create'&&!siteTestSelectedId)return;
+  if(action==='verify'&&!targetId)return;
+  const scanId=result.scanId,itemIndex=focused,caseId=siteTestSelectedId;
+  const token=siteTestGeneration.current.begin();
+  setSiteTestBusy(true);setError('');setSiteTestResult(null);
+  try{
+   if(action==='verify'){
+    const evidence=await window.ussm.verifySiteTestCase({scanId,itemIndex,caseId,targetId,approved:true});
+    siteTestGeneration.current.commit(token,()=>setSiteTestResult(evidence));
+   }else{
+    const created=action==='create'?
+     await window.ussm.createSiteTestCase({scanId,itemIndex,url:siteTestUrl.trim(),label:siteTestLabel.trim(),stateId:siteTestState,approved:true}):null;
+    if(action==='remove'){
+     const removal=await window.ussm.removeSiteTestCase({scanId,itemIndex,caseId,approved:true});
+     if(!removal.deleted)return;
+    }
+    const items=await window.ussm.listSiteTestCases({scanId,itemIndex});
+    siteTestGeneration.current.commit(token,()=>{
+     setSiteTestCases(items);
+     setSiteTestSelectedId(created?.id??items[0]?.id??'');
+     if(created){setSiteTestUrl('');setSiteTestLabel('');}
+     setMessage(action==='create'?'已保存测试页面场景；不执行页面操作或脚本。':'仅删除本地测试场景记录。');
+    });
+   }
+  }catch(error){siteTestGeneration.current.commit(token,()=>setError('测试页面场景操作失败：'+summarizeSafeDesktopError(error)));}
+  finally{siteTestGeneration.current.commit(token,()=>setSiteTestBusy(false));}
  }
  const details=focused===null?null:result?.items[focused];
  return <div className="shell">
@@ -1160,16 +1264,54 @@ function App(){
 
     {batchResult&&<div className="toolbar"><button className="secondary" disabled={batchRunning||batchResult.totalItems<1} onClick={()=>void exportDomReport('json')}>导出 DOM JSON</button><button className="secondary" disabled={batchRunning||batchResult.totalItems<1} onClick={()=>void exportDomReport('markdown')}>导出 DOM Markdown</button><span className="dim">仅导出脱敏统计及 V0–V4 状态，不包含原始 DOM、完整本地路径或页面查询参数。</span></div>}
     {batchResult&&<div className="batch-diagnosis">
-      <div className="notice">批量诊断结果：已完成 {batchResult.totalItems} 份 · 页面：{batchResult.pageUrl} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份等待处理（自动分批，每批 25 份）`:'本次扫描范围已全部处理'}</div>
+      <div className="notice">批量诊断结果：已完成 {batchResult.totalItems} 份 · 网站来源：{safeDomReportPageOrigin(batchResult.pageUrl)} · {batchResult.remainingItems>0?`还有 ${batchResult.remainingItems} 份等待处理（自动分批，每批 25 份）`:'本次扫描范围已全部处理'}</div>
       <div className="table-wrapper"><table><thead><tr><th>脚本</th><th>结果（仅 DOM）</th><th>已检查</th><th>匹配</th><th>缺失</th><th>需复核</th><th>验证等级</th></tr></thead><tbody>
-       {batchResult.items.map(row=><tr key={row.index}><td title={row.path}>{nameOf(row.path)}</td><td>{row.status==='locator-missing'?'有选择器缺失':row.status==='dom-present'?'DOM 有匹配':row.status==='out-of-scope'?'不在脚本匹配范围':row.status==='needs-review'?'需要运行时复核':row.status==='skipped'?'跳过':row.status==='error'?'检查失败':'无定位器证据'}{row.reason&&<small>{row.reason}</small>}</td><td>{row.checked}</td><td>{row.found}</td><td>{row.missing}</td><td>{row.needsReview}</td><td><small>V0：{row.verification?.V0??'blocked'} · V1：{row.verification?.V1??'blocked'} · V2：{row.verification?.V2??'blocked'} · V3/V4：{row.verification?.V3??'not-configured'} / {row.verification?.V4??'not-configured'}</small></td></tr>)}
+       {batchResult.items.map(row=><tr key={row.index}><td>{nameOf(row.path)}</td><td>{row.status==='locator-missing'?'有选择器缺失':row.status==='dom-present'?'DOM 有匹配':row.status==='out-of-scope'?'不在脚本匹配范围':row.status==='needs-review'?'需要运行时复核':row.status==='skipped'?'跳过':row.status==='error'?'检查失败':'无定位器证据'}{row.reason&&<small>{row.reason}</small>}</td><td>{row.checked}</td><td>{row.found}</td><td>{row.missing}</td><td>{row.needsReview}</td><td><small>V0：{row.verification?.V0??'blocked'} · V1：{row.verification?.V1??'blocked'} · V2：{row.verification?.V2??'blocked'} · V3/V4：{row.verification?.V3??'not-configured'} / {row.verification?.V4??'not-configured'}</small></td></tr>)}
       </tbody></table></div>
     </div>}
    </section>
    {(error||message)&&<div role="status" className={'notice '+(error?'error':'')}>{error||message}</div>}
    <section className="panel"><div className="panel-head"><div><h2>静态诊断结果</h2><p>每个脚本独立显示解析状态与需要运行时确认的定位器。</p></div><div className="actions small"><button disabled={!result} className="secondary" onClick={()=>void exportReport('json')}>导出 JSON</button><button disabled={!result} className="secondary" onClick={()=>void exportReport('markdown')}>导出 Markdown</button></div></div>
-   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
+   {result?<><input aria-label="筛选脚本" className="search" placeholder="搜索脚本名称或路径" value={search} onChange={e=>setSearch(e.target.value)}/><div className="table-wrapper"><table><thead><tr><th>文件</th><th>状态</th><th>Selectors</th><th>动态表达式</th><th></th></tr></thead><tbody>{filtered.map(item=><tr key={item.index}><td><b>{nameOf(item.path)}</b><small>{item.path}</small></td><td><span className={'tag '+(item.status==='parsed'?'ok':'bad')}>{item.status==='parsed'?'静态解析完成':item.status==='parse-error'?'语法错误':item.status==='unreadable'?'无法读取':'已跳过'}</span></td><td>{item.selectorCount}</td><td>{item.runtimeRequiredCount?`需要运行时确认 × ${item.runtimeRequiredCount}`:'—'}</td><td><button className="link" onClick={()=>{setFocused(item.index);setPageProbe(null);setRepairCandidates(null);setRepairProposal(null);setRepairApplied(null);setRepairAudit(null);setManagedRevisions(null);setManagedHealth(null);setManagedActive(null);setRepairIndex(0);setRepairNew('');}}>详情 ›</button></td></tr>)}</tbody></table></div></>:<div className="empty"><span>⌕</span><b>尚未开始诊断</b><p>先添加脚本，然后开始静态扫描。</p></div>}
    </section>
+   {details?.scriptId&&result&&focused!==null&&<section className="panel">
+    <div className="panel-head"><div><h2>FR-014 · 明确测试页面场景</h2>
+     <p>保存多个测试 URL 和声明页面状态，仅作为本机配置。不会自动打开网站、注入脚本或执行点击。</p>
+    </div><span className="pill">配置级 · 不执行</span></div>
+    <div className="toolbar" style={{flexWrap:'wrap'}}>
+     <input aria-label="测试页面 URL" type="url" value={siteTestUrl} maxLength={2048}
+      onChange={e=>setSiteTestUrl(e.target.value)}
+      placeholder="https://example.invalid/app/dashboard" style={{minWidth:260}}/>
+     <input aria-label="场景名称" value={siteTestLabel} maxLength={60}
+      onChange={e=>setSiteTestLabel(e.target.value)} placeholder="名称（不含账号或凭证）"/>
+     <select aria-label="声明页面状态" value={siteTestState}
+      onChange={e=>setSiteTestState(e.target.value as DeclaredPageState)}>
+      <option value="logged-out">用户声明：未登录</option>
+      <option value="logged-in">用户声明：已登录</option>
+      <option value="custom">用户声明：自定义</option>
+     </select>
+     <button disabled={siteTestBusy||busy||!siteTestUrl.trim()||!siteTestLabel.trim()}
+      onClick={()=>void manageSiteTestCase('create')}>保存测试页面场景</button>
+    </div>
+    <p className="dim">仅允许脚本 @match/@include 范围内的 HTTP(S) URL；不保存 URL 用户名、密码、查询参数或片段。最多每脚本 16 个场景。状态由用户声明，未经运行时验证。</p>
+    <div className="toolbar" style={{flexWrap:'wrap'}}>
+     <select aria-label="已保存测试场景" value={siteTestSelectedId}
+      onChange={e=>{setSiteTestSelectedId(e.target.value);setSiteTestResult(null);}}>
+      <option value="">— 选择已保存场景（{siteTestCases.length}）—</option>
+      {siteTestCases.map(entry=><option value={entry.id} key={entry.id}>{entry.label} · {entry.stateId} · {entry.url}</option>)}
+     </select>
+     <button disabled={!targetId||!cdp||!siteTestSelectedId||siteTestBusy||busy}
+      onClick={()=>void manageSiteTestCase('verify')}>检查已选 Chrome 页面与场景</button>
+     <button className="secondary" disabled={!siteTestSelectedId||siteTestBusy||busy}
+      onClick={()=>void manageSiteTestCase('remove')}>删除场景记录（再次确认）</button>
+    </div>
+    {siteTestResult&&<div className="notice"><b>页面匹配：</b>
+     {siteTestResult.status==='matched'?'已选网页与配置的 URL 精确匹配':
+      siteTestResult.status==='scope-blocked'?'脚本作用域不再许可此配置':'选定网页与配置不一致或包含私密参数'}
+     <p className="dim">只读比较当前已选 CDP 页面与测试配置；声明的登录状态未经证明。
+      V2 未验证 · V3/V4 未配置；没有运行油猴脚本或 GM API，不代表功能通过。</p>
+    </div>}
+   </section>}
    {details&&<section className="panel"><div className="panel-head"><div><h2>{nameOf(details.path)} · Selector 清单</h2><p>先选目标网页，再点击授权核验；不代表油猴脚本功能通过。</p></div><button className="secondary" onClick={()=>{setFocused(null);setPageProbe(null);}}>关闭</button></div>
    {details.analysis?.managerApiCalls?.length ? <div className="notice">
      <b>GM 权限静态清单 · {details.analysis.managerApiCalls.length} 次 API 调用（V4 未验证）</b>
@@ -1287,6 +1429,17 @@ function App(){
       · 拒绝执行 · V2 未验证，V3/V4 未配置。
       <small>{productActionEvidence.result.reason}。不会自动执行网页操作，也不发放动作执行令牌。</small>
      </div>}
+     <div className="toolbar">
+      <button disabled={busy||!targetId||!cdp||!details.analysis?.selectorRecords[repairIndex]||
+       details.analysis.selectorRecords[repairIndex]?.runtimeRequired||details.analysis.selectorRecords[repairIndex]?.receiver!=='document'}
+       onClick={()=>void approvedFocusCurrentControl()}>确认聚焦此网页控件（单次 V2 行为）</button>
+      <span className="dim">可能触发网页的 focus 事件与用户脚本监听器；每次需要额外明确确认。只允许普通非提交按钮，不执行 click、type、submit、send、delete 或 payment。没有可保证的焦点回滚。</span>
+     </div>
+     {focusEvidence&&focusEvidence.selectorIndex===repairIndex&&<div className="notice">
+      <b>已批准聚焦：</b>{focusEvidence.result.status==='focus-observed'?'CDP 后置状态确认同一按钮获得焦点':'CDP 后置焦点证据不足'}
+      · V2 {focusEvidence.result.V2==='focus-observed-only'?'仅观察到聚焦':'阻断'} · V3/V4 未配置 · 不能证明任何油猴或业务功能
+      <small>{focusEvidence.result.reason}</small>
+     </div>}
 <div className="repair-section"><h3>修复工作台 · 受控副本</h3>
     <p className="dim">输入一个新的静态选择器，先生成修复预览，再人工审核并保存受管副本。不会覆盖原始脚本；不会自动修改 Tampermonkey 扩展内的代码。</p>
     <div className="actions" style={{justifyContent:'flex-start',flexWrap:'wrap'}}>
@@ -1330,6 +1483,7 @@ function App(){
     {repairCandidates!==null&&<div className="notice"><p><b>基于当前网页的候选</b>（排序分不等于可靠性概率）；候选不代表功能验证通过，必须选择并人工审核。</p>{repairCandidates.length===0?<p>未发现可验证的唯一候选，请手动检查页面。</p>:repairCandidates.map((candidate,i)=><div className="selector" key={candidate.expression}><code>{candidate.expression}</code><small>启发式排序分：{candidate.confidenceScore} · {candidate.evidence} · 当前主文档唯一匹配</small><button type="button" className="secondary" onClick={()=>{setWatchEnabled(false);setRepairNew(candidate.expression);setRepairProposal(null);}}>采用候选 {i+1}，进入人工预览</button></div>)}</div>}
     {repairProposal&&<div className="notice"><p>原始 Selector：<code>{repairProposal.oldSelector}</code> → 新 Selector：<code>{repairProposal.newSelector}</code></p><p>待写入片段（仅预览）：</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{repairProposal.preview}</pre><button disabled={busy} onClick={()=>void applyRepair()}>审核后保存受管副本</button><button disabled={busy||!targetId||focused===null} onClick={()=>void applyRepairGuarded()}>保存并自动 V1 复核，失败恢复上一修订</button><p className="dim">仅对受管脚本 current.user.js 生效，不部署到油猴或修改原件。V2/V3/V4 未验证。</p></div>}
     {repairApplied&&<div className="notice"><b>受管副本：</b><code>{repairApplied.managedPath}</code><p>原件备份：<code>{repairApplied.backupPath}</code></p><p>当前仅完成文件副本写入，仍需手动验证功能。</p><button type="button" className="secondary" disabled={busy||!targetId||focused!==repairApplied.itemIndex} onClick={()=>void verifyManagedDom()}>只读复核受管修订 V1</button><p className="dim">检查受管 current.user.js 的真实归档哈希与 Chrome DOM 双采样。V2/V3/V4 未验证，不会执行用户脚本、点击网页或自动部署。</p></div>}
+    {repairAudit&&<div className="notice"><b>FR-041 审计链：</b>job → finding → candidate → test → approval → revision<p>Job：<code>{repairAudit.job.id}</code></p><p>Revision：<code>{repairAudit.revision.id}</code> · SHA-256 <code>{repairAudit.revision.revisionSha256}</code></p><p className="dim">这是 Main 从本机 append-only SQLite 只读回查的关联证据；不包含脚本源码、DOM、URL、凭据或异常正文。</p></div>}
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void inspectManagedHealth()}>检查受管资料完整性</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
@@ -1337,7 +1491,7 @@ function App(){
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
      {managedActive&&<p className="dim">当前受管副本：<code>{managedActive.activePath}</code> · SHA256 {managedActive.hash.slice(0,12)}…</p>}
-     {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
+     {managedRevisions!==null&&<div>{managedRevisions.length===0?<p>尚无保存的修订。</p>:managedRevisions.map(item=><div className="selector" key={item.fileName}><code>{item.kind==='original'?'原始备份':'修复修订'} · {item.hash.slice(0,16)}…</code><button type="button" className="secondary" disabled={busy} onClick={()=>void showManagedAudit(item.hash)}>查看审计链</button><button type="button" className="secondary" disabled={busy} onClick={()=>void rollbackManaged(item.hash)}>恢复此受管副本</button></div>)}</div>}
     </section>
    </div>
    {details.analysis?.selectorRecords.map((s,i)=><div className="selector" key={i}><div className="selector-top"><span>{s.method} · 源码第 {s.sourceRange.start.line} 行</span><span className={s.runtimeRequired?'warn':''}>{s.runtimeRequired?'需要运行时确认':'静态字面量'}</span></div><code>{s.expression}</code><small>函数：{s.functionName||'顶层'} {s.alternateSelectors.length?`｜备用选择器：${s.alternateSelectors.join('、')}`:''}</small></div>)}

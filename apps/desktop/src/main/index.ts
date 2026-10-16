@@ -8,6 +8,7 @@ import {parseMultiScriptBatchRequest} from './multi-script-batch-request.ts';
 import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
+import {persistRetainedRepairAudit} from './retained-repair-audit.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -20,6 +21,7 @@ import {stageCoreRecoveryForOfflineReview,verifyCoreOfflineRecoveryStage} from '
 import {resolveDataRoot,ensureWritableDataRoot,type DistributionMode} from '../../../../packages/runtime-paths/src/index.ts';
 import {openDatabase,migrateDatabase,createScriptRepository,backupRegistryDatabase} from '../../../../packages/persistence/src/index.ts';
 import {openDiagnosisJournal} from '../../../../packages/job-journal/src/index.ts';
+import {openAuditJournal} from '../../../../packages/audit-journal/src/index.ts';
 import {runStaticScan,type ScanBatchResult} from '../../../../packages/scan-service/src/index.ts';
 import {ScanSessionCoordinator} from '../../../../packages/scan-service/src/scan-session.ts';
 import {DiagnosisRequestGate} from '../../../../packages/scan-service/src/diagnosis-request-gate.ts';
@@ -53,12 +55,14 @@ import {captureCandidateNodes} from '../../../../packages/cdp-client/src/candida
 import {suggestCandidateRepairs,suggestAdapterScopedRepairs} from '../../../../packages/candidate-engine/src/workflow.ts';
 import {suggestMissingCandidatesBulk} from '../../../../packages/candidate-engine/src/bulk.ts';
 import {checkUserscriptPageScope} from '../../../../packages/candidate-engine/src/page-scope.ts';
+import {createSiteTestCase,listSiteTestCases,removeSiteTestCase,verifySiteTestCaseSelection} from '../../../../packages/candidate-engine/src/site-test-cases.ts';
 import {createSiteAdapterLibrary} from '../../../../packages/candidate-engine/src/site-adapter-library.ts';
 import {diagnoseScriptsOnPage} from '../../../../packages/scan-service/src/batch-dom.ts';
 import {runReadOnlyDomContract} from '../../../../packages/test-runner/src/index.ts';
 import {ManualDomTransitionGate} from '../../../../packages/test-runner/src/manual-dom-transition.ts';
 import {runReadOnlyInteractionReadiness,runReadOnlyVisibilityWait} from '../../../../packages/test-runner/src/read-only-interaction-readiness.ts';
 import {reviewProductAction} from '../../../../packages/test-runner/src/product-action-review.ts';
+import {runApprovedControlFocus} from '../../../../packages/test-runner/src/approved-focus.ts';
 import {runSiteAdapterRoleDomCheck} from '../../../../packages/test-runner/src/site-adapter-role.ts';
 
 let mainWindow:BrowserWindow;
@@ -111,15 +115,25 @@ async function bootstrap():Promise<void>{
  approvedChromePath=await loadPreferredChromePath({dataRoot});
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
+ const auditJournal=openAuditJournal(join(dataRoot,'audit-journal.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
  const batchRepairs=createBatchRepairWorkflow({managedRoot:dataRoot});
  const adapters=createSiteAdapterLibrary({dataRoot});
  const manualTransitions=new ManualDomTransitionGate();
  let manualTransitionBusy=false;
- app.on('before-quit',()=>{db.close();journal.close();});
+ app.on('before-quit',()=>{db.close();journal.close();auditJournal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
+ ipcMain.handle('usshm:audit-trace',(event,input:unknown)=>{assertSender(event);
+  const q=input as {revisionId?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).sort().join(',')!=='revisionId'||
+     typeof q.revisionId!=='string'||
+     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(q.revisionId))
+   throw new Error('Invalid canonical audit revision id');
+  const revisionId=q.revisionId;
+  return auditJournal.getByRevision(revisionId);
+ });
  ipcMain.handle('usshm:cancel-batch-repair',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {proposalId?:unknown}|null;
@@ -740,7 +754,60 @@ async function bootstrap():Promise<void>{
   scanSessions.assertCurrent(scanSnapshot);
   return report;
  });
-  ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
+  let focusActionBusy=false;
+ ipcMain.handle('usshm:approved-control-focus',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     !Number.isSafeInteger(q.selectorIndex)||Number(q.selectorIndex)<0||
+     typeof q.targetId!=='string'||!q.targetId||q.targetId.length>128)
+   throw new Error('Explicit selected button, scan identity and one-time focus approval required');
+  if(focusActionBusy)throw new Error('Another browser focus confirmation is already pending');
+  focusActionBusy=true;
+  try{
+   const scanSnapshot=scanSessions.require(q.scanId);
+   const item=scanSnapshot.items[q.itemIndex as number];
+   if(!item?.analysis||!item.scriptId||!withinAuthorized(item.path))
+    throw new Error('Focus requires a current authorized scanned userscript');
+   const record=item.analysis.selectorRecords[q.selectorIndex as number];
+   if(!record||record.runtimeRequired||record.receiver!=='document')
+    throw new Error('Only one static top-document button locator may receive approved focus');
+   const cdp=await getVerifiedChromeStatus({port:9223});
+   const selected=cdp.pages.find(page=>page.id===q.targetId);
+   if(!selected?.webSocketDebuggerUrl)
+    throw new Error('Explicitly selected Chrome page no longer exists');
+   const pageScope=checkUserscriptPageScope(item.analysis.metadata,selected.url);
+   if(pageScope.status!=='allowed')
+    throw new Error('Selected page is outside the approved userscript scope');
+   scanSessions.assertCurrent(scanSnapshot);
+   const beforePrompt=await confirmPageIdentity(selected);
+   const decision=await dialog.showMessageBox(mainWindow,{
+    type:'warning',
+    title:'浏览器操作批准',
+    message:'确认聚焦当前已选择的 Chrome 页面控件？',
+    detail:'仅允许对唯一普通按钮聚焦一次。可能触发网页的 focus 事件或用户脚本监听器；不保证自动回滚，不证明任何脚本业务功能。请选择取消或明确同意。',
+    buttons:['取消','明确批准聚焦一次'],defaultId:0,cancelId:0,noLink:true,
+   });
+   if(decision.response!==1)throw new Error('Native focus confirmation cancelled; no action was sent');
+   const afterPrompt=await confirmPageIdentity(selected);
+   assertStablePageDocument(beforePrompt,afterPrompt);
+   scanSessions.assertCurrent(scanSnapshot);
+   const receipt=await runApprovedControlFocus({
+    approved:true,target:selected,
+    locator:{method:record.method,expression:record.expression,runtimeRequired:false},
+    confirm:confirmPageIdentity,
+    assertAuthorizedBeforeAction:()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Focus source authorization revoked before action');
+    },
+   });
+   scanSessions.assertCurrent(scanSnapshot);
+   return receipt;
+  }finally{focusActionBusy=false;}
+ });
+ ipcMain.handle('usshm:product-action-review',async(event,input:unknown)=>{
   assertSender(event);
   const q=input as {scanId?:unknown;itemIndex?:unknown;selectorIndex?:unknown;
    targetId?:unknown;action?:unknown;approved?:unknown}|null;
@@ -779,6 +846,120 @@ async function bootstrap():Promise<void>{
   });
   scanSessions.assertCurrent(scanSnapshot);
   return reviewProductAction({approved:true,action:q.action,target:selected,readiness});
+ });
+ // FR-014: scenarios are user declarations, never navigation or login proof.
+ const siteTestScript=(scanId:unknown,itemIndex:unknown)=>{
+  if(typeof scanId!=='string'||!Number.isSafeInteger(itemIndex)||Number(itemIndex)<0)
+   throw new Error('Explicit scanned script identity required for site test cases');
+  const scanSnapshot=scanSessions.require(scanId);
+  const item=scanSnapshot.items[itemIndex as number];
+  if(!item?.scriptId||!item.analysis||!withinAuthorized(item.path))
+   throw new Error('Site test case requires an authorized scanned userscript');
+  return {scanSnapshot,item};
+ };
+ ipcMain.handle('usshm:site-test-case-list',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q))
+   throw new Error('Invalid site test case listing');
+  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+  const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+  scanSessions.assertCurrent(scanSnapshot);
+  return cases;
+ });
+ ipcMain.handle('usshm:site-test-case-create',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;url?:unknown;label?:unknown;stateId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.url!=='string'||typeof q.label!=='string'||
+     !['logged-out','logged-in','custom'].includes(q.stateId as string))
+   throw new Error('Explicit test page URL, state, scan and consent required');
+  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+  scanSessions.assertCurrent(scanSnapshot);
+  return createSiteTestCase({
+   dataRoot,scriptId:item.scriptId!,url:q.url,label:q.label,
+   stateId:q.stateId as 'logged-out'|'logged-in'|'custom',metadata:item.analysis!.metadata,
+   beforeFinalWrite:async()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))
+     throw new Error('Site test case source authorization changed before commit');
+   },
+   assertAuthorized:()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))
+     throw new Error('Site test case source authorization changed at publication');
+   },
+  });
+ });
+ let siteTestRemoveBusy=false;
+ ipcMain.handle('usshm:site-test-case-remove',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;caseId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.caseId!=='string')
+   throw new Error('Explicit site test case removal approval required');
+  if(siteTestRemoveBusy)throw new Error('Another site test case removal is awaiting confirmation');
+  siteTestRemoveBusy=true;
+  try{
+   const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+   const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+   const selected=cases.find(c=>c.id===q.caseId);
+   if(!selected)throw new Error('Site test case no longer exists');
+   scanSessions.assertCurrent(scanSnapshot);
+   const decision=await dialog.showMessageBox(mainWindow,{
+    type:'warning',title:'删除本地测试场景',
+    message:'确定仅删除此测试场景：'+selected.label+'？',
+    detail:'只删除当前脚本的一条本地页面测试配置，不会删除或执行脚本、修改网页、浏览器资料或其他场景。',
+    buttons:['取消','仅删除此场景'],defaultId:0,cancelId:0,noLink:true,
+   });
+   if(decision.response!==1)return {deleted:false};
+   scanSessions.assertCurrent(scanSnapshot);
+   if(!withinAuthorized(item.path))throw new Error('Scenario source authorization changed');
+   const latest=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+   const still=latest.find(c=>c.id===q.caseId);
+   if(!still||still.label!==selected.label||still.url!==selected.url||
+      still.stateId!==selected.stateId)
+    throw new Error('Selected site test case changed while awaiting native approval');
+   scanSessions.assertCurrent(scanSnapshot);
+   await removeSiteTestCase({dataRoot,scriptId:item.scriptId!,caseId:q.caseId,approved:true,
+    expected:selected,
+    beforeFinalWrite:async()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Scenario source authorization changed before removal commit');
+    },
+    assertAuthorized:()=>{
+     scanSessions.assertCurrent(scanSnapshot);
+     if(!withinAuthorized(item.path))
+      throw new Error('Scenario source authorization changed at removal publication');
+    },
+   });
+   return {deleted:true};
+  }finally{siteTestRemoveBusy=false;}
+ });
+ ipcMain.handle('usshm:site-test-case-verify',async(event,input:unknown)=>{
+  assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;caseId?:unknown;targetId?:unknown;approved?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||q.approved!==true||
+     typeof q.caseId!=='string'||typeof q.targetId!=='string'||
+     !q.targetId||q.targetId.length>128)
+   throw new Error('Explicit test case and selected browser target required');
+  const {scanSnapshot,item}=siteTestScript(q.scanId,q.itemIndex);
+  const cases=await listSiteTestCases({dataRoot,scriptId:item.scriptId!});
+  const entry=cases.find(c=>c.id===q.caseId);
+  if(!entry)throw new Error('Selected test case does not belong to scanned script');
+  const cdp=await getVerifiedChromeStatus({port:9223});
+  const selected=cdp.pages.find(page=>page.id===q.targetId);
+  if(!selected?.webSocketDebuggerUrl)
+   throw new Error('Selected Chrome page is unavailable for test case review');
+  const before=await confirmPageIdentity(selected);
+  const verdict=verifySiteTestCaseSelection({
+   entry,selectedUrl:selected.url,metadata:item.analysis!.metadata,
+  });
+  const after=await confirmPageIdentity(selected);
+  assertStablePageDocument(before,after);
+  scanSessions.assertCurrent(scanSnapshot);
+  return verdict;
  });
  ipcMain.handle('usshm:run-dom-contract',async(event,input:unknown)=>{
   assertSender(event);
@@ -1346,6 +1527,8 @@ async function bootstrap():Promise<void>{
   // rollback target nor replacement selector, even with IPC tampering.
   pendingApprovals.require(q.proposalId,scanSnapshot.scanId);
   scanSessions.assertCurrent(scanSnapshot);
+  let auditApproval={checkedAt:-1,expiresAt:-1};
+  let auditReceipt:Readonly<{revisionId:string;jobId:string;revisionSha256:string}>|null=null;
   let applied:Awaited<ReturnType<typeof repairs.apply>>;
   try{
    applied=await approveAndApplyManagedRevision({
@@ -1356,7 +1539,7 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认应用并复核'],defaultId:0,cancelId:0,noLink:true,
     }),
     revalidate:()=>{
-     pendingApprovals.require(proposalId,scanSnapshot.scanId);
+     auditApproval=pendingApprovals.require(proposalId,scanSnapshot.scanId);
      scanSessions.assertCurrent(scanSnapshot);
      assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
     },
@@ -1366,7 +1549,7 @@ async function bootstrap():Promise<void>{
      // The durable queue rechecks native approval, source evidence and page
      // identity before recording the running checkpoint and dispatching write.
      preflight:async()=>{
-      pendingApprovals.require(proposalId,scanSnapshot.scanId);
+      auditApproval=pendingApprovals.require(proposalId,scanSnapshot.scanId);
       scanSessions.assertCurrent(scanSnapshot);
       assertManagedProposalSnapshot(trusted,repairs.inspectPending(proposalId));
       if(!withinAuthorized(item.path))return false;
@@ -1440,8 +1623,23 @@ async function bootstrap():Promise<void>{
    },
    restore:(previousHash)=>repairs.restore({scriptId:item.scriptId!,hash:previousHash,approved:true,expectedCurrentHash:applied.hash}),
   });
+  if(safety.status==='retained-v1'){
+   auditReceipt=await persistRetainedRepairAudit({
+    journal:auditJournal,jobId:proposalId,scriptId:item.scriptId,attemptId:scanSnapshot.scanId,
+    sourceSha256:item.analysis.sourceSha256,revisionSha256:applied.hash,
+    previousHash:trusted.previousHash,approval:auditApproval,
+    restore:expectedCurrentHash=>{
+     if(expectedCurrentHash!==applied.hash)
+      throw new Error('Retained audit rollback identity mismatch');
+     return repairs.restore({
+      scriptId:item.scriptId!,hash:trusted.previousHash,approved:true,expectedCurrentHash:applied.hash,
+     });
+    },
+   });
+  }
   return {...safety,managedPath:applied.managedPath,backupPath:applied.backupPath,
-   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js')};
+   activePath:join(dataRoot,'managed',item.scriptId,'current.user.js'),
+   auditRevisionId:auditReceipt?.revisionId??null};
  });
  ipcMain.handle('usshm:apply-repair',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;proposalId:string;approved:true}|null;
@@ -1558,6 +1756,21 @@ async function bootstrap():Promise<void>{
   const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   return listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+ });
+ ipcMain.handle('usshm:managed-audit-trace',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;revisionHash?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||Object.keys(q).sort().join(',')!=='itemIndex,revisionHash,scanId'||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     typeof q.revisionHash!=='string'||!/^[a-f0-9]{64}$/.test(q.revisionHash))
+   throw new Error('Invalid managed audit history request');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  const revisions=await listManagedRevisions({managedRoot:dataRoot,scriptId:item.scriptId});
+  if(!revisions.some(revision=>revision.hash===q.revisionHash))
+   throw new Error('Managed revision not found in verified history');
+  scanSessions.assertCurrent(scanSnapshot);
+  return auditJournal.getByManagedRevision({scriptId:item.scriptId,revisionSha256:q.revisionHash});
  });
  ipcMain.handle('usshm:export-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number}|null;

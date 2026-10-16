@@ -28,3 +28,13 @@ test('pinned file reader caps descriptor reads, not just the final result size',
   await rm(root,{recursive:true,force:true});
  }
 });
+
+test('RG-07 pinned reader rejects NUL-containing paths before OS errors can echo private path text',async()=>{
+ const secret='SYNTHETIC_PRIVATE_NUL_PATH_SENTINEL';
+ const badPath=join(tmpdir(),secret)+'\0hidden.user.js';
+ const result=await readPinnedRegularFile(badPath,{maxBytes:1024}).catch((error:unknown)=>error);
+ assert.ok(result instanceof Error,'untrusted NUL pathname must be rejected');
+ assert.equal(result.message,'Invalid pinned read size limit or path');
+ assert.equal('cause' in result,false,'never retain native path in an error cause');
+ assert.doesNotMatch(result.message,/SYNTHETIC_PRIVATE_NUL_PATH_SENTINEL|hidden[.]user/);
+});
