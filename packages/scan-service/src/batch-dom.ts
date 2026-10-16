@@ -61,26 +61,43 @@ function assertPageIdentity(target:ChromeTarget,evidence:{targetId:string;confir
  if(evidence.targetId!==target.id||(evidence.confirmedUrl??evidence.url)!==target.url)
   throw new Error('CDP page identity or live frame URL changed during batch diagnosis');
 }
-/** Protect the batch boundary even if an adapter returns an invalid object
- * instead of throwing. One script's corrupt CDP payload cannot abort others. */
+/** Adapter results are untrusted decoded data: inherited fields, accessors,
+ * and proxy traps cannot assert Chrome page identity or locator evidence. */
+function ownProbeData(value:unknown,key:string):unknown{
+ if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+ try{
+  const descriptor=Object.getOwnPropertyDescriptor(value,key);
+  return descriptor&&Object.hasOwn(descriptor,'value')?descriptor.value:undefined;
+ }catch{return undefined;}
+}
+/** Protect each script's batch boundary even when an adapter returns hostile
+ * data instead of throwing. Never allow an inherited check, getter, or array
+ * hole to certify V1, crash the batch, or run code from adapter evidence. */
 function matchesProbeShape(value:unknown,target:ChromeTarget,locators:readonly LiteralLocator[]):value is LocatorProbeResult{
- if(!value||typeof value!=='object'||Array.isArray(value))return false;
- const evidence=value as Partial<LocatorProbeResult>;
- return evidence.targetId===target.id&&evidence.url===target.url&&
-  evidence.validationLevel==='dom-only'&&Array.isArray(evidence.checks)&&
-  evidence.checks.length===locators.length&&
-  evidence.checks.every((check:unknown,i)=>{
-   if(!check||typeof check!=='object'||Array.isArray(check))return false;
-   const row=check as {method?:unknown;expression?:unknown;status?:unknown;matchCount?:unknown};
-   const locator=locators[i]!;
-   if(row.method!==locator.method||row.expression!==locator.expression)return false;
-   // A syntactically dynamic locator, non-document receiver or method that
-   // the read-only CDP probe cannot represent MUST remain unverified. A
-   // malformed/misbehaving adapter cannot upgrade it to V1 DOM success.
-   if(asCss(locator)===null)
-    return row.status==='unverified'&&row.matchCount===null;
-   return true;
-  });
+ if(ownProbeData(value,'targetId')!==target.id||
+    ownProbeData(value,'url')!==target.url||
+    ownProbeData(value,'validationLevel')!=='dom-only')return false;
+ const checks=ownProbeData(value,'checks');
+ if(!Array.isArray(checks)||checks.length!==locators.length)return false;
+ for(let i=0;i<locators.length;i++){
+  let check:unknown;
+  try{
+   const entry=Object.getOwnPropertyDescriptor(checks,String(i));
+   if(!entry||!Object.hasOwn(entry,'value'))return false;
+   check=entry.value;
+  }catch{return false;}
+  const locator=locators[i]!;
+  if(ownProbeData(check,'method')!==locator.method||
+     ownProbeData(check,'expression')!==locator.expression)return false;
+  const status=ownProbeData(check,'status');
+  const matchCount=ownProbeData(check,'matchCount');
+  // Reject a missing field just as strictly as an accessor-backed one.
+  if(status===undefined||matchCount===undefined)return false;
+  // A syntactically dynamic locator, non-document receiver or method that
+  // the read-only CDP probe cannot represent MUST remain unverified.
+  if(asCss(locator)===null&&(status!=='unverified'||matchCount!==null))return false;
+ }
+ return true;
 }
 /**
  * No scripts run and no files are modified. All CDP calls are read-only, bounded,
