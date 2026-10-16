@@ -1,7 +1,8 @@
 /**
  * RG-05 isolated Chrome 155 differential, TEST-ONLY.
  * Registers ONE fixed direct chrome.userScripts entry in the pinned official
- * manager's disposable profile, only after actual cold-start GM failures.
+ * manager's disposable profile, after verified original-process GM receipts
+ * (default-world baseline only), or after actual cold-start GM failures.
  * Neither registration nor DOM markers are proof of official manager V4.
  */
 export const DIRECT_CONTROL_ID='usshm-rg05-disposable-direct-control-v1';
@@ -23,7 +24,9 @@ function requireDirectControlUrl(input:string):string{
 /**
  * Only our own, fixed source can execute on the exact fresh loopback page.
  * The direct userScript controls the browser API path independently of VM's
- * internal GetInjected and content bridge. This is a *post-blocker* experiment.
+ * internal GetInjected and content bridge. A pre-restart default-world control
+ * is allowed only after TWO genuine manager GM receipts; the named-world
+ * experiment remains strictly post-blocker.
  */
 function buildDirectControlSource(url:string):string{
  return `(()=>{
