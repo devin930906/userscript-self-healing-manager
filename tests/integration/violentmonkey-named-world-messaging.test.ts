@@ -48,3 +48,23 @@ test('RG-05 refuses preexisting named-world configuration without mutating manag
  assert.equal(registered,0);
  assert.equal(reset,0);
 });
+
+test('RG-05 failed world opt-in cannot leave a new persistent configuration or registration',async()=>{
+ let configs=0,removed=0,registered=0;
+ const context={location:{href:options},JSON,chrome:{runtime:{id:extension},userScripts:{
+  async getScripts(){return [];},
+  async getWorldConfigurations(){
+   return configs?[{worldId:namedWorld,messaging:false}]:[];
+  },
+  async configureWorld(input:any){
+   assert.deepEqual(JSON.parse(JSON.stringify(input)),{worldId:namedWorld,messaging:true});
+   configs=1; // Simulate Chrome reporting a mismatched messaging flag.
+  },
+  async resetWorldConfiguration(id:string){assert.equal(id,namedWorld);configs=0;removed++;},
+  async register(){registered++;},
+ }}}; 
+ assert.equal(await vm.runInNewContext(buildDirectChromeUserScriptRegistration(site),context),'unavailable');
+ assert.equal(registered,0,'never install a script into a world whose messaging readback failed');
+ assert.equal(removed,1,'undo only the disposable world after failed configuration readback');
+ assert.equal(configs,0);
+});
