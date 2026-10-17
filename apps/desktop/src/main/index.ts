@@ -10,6 +10,8 @@ import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
 import {persistRetainedRepairAudit} from './retained-repair-audit.ts';
 import {approveManagedRollback} from './approved-rollback.ts';
+import {executeAuditedManagedRollback} from './audited-managed-rollback.ts';
+import {openRollbackAuditJournal} from '../../../../packages/audit-journal/src/rollback-events.ts';
 import {buildManagedRollbackDiff} from '../../../../packages/repair-workflow/src/rollback-diff.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -118,13 +120,14 @@ async function bootstrap():Promise<void>{
  const db=openDatabase(join(dataRoot,'registry.sqlite'));migrateDatabase(db);
  const journal=openDiagnosisJournal(join(dataRoot,'diagnosis-journal.sqlite'));
  const auditJournal=openAuditJournal(join(dataRoot,'audit-journal.sqlite'));
+ const rollbackAuditJournal=openRollbackAuditJournal(join(dataRoot,'rollback-events.sqlite'));
  const repository=createScriptRepository(db);
  const repairs=createRepairWorkflow({managedRoot:dataRoot});
  const batchRepairs=createBatchRepairWorkflow({managedRoot:dataRoot});
  const adapters=createSiteAdapterLibrary({dataRoot});
  const manualTransitions=new ManualDomTransitionGate();
  let manualTransitionBusy=false;
- app.on('before-quit',()=>{db.close();journal.close();auditJournal.close();});
+ app.on('before-quit',()=>{db.close();journal.close();auditJournal.close();rollbackAuditJournal.close();});
  mainWindow=createWindow();
  ipcMain.handle('usshm:app-info',event=>{assertSender(event);return {version:app.getVersion(),distributionMode:mode,dataRoot,preferredChromePath:approvedChromePath};});
  ipcMain.handle('usshm:audit-trace',(event,input:unknown)=>{assertSender(event);
@@ -1822,8 +1825,17 @@ async function bootstrap():Promise<void>{
      buttons:['取消','确认恢复'],defaultId:0,cancelId:0,noLink:true,
     });
    },
-   restore:expectedCurrentHash=>repairs.restore({
-    scriptId,hash:targetHash,approved:true,expectedCurrentHash,
+   restore:expectedCurrentHash=>executeAuditedManagedRollback({
+    journal:rollbackAuditJournal,scriptId,targetHash,expectedCurrentHash,
+    // Only attach REAL six-stage job lineage if the archived revision has
+    // one. Legacy/manual archives must remain explicitly unaffiliated.
+    sourceAuditRevisionId:expectedCurrentHash===null?null:
+     auditJournal.getByManagedRevision({scriptId,revisionSha256:expectedCurrentHash})?.revision.id??null,
+    targetAuditRevisionId:
+     auditJournal.getByManagedRevision({scriptId,revisionSha256:targetHash})?.revision.id??null,
+    restore:expectedCurrentHash=>repairs.restore({
+     scriptId,hash:targetHash,approved:true,expectedCurrentHash,
+    }),
    }),
   });
  });
