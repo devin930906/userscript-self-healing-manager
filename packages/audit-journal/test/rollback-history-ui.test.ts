@@ -51,7 +51,7 @@ test('FR-041 native rollback audit history is only for an authorized scanned scr
  const preload=await readFile(new URL('../../../apps/desktop/src/preload/index.ts',import.meta.url),'utf8');
  const gui=await readFile(new URL('../../../apps/desktop/src/renderer/App.tsx',import.meta.url),'utf8');
  const start=main.indexOf("ipcMain.handle('usshm:rollback-audit-history'");
- const end=main.indexOf("ipcMain.handle('usshm:rollback-managed'",start);
+ const end=main.indexOf("ipcMain.handle('usshm:export-rollback-audit'",start);
  assert.ok(start>=0&&end>start,'Main must expose only the scoped rollback audit history before write handler');
  const block=main.slice(start,end);
  assert.match(block,/scanSessions\.require\(q\.scanId\)/);
