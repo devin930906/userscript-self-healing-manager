@@ -1809,8 +1809,8 @@ async function bootstrap():Promise<void>{
    confirm:review=>dialog.showMessageBox(mainWindow,{
     type:'warning',title:'确认恢复受管修订',
     message:'确认将当前受管副本恢复到所选的历史修订？',
-    detail:'当前 SHA-256：'+review.currentHash+'\\n目标 SHA-256：'+review.targetHash+
-     '\\n仅变更受管 current.user.js，原始用户脚本不会被覆盖。恢复后仍需重新验收脚本功能。',
+    detail:'当前 SHA-256：'+review.currentHash+'\n目标 SHA-256：'+review.targetHash+
+     '\n仅变更受管 current.user.js，原始用户脚本不会被覆盖。恢复后仍需重新验收脚本功能。',
     buttons:['取消','确认恢复'],defaultId:0,cancelId:0,noLink:true,
    }),
    restore:expectedCurrentHash=>repairs.restore({
