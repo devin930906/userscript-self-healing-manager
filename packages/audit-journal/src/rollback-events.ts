@@ -70,7 +70,7 @@ export function openRollbackAuditJournal(file:string){
   }
   verify(db);
  }catch(error){db.close();throw error;}
- const lookup=db.prepare('SELECT i.id,i.script_id,i.previous_hash,i.target_hash,i.source_revision_id,i.target_revision_id,i.created_at,o.outcome,o.finished_at FROM rollback_intents i LEFT JOIN rollback_outcomes o ON i.id=o.intent_id WHERE i.id=?');
+ const lookup=db.prepare('SELECT i.id,i.script_id,i.previous_hash,i.target_hash,i.source_revision_id,i.target_revision_id,i.created_at,o.outcome,o.target_hash AS outcome_target_hash,o.finished_at FROM rollback_intents i LEFT JOIN rollback_outcomes o ON i.id=o.intent_id WHERE i.id=?');
  const unfinished=db.prepare('SELECT i.id FROM rollback_intents i LEFT JOIN rollback_outcomes o ON o.intent_id=i.id WHERE i.script_id=? AND o.intent_id IS NULL LIMIT 1');
  const insert=db.prepare('INSERT INTO rollback_intents(id,script_id,previous_hash,target_hash,source_revision_id,target_revision_id,created_at) VALUES(?,?,?,?,?,?,?)');
  const mark=db.prepare('INSERT INTO rollback_outcomes(intent_id,outcome,target_hash,finished_at) VALUES(?,?,?,?)');
@@ -93,6 +93,12 @@ export function openRollbackAuditJournal(file:string){
      (record.outcome===null)!==(record.finishedAt===null)||
      (record.finishedAt!==null&&!validTime(record.finishedAt)))
    throw new Error('Corrupt rollback audit outcome');
+  if(record.finishedAt!==null&&Date.parse(record.finishedAt)<Date.parse(record.createdAt))
+   throw new Error('Corrupt rollback audit outcome chronology');
+  // A persisted outcome is untrusted evidence until its hash matches the
+  // immutable intent. SQLite quick_check does not verify cross-row linkage.
+  if(record.outcome!==null&&row.outcome_target_hash!==record.targetHash)
+   throw new Error('Corrupt rollback audit outcome target hash');
   return record;
  }
  return Object.freeze({
@@ -118,6 +124,10 @@ export function openRollbackAuditJournal(file:string){
    if(!old||old.targetHash!==input.targetHash)
     throw new Error('Rollback audit target mismatch or missing intent');
    if(old.outcome!==null)throw new Error('Rollback audit outcome already recorded');
+   // Both timestamps are canonical UTC strings, verified at their respective boundaries.
+   // Never persist an outcome that predates the durable intent it completes.
+   if(Date.parse(input.at)<Date.parse(old.createdAt))
+    throw new Error('Rollback audit completion precedes its durable intent');
    try{mark.run(input.id,input.outcome,input.targetHash,input.at);}
    catch{throw new Error('Rollback audit outcome persistence failed; manual review required');}
   },
