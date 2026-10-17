@@ -137,7 +137,12 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
  // Page URLs arrive across a runtime trust boundary: TypeScript alone cannot
  // prevent object coercion from invoking an untrusted toString/toPrimitive.
  // Share the 8192-character cap of the CDP page identity boundary.
- if(typeof pageUrl!=='string'||pageUrl.length===0||pageUrl.length>8192)
+ // WHATWG URL parsing strips raw TAB/CR/LF and surrounding whitespace.
+ // For a page-scope authorization decision, the *supplied* CDP/IPC identity
+ // must not be silently rewritten into a matching @match/@include URL.
+ // Escaped path bytes (%0A, etc.) remain valid literal URL text.
+ if(typeof pageUrl!=='string'||pageUrl.length===0||pageUrl.length>8192||
+    /[\\u0000-\\u001f\\u007f]/.test(pageUrl)||pageUrl.trim()!==pageUrl)
   return {status:'blocked',reason:'Invalid page URL'};
  // Treat userscript metadata as hostile input, not a bounded trusted list.
  // Enforce the aggregate cap BEFORE accepting even the first @match: a huge
