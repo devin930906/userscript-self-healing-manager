@@ -30,7 +30,7 @@ test('RG-06 rollback audit refuses completion earlier than its durable intent',a
  const journal=openRollbackAuditJournal(file);
  try{
   assert.throws(()=>journal.finish({id:ID,outcome:'committed',targetHash:HASH_B,at:BEFORE}),
-   /before|earlier|chronolog|time/i,
+   /precedes|before|earlier|chronolog|time/i,
    'a chronologically impossible completion must never be committed');
   assert.equal(journal.get(ID)?.outcome,null,'failed completion leaves the intent unresolved');
   journal.finish({id:ID,outcome:'committed',targetHash:HASH_B,at:AFTER});
