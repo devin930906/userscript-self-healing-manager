@@ -82,6 +82,8 @@ test('FR-028 long changes are visibly truncated instead of masquerading as a com
   await writeFile(join(folder,'revision-'+newHash+'.user.js'),updated);
   const diff=await buildManagedRollbackDiff({managedRoot:root,scriptId:'synthetic',currentHash:oldHash,targetHash:newHash});
   assert.ok(diff.length<2400,'native review must have a strict display budget');
+  assert.match(diff,/^- /m,'large removal must remain visible');
+  assert.match(diff,/^\\+ /m,'large addition must remain visible');
   assert.match(diff,/截断|省略|不完整/);
  }finally{await rm(root,{recursive:true,force:true})}
 });

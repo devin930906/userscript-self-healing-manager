@@ -53,8 +53,8 @@ export async function buildManagedRollbackDiff({managedRoot,scriptId,currentHash
  const previous=currentHash===null?null:revisions.find(r=>r.hash===currentHash);
  if(currentHash!==null&&!previous)
   throw new Error('Current managed revision archive not found');
- const next=textLinesFrom(await readArchive(managedRoot,scriptId,selected));
- const old=previous?textLinesFrom(await readArchive(managedRoot,scriptId,previous)):null;
+ const next=await readArchive(managedRoot,scriptId,selected);
+ const old=previous?await readArchive(managedRoot,scriptId,previous):null;
  let headline:string;
  let before:string[]=[];
  let after:string[]=next;
@@ -75,17 +75,20 @@ export async function buildManagedRollbackDiff({managedRoot,scriptId,currentHash
  }
  const rows:string[]=[];
  let displayed=0;
- for(const [tag,lines] of [['- ',before],['+ ',after]] as const){
+ // A large removal must not crowd every visible addition out of the preview.
+ const oldInitial=Math.min(before.length,Math.floor(ROW_LIMIT/2));
+ const newQuota=Math.min(after.length,ROW_LIMIT-oldInitial);
+ const oldQuota=Math.min(before.length,ROW_LIMIT-newQuota);
+ for(const [tag,lines,quota] of [['- ',before,oldQuota],['+ ',after,newQuota]] as const){
+  let used=0;
   for(const line of lines){
-   if(displayed>=ROW_LIMIT)break;
+   if(used>=quota)break;
    const candidate=tag+printable(line);
    if((headline+'\n'+rows.concat(candidate).join('\n')).length+TRUNCATED.length>LIMIT)break;
-   rows.push(candidate);displayed++;
+   rows.push(candidate);used++;displayed++;
   }
  }
  const omitted=before.length+after.length>displayed;
  const outcome=headline+(rows.length?'\n'+rows.join('\n'):'');
  return outcome+(omitted?TRUNCATED:'');
 }
-// Keep decoding a separate boundary to avoid printing raw source in exceptions.
-function textLinesFrom(lines:string[]):string[]{return lines;}
