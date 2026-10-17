@@ -1,3 +1,4 @@
+import {types as nodeTypes} from 'node:util';
 import type {RollbackEvent} from '../../audit-journal/src/rollback-events.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -26,7 +27,8 @@ type OutputEvent=Readonly<{
  targetAuditRevisionId:string|null;createdAt:string;outcome:Status;finishedAt:string|null;
 }>;
 function safeEntry(raw:unknown):OutputEvent{
- if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('Invalid rollback audit report event');
+ if(!raw||typeof raw!=='object'||nodeTypes.isProxy(raw)||Array.isArray(raw))
+  throw new Error('Invalid rollback audit report event');
  const item=raw as object;
  const eventId=readField(item,'id'),previousHash=readField(item,'previousHash');
  const targetHash=readField(item,'targetHash');
@@ -60,7 +62,10 @@ export function serializeRollbackAuditReport(
 ):string{
  if(format!=='json'&&format!=='markdown'||!validTime(createdAt))
   throw new Error('Invalid rollback audit report format or timestamp');
- if(!Array.isArray(records)||Object.getPrototypeOf(records)!==Array.prototype||
+ // The native Proxy predicate must run BEFORE getPrototypeOf, length or
+ // row-descriptor reflection: otherwise hostile traps could execute.
+ if(nodeTypes.isProxy(records)||!Array.isArray(records)||
+    Object.getPrototypeOf(records)!==Array.prototype||
     records.length>50||records.length<0||!Number.isSafeInteger(records.length))
   throw new Error('Invalid rollback audit report record limit');
  let events:OutputEvent[];
