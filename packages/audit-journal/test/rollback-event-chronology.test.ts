@@ -52,3 +52,18 @@ test('RG-06 rollback audit rejects persisted out-of-order outcomes on reopen',as
   assert.throws(()=>journal.listByScript('synthetic_script'),/corrupt|chronolog|timestamp|order/i);
  }finally{journal.close();}
 }));
+
+test('RG-06 rollback readback rejects an outcome hash different from its durable intent',async()=>withJournal(async file=>{
+ begin(file);
+ const raw=new DatabaseSync(file);
+ try{
+  raw.prepare('INSERT INTO rollback_outcomes(intent_id,outcome,target_hash,finished_at) VALUES(?,?,?,?)')
+   .run(ID,'committed',HASH_A,AFTER);
+ }finally{raw.close();}
+ const journal=openRollbackAuditJournal(file);
+ try{
+  assert.throws(()=>journal.get(ID),/corrupt|mismatch|target|hash/i,
+   'a tampered persisted outcome must never be credited with the intent target');
+  assert.throws(()=>journal.listByScript('synthetic_script'),/corrupt|mismatch|target|hash/i);
+ }finally{journal.close();}
+}));
