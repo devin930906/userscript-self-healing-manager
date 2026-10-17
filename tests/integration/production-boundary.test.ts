@@ -68,6 +68,40 @@ test('esbuild metafile importer guard blocks test harnesses from all production 
  }
 });
 
+test('RG-02 forbids all test and tooling script modules from production import graphs',()=>{
+ // The old selective denylist missed helpers used by the official GM runner.
+ // Every root scripts/ module is build/test tooling, never an Electron entrypoint.
+ for(const entry of ['main','preload','renderer']){
+  for(const path of [
+   'scripts/violentmonkey-direct-chrome-control.ts',
+   'scripts/violentmonkey-cdp-transport-reply.ts',
+   'scripts/violentmonkey-window-mode.ts',
+   'scripts/violentmonkey-frame-ready.ts',
+   'scripts/build.mjs',
+   'C:\\checkout\\scripts\\violentmonkey-direct-chrome-control.ts',
+  ]){
+   assert.throws(()=>assertProductionModuleGraph({
+    inputs:{[path]:{bytes:1,imports:[]}},
+   },entry),/test-only module imported into production/i,path);
+  }
+ }
+});
+
+test('RG-02 tooling guard retains legitimate application imports and dependency scripts',()=>{
+ for(const entry of ['main','preload','renderer']){
+  for(const path of [
+   'apps/desktop/src/main/index.ts',
+   'packages/cdp-client/src/endpoint.ts',
+   'node_modules/dependency/scripts/runner.mjs',
+   'C:\\checkout\\node_modules\\dependency\\scripts\\runner.mjs',
+  ]){
+   assert.doesNotThrow(()=>assertProductionModuleGraph({
+    inputs:{[path]:{bytes:1,imports:[]}},
+   },entry),path);
+  }
+ }
+});
+
 test('development CI must independently inspect compiled artifacts, not only source text',async()=>{
  const {readFile}=await import('node:fs/promises');
  const build=await readFile(new URL('../../scripts/build.mjs',import.meta.url),'utf8');

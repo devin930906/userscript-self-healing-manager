@@ -4,7 +4,11 @@ import {fileURLToPath} from 'node:url';
 
 const FILES=['main.cjs','preload.cjs','renderer.js'];
 const MAX_FILE_BYTES=20*1024*1024;
-const TEST_ONLY_MODULE=/(?:^|\/)(?:scripts\/(?:(?:local-fixture-(?:behavior|interaction)|synthetic-functional-lifecycle|violentmonkey-v4-contract|violentmonkey-restart-attestation)\.ts|smoke-violentmonkey-cft\.mjs)|(?:apps\/desktop\/tests|packages\/[^/]+\/(?:test|tests)|tests)\/.*)$/;
+const TEST_ONLY_MODULE=/(?:^|\/)(?:apps\/desktop\/tests|packages\/[^/]+\/(?:test|tests)|tests)\/.*$/;
+// All repository scripts/ modules are development tools and test-only harnesses.
+// Keep legitimate third-party dependencies' node_modules/**/scripts/ paths usable.
+const ROOT_SCRIPTS_TOOLING=/(?:^|\/)scripts\/.+$/;
+const DEPENDENCY_MODULE=/(?:^|\/)node_modules\//;
 const FORBIDDEN_OUTPUT=[
  /Runtime\s*(?:\?\.\s*evaluate\b|\.\s*evaluate\b|\?\.\s*\[\s*['"]evaluate['"]\s*\]|\[\s*['"]evaluate['"]\s*\])/,
  /Input\s*(?:\?\.\s*dispatchMouseEvent\b|\.\s*dispatchMouseEvent\b|\?\.\s*\[\s*['"]dispatchMouseEvent['"]\s*\]|\[\s*['"]dispatchMouseEvent['"]\s*\])/,
@@ -27,7 +31,8 @@ export function assertProductionModuleGraph(metafile,entrypoint){
   if(typeof input!=='string'||input.length>1000)
    throw new Error('Invalid production build module path');
   const normalized=input.replace(/\\/g,'/');
-  if(TEST_ONLY_MODULE.test(normalized))
+  if(TEST_ONLY_MODULE.test(normalized)||
+     (ROOT_SCRIPTS_TOOLING.test(normalized)&&!DEPENDENCY_MODULE.test(normalized)))
    throw new Error('Test-only module imported into production '+entrypoint+' bundle');
  }
  return true;
