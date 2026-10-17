@@ -9,6 +9,7 @@ import {createRepairQueueActivity} from './repair-queue-activity.ts';
 import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
 import {persistRetainedRepairAudit} from './retained-repair-audit.ts';
+import {approveManagedRollback} from './approved-rollback.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -1788,11 +1789,34 @@ async function bootstrap():Promise<void>{
  });
  ipcMain.handle('usshm:rollback-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;hash:string;approved:true}|null;
-  if(!q||q.approved!==true||!Number.isInteger(q.itemIndex)||q.itemIndex<0||typeof q.hash!=='string'||!/^[a-f0-9]{64}$/.test(q.hash))throw new Error('Explicit managed revision rollback approval required');
+  if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
+     typeof q.hash!=='string'||!/^[a-f0-9]{64}$/.test(q.hash))
+   throw new Error('Explicit managed revision rollback approval required');
   const scanSnapshot=scanSessions.require(q.scanId);
   const item=scanSnapshot.items[q.itemIndex];
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
-  return repairs.restore({scriptId:item.scriptId,hash:q.hash,approved:true});
+  // Capture Main-owned script and revision identity, never trust approved:true
+  // as native consent. Do not restore the file directly from this IPC.
+  const targetHash=q.hash,scriptId=item.scriptId;
+  return approveManagedRollback({
+   targetHash,
+   inspect:()=>inspectManagedIntegrity({managedRoot:dataRoot,scriptId}),
+   list:()=>listManagedRevisions({managedRoot:dataRoot,scriptId}),
+   assertCurrent:()=>{
+    scanSessions.assertCurrent(scanSnapshot);
+    if(!withinAuthorized(item.path))throw new Error('Script authorization changed during rollback review');
+   },
+   confirm:review=>dialog.showMessageBox(mainWindow,{
+    type:'warning',title:'确认恢复受管修订',
+    message:'确认将当前受管副本恢复到所选的历史修订？',
+    detail:'当前 SHA-256：'+review.currentHash+'\\n目标 SHA-256：'+review.targetHash+
+     '\\n仅变更受管 current.user.js，原始用户脚本不会被覆盖。恢复后仍需重新验收脚本功能。',
+    buttons:['取消','确认恢复'],defaultId:0,cancelId:0,noLink:true,
+   }),
+   restore:expectedCurrentHash=>repairs.restore({
+    scriptId,hash:targetHash,approved:true,expectedCurrentHash,
+   }),
+  });
  });
  ipcMain.handle('usshm:export-dom-report',async(event,input:unknown)=>{
   assertSender(event);
