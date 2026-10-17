@@ -1,0 +1,76 @@
+name: Stable RG-05 official manager cold-start acceptance (no installers)
+on:
+  push:
+    branches: [feat/v01-continuation]
+  workflow_dispatch:
+concurrency:
+  group: usshm-stable-rg05-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  official-manager:
+    name: Real pinned Violentmonkey GM V4 cold-start gate
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Fetch isolated official Chrome for Testing 155.0.8059.39
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'chrome155-win64.zip'
+          Invoke-WebRequest -Uri 'https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-win64.zip' -OutFile $archive
+          # The Chrome Windows sandbox cannot load low-integrity helpers from
+          # the hosted runner's D:\a\_temp ACLs. Place the verified browser
+          # under Program Files, inheriting normal Windows RX permissions.
+          # Never disable the Chrome sandbox merely to make a CI check pass.
+          $installRoot = Join-Path $env:ProgramFiles 'USSHM-ChromeForTesting-155'
+          New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $installRoot -Force
+          $exe = Join-Path $installRoot 'chrome-win64\chrome.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw 'Pinned Chrome for Testing executable missing after extraction'
+          }
+          "CHROME_PATH=$exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Real Chrome for Testing 155 isolated MV3 extension load (NOT Tampermonkey)
+        env:
+          USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
+        run: node --experimental-strip-types scripts/smoke-extension-cft.mjs
+      - name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'violentmonkey-mv3-v2.49.0.zip'
+          # Fixed official asset: https://github.com/violentmonkey/violentmonkey/releases/download/v2.49.0/Violentmonkey-mv3-v2.49.0.zip
+          # Only transient HTTP 429/5xx may retry; no checksum, GM or cold-start gate may be skipped.
+          node scripts/download-violentmonkey-release.mjs $archive
+          if ($LASTEXITCODE -ne 0) { throw 'Verified Violentmonkey download failed' }
+          $expected = '3fa676c803a9698453ed23dfe496d4bc29a4bec52f6a95e55c43c2955921f8ee'
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Pinned official Violentmonkey archive SHA-256 mismatch' }
+          $extensionRoot = Join-Path $env:RUNNER_TEMP 'USSHM-Violentmonkey-2.49.0'
+          if (Test-Path -LiteralPath $extensionRoot) { throw 'Violentmonkey temp destination already exists' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extensionRoot
+          if (-not (Test-Path -LiteralPath (Join-Path $extensionRoot 'manifest.json') -PathType Leaf)) {
+            throw 'Pinned Violentmonkey extension manifest missing after extraction'
+          }
+          "USSHM_VIOLENTMONKEY_EXTENSION=$extensionRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile (synthetic loopback only)
+        env:
+          USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
+          # The default control remains headless; a separately authorized
+          # disposable CFT differential may explicitly select headed mode.
+          # Real official manager GM receipts remain mandatory either way.
+          USSHM_RG05_CFT_WINDOW_MODE: 'headless'
+          # The disposable Developer Mode experiment stays OFF in mandatory CI:
+          # a Chrome WebUI readback failure must not prevent real GM acceptance.
+          # Explicit opt-in diagnostics cannot substitute for cold-start GM proof.
+          USSHM_RG05_DISPOSABLE_DEV_MODE: 'disabled'
+        run: node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs
