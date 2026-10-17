@@ -25,22 +25,23 @@ test('real Chrome CDP smoke checks the requested major version instead of treati
  assert.match(src,/throw new Error\('Chrome smoke browser major mismatch/);
 });
 
-test('RG-05 PR synthetic CDP is strict and integration push independently fails on either synthetic or genuine GM acceptance',async()=>{
- const workflow=await readFile('.github/workflows/dev-ci.yml','utf8');
- const synthetic=workflow.indexOf('name: Real Chrome for Testing 155 isolated MV3 extension load (NOT Tampermonkey)');
- const official=workflow.indexOf('name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile');
- const gate=workflow.indexOf('name: Enforce both Chrome extension and official GM acceptance');
- assert.ok(synthetic>=0&&official>synthetic&&gate>official,
-  'both independent real-browser checks must precede the final fail-closed gate');
- assert.match(workflow.slice(synthetic,official),/id: synthetic_mv3[\s\S]*?continue-on-error:\s*\$\{\{ github\.event_name != 'pull_request' \}\}/,
-  'a synthetic failure must not prevent the genuine official-manager test from running');
- assert.match(workflow.slice(official,gate),/id: official_gm[\s\S]*?continue-on-error:\s*\$\{\{ github\.event_name != 'pull_request' \}\}/,
-  'the official step must record its own true outcome, not mask a failed GM assertion');
- const final=workflow.slice(gate);
- assert.match(final,/steps\.synthetic_mv3\.outcome/);
- assert.match(final,/steps\.official_gm\.outcome/);
- assert.match(final,/throw 'RG-05 browser acceptance blocked/,
-  'either failed or skipped browser check must fail the overall Chrome job');
- assert.doesNotMatch(final,/exit 0|continue-on-error: true/,
-  'the final acceptance gate must never be suppressed');
+test('RG-05 PR synthetic CDP stays strict while official GM is a separate fail-closed Stable gate',async()=>{
+ const dev=await readFile('.github/workflows/dev-ci.yml','utf8');
+ const stable=await readFile('.github/workflows/stable-rg05-gate.yml','utf8');
+ const devChrome=dev.split(/^  chrome155:\s*$/m)[1];
+ assert.ok(devChrome,'dedicated Chrome 155 development job must exist');
+ assert.match(dev,/pull_request:\s*\n\s*branches:\s*\[main, feat\/v01-continuation\]/);
+ assert.match(devChrome,/scripts\/smoke-extension-cft\.mjs/);
+ assert.doesNotMatch(devChrome,/continue-on-error|scripts\/smoke-violentmonkey-cft\.mjs/,
+  'development Chrome synthetic smoke is mandatory but cannot certify the official manager');
+ assert.match(stable,/push:\s*\n\s*branches:\s*\[feat\/v01-continuation\]/);
+ assert.match(stable,/workflow_dispatch:/);
+ assert.match(stable,/runs-on:\s*windows-latest/);
+ const synthetic=stable.indexOf('name: Real Chrome for Testing 155 isolated MV3 extension load (NOT Tampermonkey)');
+ const official=stable.indexOf('name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile');
+ assert.ok(synthetic>=0&&official>synthetic,
+  'the independent synthetic and official real-browser checks must run sequentially');
+ assert.match(stable.slice(official),/scripts\/smoke-violentmonkey-cft\.mjs/);
+ assert.doesNotMatch(stable,/continue-on-error|if:\s*false|\|\|\s*true/,
+  'neither real-browser failure can be suppressed or passed as a Stable gate');
 });

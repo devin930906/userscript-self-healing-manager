@@ -87,53 +87,6 @@ jobs:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
         run: node --experimental-strip-types scripts/smoke-chrome.mjs
       - name: Real Chrome for Testing 155 isolated MV3 extension load (NOT Tampermonkey)
-        id: synthetic_mv3
-        continue-on-error: ${{ github.event_name != 'pull_request' }}
         env:
           USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
         run: node --experimental-strip-types scripts/smoke-extension-cft.mjs
-      - name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration
-        if: github.event_name != 'pull_request'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $archive = Join-Path $env:RUNNER_TEMP 'violentmonkey-mv3-v2.49.0.zip'
-          # Fixed official asset: https://github.com/violentmonkey/violentmonkey/releases/download/v2.49.0/Violentmonkey-mv3-v2.49.0.zip
-          # Only transient HTTP 429/5xx may retry; no checksum, GM or cold-start gate may be skipped.
-          node scripts/download-violentmonkey-release.mjs $archive
-          if ($LASTEXITCODE -ne 0) { throw 'Verified Violentmonkey download failed' }
-          $expected = '3fa676c803a9698453ed23dfe496d4bc29a4bec52f6a95e55c43c2955921f8ee'
-          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw 'Pinned official Violentmonkey archive SHA-256 mismatch' }
-          $extensionRoot = Join-Path $env:RUNNER_TEMP 'USSHM-Violentmonkey-2.49.0'
-          if (Test-Path -LiteralPath $extensionRoot) { throw 'Violentmonkey temp destination already exists' }
-          Expand-Archive -LiteralPath $archive -DestinationPath $extensionRoot
-          if (-not (Test-Path -LiteralPath (Join-Path $extensionRoot 'manifest.json') -PathType Leaf)) {
-            throw 'Pinned Violentmonkey extension manifest missing after extraction'
-          }
-          "USSHM_VIOLENTMONKEY_EXTENSION=$extensionRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile (synthetic loopback only)
-        if: github.event_name != 'pull_request'
-        id: official_gm
-        continue-on-error: ${{ github.event_name != 'pull_request' }}
-        env:
-          USSHM_SMOKE_EXPECT_CHROME_MAJOR: '155'
-          # The default control remains headless; a separately authorized
-          # disposable CFT differential may explicitly select headed mode.
-          # Real official manager GM receipts remain mandatory either way.
-          USSHM_RG05_CFT_WINDOW_MODE: 'headless'
-          # The disposable Developer Mode experiment stays OFF in mandatory CI:
-          # a Chrome WebUI readback failure must not prevent real GM acceptance.
-          # Explicit opt-in diagnostics cannot substitute for cold-start GM proof.
-          USSHM_RG05_DISPOSABLE_DEV_MODE: 'disabled'
-        run: node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs
-      # Always fail the job if either test genuinely failed OR was skipped.
-      # Per-step continue-on-error only preserves independent diagnostic execution;
-      # it NEVER weakens final RG-05 acceptance.
-      - name: Enforce both Chrome extension and official GM acceptance
-        if: ${{ always() && github.event_name != 'pull_request' }}
-        shell: pwsh
-        run: |
-          if ('${{ steps.synthetic_mv3.outcome }}' -ne 'success' -or '${{ steps.official_gm.outcome }}' -ne 'success') {
-            throw 'RG-05 browser acceptance blocked: both synthetic MV3 and official GM checks must succeed'
-          }

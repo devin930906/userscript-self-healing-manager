@@ -100,7 +100,7 @@ test('install receipt failures expose only a fixed structural reason for safe CI
 });
 
 test('official manager workflow stays pinned, loopback-only and outside installer distribution jobs',async()=>{
- const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
+ const workflow=await readFile(resolve('.github/workflows/stable-rg05-gate.yml'),'utf8');
  const smoke=await readFile(resolve('scripts/smoke-violentmonkey-cft.mjs'),'utf8');
  assert.match(workflow,/violentmonkey\/violentmonkey\/releases\/download\/v2\.49\.0\/Violentmonkey-mv3-v2\.49\.0\.zip/);
  assert.match(workflow,new RegExp(VIOLENTMONKEY_CFT_RELEASE.archiveSha256));
@@ -224,7 +224,7 @@ test('official MV3 service-worker commands return only bounded fixture receipts 
 
 
 test('official manager download is pinned, bounded and never bypasses the official GM gate',async()=>{
- const workflow=await readFile(resolve('.github/workflows/dev-ci.yml'),'utf8');
+ const workflow=await readFile(resolve('.github/workflows/stable-rg05-gate.yml'),'utf8');
  const helper=await readFile(resolve('scripts/download-violentmonkey-release.mjs'),'utf8');
  const fetchStep=workflow.split('- name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration')[1]
   ?.split('- name: Real Violentmonkey 2.49.0 GM API integration')[0];

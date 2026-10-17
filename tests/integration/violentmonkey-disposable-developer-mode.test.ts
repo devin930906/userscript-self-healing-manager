@@ -56,7 +56,7 @@ test('RG-05 missing readback, API failure, or denied toggle cannot report enable
 });
 test('RG-05 disposable mode is opt-in, never replaces real GM acceptance',async()=>{
  const source=await readFile('scripts/smoke-violentmonkey-cft.mjs','utf8');
- const workflow=await readFile('.github/workflows/dev-ci.yml','utf8');
+ const workflow=await readFile('.github/workflows/stable-rg05-gate.yml','utf8');
  assert.match(source,/USSHM_RG05_DISPOSABLE_DEV_MODE/);
  assert.match(source,/buildViolentmonkeyDisposableDeveloperModeExpression\(/);
  assert.match(source,/buildViolentmonkeyProfileDeveloperModeExpression\(/);
