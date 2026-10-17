@@ -98,6 +98,7 @@ const api={
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>ipcRenderer.invoke('usshm:managed-revisions',input),
  getManagedAuditTrace:(input:{scanId:string;itemIndex:number;revisionHash:string})=>ipcRenderer.invoke('usshm:managed-audit-trace',input),
  listRollbackAuditHistory:(input:{scanId:string;itemIndex:number})=>ipcRenderer.invoke('usshm:rollback-audit-history',input),
+ exportRollbackAudit:(input:{scanId:string;itemIndex:number;format:'json'|'markdown'})=>ipcRenderer.invoke('usshm:export-rollback-audit',input),
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>ipcRenderer.invoke('usshm:rollback-managed',input),
  exportManaged:(input:{scanId:string;itemIndex:number})=>ipcRenderer.invoke('usshm:export-managed',input),
  exportReport:(format:'json'|'markdown')=>ipcRenderer.invoke('usshm:export',format),

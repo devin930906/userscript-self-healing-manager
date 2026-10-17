@@ -89,6 +89,7 @@ declare global {interface Window{ussm:{
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  getManagedAuditTrace:(input:{scanId:string;itemIndex:number;revisionHash:string})=>Promise<AuditTrace|null>;
  listRollbackAuditHistory:(input:{scanId:string;itemIndex:number})=>Promise<readonly RollbackEvent[]>;
+ exportRollbackAudit:(input:{scanId:string;itemIndex:number;format:'json'|'markdown'})=>Promise<{canceled:boolean;path?:string}>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
@@ -1024,6 +1025,15 @@ function App(){
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
+ async function exportRollbackAudit(format:'json'|'markdown'){
+  if(focused===null||!result||busy)return;
+  setBusy(true);setError('');
+  try{
+   const receipt=await window.ussm.exportRollbackAudit({scanId:result.scanId,itemIndex:focused,format});
+   if(!receipt.canceled)setMessage('回滚审计报告已安全保存：'+receipt.path+'。仅代表受管修订记录，不是脚本功能验证。');
+  }catch(error){setError('回滚审计导出失败：'+summarizeSafeDesktopError(error));}
+  finally{setBusy(false);}
+ }
  async function showRollbackAuditHistory(){
    if(focused===null||!result||busy)return;
    const ticket=rollbackAuditGeneration.current.begin();
@@ -1504,6 +1514,8 @@ function App(){
      <button className="secondary" type="button" disabled={busy} onClick={()=>void inspectManagedHealth()}>检查受管资料完整性</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showRollbackAuditHistory()}>查看回滚审计记录</button>
+     <button className="secondary" type="button" disabled={busy} onClick={()=>void exportRollbackAudit('json')}>导出回滚审计 JSON</button>
+     <button className="secondary" type="button" disabled={busy} onClick={()=>void exportRollbackAudit('markdown')}>导出回滚审计 Markdown</button>
      {rollbackAuditEvents!==null&&<div className="notice"><b>FR-041 回滚操作审计（只读）</b>
       {rollbackAuditEvents.length===0?<p>此脚本暂无持久回滚操作记录。</p>:
        rollbackAuditEvents.map(event=><p key={event.id}><code>{event.id}</code> ·

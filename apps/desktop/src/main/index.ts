@@ -32,6 +32,7 @@ import {DiagnosisRequestGate} from '../../../../packages/scan-service/src/diagno
 import {isTransientCdpReadError} from '../../../../packages/scan-service/src/paginated-dom.ts';
 import {serializeStaticReport} from '../../../../packages/reporting/src/index.ts';
 import {serializeDomBatchReport} from '../../../../packages/reporting/src/dom-report.ts';
+import {serializeRollbackAuditReport} from '../../../../packages/reporting/src/rollback-audit-report.ts';
 import {writeExclusiveReport} from '../../../../packages/reporting/src/exclusive-report.ts';
 import {BatchEvidenceStore} from '../../../../packages/scan-service/src/batch-evidence-store.ts';
 import {getVerifiedChromeStatus,launchSelectedChrome} from '../../../../packages/cdp-client/src/index.ts';
@@ -1802,6 +1803,34 @@ async function bootstrap():Promise<void>{
   if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
   scanSessions.assertCurrent(scanSnapshot);
   return rollbackAuditJournal.listByScript(item.scriptId);
+ });
+ ipcMain.handle('usshm:export-rollback-audit',async(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown;format?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||
+     Object.keys(q).sort().join(',')!=='format,itemIndex,scanId'||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0||
+     (q.format!=='json'&&q.format!=='markdown'))
+   throw new Error('Invalid rollback audit export request');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  const before=rollbackAuditJournal.listByScript(item.scriptId);
+  const createdAt=new Date().toISOString();
+  const content=serializeRollbackAuditReport(before,q.format,createdAt);
+  const ext=q.format==='json'?'json':'md';
+  const selection=await dialog.showSaveDialog(mainWindow,{
+   defaultPath:join(app.getPath('documents'),'usshm-rollback-audit.'+ext),
+   filters:[{name:ext.toUpperCase(),extensions:[ext]}],
+  });
+  if(selection.canceled||!selection.filePath)return {canceled:true};
+  scanSessions.assertCurrent(scanSnapshot);
+  if(!withinAuthorized(item.path))throw new Error('Script authorization changed during report save');
+  // The operating-system dialog is an async boundary: reject altered audits.
+  const after=rollbackAuditJournal.listByScript(item.scriptId);
+  if(JSON.stringify(before)!==JSON.stringify(after))
+   throw new Error('Rollback audit changed during save; review and export again');
+  await writeExclusiveReport({destinationPath:selection.filePath,content});
+  return {canceled:false,path:selection.filePath};
  });
  ipcMain.handle('usshm:rollback-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;hash:string;approved:true}|null;
