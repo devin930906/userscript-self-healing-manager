@@ -24,7 +24,8 @@ test('RG-05 isolates headed Chrome window mode without weakening default Chrome 
  assert.match(smoke,/\.\.\.pinnedViolentmonkeyWindowFlags/);
  assert.match(workflow,/USSHM_RG05_CFT_WINDOW_MODE:\s*'headless'/,
   'headful compatibility was tested separately and did not clear official GM restart failure');
- assert.match(workflow,/run: node --experimental-strip-types scripts\/smoke-violentmonkey-cft\.mjs/);\n assert.doesNotMatch(workflow,/continue-on-error|if:\\s*false|\\|\\|\\s*true/);
+ assert.match(workflow,/run: node --experimental-strip-types scripts\/smoke-violentmonkey-cft\.mjs/);
+ assert.doesNotMatch(workflow,/continue-on-error|if:\s*false|\|\|\s*true/);
  assert.match(smoke,/assertOfficialViolentmonkeyReleaseGate\(blocked\.status\)/);
  assert.doesNotMatch(smoke,/--no-sandbox/);
 });
