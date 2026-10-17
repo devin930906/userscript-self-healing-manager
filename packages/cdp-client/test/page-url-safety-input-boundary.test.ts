@@ -44,3 +44,23 @@ test('RG-07 CDP page URL rejects raw C1 controls before WHATWG normalization',()
  assert.doesNotThrow(()=>assertCredentialFreePageUrl(
   'https://fixture.example.invalid/%E6%B5%8B%E8%AF%95?view=review'));
 });
+
+
+test('RG-07 selected CDP URL rejects normalized empty userinfo and ambiguous raw separators',()=>{
+ for(const input of [
+  'https://@fixture.example.invalid/fixture',
+  'https://:@fixture.example.invalid/fixture',
+  'https://fixture.example.invalid\\@other.invalid/fixture',
+  'http://fixture.example.invalid\\login@other.invalid/fixture',
+  'https://fixture.example.invalid/path\\chapter',
+ ]){
+  assert.throws(()=>assertCredentialFreePageUrl(input),/invalid|credential/i,
+   'noncanonical raw authority/path must not authenticate a selected page');
+ }
+ for(const input of [
+  'https://fixture.example.invalid/path?q=a%40b&x=%5C',
+  'https://fixture.example.invalid/path?email=a@b',
+  'https://fixture.example.invalid/path?q=back\\slash',
+ ])assert.doesNotThrow(()=>assertCredentialFreePageUrl(input),
+  'ordinary query data must remain valid');
+});
