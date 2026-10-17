@@ -6,23 +6,25 @@ const devPath='.github/workflows/dev-ci.yml';
 const releasePath='.github/workflows/windows-build.yml';
 const script='node --experimental-strip-types scripts/smoke-violentmonkey-cft.mjs';
 
-test('PR validation retains real Chrome 155 and MV3 smoke while the official GM gate runs on integration pushes',async()=>{
+test('PR validation requires real Chrome 155 and MV3 while the separate Stable GM gate runs on integration pushes',async()=>{
  const source=await readFile(devPath,'utf8');
+ const stable=await readFile('.github/workflows/stable-rg05-gate.yml','utf8');
  assert.match(source,/pull_request:\s*\n\s+branches: \[main, feat\/v01-continuation\]/);
  assert.match(source,/push:\s*\n\s+branches: \[feat\/v01-continuation\]/);
  const chrome=source.split(/^  chrome155:\s*$/m)[1];
  assert.ok(chrome,'dedicated Chrome 155 job must exist on PRs');
  assert.match(chrome,/scripts\/smoke-chrome\.mjs/);
  assert.match(chrome,/scripts\/smoke-extension-cft\.mjs/);
- const setup=chrome.split('- name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration')[1];
+ assert.doesNotMatch(chrome,/continue-on-error|smoke-violentmonkey-cft\.mjs/,
+  'development smoke must remain mandatory and independent of official GM acceptance');
+ assert.match(stable,/push:\s*\n\s+branches: \[feat\/v01-continuation\]/);
+ assert.match(stable,/workflow_dispatch:/);
+ const setup=stable.split('- name: Fetch pinned official Violentmonkey 2.49.0 MV3 release for isolated integration')[1];
  assert.ok(setup,'verified official manager acquisition must remain present');
- assert.match(setup,/^\s*if: github\.event_name != 'pull_request'/m,
-  'a known external manager cold-start blocker belongs to post-integration/release validation');
- const gm=chrome.split('- name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile (synthetic loopback only)')[1];
+ const gm=stable.split('- name: Real Violentmonkey 2.49.0 GM API integration in isolated CFT 155 profile (synthetic loopback only)')[1];
  assert.ok(gm,'mandatory real GM receipt assertion must remain present');
- assert.match(gm,/^\s*if: github\.event_name != 'pull_request'/m);
  assert.match(gm,/scripts\/smoke-violentmonkey-cft\.mjs/);
- assert.doesNotMatch(chrome,/continue-on-error:\s*true|if:\s*false|\|\| true/);
+ assert.doesNotMatch(stable,/continue-on-error|if:\s*false|\|\|\s*true/);
 });
 
 test('final-tag-only packaging refuses to build any edition before real pinned official GM cold-restart acceptance',async()=>{
