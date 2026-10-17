@@ -12,6 +12,13 @@ export function assertCredentialFreePageUrl(value:unknown):void{
  if(typeof value!=='string'||value.length<1||value.length>8192||
     value!==value.trim()||/[\u0000-\u001F\u007F-\u009F]/.test(value))
   throw failure();
+ // WHATWG drops empty userinfo (https://@host) and normalizes raw
+ // backslashes in HTTP(S) authority/path. Authenticate the original
+ // spelling first; legitimate query/fragment data remain untouched.
+ const pathAndAuthority=value.split(/[?#]/,1)[0];
+ const authority=/^https?:\/\/([^/?#]*)/i.exec(pathAndAuthority)?.[1];
+ if(!authority||authority.includes('@')||pathAndAuthority.includes('\\'))
+  throw failure();
  let parsed:URL;
  try{parsed=new URL(value);}catch{throw failure();}
  if(!['http:','https:'].includes(parsed.protocol)||!parsed.hostname||
