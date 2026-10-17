@@ -16,7 +16,12 @@ test('rollback IPC binds revisions to authorized scanned script rather than arbi
  assert.match(s,/confirm:async review=>\{/);
  assert.match(s,/buildManagedRollbackDiff\(\{/);
  assert.match(s,/return dialog\.showMessageBox\(mainWindow/);
- assert.match(s,/restore:expectedCurrentHash=>repairs\.restore\(\{/);
+ assert.match(s,/restore:expectedCurrentHash=>executeAuditedManagedRollback\(\{/);
+ assert.match(s,/journal:rollbackAuditJournal/);
+ assert.match(s,/sourceAuditRevisionId/);
+ assert.match(s,/targetAuditRevisionId/);
+ assert.match(s,/restore:expectedCurrentHash=>repairs\.restore\(\{/,
+  'actual activation must remain inside the durable audit callback');
  assert.match(s,/scriptId,hash:targetHash,approved:true,expectedCurrentHash/);
  assert.doesNotMatch(s,/return activateManagedRevision\(/,'rollback must be serialized with repair approval, not use the standalone history API');
 });
