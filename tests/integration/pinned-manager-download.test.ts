@@ -86,15 +86,14 @@ test('a pre-existing CI archive is preserved and never overwritten',async(t)=>{
 });
 
 test('official fixed URL and SHA match the manager contract and workflow invokes verified helper',async()=>{
- const workflow=await readFile('.github/workflows/dev-ci.yml','utf8');
+ const workflow=await readFile('.github/workflows/stable-rg05-gate.yml','utf8');
  assert.equal(VIOLENTMONKEY_RELEASE_SHA256,VIOLENTMONKEY_CFT_RELEASE.archiveSha256);
  assert.match(VIOLENTMONKEY_RELEASE_URL,/violentmonkey\/violentmonkey\/releases\/download\/v2\.49\.0\/Violentmonkey-mv3-v2\.49\.0\.zip/);
  assert.match(workflow,/node scripts\/download-violentmonkey-release\.mjs \$archive/);
  assert.match(workflow,new RegExp(VIOLENTMONKEY_RELEASE_SHA256));
  assert.doesNotMatch(workflow,/Invoke-WebRequest -Uri 'https:\/\/github\.com\/violentmonkey/);
- // Download integrity and SHA verification must never be suppressed; only
- // the independent browser smoke observations use step-level continuation,
- // with their strict final failure gate covered by the RG-05 CI contract.
+ // Download integrity, SHA verification and real GM acceptance must never be
+ // suppressed in the dedicated fail-closed Stable RG-05 workflow.
  const fetch=workflow.indexOf('name: Fetch pinned official Violentmonkey 2.49.0 MV3 release');
  const official=workflow.indexOf('name: Real Violentmonkey 2.49.0 GM API integration');
  assert.ok(fetch>=0&&official>fetch,'pinned official download must precede GM smoke');
