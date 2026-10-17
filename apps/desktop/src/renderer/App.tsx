@@ -14,6 +14,7 @@ import type {SiteTestCase,SiteTestSelection,DeclaredPageState} from '../../../..
 import type {ScriptRecord} from '../../../../packages/persistence/src/index.ts';
 import type {JournalRun} from '../../../../packages/job-journal/src/index.ts';
 import type {AuditTrace} from '../../../../packages/contracts/src/audit-trace.ts';
+import type {RollbackEvent} from '../../../../packages/audit-journal/src/rollback-events.ts';
 import {summarizeSiteTrends} from '../../../../packages/job-journal/src/trends.ts';
 import type {LocatorProbeResult} from '../../../../packages/cdp-client/src/locator-probe.ts';
 import type {DomSummary} from '../../../../packages/cdp-client/src/snapshot.ts';
@@ -87,6 +88,7 @@ declare global {interface Window{ussm:{
  inspectManagedIntegrity:(input:{scanId:string;itemIndex:number})=>Promise<ManagedIntegrityReport>;
  listManagedRevisions:(input:{scanId:string;itemIndex:number})=>Promise<ManagedRevision[]>;
  getManagedAuditTrace:(input:{scanId:string;itemIndex:number;revisionHash:string})=>Promise<AuditTrace|null>;
+ listRollbackAuditHistory:(input:{scanId:string;itemIndex:number})=>Promise<readonly RollbackEvent[]>;
  rollbackManaged:(input:{scanId:string;itemIndex:number;hash:string;approved:true})=>Promise<{hash:string;activePath:string}>;
  exportManaged:(input:{scanId:string;itemIndex:number})=>Promise<{canceled:boolean;path?:string;hash?:string;bytes?:number}>;
  listSiteTestCases:(input:{scanId:string;itemIndex:number})=>Promise<SiteTestCase[]>;
@@ -221,8 +223,11 @@ function App(){
  const [repairApplied,setRepairApplied]=useState<{backupPath:string;managedPath:string;hash:string;itemIndex:number;selectorIndex:number}|null>(null);
  const [repairAudit,setRepairAudit]=useState<AuditTrace|null>(null);
  const [managedRevisions,setManagedRevisions]=useState<ManagedRevision[]|null>(null);
+ const [rollbackAuditEvents,setRollbackAuditEvents]=useState<readonly RollbackEvent[]|null>(null);
+ const rollbackAuditGeneration=useRef(new LatestRequestGate());
  const [managedHealth,setManagedHealth]=useState<ManagedIntegrityReport|null>(null);
  const [managedActive,setManagedActive]=useState<{hash:string;activePath:string}|null>(null);
+ useEffect(()=>{rollbackAuditGeneration.current.invalidate();setRollbackAuditEvents(null);},[result,focused]);
  useEffect(()=>{managerTargetGeneration.current.invalidate();setManagerTargetReport(null);},[cdp,chromePath]);
  useEffect(()=>{exceptionGeneration.current.invalidate();setExceptionEvidence(null);setExceptionBusy(false);},[targetId,cdp,chromePath]);
  useEffect(()=>{
@@ -1019,7 +1024,18 @@ function App(){
   try{setManagedRevisions(await window.ussm.listManagedRevisions({scanId:result.scanId,itemIndex:focused}));}
   catch(e){setError('加载修订历史失败：'+summarizeSafeDesktopError(e));}finally{setBusy(false);}
  }
- async function showManagedAudit(hash:string){
+ async function showRollbackAuditHistory(){
+   if(focused===null||!result||busy)return;
+   const ticket=rollbackAuditGeneration.current.begin();
+   setBusy(true);setError('');
+   try{
+    const rows=await window.ussm.listRollbackAuditHistory({scanId:result.scanId,itemIndex:focused});
+    rollbackAuditGeneration.current.commit(ticket,()=>setRollbackAuditEvents(rows));
+   }catch(error){
+    rollbackAuditGeneration.current.commit(ticket,()=>setError('读取回滚审计失败：'+summarizeSafeDesktopError(error)));
+   }finally{setBusy(false);}
+  }
+  async function showManagedAudit(hash:string){
   if(focused===null||!result||busy)return;
   setBusy(true);setError('');setRepairAudit(null);
   try{
@@ -1487,6 +1503,15 @@ function App(){
     <section className="managed-history"><h3>受管修订历史与恢复</h3><p className="dim">只恢复软件自己管理的 current.user.js；原始脚本不会被覆盖，也不会直接修改 Tampermonkey 扩展内容。</p>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void inspectManagedHealth()}>检查受管资料完整性</button>
      <button className="secondary" type="button" disabled={busy} onClick={()=>void showManagedHistory()}>查看受管历史</button>
+     <button className="secondary" type="button" disabled={busy} onClick={()=>void showRollbackAuditHistory()}>查看回滚审计记录</button>
+     {rollbackAuditEvents!==null&&<div className="notice"><b>FR-041 回滚操作审计（只读）</b>
+      {rollbackAuditEvents.length===0?<p>此脚本暂无持久回滚操作记录。</p>:
+       rollbackAuditEvents.map(event=><p key={event.id}><code>{event.id}</code> ·
+        {event.outcome==='committed'?'已验证完成':event.outcome==='uncertain'?'结果不确定，需离线复核':'未完成，需要离线复核'} ·
+        {event.previousHash?.slice(0,12)??'当前缺失'} → {event.targetHash.slice(0,12)} · {event.createdAt}
+       </p>)}
+      <p className="dim">只显示修订哈希、审计标识及操作状态；未完成或结果不确定不等于恢复成功。不存储源码、URL 或凭据。</p>
+     </div>
      {managedHealth&&<p className={managedHealth.status==='healthy'?'dim':'warn'}>完整性检查：{managedHealthDescription[managedHealth.status]} · 归档 {managedHealth.archiveCount} 份{managedHealth.activeHash?' · 已验证当前 SHA256 '+managedHealth.activeHash.slice(0,16)+'…':''}。这是只读检查；不会自动删除锁、覆盖修订或恢复文件。</p>}
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>

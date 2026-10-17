@@ -74,6 +74,7 @@ export function openRollbackAuditJournal(file:string){
  const unfinished=db.prepare('SELECT i.id FROM rollback_intents i LEFT JOIN rollback_outcomes o ON o.intent_id=i.id WHERE i.script_id=? AND o.intent_id IS NULL LIMIT 1');
  const insert=db.prepare('INSERT INTO rollback_intents(id,script_id,previous_hash,target_hash,source_revision_id,target_revision_id,created_at) VALUES(?,?,?,?,?,?,?)');
  const mark=db.prepare('INSERT INTO rollback_outcomes(intent_id,outcome,target_hash,finished_at) VALUES(?,?,?,?)');
+ const byScript=db.prepare('SELECT id FROM rollback_intents WHERE script_id=? ORDER BY created_at DESC,id DESC LIMIT 50');
  function get(id:string):RollbackEvent|null{
   if(typeof id!=='string'||!UUID.test(id))throw new Error('Invalid rollback audit ID');
   const row=lookup.get(id) as Record<string,unknown>|undefined;
@@ -119,6 +120,15 @@ export function openRollbackAuditJournal(file:string){
    if(old.outcome!==null)throw new Error('Rollback audit outcome already recorded');
    try{mark.run(input.id,input.outcome,input.targetHash,input.at);}
    catch{throw new Error('Rollback audit outcome persistence failed; manual review required');}
+  },
+  listByScript(scriptId:string):readonly RollbackEvent[]{
+   if(typeof scriptId!=='string'||!SCRIPT.test(scriptId))
+    throw new Error('Invalid rollback audit script identity');
+   return Object.freeze((byScript.all(scriptId) as Array<{id:string}>).map(row=>{
+    const event=get(row.id);
+    if(!event||event.scriptId!==scriptId)throw new Error('Corrupt rollback audit script linkage');
+    return event;
+   }));
   },
   get,close:():void=>db.close(),
  });

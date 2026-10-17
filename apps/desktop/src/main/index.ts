@@ -1791,6 +1791,18 @@ async function bootstrap():Promise<void>{
   const receipt=await exportManagedCurrent({managedRoot:dataRoot,scriptId:item.scriptId,destinationPath:save.filePath});
   return {canceled:false,...receipt};
  });
+ ipcMain.handle('usshm:rollback-audit-history',(event,input:unknown)=>{assertSender(event);
+  const q=input as {scanId?:unknown;itemIndex?:unknown}|null;
+  if(!q||typeof q!=='object'||Array.isArray(q)||
+     Object.keys(q).sort().join(',')!=='itemIndex,scanId'||
+     typeof q.scanId!=='string'||!Number.isSafeInteger(q.itemIndex)||Number(q.itemIndex)<0)
+   throw new Error('Invalid rollback audit history request');
+  const scanSnapshot=scanSessions.require(q.scanId);
+  const item=scanSnapshot.items[Number(q.itemIndex)];
+  if(!item?.scriptId||!withinAuthorized(item.path))throw new Error('Script not authorized');
+  scanSessions.assertCurrent(scanSnapshot);
+  return rollbackAuditJournal.listByScript(item.scriptId);
+ });
  ipcMain.handle('usshm:rollback-managed',async(event,input:unknown)=>{assertSender(event);
   const q=input as {scanId:string;itemIndex:number;hash:string;approved:true}|null;
   if(!q||q.approved!==true||!Number.isSafeInteger(q.itemIndex)||q.itemIndex<0||
