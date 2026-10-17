@@ -1511,7 +1511,7 @@ function App(){
         {event.previousHash?.slice(0,12)??'当前缺失'} → {event.targetHash.slice(0,12)} · {event.createdAt}
        </p>)}
       <p className="dim">只显示修订哈希、审计标识及操作状态；未完成或结果不确定不等于恢复成功。不存储源码、URL 或凭据。</p>
-     </div>
+     </div>}
      {managedHealth&&<p className={managedHealth.status==='healthy'?'dim':'warn'}>完整性检查：{managedHealthDescription[managedHealth.status]} · 归档 {managedHealth.archiveCount} 份{managedHealth.activeHash?' · 已验证当前 SHA256 '+managedHealth.activeHash.slice(0,16)+'…':''}。这是只读检查；不会自动删除锁、覆盖修订或恢复文件。</p>}
      <button className="secondary" type="button" disabled={busy||(!managedActive&&!(managedRevisions?.length))} onClick={()=>void exportManaged()}>安全导出 .user.js</button>
      <p className="dim">导出仅复制已归档并校验的受管 current.user.js，必须另行导入 Tampermonkey；原始文件及现有文件均不会被覆盖。</p>
