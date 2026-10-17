@@ -16,6 +16,7 @@ import {
 } from '../packages/cdp-client/src/index.ts';
 import {confirmPageIdentity} from '../packages/cdp-client/src/page-identity.ts';
 import {probePageLocators} from '../packages/cdp-client/src/locator-probe.ts';
+import {classifySyntheticExtensionProbe} from './synthetic-extension-probe-evidence.ts';
 
 if(process.platform!=='win32'||process.env.USSHM_SMOKE_EXPECT_CHROME_MAJOR!=='155')
  throw new Error('This fixture is permitted only on the isolated Windows CFT 155 job');
@@ -141,9 +142,8 @@ try{
      runtimeRequired:false,
     }]);
     selected=page;
-    if(probe.validationLevel==='dom-only'&&probe.targetId===page.id&&
-       probe.url===fixtureUrl&&probe.checks.length===3&&
-       probe.checks.every(check=>check?.status==='found'&&check?.matchCount===1)){
+    const stage=classifySyntheticExtensionProbe(probe,page.id,fixtureUrl);
+    if(stage==='verified'){
      const after=await confirmPageIdentity(page);
      if(after.frameId!==identity.frameId||after.loaderId!==identity.loaderId)
       throw new Error('CFT fixture document reloaded during extension evidence');
@@ -151,7 +151,7 @@ try{
      verified=true;
      break;
     }
-    lastReason='extension or runtime messaging marker not yet injected by isolated content script';
+    lastReason=stage;
    }
   }catch(error){lastReason=String(error).slice(0,240);}
   await delay(350);
@@ -211,9 +211,8 @@ try{
      expression:'[data-usshm-extension-roundtrip="yes"]',
      runtimeRequired:false,
     }]);
-    if(probe.validationLevel==='dom-only'&&probe.targetId===page.id&&
-       probe.url===fixtureUrl&&probe.checks.length===3&&
-       probe.checks.every(check=>check?.status==='found'&&check?.matchCount===1)){
+    const stage=classifySyntheticExtensionProbe(probe,page.id,fixtureUrl);
+    if(stage==='verified'){
      const after=await confirmPageIdentity(page);
      if(after.frameId!==identity.frameId||after.loaderId!==identity.loaderId)
       throw new Error('Restarted CFT fixture document reloaded during extension evidence');
@@ -221,7 +220,7 @@ try{
      restartedVerified=true;
      break;
     }
-    restartReason='runtime messaging marker absent after process restart';
+    restartReason=stage;
    }
   }catch(error){restartReason=String(error).slice(0,240);}
   await delay(350);
