@@ -10,6 +10,7 @@ import {createActiveBatchCancellation} from './batch-main-cancellation.ts';
 import {inspectRepairQueueRecovery} from './repair-queue-recovery.ts';
 import {persistRetainedRepairAudit} from './retained-repair-audit.ts';
 import {approveManagedRollback} from './approved-rollback.ts';
+import {buildManagedRollbackDiff} from '../../../../packages/repair-workflow/src/rollback-diff.ts';
 import {dirname,join,resolve,relative,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {existsSync} from 'node:fs';
@@ -1806,13 +1807,21 @@ async function bootstrap():Promise<void>{
     scanSessions.assertCurrent(scanSnapshot);
     if(!withinAuthorized(item.path))throw new Error('Script authorization changed during rollback review');
    },
-   confirm:review=>dialog.showMessageBox(mainWindow,{
-    type:'warning',title:'确认恢复受管修订',
-    message:'确认将当前受管副本恢复到所选的历史修订？',
-    detail:'当前 SHA-256：'+(review.currentHash??'（当前受管副本缺失）')+'\n目标 SHA-256：'+review.targetHash+
-     '\n仅变更受管 current.user.js，原始用户脚本不会被覆盖。恢复后仍需重新验收脚本功能。',
-    buttons:['取消','确认恢复'],defaultId:0,cancelId:0,noLink:true,
-   }),
+   confirm:async review=>{
+    // Native consent must display actual locally verified changed lines,
+    // never only two hashes. A failed or untrusted preview aborts the write.
+    const diff=await buildManagedRollbackDiff({
+     managedRoot:dataRoot,scriptId,currentHash:review.currentHash,targetHash:review.targetHash,
+    });
+    scanSessions.assertCurrent(scanSnapshot);
+    return dialog.showMessageBox(mainWindow,{
+     type:'warning',title:'确认恢复受管修订',
+     message:'确认将当前受管副本恢复到所选的历史修订？',
+     detail:'当前 SHA-256：'+(review.currentHash??'（当前受管副本缺失）')+'\n目标 SHA-256：'+review.targetHash+
+      '\n仅变更受管 current.user.js，原始用户脚本不会被覆盖。恢复后仍需重新验收脚本功能。\n\n'+diff,
+     buttons:['取消','确认恢复'],defaultId:0,cancelId:0,noLink:true,
+    });
+   },
    restore:expectedCurrentHash=>repairs.restore({
     scriptId,hash:targetHash,approved:true,expectedCurrentHash,
    }),
