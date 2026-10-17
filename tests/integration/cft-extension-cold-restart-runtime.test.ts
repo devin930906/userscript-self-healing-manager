@@ -39,8 +39,15 @@ test('RG-05 real synthetic MV3 control requires background/content message round
   'only a genuine received reply may publish a successful bounded fixture marker');
  assert.match(source,/expression:'\[data-usshm-extension-roundtrip="yes"\]'/,
   'CDP must require a positive roundtrip marker, not only onMessage availability');
- assert.match(source,/probe\.checks\.length===3/,
-  'both original and restarted document must pass the three independent synthetic checks');
+ const evidence=await readFile(new URL('../../scripts/synthetic-extension-probe-evidence.ts',import.meta.url),'utf8');
+ assert.equal([...source.matchAll(/classifySyntheticExtensionProbe\(probe,page\.id,fixtureUrl\)/g)].length,2,
+  'both original and restarted document must use the same strict evidence classifier');
+ assert.equal([...source.matchAll(/if\(stage==='verified'\)/g)].length,2,
+  'both documents must require the exact verified classifier status');
+ assert.match(evidence,/result\.checks\.length!==3/,
+  'the helper must require exactly three independent observations');
+ assert.match(evidence,/check\.status!=='found'\|\|check\.matchCount!==1/,
+  'every independent marker must be found exactly once before success');
  assert.match(source,/roundtrip.*survived process restart/i,
   'stdout must distinguish genuine roundtrip from API availability');
  assert.doesNotMatch(source,/--no-sandbox|chrome\.userScripts\.register|GetInjected|GM_getValue/,
