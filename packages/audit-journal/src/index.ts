@@ -64,7 +64,7 @@ function freezeTrace(row:SqlRow):AuditTrace{
  * synchronous API. This is a lexical/lstat fence, NOT a native Win32 handle
  * lock against a malicious concurrent rename.
  */
-function assertSafeAuditJournalPath(file:string):void{
+export function assertSafeAuditJournalPath(file:string):void{
  if(typeof file!=='string'||!isAbsolute(file)||file.length>4096||
     file.split(/[\\/]/).includes('..'))
   throw new Error('Invalid or unsafe audit SQLite journal path');
