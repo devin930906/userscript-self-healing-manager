@@ -27,10 +27,10 @@ async function fixture(run:(args:{root:string;folder:string;oldHash:string;newHa
 test('FR-028 displays actual verified changed source lines, not only hashes, before rollback',async()=>fixture(async({root,oldHash,newHash,folder})=>{
  const diff=await buildManagedRollbackDiff({managedRoot:root,scriptId:'synthetic',currentHash:oldHash,targetHash:newHash});
  assert.match(diff,/差异|diff/i);
- assert.match(diff,/\\\"#old\\\"/);
- assert.match(diff,/\\\"#new\\\"/);
+ assert.ok(diff.includes('#old'));
+ assert.ok(diff.includes('#new'));
  assert.match(diff,/- /);
- assert.match(diff,/\\+ /);
+ assert.match(diff,/^\+ /m);
  assert.doesNotMatch(diff,/\\\"@name synthetic\\\"/,'unchanged script metadata should not be copied into rollback diff');
  assert.equal(await readFile(join(folder,'current.user.js'),'utf8'),PREVIOUS,'preview must never activate the selected revision');
 }));
@@ -57,16 +57,16 @@ test('FR-028 fails closed on a forged hash, altered archived bytes and linked ar
 test('FR-028 escapes control and bidi payloads instead of injecting misleading native-dialog lines',async()=>{
  const root=await mkdtemp(join(tmpdir(),'usshm-rollback-diff-controls-'));
  const folder=join(root,'managed','synthetic');
- const a='const mode = "a";\n',b='const mode = "new\\u202e\\u001bline";\n';
+ const a='const mode = "a";\n',b='const mode = "new\u202e\u001bline";\n';
  const oldHash=hash(a),newHash=hash(b);
  try{
   await mkdir(folder,{recursive:true});
   await writeFile(join(folder,'revision-'+oldHash+'.user.js'),a);
   await writeFile(join(folder,'revision-'+newHash+'.user.js'),b);
   const diff=await buildManagedRollbackDiff({managedRoot:root,scriptId:'synthetic',currentHash:oldHash,targetHash:newHash});
-  assert.ok(diff.includes('\\\\u202e'));
-  assert.ok(diff.includes('\\\\u001b'));
-  assert.ok(!diff.includes('\\u202e')&&!diff.includes('\\u001b'));
+  assert.ok(diff.includes('\\u202e'));
+  assert.ok(diff.includes('\\u001b'));
+  assert.ok(!diff.includes('\u202e')&&!diff.includes('\u001b'));
  }finally{await rm(root,{recursive:true,force:true})}
 });
 
@@ -92,8 +92,8 @@ test('FR-028 desktop native approval actually displays locally verified rollback
  const end=main.indexOf("ipcMain.handle('usshm:export-dom-report'",start);
  const handler=main.slice(start,end);
  assert.ok(start>=0&&end>start);
- assert.match(handler,/buildManagedRollbackDiff\\(\\{/);
- assert.match(handler,/detail:.*review\\.currentHash/s);
+ assert.match(handler,/buildManagedRollbackDiff\(\{/);
+ assert.match(handler,/detail:.*review\.currentHash/s);
  assert.match(handler,/diff/);
  assert.match(handler,/expectedCurrentHash/,'actual activation must keep existing predecessor CAS');
 });
