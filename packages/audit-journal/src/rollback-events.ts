@@ -93,6 +93,8 @@ export function openRollbackAuditJournal(file:string){
      (record.outcome===null)!==(record.finishedAt===null)||
      (record.finishedAt!==null&&!validTime(record.finishedAt)))
    throw new Error('Corrupt rollback audit outcome');
+  if(record.finishedAt!==null&&Date.parse(record.finishedAt)<Date.parse(record.createdAt))
+   throw new Error('Corrupt rollback audit outcome chronology');
   return record;
  }
  return Object.freeze({
@@ -118,6 +120,10 @@ export function openRollbackAuditJournal(file:string){
    if(!old||old.targetHash!==input.targetHash)
     throw new Error('Rollback audit target mismatch or missing intent');
    if(old.outcome!==null)throw new Error('Rollback audit outcome already recorded');
+   // Both timestamps are canonical UTC strings, verified at their respective boundaries.
+   // Never persist an outcome that predates the durable intent it completes.
+   if(Date.parse(input.at)<Date.parse(old.createdAt))
+    throw new Error('Rollback audit completion precedes its durable intent');
    try{mark.run(input.id,input.outcome,input.targetHash,input.at);}
    catch{throw new Error('Rollback audit outcome persistence failed; manual review required');}
   },
