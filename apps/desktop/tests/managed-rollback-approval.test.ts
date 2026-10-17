@@ -24,7 +24,7 @@ test('FR-028 ignores renderer approved:true until Main native consent actually c
 });
 
 test('FR-028 pins the reviewed predecessor hash through Main revalidation and CAS restore',async()=>{
- let observations=0,assertions=0,restored='';
+ let observations=0,assertions=0,restored:string|null='';
  const result=await approveManagedRollback({
   targetHash:B,
   inspect:async()=>{observations++;return inspect();},
@@ -49,7 +49,6 @@ test('FR-028 refuses wrong targets and damaged or locked current before showing 
  for(const [status,target,inventoryValue] of [
   ['write-locked',B,inventory()],
   ['unsafe',B,inventory()],
-  ['missing-current',B,inventory()],
   ['healthy',C,inventory()],
   ['healthy',A,inventory()],
  ] as const){
@@ -64,6 +63,26 @@ test('FR-028 refuses wrong targets and damaged or locked current before showing 
   }),/unsafe|healthy|available|unchanged|revision|current|selected|target/i);
   assert.equal(confirmations,0,'invalid review state must fail before native consent');
  }
+});
+
+test('FR-028 safely recovers an absent managed current only with native consent and null CAS',async()=>{
+ let expected:string|null='not-called',confirmed=0;
+ const result=await approveManagedRollback({
+  targetHash:B,
+  inspect:async()=>({status:'missing-current',activeHash:null}),
+  list:async()=>inventory(),assertCurrent:()=>{},
+  confirm:async review=>{
+   confirmed++;assert.deepEqual(review,{currentHash:null,targetHash:B});
+   return {response:1};
+  },
+  restore:async currentHash=>{
+   expected=currentHash;
+   return {hash:B,activePath:'synthetic-recovered-current'};
+  },
+ });
+ assert.equal(confirmed,1);
+ assert.equal(expected,null);
+ assert.equal(result.hash,B);
 });
 
 test('FR-028 rejects stale active revision or missing archive after native dialog',async()=>{
@@ -105,6 +124,21 @@ test('FR-028 real immutable managed archive CAS rejects an intervening writer af
    },
   }),/changed|stale|refusing/i);
   assert.equal(await readFile(join(folder,'current.user.js'),'utf8'),next);
+  assert.equal(await readFile(join(folder,'original-'+o+'.user.js'),'utf8'),original);
+  // Recovery from a missing current is permitted, but a new current appearing
+  // AFTER the final read must be rejected under the same null compare-and-swap.
+  await rm(join(folder,'current.user.js'));
+  await assert.rejects(approveManagedRollback({
+   targetHash:o,inspect,
+   list:()=>import('../../../packages/repair-workflow/src/history.ts').then(m=>m.listManagedRevisions({managedRoot:root,scriptId})),
+   assertCurrent:()=>{},confirm:async()=>({response:1}),
+   restore:async expectedCurrentHash=>{
+    assert.equal(expectedCurrentHash,null);
+    await activateManagedRevision({managedRoot:root,scriptId,hash:a,approved:true});
+    return activateManagedRevision({managedRoot:root,scriptId,hash:o,approved:true,expectedCurrentHash});
+   },
+  }),/appeared|changed|stale|refusing/i);
+  assert.equal(await readFile(join(folder,'current.user.js'),'utf8'),old);
   assert.equal(await readFile(join(folder,'original-'+o+'.user.js'),'utf8'),original);
  }finally{await rm(root,{recursive:true,force:true})}
 });
