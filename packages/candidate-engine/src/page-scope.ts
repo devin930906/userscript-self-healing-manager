@@ -142,7 +142,7 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
  // must not be silently rewritten into a matching @match/@include URL.
  // Escaped path bytes (%0A, etc.) remain valid literal URL text.
  if(typeof pageUrl!=='string'||pageUrl.length===0||pageUrl.length>8192||
-    /[\\u0000-\\u001f\\u007f]/.test(pageUrl)||pageUrl.trim()!==pageUrl)
+    /[\u0000-\u001f\u007f]/.test(pageUrl)||pageUrl.trim()!==pageUrl)
   return {status:'blocked',reason:'Invalid page URL'};
  // Treat userscript metadata as hostile input, not a bounded trusted list.
  // Enforce the aggregate cap BEFORE accepting even the first @match: a huge
