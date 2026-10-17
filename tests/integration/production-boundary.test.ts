@@ -87,6 +87,21 @@ test('RG-02 forbids all test and tooling script modules from production import g
  }
 });
 
+test('RG-02 tooling guard retains legitimate application imports and dependency scripts',()=>{
+ for(const entry of ['main','preload','renderer']){
+  for(const path of [
+   'apps/desktop/src/main/index.ts',
+   'packages/cdp-client/src/endpoint.ts',
+   'node_modules/dependency/scripts/runner.mjs',
+   'C:\\checkout\\node_modules\\dependency\\scripts\\runner.mjs',
+  ]){
+   assert.doesNotThrow(()=>assertProductionModuleGraph({
+    inputs:{[path]:{bytes:1,imports:[]}},
+   },entry),path);
+  }
+ }
+});
+
 test('development CI must independently inspect compiled artifacts, not only source text',async()=>{
  const {readFile}=await import('node:fs/promises');
  const build=await readFile(new URL('../../scripts/build.mjs',import.meta.url),'utf8');
