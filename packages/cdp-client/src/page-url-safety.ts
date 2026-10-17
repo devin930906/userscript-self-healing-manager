@@ -15,7 +15,7 @@ export function assertCredentialFreePageUrl(value:unknown):void{
  // WHATWG drops empty userinfo (https://@host) and normalizes raw
  // backslashes in HTTP(S) authority/path. Authenticate the original
  // spelling first; legitimate query/fragment data remain untouched.
- const pathAndAuthority=value.split(/[?#]/,1)[0];
+ const pathAndAuthority=value.split(/[?#]/,1)[0]??'';
  const authority=/^https?:\/\/([^/?#]*)/i.exec(pathAndAuthority)?.[1];
  if(!authority||authority.includes('@')||pathAndAuthority.includes('\\'))
   throw failure();
