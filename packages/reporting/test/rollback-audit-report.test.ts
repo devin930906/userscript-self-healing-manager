@@ -78,3 +78,31 @@ test('FR-040 rejects forged/oversize/accessor audit evidence and invalid timesta
  assert.throws(()=>serializeRollbackAuditReport([accessor] as any,'json',NOW),e=>
   e instanceof Error&&!String(e.message).includes('PRIVATE-CREDENTIAL'));
 });
+
+test('FR-040 rejects Proxy-backed audit receipts before native reflection',()=>{
+ const entry={id:ID(9),scriptId:'private_local_script',previousHash:A,targetHash:B,
+  sourceAuditRevisionId:null,targetAuditRevisionId:null,createdAt:NOW,
+  outcome:'committed' as const,finishedAt:NOW};
+ const guarded=<T extends object>(target:T)=>{
+  let trapCalls=0;
+  const proxy=new Proxy(target,{
+   getPrototypeOf(value){trapCalls++;return Reflect.getPrototypeOf(value);},
+   getOwnPropertyDescriptor(value,key){trapCalls++;return Reflect.getOwnPropertyDescriptor(value,key);},
+   ownKeys(value){trapCalls++;return Reflect.ownKeys(value);},
+   get(value,key,receiver){trapCalls++;return Reflect.get(value,key,receiver);},
+  });
+  return {proxy,calls:()=>trapCalls};
+ };
+ const container=guarded([entry]);
+ assert.throws(()=>serializeRollbackAuditReport(container.proxy,'json',NOW),/Invalid rollback audit report/i);
+ assert.equal(container.calls(),0,'container Proxy traps must never run');
+ const row=guarded(entry);
+ assert.throws(()=>serializeRollbackAuditReport([row.proxy],'markdown',NOW),/Invalid rollback audit report/i);
+ assert.equal(row.calls(),0,'row Proxy traps must never run');
+ const revokedArray=Proxy.revocable([entry],{});
+ revokedArray.revoke();
+ assert.throws(()=>serializeRollbackAuditReport(revokedArray.proxy,'json',NOW),/Invalid rollback audit report/i);
+ const revokedRow=Proxy.revocable(entry,{});
+ revokedRow.revoke();
+ assert.throws(()=>serializeRollbackAuditReport([revokedRow.proxy],'json',NOW),/Invalid rollback audit report/i);
+});
