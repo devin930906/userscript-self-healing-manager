@@ -14,7 +14,7 @@ const TRUNCATED='\n…（差异预览已截断，未展示完整文件；请勿�
 function printable(line:string):string{
  const clipped=line.length>LINE_LIMIT;
  const display=clipped?line.slice(0,LINE_LIMIT):line;
- const escaped=display.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ud800-\udfff]/g,
+ const escaped=display.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069\ud800-\udfff]/g,
   c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
  return escaped+(clipped?'…（单行省略）':'');
 }

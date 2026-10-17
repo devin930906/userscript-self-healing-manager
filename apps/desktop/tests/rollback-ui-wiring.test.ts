@@ -13,7 +13,9 @@ test('rollback IPC binds revisions to authorized scanned script rather than arbi
  assert.match(s,/approveManagedRollback\(\{/,'untrusted renderer approval is not native consent');
  assert.match(s,/inspect:\(\)=>inspectManagedIntegrity\(\{managedRoot:dataRoot,scriptId\}\)/);
  assert.match(s,/list:\(\)=>listManagedRevisions\(\{managedRoot:dataRoot,scriptId\}\)/);
- assert.match(s,/confirm:review=>dialog\.showMessageBox\(mainWindow/);
+ assert.match(s,/confirm:async review=>\{/);
+ assert.match(s,/buildManagedRollbackDiff\(\{/);
+ assert.match(s,/return dialog\.showMessageBox\(mainWindow/);
  assert.match(s,/restore:expectedCurrentHash=>repairs\.restore\(\{/);
  assert.match(s,/scriptId,hash:targetHash,approved:true,expectedCurrentHash/);
  assert.doesNotMatch(s,/return activateManagedRevision\(/,'rollback must be serialized with repair approval, not use the standalone history API');

@@ -57,7 +57,7 @@ test('FR-028 fails closed on a forged hash, altered archived bytes and linked ar
 test('FR-028 escapes control and bidi payloads instead of injecting misleading native-dialog lines',async()=>{
  const root=await mkdtemp(join(tmpdir(),'usshm-rollback-diff-controls-'));
  const folder=join(root,'managed','synthetic');
- const a='const mode = "a";\n',b='const mode = "new\u202e\u001bline";\n';
+ const a='const mode = "a";\n',b='const mode = "new\u202e\u001b\u2028\u200fline";\n';
  const oldHash=hash(a),newHash=hash(b);
  try{
   await mkdir(folder,{recursive:true});
@@ -66,7 +66,9 @@ test('FR-028 escapes control and bidi payloads instead of injecting misleading n
   const diff=await buildManagedRollbackDiff({managedRoot:root,scriptId:'synthetic',currentHash:oldHash,targetHash:newHash});
   assert.ok(diff.includes('\\u202e'));
   assert.ok(diff.includes('\\u001b'));
-  assert.ok(!diff.includes('\u202e')&&!diff.includes('\u001b'));
+  assert.ok(diff.includes('\\u2028'));
+  assert.ok(diff.includes('\\u200f'));
+  assert.ok(!diff.includes('\u202e')&&!diff.includes('\u001b')&&!diff.includes('\u2028')&&!diff.includes('\u200f'));
  }finally{await rm(root,{recursive:true,force:true})}
 });
 
