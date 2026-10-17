@@ -1,3 +1,4 @@
+import {types as nodeTypes} from 'node:util';
 /** A conservative subset of userscript @match and @include. Unknown means fail closed. */
 export type PageScopeStatus='allowed'|'blocked'|'unknown';
 export interface PageScopeResult {status:PageScopeStatus;reason:string}
@@ -57,9 +58,13 @@ function includePattern(pattern:string,url:URL):boolean|null {
  * Snapshot own data properties only; inherited deny lists fail closed.
  */
 function readScopeRules(source:object,key:string,optional=false):string[]|null{
+ // Reject a Proxy before reflection: descriptor and ownKeys traps are code.
+ // A later structuredClone rejection would occur after those traps ran.
+ if(nodeTypes.isProxy(source))return null;
  const field=Object.getOwnPropertyDescriptor(source,key);
  if(!field)return optional&&!(key in source)?[]:null;
- if(!Object.hasOwn(field,'value')||!Array.isArray(field.value))return null;
+ if(!Object.hasOwn(field,'value')||!Array.isArray(field.value)||
+    nodeTypes.isProxy(field.value))return null;
  const values=field.value as unknown[];
  // Array Proxy get('length') may lie and silently omit an @exclude rule.
  // Read the array's own data descriptor instead of running a hostile getter.
@@ -150,11 +155,11 @@ export function checkUserscriptPageScope(meta:UserscriptPageMetadata,pageUrl:str
  const unverified={status:'unknown' as const,reason:'Userscript page-scope rules exceed the safe evaluation budget or are malformed'};
  let matchRules:string[],includeRules:string[],excludeMatchRules:string[],excludeRules:string[];
  try{
-  if(!meta||typeof meta!=='object'||Array.isArray(meta))return unverified;
+  if(!meta||typeof meta!=='object'||Array.isArray(meta)||nodeTypes.isProxy(meta))return unverified;
   const rawField=Object.getOwnPropertyDescriptor(meta,'raw');
   if(!rawField||!Object.hasOwn(rawField,'value'))return unverified;
   const raw=rawField.value;
-  if(!raw||typeof raw!=='object'||Array.isArray(raw))return unverified;
+  if(!raw||typeof raw!=='object'||Array.isArray(raw)||nodeTypes.isProxy(raw))return unverified;
   const match=readScopeRules(meta,'match');
   const include=readScopeRules(meta,'include');
   const excludeMatch=readScopeRules(raw,'exclude-match',true);
